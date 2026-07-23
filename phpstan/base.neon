@@ -32,6 +32,11 @@ parameters:
     # 0 is the loosest, 10 (max) the strictest.
     level: max
 
+    # Distrust PHPDoc types the engine cannot prove. Without this, a wrong or
+    # widened @var/@param silently becomes the analysed truth and hides the very
+    # mismatch it should surface.
+    treatPhpDocTypesAsCertain: false
+
     fileExtensions:
         - php
 

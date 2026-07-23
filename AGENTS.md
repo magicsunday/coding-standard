@@ -33,6 +33,15 @@ here.
   `final` structural rules) live here. Changing a rule here is a normative change —
   run the `spec-first-rule-change` discipline first (a verified decision table before
   the edit), and remember every consumer inherits it on its next version bump.
+- **`base.neon` is the floor, `strict.neon` is the target — not two equal options.**
+  Every repository runs the base; the strict tier is staged only because enabling it
+  surfaces findings that need per-repo triage. A repository still on the base carries
+  an **open issue** for reaching the strict tier, so the gap is visible and finite
+  instead of becoming the next drift. Never present the two tiers as a free choice.
+- **Making the base stricter is a change to every consumer.** Verify it against at
+  least one real adopter before releasing, and ship it as its own version — a
+  consumer on `^1.0` picks a stricter base up on its next update, and a red build
+  they did not ask for is the failure mode to avoid.
 - **The importable PHP configs must stay valid in Rector's `phpstanConfig` context**,
   not only the main PHPStan run: the rule extensions are pulled in by explicit
   relative `includes` in `base.neon` (not `phpstan/extension-installer`, which does

@@ -82,13 +82,26 @@ services:
             - phpat.test
 ```
 
-`strict.neon` (includes `base.neon`) adds the shipmonk/symplify rule packs and the
-extra-strict report parameters. It is opt-in — install the packs first and adopt
-via the `adopt-strict-phpstan-ruleset` workflow:
+### The two tiers
+
+`base.neon` is the **floor** — every repository runs it, no exceptions.
+
+`strict.neon` (which includes `base.neon`) is the **target** — the tier every
+repository is expected to reach, not a permanent alternative. It adds the
+shipmonk/symplify rule packs and the extra-strict report parameters. The reason it
+is staged rather than folded into the base is cost, not preference: turning it on
+surfaces real findings that need triaging per repository, so forcing it into the
+base would block every adoption on an unrelated backlog.
+
+To keep that staging from becoming drift, **a repository that runs only `base.neon`
+carries an open issue for reaching `strict.neon`**. The gap stays visible and
+terminated instead of quietly permanent.
 
 ```shell
 composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules
 ```
+
+Adopt via the `adopt-strict-phpstan-ruleset` workflow, triaging each finding.
 
 ### Rector — `rector/base.php`
 

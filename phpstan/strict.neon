@@ -22,9 +22,6 @@ includes:
     - ../../../symplify/phpstan-rules/config/symfony-config-rules.neon
 
 parameters:
-    # Distrust PHPDoc types the engine cannot prove — surfaces widening/over-narrowing.
-    treatPhpDocTypesAsCertain: false
-
     # Extra-strict report parameters.
     checkImplicitMixed: true
     checkBenevolentUnionTypes: true
