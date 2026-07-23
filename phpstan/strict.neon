@@ -1,12 +1,11 @@
 # Opt-in strict PHPStan tier for magicsunday/* projects.
 #
-# Adds the third-party shipmonk/symplify rule packs and the extra-strict PHPStan
-# report parameters on top of base.neon. Requires the consumer to install:
+# Adds the shipmonk/symplify rule packs and the extra-strict report parameters on
+# top of base.neon. Requires the consumer to install both packs:
 #
 #     composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules
 #
-# (both are auto-registered through phpstan/extension-installer). Adopt via the
-# `adopt-strict-phpstan-ruleset` workflow, triaging each new finding.
+# Adopt via the `adopt-strict-phpstan-ruleset` workflow, triaging each finding.
 #
 # Consumer phpstan.neon:
 #
@@ -14,6 +13,13 @@
 #         - vendor/magicsunday/coding-standard/phpstan/strict.neon
 includes:
     - base.neon
+    - ../../../shipmonk/phpstan-rules/rules.neon
+    - ../../../symplify/phpstan-rules/config/services/services.neon
+    - ../../../symplify/phpstan-rules/config/code-complexity-rules.neon
+    - ../../../symplify/phpstan-rules/config/configurable-rules.neon
+    - ../../../symplify/phpstan-rules/config/naming-rules.neon
+    - ../../../symplify/phpstan-rules/config/static-rules.neon
+    - ../../../symplify/phpstan-rules/config/symfony-config-rules.neon
 
 parameters:
     # Distrust PHPDoc types the engine cannot prove — surfaces widening/over-narrowing.

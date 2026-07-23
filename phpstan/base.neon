@@ -1,11 +1,11 @@
 # Shared PHPStan base configuration for magicsunday/* projects.
 #
-# The rule extensions (phpstan-strict-rules, phpstan-deprecation-rules,
-# phpstan-phpunit, phpat) are auto-registered through phpstan/extension-installer,
-# which magicsunday/coding-standard depends on — so they do NOT need to be listed
-# here. The consumer's composer.json must allow the plugin:
-#
-#     "config": { "allow-plugins": { "phpstan/extension-installer": true } }
+# The rule extensions are included explicitly by paths relative to THIS file, so
+# the config is valid in every context that loads it — the main PHPStan run and
+# Rector's phpstanConfig alike (a param like `phpat.show_rule_names` is only
+# schema-valid where phpat's extension.neon is loaded, which extension-installer
+# does NOT guarantee for Rector). The relative `../../../<vendor-package>` paths
+# resolve regardless of the consumer's vendor-dir (`vendor` or `.build/vendor`).
 #
 # Consumer phpstan.neon:
 #
@@ -21,6 +21,13 @@
 #             class: Vendor\Namespace\Test\Architecture\ArchitectureTest
 #             tags:
 #                 - phpat.test
+includes:
+    - ../../../phpstan/phpstan-strict-rules/rules.neon
+    - ../../../phpstan/phpstan-deprecation-rules/rules.neon
+    - ../../../phpstan/phpstan-phpunit/extension.neon
+    - ../../../phpstan/phpstan-phpunit/rules.neon
+    - ../../../phpat/phpat/extension.neon
+
 parameters:
     # 0 is the loosest, 10 (max) the strictest.
     level: max

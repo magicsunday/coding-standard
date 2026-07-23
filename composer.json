@@ -22,7 +22,6 @@
         "php": "8.3 - 8.5",
         "friendsofphp/php-cs-fixer": "^3.50",
         "phpat/phpat": "^0.12.4",
-        "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.0",
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
@@ -36,9 +35,6 @@
         "overtrue/phplint": "Parallel lint pre-pass for ci:test:php:lint: ^9.0"
     },
     "config": {
-        "allow-plugins": {
-            "phpstan/extension-installer": true
-        },
         "sort-packages": true
     }
 }

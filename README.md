@@ -13,18 +13,6 @@ The package is published on **Packagist** (Composer, the PHP configs) and **npm*
 composer require --dev magicsunday/coding-standard
 ```
 
-The consumer's `composer.json` must allow the PHPStan plugin:
-
-```json
-{
-    "config": {
-        "allow-plugins": {
-            "phpstan/extension-installer": true
-        }
-    }
-}
-```
-
 For the JS/TS configs:
 
 ```shell

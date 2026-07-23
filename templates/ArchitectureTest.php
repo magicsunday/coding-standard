@@ -48,7 +48,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::isAbstract())
-            ->shouldBeNamed('/\\\\Abstract[^\\\\]*$/', true)
+            ->should()->beNamed('/\\\\Abstract[^\\\\]*$/', true)
             ->because('House rule: abstract classes are named Abstract<Name>.');
     }
 
