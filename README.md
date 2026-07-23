@@ -4,8 +4,9 @@ Shared coding-standard, static-analysis, test and CI configuration for the
 `magicsunday/*` projects. One source of truth for the PHP and JS/TS toolchain so
 the individual repositories stop carrying near-identical config copies that drift.
 
-The package is published on **Packagist** (Composer, the PHP configs) and **npm**
-(`@magicsunday/coding-standard`, the Biome/TypeScript configs).
+The PHP configs are consumed through **Composer** (Packagist). The Biome/TypeScript
+configs are consumed as a **GitHub git dependency** — the package is never published
+to the npm registry, exactly like `webtrees-chart-lib`.
 
 ## Installation
 
@@ -13,10 +14,21 @@ The package is published on **Packagist** (Composer, the PHP configs) and **npm*
 composer require --dev magicsunday/coding-standard
 ```
 
-For the JS/TS configs:
+For the JS/TS configs, add a GitHub git dependency (no npm-registry account needed —
+the same mechanism `webtrees-chart-lib` uses):
 
 ```shell
-npm install --save-dev @magicsunday/coding-standard
+npm install --save-dev github:magicsunday/coding-standard#1.0.0
+```
+
+which records in `package.json`:
+
+```json
+{
+    "devDependencies": {
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.0.0"
+    }
+}
 ```
 
 ## PHP configs
