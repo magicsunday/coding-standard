@@ -21,6 +21,7 @@
     "require": {
         "php": "8.3 - 8.5",
         "friendsofphp/php-cs-fixer": "^3.50",
+        "overtrue/phplint": "^9.0",
         "phpat/phpat": "^0.12.4",
         "phpstan/phpstan": "^2.0",
         "phpstan/phpstan-deprecation-rules": "^2.0",
@@ -31,26 +32,19 @@
     "suggest": {
         "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
-        "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
-        "overtrue/phplint": "Parallel lint pre-pass for ci:test:php:lint: ^9.0"
+        "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34"
     },
     "config": {
         "sort-packages": true
     },
     "scripts": {
         "ci:test:php:lint": [
-            "@php -l php-cs-fixer/base.php",
-            "@php -l rector/base.php",
-            "@php -l templates/ArchitectureTest.php",
-            "@php -l tests/lint-json.php",
-            "@php -l tests/consumer/src/Example.php",
-            "@php -l tests/consumer/rector.php",
-            "@php -l tests/consumer/.php-cs-fixer.dist.php"
+            "phplint --configuration .phplint.yml"
         ],
         "ci:test:json": "@php tests/lint-json.php"
     },
     "scripts-descriptions": {
-        "ci:test:php:lint": "Syntax-check every PHP config factory and fixture file.",
+        "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:json": "Validate that every shipped JSON config parses."
     }
 }

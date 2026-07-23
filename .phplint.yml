@@ -1,0 +1,20 @@
+# Lints this package's own PHP: the config factories, the phpat template and the
+# CI fixture. Path-driven rather than a hand-kept file list, so a file added later
+# is linted without anybody remembering to register it.
+path:
+    - ./php-cs-fixer
+    - ./rector
+    - ./templates
+    - ./tests
+
+jobs: 10
+
+cache-dir: .build/cache/.phplint.cache
+
+extensions:
+    - php
+
+exclude:
+    - .build
+    - node_modules
+    - vendor

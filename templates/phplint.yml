@@ -1,0 +1,21 @@
+# Shared phplint template for magicsunday/* projects. Copy to `.phplint.yml` at the
+# repo root and adjust `path` to the repo layout.
+#
+# phplint is the `ci:test:php:lint` gate the reusable php-quality workflow invokes,
+# so every consumer needs this file. It is path-driven on purpose: a hand-kept list
+# of files silently stops linting the next file somebody adds.
+path:
+    - ./src
+    - ./tests
+
+jobs: 10
+
+cache-dir: .build/cache/.phplint.cache
+
+extensions:
+    - php
+
+exclude:
+    - .build
+    - node_modules
+    - vendor
