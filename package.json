@@ -2,7 +2,7 @@
     "name": "@magicsunday/coding-standard",
     "version": "0.1.0",
     "description": "Shared Biome and TypeScript configuration for the magicsunday/* JS/TS projects.",
-    "license": "GPL-3.0-or-later",
+    "license": "MIT",
     "author": "Rico Sonntag <mail@ricosonntag.de>",
     "homepage": "https://github.com/magicsunday/coding-standard",
     "repository": {

@@ -1,7 +1,7 @@
 {
     "name": "magicsunday/coding-standard",
     "description": "Shared coding standard, static-analysis, test and CI configuration for the magicsunday/* projects.",
-    "license": "GPL-3.0-or-later",
+    "license": "MIT",
     "type": "library",
     "keywords": [
         "coding-standard",
