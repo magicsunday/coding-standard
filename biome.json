@@ -1,0 +1,66 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
+    "//": "Shared Biome config for magicsunday/* JS/TS projects. A consumer extends it: { \"extends\": [\"@magicsunday/coding-standard/biome.json\"] } and may override quoteStyle or useImportExtensions to fit its module system (TS ESM does not want .js extensions). Lint with `biome ci --error-on-warnings` so every warning is CI-fatal.",
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 100,
+        "lineEnding": "lf"
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "double",
+            "semicolons": "always",
+            "trailingCommas": "all",
+            "bracketSpacing": true
+        }
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "style": {
+                "useTemplate": "error",
+                "useDefaultParameterLast": "error",
+                "useConst": "warn",
+                "noParameterAssign": "warn",
+                "noNegationElse": "warn"
+            },
+            "suspicious": {
+                "noDoubleEquals": "error",
+                "noPrototypeBuiltins": "error",
+                "noShadowRestrictedNames": "error",
+                "useIsArray": "error"
+            },
+            "correctness": {
+                "useImportExtensions": "error",
+                "noUnusedVariables": "warn",
+                "noUnusedImports": "warn",
+                "noUnusedFunctionParameters": "warn"
+            },
+            "complexity": {
+                "noExcessiveCognitiveComplexity": {
+                    "level": "warn",
+                    "options": {
+                        "maxAllowedComplexity": 25
+                    }
+                },
+                "useArrowFunction": "error"
+            },
+            "performance": {
+                "noDelete": "warn"
+            },
+            "security": {
+                "noDangerouslySetInnerHtml": "error"
+            }
+        }
+    },
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    }
+}

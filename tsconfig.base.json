@@ -1,0 +1,14 @@
+{
+    "//": "Shared strict TypeScript base for magicsunday/* projects. A consumer extends it: { \"extends\": \"@magicsunday/coding-standard/tsconfig.base.json\", \"compilerOptions\": { ... }, \"include\": [ ... ] } and adds its own module/target/lib/jsx and paths.",
+    "compilerOptions": {
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noImplicitOverride": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    }
+}

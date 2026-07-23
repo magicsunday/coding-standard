@@ -1,0 +1,44 @@
+{
+    "name": "magicsunday/coding-standard",
+    "description": "Shared coding standard, static-analysis, test and CI configuration for the magicsunday/* projects.",
+    "license": "GPL-3.0-or-later",
+    "type": "library",
+    "keywords": [
+        "coding-standard",
+        "php-cs-fixer",
+        "phpstan",
+        "rector",
+        "phpat",
+        "static-analysis"
+    ],
+    "authors": [
+        {
+            "name": "Rico Sonntag",
+            "email": "mail@ricosonntag.de",
+            "homepage": "https://www.ricosonntag.de/"
+        }
+    ],
+    "require": {
+        "php": "8.3 - 8.5",
+        "friendsofphp/php-cs-fixer": "^3.50",
+        "phpat/phpat": "^0.12.4",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "rector/rector": "^2.0"
+    },
+    "suggest": {
+        "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
+        "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
+        "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
+        "overtrue/phplint": "Parallel lint pre-pass for ci:test:php:lint: ^9.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "phpstan/extension-installer": true
+        },
+        "sort-packages": true
+    }
+}

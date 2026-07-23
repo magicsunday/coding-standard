@@ -1,0 +1,24 @@
+// Shared Infection template for magicsunday/* projects. Copy to infection.json5
+// in the consumer and adjust `source.directories` to the repo layout, then set
+// `minMsi` / `minCoveredMsi` to the measured score MINUS a small margin (the
+// timeout count varies with machine load and feeds the score, so pinning the
+// exact measure reds the build on infrastructure noise). Raise the floor as the
+// score improves; never lower it to admit a regression.
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": [
+            "src"
+        ]
+    },
+    "tmpDir": ".build/cache/infection",
+    "testFramework": "phpunit",
+    // Count a timed-out mutant as ESCAPED, not as killed. Infection's default
+    // treats a timeout as a kill, which quietly inflates the score.
+    "timeoutsAsEscaped": true,
+    "minMsi": 0,
+    "minCoveredMsi": 0,
+    "mutators": {
+        "@default": true
+    }
+}

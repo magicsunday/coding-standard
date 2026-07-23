@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Shared PHPUnit template for magicsunday/* projects. Copy to phpunit.xml
+    (or phpunit.xml.dist) in the consumer and adjust bootstrap, cache path,
+    testsuite directories and the <source> include to the repo layout.
+
+    The strictness flags are the house standard: every one of them should stay
+    on. requireCoverageMetadata forces #[CoversClass]/#[CoversNothing] on every
+    test; the failOn* set turns any risky test, warning, notice or deprecation
+    into a red build.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         cacheDirectory=".build/cache/.phpunit.cache"
+         requireCoverageMetadata="true"
+         beStrictAboutCoverageMetadata="true"
+         beStrictAboutOutputDuringTests="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
+         failOnPhpunitDeprecation="true"
+         failOnPhpunitNotice="true"
+         displayDetailsOnPhpunitDeprecations="true"
+         executionOrder="depends,defects"
+         columns="max">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <source restrictNotices="true"
+            restrictWarnings="true"
+            ignoreIndirectDeprecations="true">
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+</phpunit>

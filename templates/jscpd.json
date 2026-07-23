@@ -1,0 +1,19 @@
+{
+    "//": "Shared jscpd (copy-paste detection) template for magicsunday/* projects. Copy to .jscpd.json and adjust `path`. Zero-tolerance: any clone over the token/line threshold fails the build.",
+    "threshold": 0,
+    "minTokens": 100,
+    "minLines": 5,
+    "exitCode": 1,
+    "reporters": [
+        "consoleFull"
+    ],
+    "absolute": true,
+    "gitignore": true,
+    "format": [
+        "php"
+    ],
+    "path": [
+        "src",
+        "tests"
+    ]
+}
