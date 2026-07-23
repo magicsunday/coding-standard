@@ -1,6 +1,6 @@
 {
     "name": "@magicsunday/coding-standard",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Shared Biome and TypeScript configuration for the magicsunday/* JS/TS projects.",
     "license": "MIT",
     "author": "Rico Sonntag <mail@ricosonntag.de>",
