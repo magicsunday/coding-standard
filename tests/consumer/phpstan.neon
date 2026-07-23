@@ -1,0 +1,11 @@
+# CI fixture: includes the shared base exactly as a consumer does. This proves the
+# relative `includes` in base.neon resolve from an installed vendor layout and that
+# every parameter it sets is schema-valid.
+includes:
+    - vendor/magicsunday/coding-standard/phpstan/base.neon
+
+parameters:
+    phpVersion: 80300
+
+    paths:
+        - src

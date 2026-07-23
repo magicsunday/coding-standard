@@ -1,0 +1,28 @@
+{
+    "name": "magicsunday/coding-standard-fixture",
+    "description": "CI fixture that consumes the shared configs exactly like a real project would.",
+    "license": "MIT",
+    "type": "project",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../..",
+            "options": {
+                "symlink": false
+            }
+        }
+    ],
+    "require-dev": {
+        "magicsunday/coding-standard": "*"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "MagicSunday\\CodingStandard\\Fixture\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

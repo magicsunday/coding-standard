@@ -36,5 +36,21 @@
     },
     "config": {
         "sort-packages": true
+    },
+    "scripts": {
+        "ci:test:php:lint": [
+            "@php -l php-cs-fixer/base.php",
+            "@php -l rector/base.php",
+            "@php -l templates/ArchitectureTest.php",
+            "@php -l tests/lint-json.php",
+            "@php -l tests/consumer/src/Example.php",
+            "@php -l tests/consumer/rector.php",
+            "@php -l tests/consumer/.php-cs-fixer.dist.php"
+        ],
+        "ci:test:json": "@php tests/lint-json.php"
+    },
+    "scripts-descriptions": {
+        "ci:test:php:lint": "Syntax-check every PHP config factory and fixture file.",
+        "ci:test:json": "Validate that every shipped JSON config parses."
     }
 }

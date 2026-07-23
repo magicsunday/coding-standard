@@ -3,3 +3,6 @@
 /node_modules/
 /composer.lock
 /package-lock.json
+/tests/consumer/vendor/
+/tests/consumer/composer.lock
+/tests/consumer/.php-cs-fixer.cache
