@@ -37,6 +37,12 @@ jobs:
             - name: Validate composer.json
               run: composer validate --strict
 
+            # The gates below run tools from this package's own vendor/bin
+            # (phplint), so the root install is a prerequisite — not only the
+            # fixture install further down.
+            - name: Install dependencies
+              run: composer install --prefer-dist --no-interaction --no-progress
+
             - name: Lint the PHP config factories
               run: composer ci:test:php:lint
 
