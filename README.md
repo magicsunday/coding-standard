@@ -18,7 +18,7 @@ For the JS/TS configs, add a GitHub git dependency (no npm-registry account need
 the same mechanism `webtrees-chart-lib` uses):
 
 ```shell
-npm install --save-dev github:magicsunday/coding-standard#1.0.0
+npm install --save-dev github:magicsunday/coding-standard#1.2.0
 ```
 
 which records in `package.json`:
@@ -26,10 +26,20 @@ which records in `package.json`:
 ```json
 {
     "devDependencies": {
-        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.0.0"
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.2.0"
     }
 }
 ```
+
+## Layout
+
+The directory a file lives in states how it is meant to be consumed:
+
+| Location | Kind | How a consumer uses it |
+|---|---|---|
+| `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of `vendor/` or `node_modules/` — `includes:`, `require`, `extends` |
+| `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
+| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. The package lints itself with its own template. |
 
 ## PHP configs
 
@@ -61,8 +71,11 @@ its finder.
 
 ### PHPStan — `phpstan/base.neon`, `phpstan/strict.neon`
 
-`base.neon` sets `level: max` and wires phpat; the rule extensions load through
-`phpstan/extension-installer`.
+`base.neon` sets `level: max`, `treatPhpDocTypesAsCertain: false`, and pulls in the
+rule extensions (phpstan-strict-rules, deprecation-rules, phpstan-phpunit, phpat)
+through explicit relative `includes`. That is deliberate: `phpstan/extension-installer`
+does not reach Rector's bundled PHPStan, so a base relying on it makes `rector.php`'s
+`phpstanConfig` fail on an unknown parameter.
 
 ```neon
 # phpstan.neon
@@ -129,6 +142,7 @@ adjust the paths. A lockstep check keeps them from drifting from this package.
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene |
+| `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 
@@ -136,12 +150,12 @@ adjust the paths. A lockstep check keeps them from drifting from this package.
 
 ```jsonc
 // biome.json
-{ "extends": ["@magicsunday/coding-standard/biome.json"] }
+{ "extends": ["@magicsunday/coding-standard/biome/base.json"] }
 ```
 
 ```jsonc
 // tsconfig.json
-{ "extends": "@magicsunday/coding-standard/tsconfig.base.json" }
+{ "extends": "@magicsunday/coding-standard/tsconfig/base.json" }
 ```
 
 Lint with `biome ci --error-on-warnings` so every warning is CI-fatal.

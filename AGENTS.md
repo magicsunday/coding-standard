@@ -14,8 +14,15 @@ here.
 | `phpstan/base.neon` | importable | `includes:` — `level: max`, wires phpat + the strict/deprecation/phpunit rule packs via explicit relative includes |
 | `phpstan/strict.neon` | importable | opt-in tier — shipmonk + symplify packs + extra-strict report params |
 | `rector/base.php` | importable | applies the shared rule sets/skips to a `RectorConfig` |
-| `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `editorconfig`, `gitattributes`, `jscpd.json`, `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`) |
-| `biome.json`, `tsconfig.base.json` | importable (`extends`) | the JS/TS repos |
+| `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json`, `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`) |
+| `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
+
+**Layout rule:** the directory states the consumption mode — a tool-named directory
+(`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
+config; `templates/` holds **copy-and-adapt** files whose tools require the file at the
+consumer's repo root and therefore cannot be imported; the repository root holds only
+this package's **own** dev config, all of it `export-ignore`d. Put a new config in the
+directory that matches how it is consumed, never at the root for convenience.
 
 ## How it is consumed
 

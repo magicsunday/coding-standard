@@ -19,8 +19,8 @@ $root = dirname(__DIR__);
 $files = [
     'composer.json',
     'package.json',
-    'biome.json',
-    'tsconfig.base.json',
+    'biome/base.json',
+    'tsconfig/base.json',
     'templates/jscpd.json',
     'tests/consumer/composer.json',
 ];
