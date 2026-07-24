@@ -36,6 +36,9 @@
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
         "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34"
     },
+    "bin": [
+        "bin/check-consumer-config.php"
+    ],
     "config": {
         "sort-packages": true
     },
