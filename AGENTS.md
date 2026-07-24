@@ -53,6 +53,10 @@ directory that matches how it is consumed, never at the root for convenience.
   not only the main PHPStan run: the rule extensions are pulled in by explicit
   relative `includes` in `base.neon` (not `phpstan/extension-installer`, which does
   not reach Rector's bundled PHPStan). Do not reintroduce extension-installer here.
+- **A multi-version consumer sets `phpVersion` as a `min`/`max` range**, not a
+  single value: `min` = floor, `max` = ceiling, so PHPStan checks the whole
+  supported span (a single value only analyses at the floor and misses a
+  higher-version deprecation). A single-PHP repository keeps the single value.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **README.md and this file ship in the same change** as any layout/config/consumer
   claim they describe.
