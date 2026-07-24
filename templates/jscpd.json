@@ -5,7 +5,7 @@
     "minLines": 5,
     "exitCode": 1,
     "reporters": [
-        "consoleFull"
+        "console-full"
     ],
     "absolute": true,
     "gitignore": true,

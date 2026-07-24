@@ -49,6 +49,13 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
+            # Exercise the template lockstep gate: the fixture-driven harness proves
+            # it ACCEPTS the canon and REJECTS every drift class (loosened strict
+            # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the
+            # gate is proven not to pass vacuously.
+            - name: Lockstep gate self-test
+              run: bash tests/check-consumer-config-cases.sh
+
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
             # the fixture source. This is what proves the relative `includes` in
