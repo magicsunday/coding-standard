@@ -32,15 +32,22 @@ assert_accepts() {
     fi
 }
 
-# assert_rejects <dir> <label>
+# assert_rejects <dir> <label> <expected-substring>
+#
+# Requires a nonzero exit AND that the report names the SPECIFIC violation under
+# test — so a case cannot "pass" because it was rejected for an unrelated reason
+# (a missing phpunit.xml, a broken fixture), which would give false confidence.
 assert_rejects() {
-    local dir="$1" label="$2" out rc
+    local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
         fails=$((fails + 1))
+    elif ! grep -qF "$expected" <<<"$out"; then
+        printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
+        fails=$((fails + 1))
     else
-        printf 'ok (rejected): %s\n' "$label"
+        printf 'ok (rejected on the tested violation): %s\n' "$label"
     fi
 }
 
@@ -61,15 +68,15 @@ mk_case() {
 
 d="$(mk_case cov-off)"
 sed -i 's/requireCoverageMetadata="true"/requireCoverageMetadata="false"/' "$d/phpunit.xml"
-assert_rejects "$d" "requireCoverageMetadata disabled"
+assert_rejects "$d" "requireCoverageMetadata disabled" "requireCoverageMetadata"
 
 d="$(mk_case notice-gone)"
 sed -i '/failOnNotice="true"/d' "$d/phpunit.xml"
-assert_rejects "$d" "failOnNotice removed"
+assert_rejects "$d" "failOnNotice removed" "failOnNotice"
 
 d="$(mk_case source-loose)"
 sed -i 's/restrictNotices="true"/restrictNotices="false"/' "$d/phpunit.xml"
-assert_rejects "$d" "<source> restrictNotices disabled"
+assert_rejects "$d" "<source> restrictNotices disabled" "restrictNotices"
 
 # --- .phplint.yml: `- php` present but OUTSIDE the extensions block ---
 d="$work/phplint-wrong-block"
@@ -81,7 +88,7 @@ path:
 extensions:
     - phtml
 YML
-assert_rejects "$d" ".phplint.yml with php under path, not extensions"
+assert_rejects "$d" ".phplint.yml with php under path, not extensions" "\`extensions:\` block"
 
 # --- .editorconfig: [*] uses tabs, spaces only in a narrow section ---
 d="$work/editorconfig-wrong-section"
@@ -97,7 +104,7 @@ indent_style = tab
 indent_style = space
 indent_size = 4
 EC
-assert_rejects "$d" ".editorconfig with tabs in [*], spaces only in [*.md]"
+assert_rejects "$d" ".editorconfig with tabs in [*], spaces only in [*.md]" "\`[*]\` section"
 
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"
@@ -112,7 +119,7 @@ cat > "$d/.jscpd.json" <<'JSON'
     "reporters": ["consoleFull"]
 }
 JSON
-assert_rejects "$d" ".jscpd.json on the removed v4 reporter name"
+assert_rejects "$d" ".jscpd.json on the removed v4 reporter name" "console-full"
 
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
