@@ -35,17 +35,24 @@ use Rector\Set\ValueObject\SetList;
  *
  * The version is the target the transformed code must run on, independent of the
  * PHP interpreter Rector itself runs on — so targeting 80600 from an 8.5 runtime is
- * a valid way to prepare a codebase for PHP 8.6 ahead of its release. 80500 and
- * 80600 require a Rector new enough to ship the matching `UP_TO_PHP_8x` set.
+ * a valid way to prepare a codebase for PHP 8.6 ahead of its release. The package
+ * pins `rector/rector` to a release that defines every mapped `UP_TO_PHP_8x` set,
+ * so each target resolves.
  *
- * @param int $phpVersion The target PHP floor as a PHP_VERSION_ID integer; one of
- *                        80300, 80400, 80500 or 80600.
+ * Passing `null` (or omitting the argument) keeps whatever `phpVersion()` the caller
+ * already set and applies the 8.3 base level set — the pre-argument behaviour, so an
+ * existing consumer that has not migrated is not silently retargeted by a minor
+ * upgrade. An explicit value both sets `phpVersion()` and selects the matching set.
  *
- * @return callable(RectorConfig, int): void
+ * @param int|null $phpVersion The target PHP floor as a PHP_VERSION_ID integer — one
+ *                             of 80300, 80400, 80500 or 80600 — or null to preserve
+ *                             the caller's own phpVersion and apply the 8.3 set.
+ *
+ * @return callable(RectorConfig, int|null): void
  */
-return static function (RectorConfig $config, int $phpVersion = 80300): void {
+return static function (RectorConfig $config, ?int $phpVersion = null): void {
     $levelSet = match ($phpVersion) {
-        80300 => LevelSetList::UP_TO_PHP_83,
+        null, 80300 => LevelSetList::UP_TO_PHP_83,
         80400 => LevelSetList::UP_TO_PHP_84,
         80500 => LevelSetList::UP_TO_PHP_85,
         80600 => LevelSetList::UP_TO_PHP_86,
@@ -55,7 +62,10 @@ return static function (RectorConfig $config, int $phpVersion = 80300): void {
         )),
     };
 
-    $config->phpVersion($phpVersion);
+    if ($phpVersion !== null) {
+        $config->phpVersion($phpVersion);
+    }
+
     $config->importNames();
     $config->removeUnusedImports();
     $config->disableParallel();
