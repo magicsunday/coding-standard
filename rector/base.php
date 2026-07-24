@@ -19,24 +19,43 @@ use Rector\Set\ValueObject\SetList;
 
 /**
  * Applies the shared magicsunday Rector rule sets to a RectorConfig. The consumer
- * supplies its own paths, PHP version and PHPStan config:
+ * supplies its own paths and PHPStan config, and states the PHP floor once through
+ * the `$phpVersion` argument. The factory sets that version on the config AND
+ * derives the matching version level set, so a repository with a floor above 8.3
+ * receives that version's modernizations instead of being silently pinned to 8.3:
  *
  *     use Rector\Config\RectorConfig;
  *
  *     return static function (RectorConfig $config): void {
  *         $config->paths([__DIR__ . '/src/', __DIR__ . '/tests/']);
- *         $config->phpVersion(80300);
  *         $config->phpstanConfig(__DIR__ . '/phpstan.neon');
  *
- *         (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config);
+ *         (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
  *     };
  *
- * The consumer additionally pins the desired `LevelSetList::UP_TO_PHP_8x` if it
- * wants a floor above 8.3 (this base applies UP_TO_PHP_83).
+ * The version is the target the transformed code must run on, independent of the
+ * PHP interpreter Rector itself runs on — so targeting 80600 from an 8.5 runtime is
+ * a valid way to prepare a codebase for PHP 8.6 ahead of its release. 80500 and
+ * 80600 require a Rector new enough to ship the matching `UP_TO_PHP_8x` set.
  *
- * @return callable(RectorConfig): void
+ * @param int $phpVersion The target PHP floor as a PHP_VERSION_ID integer; one of
+ *                        80300, 80400, 80500 or 80600.
+ *
+ * @return callable(RectorConfig, int): void
  */
-return static function (RectorConfig $config): void {
+return static function (RectorConfig $config, int $phpVersion = 80300): void {
+    $levelSet = match ($phpVersion) {
+        80300 => LevelSetList::UP_TO_PHP_83,
+        80400 => LevelSetList::UP_TO_PHP_84,
+        80500 => LevelSetList::UP_TO_PHP_85,
+        80600 => LevelSetList::UP_TO_PHP_86,
+        default => throw new InvalidArgumentException(sprintf(
+            'Unsupported PHP version "%d"; the shared Rector base maps 80300, 80400, 80500 or 80600.',
+            $phpVersion
+        )),
+    };
+
+    $config->phpVersion($phpVersion);
     $config->importNames();
     $config->removeUnusedImports();
     $config->disableParallel();
@@ -50,7 +69,7 @@ return static function (RectorConfig $config): void {
         SetList::PRIVATIZATION,
         SetList::TYPE_DECLARATION,
         SetList::TYPE_DECLARATION_DOCBLOCKS,
-        LevelSetList::UP_TO_PHP_83,
+        $levelSet,
     ]);
 
     $config->skip([
