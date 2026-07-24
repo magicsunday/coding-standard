@@ -27,7 +27,7 @@ For the JS/TS configs, add a GitHub git dependency (no npm-registry account need
 the same mechanism `webtrees-chart-lib` uses):
 
 ```shell
-npm install --save-dev github:magicsunday/coding-standard#1.2.0
+npm install --save-dev github:magicsunday/coding-standard#1.3.0
 ```
 
 which records in `package.json`:
@@ -35,7 +35,7 @@ which records in `package.json`:
 ```json
 {
     "devDependencies": {
-        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.2.0"
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.3.0"
     }
 }
 ```
