@@ -130,16 +130,21 @@ Adopt via the `adopt-strict-phpstan-ruleset` workflow, triaging each finding.
 
 ### Rector — `rector/base.php`
 
+The factory takes the target PHP floor as its second argument and both sets it on
+the config and applies the matching version level set (`80300` → `UP_TO_PHP_83`,
+… `80600` → `UP_TO_PHP_86`), so a repository above 8.3 gets that version's
+modernizations rather than being pinned to 8.3. State the floor once — the
+consumer no longer calls `phpVersion()` itself.
+
 ```php
 // rector.php
 use Rector\Config\RectorConfig;
 
 return static function (RectorConfig $config): void {
     $config->paths([__DIR__ . '/src/', __DIR__ . '/tests/']);
-    $config->phpVersion(80300);
     $config->phpstanConfig(__DIR__ . '/phpstan.neon');
 
-    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config);
+    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
 };
 ```
 
