@@ -302,6 +302,22 @@ indent_style = tab
 EC
 assert_rejects "$d" ".editorconfig without a global [*] section" "must define a global \`[*]\` section"
 
+# --- .editorconfig: lowercase Makefile glob (case-sensitive, does not match Makefile) ---
+d="$work/editorconfig-lowercase-makefile"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.editorconfig" <<'EC'
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+
+[{makefile,*.mk}]
+indent_style = tab
+EC
+assert_rejects "$d" ".editorconfig with a lowercase {makefile,*.mk} glob" "{Makefile,*.mk}"
+
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
     exit 1

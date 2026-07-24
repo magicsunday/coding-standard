@@ -293,8 +293,11 @@ if (is_file($editorconfigFile)) {
         }
     }
 
-    // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`.
-    $makefile = $sections['{Makefile,*.mk}'] ?? $sections['{makefile,*.mk}'] ?? null;
+    // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`. The
+    // glob is case-sensitive, so the section name must match exactly — a lowercase
+    // `{makefile,*.mk}` would not match the real `Makefile` and silently apply no
+    // tab rule, so it is NOT accepted as an equivalent.
+    $makefile = $sections['{Makefile,*.mk}'] ?? null;
 
     if (($makefile === null) || (($makefile['indent_style'] ?? null) !== 'tab')) {
         $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
