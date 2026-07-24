@@ -197,14 +197,28 @@ if (count($methodHeads[0]) === 0) {
     $violations[] = 'no #[TestRule] methods found — the ArchitectureTest defines no rules.';
 }
 
+// The offset of every method declaration (rule or plain helper), so each rule's subject
+// search is bounded by the NEXT method — not the next #[TestRule] — and a malformed rule
+// missing a `->should(...)` cannot scan through a following helper method and adopt its
+// `->classes(Selector::...)` as the subject (which would break the fail-closed contract).
+preg_match_all('/\bfunction\s+\w+\s*\(/', $source, $methodDecls, \PREG_OFFSET_CAPTURE);
+$methodOffsets = array_column($methodDecls[0], 1);
+
 foreach ($methodHeads[1] as $index => $nameMatch) {
     $ruleName  = $nameMatch[0];
     $bodyStart = $methodHeads[0][$index][1] + strlen($methodHeads[0][$index][0]);
 
-    // Bound the search to THIS method: from its head up to the next rule method's head
-    // (or EOF for the last one), so a method missing a `->should(...)` cannot scan into
-    // the following method and mis-attribute its subject.
-    $bodyEnd     = isset($methodHeads[0][$index + 1]) ? $methodHeads[0][$index + 1][1] : strlen($source);
+    // Bound the search to THIS method: from its head up to the next method declaration
+    // of any kind (or EOF for the last one).
+    $bodyEnd = strlen($source);
+
+    foreach ($methodOffsets as $offset) {
+        if ($offset >= $bodyStart) {
+            $bodyEnd = $offset;
+
+            break;
+        }
+    }
     $methodBody  = substr($source, $bodyStart, $bodyEnd - $bodyStart);
 
     // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) after

@@ -194,6 +194,27 @@ NON_RULE_METHOD="$(cat <<'RULE'
 RULE
 )"
 
+# A malformed #[TestRule] (delegating, no ->classes(Selector) in its own body) followed
+# by a helper method that DOES have one — the search must stop at the helper's declaration
+# and fail closed, not adopt the helper's selector.
+MALFORMED_WITH_HELPER="$(cat <<'RULE'
+    #[TestRule]
+    public function malformedRule(): Rule
+    {
+        return $this->buildRule();
+    }
+
+    public function buildRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Helper.');
+    }
+RULE
+)"
+
 # A subject argument composed with ANOTHER constant (not a plain literal suffix) — the
 # checker does not model it, so the anchored resolver must fail closed rather than
 # silently resolve to just the root and test the wrong namespace.
@@ -307,6 +328,14 @@ assert_rejects "$d" "no #[TestRule] methods" "no #[TestRule] methods found"
 d="$work/no-src"
 write_archtest "$d" "$MODEL_RULE"
 assert_rejects "$d" "ArchitectureTest but no src/" "no src/ directory"
+
+# --- REJECT: a malformed rule must not adopt a following helper's selector ---
+# Model/ HAS a class, so if the search leaked into buildRule() it would wrongly ACCEPT
+# the Model selector; bounded to the method, it fails closed instead.
+d="$work/malformed-with-helper"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MALFORMED_WITH_HELPER"
+assert_rejects "$d" "malformed rule does not adopt a helper's selector" "could not identify a subject selector"
 
 # --- ACCEPT: a commented-out #[TestRule] example is ignored (not parsed as a rule) ---
 # The canonical ArchitectureTest template ships a commented example. A live rule plus a
