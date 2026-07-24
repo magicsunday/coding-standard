@@ -38,7 +38,8 @@
         "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34"
     },
     "bin": [
-        "bin/check-consumer-config.php"
+        "bin/check-consumer-config.php",
+        "bin/check-phpat-subjects.php"
     ],
     "config": {
         "sort-packages": true
@@ -50,11 +51,15 @@
         "ci:test:json": "@php tests/lint-json.php",
         "ci:test:templates": [
             "bash tests/check-consumer-config-cases.sh"
+        ],
+        "ci:test:phpat-subjects": [
+            "bash tests/check-phpat-subjects-cases.sh"
         ]
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:json": "Validate that every shipped JSON config parses.",
-        "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class."
+        "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
+        "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject."
     }
 }

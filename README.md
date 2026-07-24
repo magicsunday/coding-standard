@@ -202,6 +202,24 @@ repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.jso
 skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
 
+### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
+
+phpat rules run inside PHPStan, and a rule whose **subject matches nothing** enforces
+nothing while looking active — both PHPStan and PHPUnit stay green. This bit a chart
+module once: a rule whose subject was a `Traits` namespace was a silent no-op, because
+phpat resolves a subject through PHPStan's `InClassNode`, which never fires for a trait.
+
+This guard parses a consumer's `ArchitectureTest`, extracts each `#[TestRule]` method's
+subject selector, and asserts it matches at least one real class in `src/`:
+`Selector::inNamespace(NS)` needs a non-trait class in `NS` (a trait-only namespace, the
+manifested bug, reds here); `Selector::classname(FQCN)` needs that class to exist (a
+renamed or mistyped target reds); `Selector::isAbstract()` is a conditional naming guard
+that legitimately matches nothing until an abstract class is added, so it is not
+liveness-checked. It is a **static** check — it does not run PHPStan — and fails closed:
+every rule method must yield a classifiable subject. A repo with no `ArchitectureTest` is
+skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
+(`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
+
 ## JS/TS configs
 
 ```jsonc
