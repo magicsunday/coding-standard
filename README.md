@@ -83,7 +83,9 @@ includes:
     - vendor/magicsunday/coding-standard/phpstan/base.neon
 
 parameters:
-    phpVersion: 80300
+    phpVersion:
+        min: 80300
+        max: 80500
     paths:
         - src
         - tests
@@ -94,6 +96,14 @@ services:
         tags:
             - phpat.test
 ```
+
+State `phpVersion` as a **`min`/`max` range** whenever the repository supports a
+span of PHP versions (the shared `8.3 - 8.5` floor): `min` = the floor, `max` =
+the ceiling. PHPStan then analyses across the whole span — it flags both use of a
+feature newer than the floor *and* a symbol deprecated at the ceiling. A single
+value (`phpVersion: 80300`) only analyses "as if on 8.3" and silently misses a
+deprecation introduced at 8.4 or 8.5. A repository pinned to one PHP version keeps
+the single value.
 
 ### The two tiers
 
