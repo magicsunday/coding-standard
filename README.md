@@ -14,6 +14,12 @@ to the npm registry, exactly like `webtrees-chart-lib`.
 composer require --dev magicsunday/coding-standard
 ```
 
+This single dev dependency pulls in the whole PHP toolchain transitively —
+php-cs-fixer, PHPStan and its rule packs, Rector, phplint, phpat **and PHPUnit**
+(`^12.0 || ^13.0`). A consumer therefore declares nothing else in `require-dev`;
+the runner and every analysis tool are version-pinned here, in one place, and
+bumped once for all repositories.
+
 For the JS/TS configs, add a GitHub git dependency (no npm-registry account needed —
 the same mechanism `webtrees-chart-lib` uses):
 
@@ -138,7 +144,7 @@ adjust the paths. A lockstep check keeps them from drifting from this package.
 
 | Template | Copy to | Notes |
 |---|---|---|
-| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata` |
+| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev` |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene |

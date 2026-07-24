@@ -28,7 +28,11 @@ directory that matches how it is consumed, never at the root for convenience.
 
 - **PHP:** `composer require --dev magicsunday/coding-standard` (Packagist). The
   importable configs are `require`d / `includes:`d from `vendor/`; the templates are
-  copied and adapted, with a lockstep check keeping them from drifting.
+  copied and adapted, with a lockstep check keeping them from drifting. The package
+  `require` delivers the entire PHP toolchain transitively — php-cs-fixer, PHPStan +
+  rule packs, Rector, phplint, phpat **and PHPUnit** (`^12.0 || ^13.0`) — so a
+  consumer's `require-dev` is just this one entry; the PHPUnit constraint is pinned
+  here and bumped once for every repository, never per-repo.
 - **JS/TS:** a GitHub **git dependency** — `github:magicsunday/coding-standard#<tag>`
   (never published to the npm registry, like `webtrees-chart-lib`). `biome.json` and
   `tsconfig.json` `extends` the shared files from `node_modules`.
