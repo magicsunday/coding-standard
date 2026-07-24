@@ -140,6 +140,60 @@ BROKEN_RULE="$(cat <<'RULE'
 RULE
 )"
 
+# A rule whose SUBJECT targets an abstract class by name — exercises the
+# 'abstract-class' inventory kind as a valid classname target.
+ABSTRACT_TARGET_RULE="$(cat <<'RULE'
+    #[TestRule]
+    public function baseNodeIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\AbstractNode'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('The base node is a leaf.');
+    }
+RULE
+)"
+
+# A rule whose subject is a real but UNHANDLED selector (not isAbstract / inNamespace
+# / classname) — exercises the distinct "unhandled subject selector" fail-closed path.
+UNKNOWN_SELECTOR_RULE="$(cat <<'RULE'
+    #[TestRule]
+    public function implementorRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::implement(self::NAMESPACE_ROOT . '\SomeInterface'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Implementor rule.');
+    }
+RULE
+)"
+
+# A rule whose subject argument cannot be resolved (a variable, not NAMESPACE_ROOT or a
+# literal) — exercises the "could not resolve the argument" fail-closed path.
+UNRESOLVABLE_ARG_RULE="$(cat <<'RULE'
+    #[TestRule]
+    public function dynamicNamespaceRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace($this->rootNamespace))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Dynamic namespace.');
+    }
+RULE
+)"
+
+# A non-#[TestRule] method — a class with only this exercises "no #[TestRule] methods".
+NON_RULE_METHOD="$(cat <<'RULE'
+    public function helper(): string
+    {
+        return 'not a rule';
+    }
+RULE
+)"
+
 # --- POSITIVE: every subject matches a real class (isAbstract with no abstract class → conditional) ---
 d="$work/good"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
@@ -182,17 +236,55 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$BROKEN_RULE"
 assert_rejects "$d" "unparseable subject fails closed" "could not identify a subject selector"
 
-# --- ACCEPT: isAbstract subject WITH a real abstract class present ---
-d="$work/abstract-present"
+# --- ACCEPT: a classname subject targeting an ABSTRACT class (abstract-class kind) ---
+# Discriminates the abstract-class accepting branch: baseNodeIsALeaf targets AbstractNode,
+# so the gate must accept an abstract class as a valid classname target.
+d="$work/abstract-target"
 write_class "$d" "AbstractNode.php" "Vendor\\Mod" "abstract class" "AbstractNode"
-write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$ABSTRACT_TARGET_RULE"
+assert_accepts "$d" "classname subject targeting an abstract class"
+
+# --- ACCEPT: a subject class written as `final readonly class` (value-object form) ---
+d="$work/readonly-subject"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final readonly class" "Configuration"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$MODEL_RULE
 
-$CONFIG_RULE
+$CONFIG_RULE"
+assert_accepts "$d" "classname subject on a final readonly class"
 
-$ABSTRACT_RULE"
-assert_accepts "$d" "isAbstract subject with an abstract class present"
+# --- REJECT: classname subject targeting an existing TRAIT (wrong kind, not absent) ---
+d="$work/classname-on-trait"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "trait" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "classname subject on a trait (wrong kind)" "classname(Vendor\\Mod\\Configuration)"
+
+# --- REJECT: an unhandled selector (Selector::implement) fails closed distinctly ---
+d="$work/unknown-selector"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$UNKNOWN_SELECTOR_RULE"
+assert_rejects "$d" "unhandled selector fails closed" "unhandled subject selector Selector::implement"
+
+# --- REJECT: an unresolvable subject argument fails closed distinctly ---
+d="$work/unresolvable-arg"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$UNRESOLVABLE_ARG_RULE"
+assert_rejects "$d" "unresolvable subject argument fails closed" "could not resolve"
+
+# --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
+d="$work/no-testrule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$NON_RULE_METHOD"
+assert_rejects "$d" "no #[TestRule] methods" "no #[TestRule] methods found"
+
+# --- REJECT (exit 2): an ArchitectureTest present but no src/ directory ---
+d="$work/no-src"
+write_archtest "$d" "$MODEL_RULE"
+assert_rejects "$d" "ArchitectureTest but no src/" "no src/ directory"
 
 # --- ACCEPT: no ArchitectureTest at all → nothing to check ---
 d="$work/no-archtest"

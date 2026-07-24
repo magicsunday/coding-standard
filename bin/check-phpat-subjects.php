@@ -114,13 +114,19 @@ foreach ($directory as $file) {
         $namespace = trim($nm[1]);
     }
 
-    if (preg_match('/^(?:(final|abstract)\s+)?(class|trait|interface|enum)\s+(\w+)/m', $code, $tm) === 1) {
-        $modifier = $tm[1];
-        $kind     = $tm[2];
-        $name     = $tm[3];
-        $fqcn     = ($namespace !== '') ? $namespace . '\\' . $name : $name;
+    // Any run of class modifiers may precede the keyword (final, abstract, readonly,
+    // in any order) — `final readonly class` is the standard value-object form, so the
+    // modifier run must be matched loosely or such a class is missed and its rule is
+    // wrongly reported vacuous.
+    if (preg_match('/^((?:(?:final|abstract|readonly)\s+)*)(class|trait|interface|enum)\s+(\w+)/m', $code, $tm) === 1) {
+        $modifiers = $tm[1];
+        $kind      = $tm[2];
+        $name      = $tm[3];
+        $fqcn      = ($namespace !== '') ? $namespace . '\\' . $name : $name;
 
-        $inventory[$fqcn] = ($kind === 'class' && $modifier === 'abstract') ? 'abstract-class' : $kind;
+        $isAbstractClass = ($kind === 'class') && str_contains($modifiers, 'abstract');
+
+        $inventory[$fqcn] = $isAbstractClass ? 'abstract-class' : $kind;
     }
 }
 
@@ -133,11 +139,11 @@ foreach ($directory as $file) {
  */
 $namespaceHasClass = static function (array $inventory, string $namespace): bool {
     foreach ($inventory as $fqcn => $kind) {
-        if ($kind !== 'class' && $kind !== 'abstract-class') {
+        if (($kind !== 'class') && ($kind !== 'abstract-class')) {
             continue;
         }
 
-        if ($fqcn === $namespace || str_starts_with($fqcn, $namespace . '\\')) {
+        if (($fqcn === $namespace) || str_starts_with($fqcn, $namespace . '\\')) {
             return true;
         }
     }
@@ -161,11 +167,16 @@ foreach ($methodHeads[1] as $index => $nameMatch) {
     $ruleName  = $nameMatch[0];
     $bodyStart = $methodHeads[0][$index][1] + strlen($methodHeads[0][$index][0]);
 
+    // Bound the search to THIS method: from its head up to the next rule method's head
+    // (or EOF for the last one), so a method missing a `->should(...)` cannot scan into
+    // the following method and mis-attribute its subject.
+    $bodyEnd     = isset($methodHeads[0][$index + 1]) ? $methodHeads[0][$index + 1][1] : strlen($source);
+    $methodBody  = substr($source, $bodyStart, $bodyEnd - $bodyStart);
+
     // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) after
-    // PHPat::rule(). Slice from the method head to the first ->should/->shouldNot.
-    $tail  = substr($source, $bodyStart);
-    $stop  = preg_match('/->should(?:Not)?\s*\(/', $tail, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($tail);
-    $head  = substr($tail, 0, $stop);
+    // PHPat::rule(). Slice up to the first ->should/->shouldNot within the method.
+    $stop = preg_match('/->should(?:Not)?\s*\(/', $methodBody, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($methodBody);
+    $head = substr($methodBody, 0, $stop);
 
     if (preg_match('/->classes\s*\(\s*Selector::(\w+)\s*\(([^)]*)\)/', $head, $subj) !== 1) {
         $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', $ruleName);
@@ -211,7 +222,7 @@ foreach ($methodHeads[1] as $index => $nameMatch) {
     if ($selector === 'classname') {
         $kind = $inventory[$resolved] ?? null;
 
-        if ($kind !== 'class' && $kind !== 'abstract-class') {
+        if (($kind !== 'class') && ($kind !== 'abstract-class')) {
             $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', $ruleName, $resolved);
         }
 
