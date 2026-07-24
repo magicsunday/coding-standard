@@ -49,24 +49,12 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
-            # Exercise the template lockstep gate both ways: the fixture carries a
-            # canon-clean phpunit.xml so the check must pass (exit 0), and a copy
-            # with one strict flag flipped off must fail (exit 1). This proves the
-            # gate actually rejects a loosened config rather than passing vacuously.
-            - name: Lockstep gate - accepts the canon fixture
-              run: php bin/check-consumer-config.php tests/consumer
-
-            - name: Lockstep gate - rejects a loosened config
-              run: |
-                  set -e
-                  work="$(mktemp -d)"
-                  cp tests/consumer/phpunit.xml "$work/phpunit.xml"
-                  sed -i 's/requireCoverageMetadata="true"/requireCoverageMetadata="false"/' "$work/phpunit.xml"
-                  if php bin/check-consumer-config.php "$work"; then
-                      echo "::error::the lockstep gate passed a config with requireCoverageMetadata disabled"
-                      exit 1
-                  fi
-                  echo "gate correctly rejected the loosened config"
+            # Exercise the template lockstep gate: the fixture-driven harness proves
+            # it ACCEPTS the canon and REJECTS every drift class (loosened strict
+            # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the
+            # gate is proven not to pass vacuously.
+            - name: Lockstep gate self-test
+              run: bash tests/check-consumer-config-cases.sh
 
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against

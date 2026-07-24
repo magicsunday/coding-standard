@@ -199,7 +199,8 @@ The package `require` places it on the consumer's bin path, so wire it as a
 Add that step to the reusable `php-quality` workflow so it gates in CI (see AGENTS —
 every consumer needs the script before the shared step is added, or the step reds the
 repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`) is
-skipped; the strict `phpunit.xml` is required.
+skipped; the strict PHPUnit config is required — the gate accepts it as either
+`phpunit.xml` or `phpunit.xml.dist`.
 
 ## JS/TS configs
 

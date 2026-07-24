@@ -190,13 +190,18 @@ $phplintFile = $repoRoot . '/.phplint.yml';
 if (is_file($phplintFile)) {
     $contents = (string) file_get_contents($phplintFile);
 
-    // A light structural check: the extensions block must list php. A full YAML
-    // parse is avoided to keep the gate dependency-free; the pattern tolerates
-    // any indentation and surrounding entries.
-    if (preg_match('/^\s*extensions\s*:/m', $contents) !== 1
-        || preg_match('/^\s*-\s*php\s*$/m', $contents) !== 1
-    ) {
-        $fail($violations, '.phplint.yml', 'must declare `extensions:` including `- php`.');
+    // A full YAML parse is avoided to keep the gate dependency-free; instead the
+    // `extensions:` block is isolated (its indented list items, up to the next
+    // top-level key) and `php` is required INSIDE that block — a `- php` sitting
+    // under some other list must not satisfy the check.
+    $extensionsBlock = '';
+
+    if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+        $extensionsBlock = $m[1];
+    }
+
+    if ($extensionsBlock === '' || preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1) {
+        $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
     }
 }
 
@@ -206,15 +211,29 @@ $editorconfigFile = $repoRoot . '/.editorconfig';
 if (is_file($editorconfigFile)) {
     $contents = (string) file_get_contents($editorconfigFile);
 
-    $requiredLines = [
-        '/^\s*root\s*=\s*true\s*$/m'         => '`root = true`',
-        '/^\s*indent_style\s*=\s*space\s*$/m' => '`indent_style = space`',
-        '/^\s*indent_size\s*=\s*4\s*$/m'      => '`indent_size = 4`',
-    ];
+    // `root = true` is a preamble key before any section. The indent rules must
+    // hold for the GLOBAL `[*]` section specifically — a repo could set `[*]` to
+    // tabs and only put spaces in a narrower `[*.md]`-style section, which must
+    // not pass. Isolate the `[*]` section (up to the next `[...]` header or EOF).
+    if (preg_match('/^\s*root\s*=\s*true\s*$/m', $contents) !== 1) {
+        $fail($violations, '.editorconfig', 'must set `root = true`.');
+    }
 
-    foreach ($requiredLines as $pattern => $label) {
-        if (preg_match($pattern, $contents) !== 1) {
-            $fail($violations, '.editorconfig', sprintf('must set %s.', $label));
+    $globalSection = '';
+
+    if (preg_match('/^\[\*\]\s*$(.*?)(?=^\[|\z)/ms', $contents, $m) === 1) {
+        $globalSection = $m[1];
+    }
+
+    if ($globalSection === '') {
+        $fail($violations, '.editorconfig', 'must define a global `[*]` section.');
+    } else {
+        if (preg_match('/^\s*indent_style\s*=\s*space\s*$/m', $globalSection) !== 1) {
+            $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_style = space`.');
+        }
+
+        if (preg_match('/^\s*indent_size\s*=\s*4\s*$/m', $globalSection) !== 1) {
+            $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_size = 4`.');
         }
     }
 }

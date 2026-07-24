@@ -21,6 +21,7 @@
     ],
     "require": {
         "php": "8.3 - 8.5",
+        "ext-simplexml": "*",
         "friendsofphp/php-cs-fixer": "^3.50",
         "overtrue/phplint": "^9.0",
         "phpat/phpat": "^0.12.4",
@@ -46,10 +47,14 @@
         "ci:test:php:lint": [
             "phplint --configuration .phplint.yml"
         ],
-        "ci:test:json": "@php tests/lint-json.php"
+        "ci:test:json": "@php tests/lint-json.php",
+        "ci:test:templates": [
+            "bash tests/check-consumer-config-cases.sh"
+        ]
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
-        "ci:test:json": "Validate that every shipped JSON config parses."
+        "ci:test:json": "Validate that every shipped JSON config parses.",
+        "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class."
     }
 }
