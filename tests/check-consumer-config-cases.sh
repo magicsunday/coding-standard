@@ -121,6 +121,58 @@ cat > "$d/.jscpd.json" <<'JSON'
 JSON
 assert_rejects "$d" ".jscpd.json on the removed v4 reporter name" "console-full"
 
+# --- .jscpd.json: minLines raised to an effectively disabling value ---
+d="$work/jscpd-minlines"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.jscpd.json" <<'JSON'
+{
+    "threshold": 0,
+    "minTokens": 100,
+    "minLines": 9999,
+    "exitCode": 1,
+    "reporters": ["console-full"]
+}
+JSON
+assert_rejects "$d" ".jscpd.json with minLines raised to disable detection" "minLines"
+
+# --- POSITIVE: the full canonical template set as a consumer would carry it ---
+d="$work/canon-full"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cp "$ROOT/templates/editorconfig" "$d/.editorconfig"
+cp "$ROOT/templates/jscpd.json" "$d/.jscpd.json"
+cp "$ROOT/templates/phplint.yml" "$d/.phplint.yml"
+assert_accepts "$d" "full canonical template set"
+
+# --- .editorconfig: root = true moved below a section header (invalid position) ---
+d="$work/editorconfig-root-in-section"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.editorconfig" <<'EC'
+[*]
+root = true
+indent_style = space
+indent_size = 4
+
+[{Makefile,*.mk}]
+indent_style = tab
+EC
+assert_rejects "$d" ".editorconfig with root inside a section" "root = true"
+
+# --- .editorconfig: the Makefile tab override dropped ---
+d="$work/editorconfig-no-makefile"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.editorconfig" <<'EC'
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+EC
+assert_rejects "$d" ".editorconfig without the Makefile tab override" "{Makefile,*.mk}"
+
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
     exit 1

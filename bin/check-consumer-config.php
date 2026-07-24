@@ -176,6 +176,14 @@ if (is_file($jscpdFile)) {
             $fail($violations, '.jscpd.json', '`minTokens` must be present and <= 100.');
         }
 
+        // minLines is the second detection threshold; raising it (to 9999, say)
+        // disables clone detection just as raising minTokens would.
+        $minLines = $json['minLines'] ?? null;
+
+        if (!is_int($minLines) || $minLines > 5) {
+            $fail($violations, '.jscpd.json', '`minLines` must be present and <= 5.');
+        }
+
         $reporters = $json['reporters'] ?? [];
 
         if (!is_array($reporters) || !in_array('console-full', $reporters, true)) {
@@ -211,30 +219,67 @@ $editorconfigFile = $repoRoot . '/.editorconfig';
 if (is_file($editorconfigFile)) {
     $contents = (string) file_get_contents($editorconfigFile);
 
-    // `root = true` is a preamble key before any section. The indent rules must
-    // hold for the GLOBAL `[*]` section specifically — a repo could set `[*]` to
-    // tabs and only put spaces in a narrower `[*.md]`-style section, which must
-    // not pass. Isolate the `[*]` section (up to the next `[...]` header or EOF).
-    if (preg_match('/^\s*root\s*=\s*true\s*$/m', $contents) !== 1) {
-        $fail($violations, '.editorconfig', 'must set `root = true`.');
+    // EditorConfig is section-scoped INI: `root` is a preamble key valid only
+    // BEFORE the first `[section]`, and each key belongs to the section it sits
+    // under. A per-line whole-file regex accepts drift (a `root` moved into a
+    // section, `indent_style` set only in a narrow `[*.md]` while `[*]` uses tabs,
+    // the Makefile override deleted), so parse the file into a preamble map plus a
+    // per-section key map and assert each value in the section it must hold in.
+    /** @var array<string, string> $preamble */
+    $preamble = [];
+    /** @var array<string, array<string, string>> $sections */
+    $sections = [];
+    $current  = null;
+
+    foreach (preg_split('/\R/', $contents) ?: [] as $line) {
+        $trimmed = trim($line);
+
+        if ($trimmed === '' || $trimmed[0] === '#' || $trimmed[0] === ';') {
+            continue;
+        }
+
+        if (preg_match('/^\[(.+)\]$/', $trimmed, $m) === 1) {
+            $current            = $m[1];
+            $sections[$current] = $sections[$current] ?? [];
+
+            continue;
+        }
+
+        if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $m) === 1) {
+            $key   = strtolower(trim($m[1]));
+            $value = strtolower(trim($m[2]));
+
+            if ($current === null) {
+                $preamble[$key] = $value;
+            } else {
+                $sections[$current][$key] = $value;
+            }
+        }
     }
 
-    $globalSection = '';
-
-    if (preg_match('/^\[\*\]\s*$(.*?)(?=^\[|\z)/ms', $contents, $m) === 1) {
-        $globalSection = $m[1];
+    if (($preamble['root'] ?? null) !== 'true') {
+        $fail($violations, '.editorconfig', 'must set `root = true` in the preamble (before any section).');
     }
 
-    if ($globalSection === '') {
+    $global = $sections['*'] ?? null;
+
+    if ($global === null) {
         $fail($violations, '.editorconfig', 'must define a global `[*]` section.');
     } else {
-        if (preg_match('/^\s*indent_style\s*=\s*space\s*$/m', $globalSection) !== 1) {
+        if (($global['indent_style'] ?? null) !== 'space') {
             $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_style = space`.');
         }
 
-        if (preg_match('/^\s*indent_size\s*=\s*4\s*$/m', $globalSection) !== 1) {
+        if (($global['indent_size'] ?? null) !== '4') {
             $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_size = 4`.');
         }
+    }
+
+    // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`.
+    $makefile = $sections['{Makefile,*.mk}'] ?? $sections['{makefile,*.mk}'] ?? null;
+
+    if ($makefile === null || ($makefile['indent_style'] ?? null) !== 'tab') {
+        $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
     }
 }
 
