@@ -56,6 +56,13 @@ jobs:
             - name: Lockstep gate self-test
               run: bash tests/check-consumer-config-cases.sh
 
+            # Exercise the phpat subject-liveness guard: the harness proves it accepts
+            # an ArchitectureTest whose rule subjects all match a real class and rejects
+            # the vacuous cases (a trait-only namespace subject, an empty namespace, a
+            # missing classname target, an unparseable subject).
+            - name: phpat subject-liveness self-test
+              run: bash tests/check-phpat-subjects-cases.sh
+
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
             # the fixture source. This is what proves the relative `includes` in
