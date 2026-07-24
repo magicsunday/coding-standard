@@ -194,6 +194,22 @@ NON_RULE_METHOD="$(cat <<'RULE'
 RULE
 )"
 
+# A subject argument composed with ANOTHER constant (not a plain literal suffix) — the
+# checker does not model it, so the anchored resolver must fail closed rather than
+# silently resolve to just the root and test the wrong namespace.
+COMPOSED_ARG_RULE="$(cat <<'RULE'
+    #[TestRule]
+    public function composedNamespaceRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . self::MODEL_SUFFIX))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Composed namespace.');
+    }
+RULE
+)"
+
 # --- POSITIVE: every subject matches a real class (isAbstract with no abstract class → conditional) ---
 d="$work/good"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
@@ -274,6 +290,12 @@ d="$work/unresolvable-arg"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$UNRESOLVABLE_ARG_RULE"
 assert_rejects "$d" "unresolvable subject argument fails closed" "could not resolve"
+
+# --- REJECT: a subject composed with another constant is not silently resolved to root ---
+d="$work/composed-arg"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$COMPOSED_ARG_RULE"
+assert_rejects "$d" "composed self::NAMESPACE_ROOT . self::CONST fails closed" "could not resolve"
 
 # --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
 d="$work/no-testrule"
