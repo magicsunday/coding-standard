@@ -83,7 +83,41 @@ if (!is_dir($srcDir)) {
     exit(2);
 }
 
-$source = (string) file_get_contents($architectureTest);
+/**
+ * Strips comments and doc-comments from PHP source so the text-based scans below never
+ * treat a commented-out `#[TestRule]` example (the canonical ArchitectureTest template
+ * ships one) or a `class` inside a block comment as real. Whitespace is preserved so
+ * line-anchored patterns still behave.
+ *
+ * @param string $code The raw PHP source.
+ *
+ * @return string The source with every comment token blanked out.
+ */
+$stripComments = static function (string $code): string {
+    $result = '';
+
+    foreach (token_get_all($code) as $token) {
+        if (is_array($token)) {
+            if ($token[0] === \T_COMMENT || $token[0] === \T_DOC_COMMENT) {
+                // Keep the newlines a multi-line comment spanned so line numbers and
+                // the `^`-anchored patterns are unaffected.
+                $result .= str_repeat("\n", substr_count($token[1], "\n"));
+
+                continue;
+            }
+
+            $result .= $token[1];
+
+            continue;
+        }
+
+        $result .= $token;
+    }
+
+    return $result;
+};
+
+$source = $stripComments((string) file_get_contents($architectureTest));
 
 // --- Resolve the module root namespace (the NAMESPACE_ROOT constant) ---
 $namespaceRoot = null;
@@ -106,7 +140,7 @@ foreach ($directory as $file) {
         continue;
     }
 
-    $code = (string) file_get_contents($file->getPathname());
+    $code = $stripComments((string) file_get_contents($file->getPathname()));
 
     $namespace = '';
 

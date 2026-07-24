@@ -308,6 +308,57 @@ d="$work/no-src"
 write_archtest "$d" "$MODEL_RULE"
 assert_rejects "$d" "ArchitectureTest but no src/" "no src/ directory"
 
+# --- ACCEPT: a commented-out #[TestRule] example is ignored (not parsed as a rule) ---
+# The canonical ArchitectureTest template ships a commented example. A live rule plus a
+# commented rule with a VACUOUS subject must be ACCEPTED — the commented one is ignored.
+d="$work/commented-rule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+COMMENTED_RULE="$(cat <<'RULE'
+    // Example — one #[TestRule] per boundary:
+    //
+    // #[TestRule]
+    // public function exampleRule(): Rule
+    // {
+    //     return PHPat::rule()
+    //         ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\DoesNotExist'))
+    //         ->shouldNot()->dependOn()
+    //         ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+    //         ->because('Example.');
+    // }
+RULE
+)"
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE
+
+$COMMENTED_RULE"
+assert_accepts "$d" "commented-out #[TestRule] example is ignored"
+
+# --- REJECT: a commented-out class is not counted in the inventory ---
+# Model/ holds only a file whose class is inside a block comment, so inNamespace(Model)
+# matches no real class and modelIsALeaf must be reported vacuous.
+d="$work/commented-class"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/src/Model"
+cat > "$d/src/Model/Node.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod\Model;
+
+/*
+final class Node
+{
+}
+*/
+PHP
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "commented-out class not counted in the inventory" "inNamespace(Vendor\\Mod\\Model)"
+
 # --- ACCEPT: no ArchitectureTest at all → nothing to check ---
 d="$work/no-archtest"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
