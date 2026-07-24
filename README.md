@@ -160,7 +160,8 @@ return static function (RectorConfig $config): void {
 ## Templates (copy-and-adapt)
 
 Files under `templates/` are not importable — copy them into the consumer and
-adjust the paths. A lockstep check keeps them from drifting from this package.
+adjust the paths. The `check-consumer-config.php` lockstep gate below keeps them
+from drifting from this package.
 
 | Template | Copy to | Notes |
 |---|---|---|
@@ -171,6 +172,35 @@ adjust the paths. A lockstep check keeps them from drifting from this package.
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
+
+### Lockstep gate — `bin/check-consumer-config.php`
+
+The importable configs are consumed by reference, so their rule content cannot
+drift. The copy-and-adapt templates have no include-from-vendor mechanism, so each
+consumer keeps a physical copy — and that copy is where the house standard silently
+drifts loose (a `phpunit.xml` that quietly drops `requireCoverageMetadata`, a jscpd
+config left on the removed v4 reporter name). This gate asserts the **stable region**
+of each copy — the strict flags and the uniform `src`/`tests` layout every module
+shares — while ignoring the genuinely per-repo parts (the vendor-dir-dependent path
+prefixes, the per-repo `format`/`path`/`ignore` lists). It is assertion-based, not a
+byte-diff, so a consumer that legitimately scans an extra JS directory is not flagged,
+but a loosened strictness flag is.
+
+The package `require` places it on the consumer's bin path, so wire it as a
+`ci:test:php:templates` script (vendor-dir-independent):
+
+```jsonc
+// consumer composer.json
+"scripts": {
+    "ci:test:php:templates": ["check-consumer-config.php ."]
+}
+```
+
+Add that step to the reusable `php-quality` workflow so it gates in CI (see AGENTS —
+every consumer needs the script before the shared step is added, or the step reds the
+repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`) is
+skipped; the strict PHPUnit config is required — the gate accepts it as either
+`phpunit.xml` or `phpunit.xml.dist`.
 
 ## JS/TS configs
 

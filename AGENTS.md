@@ -16,6 +16,7 @@ here.
 | `rector/base.php` | importable | applies the shared rule sets/skips to a `RectorConfig`; 2nd arg is the target PHP floor (`80300`–`80600`, or null to keep the caller's) and derives the matching `UP_TO_PHP_8x` set — the `rector/rector: ^2.4` floor guarantees every mapped set exists (`UP_TO_PHP_86` landed in 2.4.0) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json`, `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, uniform `src`/`tests`), ignores per-repo paths |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
@@ -64,6 +65,19 @@ directory that matches how it is consumed, never at the root for convenience.
   single value: `min` = floor, `max` = ceiling, so PHPStan checks the whole
   supported span (a single value only analyses at the floor and misses a
   higher-version deprecation). A single-PHP repository keeps the single value.
+- **The template lockstep gate rolls out script-first, workflow-step-last.** The
+  reusable `php-quality` workflow runs a FIXED list of `composer ci:test:php:*` steps,
+  so adding a `Templates` step that runs `ci:test:php:templates` reds EVERY consumer
+  that lacks that script — not just the chart modules but every PHP repo on the shared
+  workflow. So the order is: (1) ship `bin/check-consumer-config.php` here, (2) add the
+  `ci:test:php:templates` script to every consumer and align its template copies to the
+  canon, (3) only then add the step to the reusable workflow. Never add the workflow
+  step before all consumers carry the script.
+- **A stricter template is a change to every consumer, same as a stricter base.** The
+  canonical `templates/*` are the house standard, not a starting point to loosen: a
+  consumer copy must not drop a strict flag. When tightening a template, verify the
+  aligned consumers stay green (the chart modules' suites already pass under the full
+  strict `phpunit.xml` — proven via the buildbox) before the gate is wired.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **README.md and this file ship in the same change** as any layout/config/consumer
   claim they describe.

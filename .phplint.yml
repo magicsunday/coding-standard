@@ -2,6 +2,7 @@
 # CI fixture. Path-driven rather than a hand-kept file list, so a file added later
 # is linted without anybody remembering to register it.
 path:
+    - ./bin
     - ./php-cs-fixer
     - ./rector
     - ./templates
