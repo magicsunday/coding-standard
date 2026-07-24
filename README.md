@@ -92,7 +92,9 @@ includes:
     - vendor/magicsunday/coding-standard/phpstan/base.neon
 
 parameters:
-    phpVersion: 80300
+    phpVersion:
+        min: 80300
+        max: 80500
     paths:
         - src
         - tests
@@ -103,6 +105,16 @@ services:
         tags:
             - phpat.test
 ```
+
+State `phpVersion` as a **`min`/`max` range** whenever the repository supports a
+span of PHP versions: set `min` to *that repository's own* supported floor and
+`max` to its ceiling. PHPStan then analyses across the whole span — it flags both
+use of a feature newer than the floor *and* a symbol deprecated at the ceiling.
+The `80300`/`80500` above are only an example (the chart modules' `8.3 - 8.5`
+support window); each repository substitutes its own bounds. A single value
+(`phpVersion: 80300`) only analyses "as if on 8.3" and silently misses a
+deprecation introduced at a higher version, so a repository pinned to a single
+PHP version — and only then — keeps the scalar form.
 
 ### The two tiers
 
@@ -127,16 +139,21 @@ Adopt via the `adopt-strict-phpstan-ruleset` workflow, triaging each finding.
 
 ### Rector — `rector/base.php`
 
+The factory takes the target PHP floor as its second argument and both sets it on
+the config and applies the matching version level set (`80300` → `UP_TO_PHP_83`,
+… `80600` → `UP_TO_PHP_86`), so a repository above 8.3 gets that version's
+modernizations rather than being pinned to 8.3. State the floor once — the
+consumer no longer calls `phpVersion()` itself.
+
 ```php
 // rector.php
 use Rector\Config\RectorConfig;
 
 return static function (RectorConfig $config): void {
     $config->paths([__DIR__ . '/src/', __DIR__ . '/tests/']);
-    $config->phpVersion(80300);
     $config->phpstanConfig(__DIR__ . '/phpstan.neon');
 
-    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config);
+    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
 };
 ```
 

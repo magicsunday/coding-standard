@@ -12,7 +12,11 @@
 #     includes:
 #         - vendor/magicsunday/coding-standard/phpstan/base.neon
 #     parameters:
-#         phpVersion: 80300
+#         # A range for a multi-version repository (min = floor, max = ceiling);
+#         # a single-PHP repository uses the scalar `phpVersion: 80300`.
+#         phpVersion:
+#             min: 80300
+#             max: 80500
 #         paths:
 #             - src
 #             - tests
