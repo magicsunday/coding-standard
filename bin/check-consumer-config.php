@@ -64,12 +64,23 @@ $fail = static function (array &$violations, string $file, string $detail): void
 // --- phpunit.xml (REQUIRED): the strict-flag set + the uniform src/tests layout ---
 $phpunitPath = $repoRoot . '/phpunit.xml';
 $phpunitDist = $repoRoot . '/phpunit.xml.dist';
-$phpunitFile = is_file($phpunitPath) ? $phpunitPath : ($phpunitDist !== $phpunitPath && is_file($phpunitDist) ? $phpunitDist : null);
+$phpunitFile = is_file($phpunitPath)
+    ? $phpunitPath
+    : ((($phpunitDist !== $phpunitPath) && is_file($phpunitDist)) ? $phpunitDist : null);
 
 if ($phpunitFile === null) {
     $fail($violations, 'phpunit.xml', 'missing — the strict PHPUnit config is required.');
 } else {
-    $xml = @simplexml_load_file($phpunitFile);
+    // A malformed file makes simplexml_load_file emit an E_WARNING per libxml
+    // error and return false; capture those warnings through a scoped handler
+    // rather than the banned `@` prefix, then branch on the return value.
+    set_error_handler(static fn (): bool => true);
+
+    try {
+        $xml = simplexml_load_file($phpunitFile);
+    } finally {
+        restore_error_handler();
+    }
 
     if ($xml === false) {
         $fail($violations, 'phpunit.xml', 'not well-formed XML.');
@@ -112,7 +123,7 @@ if ($phpunitFile === null) {
             foreach (['restrictNotices', 'restrictWarnings'] as $flag) {
                 $value = $source->attributes()[$flag] ?? null;
 
-                if ($value === null || (string) $value !== 'true') {
+                if (($value === null) || ((string) $value !== 'true')) {
                     $fail($violations, 'phpunit.xml', sprintf('<source> must set `%s="true"`.', $flag));
                 }
             }
@@ -172,7 +183,7 @@ if (is_file($jscpdFile)) {
 
         $minTokens = $json['minTokens'] ?? null;
 
-        if (!is_int($minTokens) || $minTokens > 100) {
+        if (!is_int($minTokens) || ($minTokens > 100)) {
             $fail($violations, '.jscpd.json', '`minTokens` must be present and <= 100.');
         }
 
@@ -180,7 +191,7 @@ if (is_file($jscpdFile)) {
         // disables clone detection just as raising minTokens would.
         $minLines = $json['minLines'] ?? null;
 
-        if (!is_int($minLines) || $minLines > 5) {
+        if (!is_int($minLines) || ($minLines > 5)) {
             $fail($violations, '.jscpd.json', '`minLines` must be present and <= 5.');
         }
 
@@ -196,7 +207,10 @@ if (is_file($jscpdFile)) {
 $phplintFile = $repoRoot . '/.phplint.yml';
 
 if (is_file($phplintFile)) {
-    $contents = (string) file_get_contents($phplintFile);
+    // Normalise line endings first: the block-isolation regex uses `\n`, so a CRLF
+    // file would leave a trailing `\r` on each list item and false-fail the `- php`
+    // match (the .editorconfig parser normalises the same way via preg_split('/\R/')).
+    $contents = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($phplintFile));
 
     // A full YAML parse is avoided to keep the gate dependency-free; instead the
     // `extensions:` block is isolated (its indented list items, up to the next
@@ -208,7 +222,7 @@ if (is_file($phplintFile)) {
         $extensionsBlock = $m[1];
     }
 
-    if ($extensionsBlock === '' || preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1) {
+    if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
         $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
     }
 }
@@ -234,7 +248,7 @@ if (is_file($editorconfigFile)) {
     foreach (preg_split('/\R/', $contents) ?: [] as $line) {
         $trimmed = trim($line);
 
-        if ($trimmed === '' || $trimmed[0] === '#' || $trimmed[0] === ';') {
+        if (($trimmed === '') || ($trimmed[0] === '#') || ($trimmed[0] === ';')) {
             continue;
         }
 
@@ -278,7 +292,7 @@ if (is_file($editorconfigFile)) {
     // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`.
     $makefile = $sections['{Makefile,*.mk}'] ?? $sections['{makefile,*.mk}'] ?? null;
 
-    if ($makefile === null || ($makefile['indent_style'] ?? null) !== 'tab') {
+    if (($makefile === null) || (($makefile['indent_style'] ?? null) !== 'tab')) {
         $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
     }
 }

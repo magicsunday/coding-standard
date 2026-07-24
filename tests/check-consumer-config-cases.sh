@@ -90,8 +90,10 @@ extensions:
 YML
 assert_rejects "$d" ".phplint.yml with php under path, not extensions" "\`extensions:\` block"
 
-# --- .editorconfig: [*] uses tabs, spaces only in a narrow section ---
-d="$work/editorconfig-wrong-section"
+# --- .editorconfig: [*] indent_style flipped to tab (only that dimension drifts) ---
+# The fixture is canon in every other respect (indent_size, root, Makefile) so the
+# ONLY violation is the [*] indent_style, and the substring discriminates exactly it.
+d="$work/editorconfig-star-tab"
 mkdir -p "$d"
 cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
 cat > "$d/.editorconfig" <<'EC'
@@ -99,12 +101,12 @@ root = true
 
 [*]
 indent_style = tab
-
-[*.md]
-indent_style = space
 indent_size = 4
+
+[{Makefile,*.mk}]
+indent_style = tab
 EC
-assert_rejects "$d" ".editorconfig with tabs in [*], spaces only in [*.md]" "\`[*]\` section"
+assert_rejects "$d" ".editorconfig with indent_style = tab in [*]" "must set \`indent_style = space\`"
 
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"
@@ -172,6 +174,82 @@ indent_style = space
 indent_size = 4
 EC
 assert_rejects "$d" ".editorconfig without the Makefile tab override" "{Makefile,*.mk}"
+
+# --- phpunit.xml: <source> restrictWarnings loosened (twin of the tested restrictNotices) ---
+d="$(mk_case source-warnings)"
+sed -i 's/restrictWarnings="true"/restrictWarnings="false"/' "$d/phpunit.xml"
+assert_rejects "$d" "<source> restrictWarnings disabled" "restrictWarnings"
+
+# --- .jscpd.json: each zero-tolerance threshold, one per fixture ---
+jscpd_fixture() { # <dir> <mutation-jq-free sed on the good json>
+    local dir="$1"
+    mkdir -p "$dir"
+    cp "$FIXTURE/phpunit.xml" "$dir/phpunit.xml"
+    cat > "$dir/.jscpd.json" <<'JSON'
+{
+    "threshold": 0,
+    "minTokens": 100,
+    "minLines": 5,
+    "exitCode": 1,
+    "reporters": ["console-full"]
+}
+JSON
+}
+
+d="$work/jscpd-threshold"; jscpd_fixture "$d"
+sed -i 's/"threshold": 0/"threshold": 5/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json threshold raised above zero" "threshold"
+
+d="$work/jscpd-exitcode"; jscpd_fixture "$d"
+sed -i 's/"exitCode": 1/"exitCode": 0/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json exitCode not 1" "exitCode"
+
+d="$work/jscpd-mintokens"; jscpd_fixture "$d"
+sed -i 's/"minTokens": 100/"minTokens": 9999/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json minTokens raised to disable detection" "minTokens"
+
+# --- phpunit.xml layout checks: source include, testsuite dir, Architecture exclude ---
+d="$(mk_case no-src-include)"
+# The only <directory>src</directory> is the <source><include> one (the suite uses
+# tests); point it elsewhere so `src` is no longer covered.
+sed -i 's#<directory>src</directory>#<directory>lib</directory>#' "$d/phpunit.xml"
+assert_rejects "$d" "<source><include> no longer covering src" "must cover the \`src\` directory"
+
+d="$(mk_case no-tests-suite)"
+sed -i 's#<directory>tests</directory>#<directory>test</directory>#' "$d/phpunit.xml"
+assert_rejects "$d" "test suite not running tests/" "must run the \`tests\` directory"
+
+# The tests/Architecture exclude only fires when that dir exists — create it so the
+# branch actually executes, then supply a suite WITHOUT the exclude.
+d="$work/arch-not-excluded"
+mkdir -p "$d/tests/Architecture"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+sed -i '/<exclude>tests\/Architecture<\/exclude>/d' "$d/phpunit.xml"
+assert_rejects "$d" "tests/Architecture present but not excluded" "must be excluded"
+
+# --- phpunit.xml: entirely missing, and not-well-formed ---
+d="$work/no-phpunit"
+mkdir -p "$d"
+assert_rejects "$d" "phpunit.xml missing" "missing"
+
+d="$work/phpunit-malformed"
+mkdir -p "$d"
+printf '<phpunit><broken' > "$d/phpunit.xml"
+assert_rejects "$d" "phpunit.xml not well-formed" "not well-formed"
+
+# --- phpunit.xml.dist fallback: the gate must find the canon under the .dist name ---
+d="$work/phpunit-dist"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml.dist"
+assert_accepts "$d" "strict config discovered as phpunit.xml.dist"
+
+# --- .phplint.yml with CRLF line endings must still be accepted (the block regex
+#     normalises \r first, so `- php\r` under extensions is not false-failed) ---
+d="$work/phplint-crlf"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'path:\r\n    - src\r\n    - tests\r\nextensions:\r\n    - php\r\n' > "$d/.phplint.yml"
+assert_accepts "$d" ".phplint.yml with CRLF line endings"
 
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
