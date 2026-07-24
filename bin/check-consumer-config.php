@@ -64,9 +64,13 @@ $fail = static function (array &$violations, string $file, string $detail): void
 // --- phpunit.xml (REQUIRED): the strict-flag set + the uniform src/tests layout ---
 $phpunitPath = $repoRoot . '/phpunit.xml';
 $phpunitDist = $repoRoot . '/phpunit.xml.dist';
-$phpunitFile = is_file($phpunitPath)
-    ? $phpunitPath
-    : ((($phpunitDist !== $phpunitPath) && is_file($phpunitDist)) ? $phpunitDist : null);
+$phpunitFile = null;
+
+if (is_file($phpunitPath)) {
+    $phpunitFile = $phpunitPath;
+} elseif (is_file($phpunitDist)) {
+    $phpunitFile = $phpunitDist;
+}
 
 if ($phpunitFile === null) {
     $fail($violations, 'phpunit.xml', 'missing — the strict PHPUnit config is required.');

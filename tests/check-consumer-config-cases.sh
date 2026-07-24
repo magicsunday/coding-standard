@@ -219,13 +219,20 @@ d="$(mk_case no-tests-suite)"
 sed -i 's#<directory>tests</directory>#<directory>test</directory>#' "$d/phpunit.xml"
 assert_rejects "$d" "test suite not running tests/" "must run the \`tests\` directory"
 
-# The tests/Architecture exclude only fires when that dir exists — create it so the
-# branch actually executes, then supply a suite WITHOUT the exclude.
+# The tests/Architecture exclude branch only fires when that dir exists. The canon
+# fixture has no <exclude> line, so with the dir present it must be REJECTED...
 d="$work/arch-not-excluded"
 mkdir -p "$d/tests/Architecture"
 cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
-sed -i '/<exclude>tests\/Architecture<\/exclude>/d' "$d/phpunit.xml"
 assert_rejects "$d" "tests/Architecture present but not excluded" "must be excluded"
+
+# ...and the paired positive control proves the gate keys on the EXCLUDE line, not
+# merely on the directory's existence: same dir present, but the suite now excludes
+# it → accepted. Without this pair a gate that rejected on the dir alone would pass.
+d="$work/arch-excluded"
+mkdir -p "$d/tests/Architecture"
+sed 's#<directory>tests</directory>#<directory>tests</directory>\n            <exclude>tests/Architecture</exclude>#' "$FIXTURE/phpunit.xml" > "$d/phpunit.xml"
+assert_accepts "$d" "tests/Architecture present and excluded"
 
 # --- phpunit.xml: entirely missing, and not-well-formed ---
 d="$work/no-phpunit"
@@ -250,6 +257,50 @@ mkdir -p "$d"
 cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
 printf 'path:\r\n    - src\r\n    - tests\r\nextensions:\r\n    - php\r\n' > "$d/.phplint.yml"
 assert_accepts "$d" ".phplint.yml with CRLF line endings"
+
+# --- .editorconfig: [*] indent_size flipped to 2 (the sibling of the indent_style case) ---
+d="$work/editorconfig-star-size2"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.editorconfig" <<'EC'
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+
+[{Makefile,*.mk}]
+indent_style = tab
+EC
+assert_rejects "$d" ".editorconfig with indent_size = 2 in [*]" "must set \`indent_size = 4\`"
+
+# --- phpunit.xml: <source> element absent entirely ---
+d="$(mk_case no-source)"
+sed -i '/<source/,/<\/source>/d' "$d/phpunit.xml"
+assert_rejects "$d" "phpunit.xml without a <source> element" "missing a <source>"
+
+# --- .jscpd.json: not valid JSON ---
+d="$work/jscpd-broken"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf '{ not json' > "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json not valid JSON" "not valid JSON"
+
+# --- .editorconfig: no global [*] section at all ---
+d="$work/editorconfig-no-star"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/.editorconfig" <<'EC'
+root = true
+
+[*.md]
+indent_style = space
+indent_size = 4
+
+[{Makefile,*.mk}]
+indent_style = tab
+EC
+assert_rejects "$d" ".editorconfig without a global [*] section" "must define a global \`[*]\` section"
 
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
