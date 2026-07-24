@@ -16,9 +16,12 @@ composer require --dev magicsunday/coding-standard
 
 This single dev dependency pulls in the whole PHP toolchain transitively —
 php-cs-fixer, PHPStan and its rule packs, Rector, phplint, phpat **and PHPUnit**
-(`^12.0 || ^13.0`). A consumer therefore declares nothing else in `require-dev`;
-the runner and every analysis tool are version-pinned here, in one place, and
-bumped once for all repositories.
+(`^12.0 || ^13.0`). A consumer on the **base** tier therefore declares nothing
+else in `require-dev`; the runner and every analysis tool are version-pinned
+here, in one place, and bumped once for all repositories. The opt-in strict
+PHPStan tier (`phpstan/strict.neon`) and Infection are the exception — they need
+the extra packages listed under `suggest`, added directly by the repositories
+that adopt them.
 
 For the JS/TS configs, add a GitHub git dependency (no npm-registry account needed —
 the same mechanism `webtrees-chart-lib` uses):
