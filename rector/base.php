@@ -48,7 +48,7 @@ use Rector\Set\ValueObject\SetList;
  *                             of 80300, 80400, 80500 or 80600 — or null to preserve
  *                             the caller's own phpVersion and apply the 8.3 set.
  *
- * @return callable(RectorConfig, int|null): void
+ * @return callable(RectorConfig, int|null=): void
  */
 return static function (RectorConfig $config, ?int $phpVersion = null): void {
     $levelSet = match ($phpVersion) {
