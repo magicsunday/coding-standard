@@ -42,10 +42,11 @@ declare(strict_types=1);
  *                                     shape expanded so each ROOT\Sub namespace is checked;
  *                                     a `...array_map(Selector::Not(…), …)` exclusion splat
  *                                     contributes no positive;
- *   - `Selector::isAbstract()`     → NOT liveness-checked: it is a conditional naming
- *                                     guard that legitimately matches nothing until an
- *                                     abstract class is added, so an empty match is
- *                                     correct, not a bug.
+ *   - `Selector::isAbstract()`     → as a BARE top-level subject member it is NOT
+ *                                     liveness-checked: it is a conditional naming guard
+ *                                     that legitimately matches nothing until an abstract
+ *                                     class is added, so an empty match is correct, not a
+ *                                     bug. (Inside an `AllOf`, see the limits below.)
  *
  * A subject with no resolvable positive selector, or a shape the checker does not model,
  * fails CLOSED rather than being assumed live.
@@ -61,7 +62,12 @@ declare(strict_types=1);
  *   - an AllOf whose exclusion target is a `<Class>::class` constant or phpat's two-argument
  *     regex `classname('#...#', true)` selector is not modelled and the AllOf fails closed
  *     (safe, never a false green) — supporting those idioms is a tracked follow-up.
- * Anything else inside an AllOf (a nested AllOf/AnyOf, a positive splat) fails closed.
+ * Anything else inside an AllOf (a nested AllOf/AnyOf, a positive splat, a flag selector
+ * such as `isAbstract()`/`isFinal()`/`isEnum()`/`isTrait()`) fails closed. Likewise a
+ * top-level subject that MIXES a splat with a sibling positive
+ * (`...$this->helper(), Selector::classname(X)`) is not split and fails closed. All three
+ * are fail-closed-safe (never a false green); no consumer wires these shapes today, so
+ * modelling them is deferred rather than growing the guard's surface.
  *
  * Usage (from a consumer repo root, wired as a `ci:test:php:phpat-subjects` script):
  *
