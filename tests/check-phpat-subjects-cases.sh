@@ -416,6 +416,34 @@ SPLAT_UNRESOLVABLE_BLOCK="$(cat <<'RULE'
 RULE
 )"
 
+# A splat helper whose array_map wraps `Selector::Not(...)` — the mapped selectors are
+# EXCLUSIONS, not positives. Expanding them would promote the inner inNamespace to a
+# positive and wrongly report the subject LIVE (fail-open), so the helper path must reject
+# it for parity with the direct `...array_map(Selector::Not(...), …)` splat branch.
+SPLAT_HELPER_NOT_BLOCK="$(cat <<'RULE'
+    private const array SPLAT_SUBS = [
+        'Chord',
+    ];
+
+    private function splatSelectors(): array
+    {
+        return array_map(
+            static fn (string $s): SelectorInterface => Selector::Not(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model\\' . $s)),
+            self::SPLAT_SUBS,
+        );
+    }
+
+    #[TestRule]
+    public function splatDtosAreFinal(): Rule
+    {
+        return PHPat::rule()
+            ->classes(...$this->splatSelectors())
+            ->should()->beFinal()
+            ->because('Splat DTOs are final.');
+    }
+RULE
+)"
+
 # A DIRECT `...array_map(…)` splat (not routed through a helper) with a positive
 # inNamespace callback — exercises the direct-array_map dispatch and expansion.
 DIRECT_ARRAY_MAP_BLOCK="$(cat <<'RULE'
@@ -1143,6 +1171,13 @@ d="$work/splat-unresolvable"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$SPLAT_UNRESOLVABLE_BLOCK"
 assert_rejects "$d" "unresolvable splat helper fails closed" "splat helper"
+
+# --- REJECT (fail-closed): splat helper whose array_map maps Selector::Not (fail-open guard) ---
+# Model has a class, so promoting the Not-wrapped inNamespace to a positive would ACCEPT.
+d="$work/splat-helper-not"
+write_class "$d" "Model/Chord/ChordPayload.php" "Vendor\\Mod\\Model\\Chord" "final class" "ChordPayload"
+write_archtest "$d" "$SPLAT_HELPER_NOT_BLOCK"
+assert_rejects "$d" "splat helper mapping Selector::Not fails closed" "splat helper"
 
 # --- ACCEPT: a direct `...array_map(...)` splat (not via a helper) with a positive callback ---
 d="$work/direct-array-map"

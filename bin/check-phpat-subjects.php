@@ -428,7 +428,17 @@ function phpatExpandSplatHelper(string $method, ?string $namespaceRoot, string $
         return $fail;
     }
 
-    $expansion = phpatExpandArrayMap(substr($body, $mapPos), $namespaceRoot, $source);
+    $mapExpr = substr($body, $mapPos);
+
+    // A helper mapping `Selector::Not(...)` over its source yields EXCLUSIONS, not positives —
+    // exactly as the direct `...array_map(Selector::Not(...), …)` splat branch treats it. The
+    // expander would otherwise promote the `inNamespace`/`classname` wrapped inside the `Not`
+    // to a positive and report the subject LIVE (fail-open), so reject it here for parity.
+    if (preg_match('/Selector::Not\s*\(/', $mapExpr) === 1) {
+        return $fail;
+    }
+
+    $expansion = phpatExpandArrayMap($mapExpr, $namespaceRoot, $source);
 
     if ($expansion['error'] !== null) {
         return $fail;
