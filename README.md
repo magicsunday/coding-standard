@@ -210,15 +210,28 @@ module once: a rule whose subject was a `Traits` namespace was a silent no-op, b
 phpat resolves a subject through PHPStan's `InClassNode`, which never fires for a trait.
 
 This guard parses a consumer's `ArchitectureTest`, extracts each `#[TestRule]` method's
-subject selector, and asserts it matches at least one real class in `src/`:
-`Selector::inNamespace(NS)` needs a non-trait class in `NS` (a trait-only namespace, the
-manifested bug, reds here); `Selector::classname(FQCN)` needs that class to exist (a
-renamed or mistyped target reds); `Selector::isAbstract()` is a conditional naming guard
-that legitimately matches nothing until an abstract class is added, so it is not
-liveness-checked. It is a **static** check — it does not run PHPStan — and fails closed:
-every rule method must yield a classifiable subject. A repo with no `ArchitectureTest` is
-skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
-(`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
+subject selector, and asserts it matches at least one real class in `src/`. The modelled
+selector shapes are:
+
+- `Selector::inNamespace(NS)` — needs a non-trait class in `NS` (a trait-only namespace, the
+  manifested bug, reds here);
+- `Selector::classname(FQCN)` — needs that class to exist (a renamed or mistyped target reds);
+- `Selector::AnyOf(…)` and a top-level varargs list — a union, live if any member is;
+- `Selector::AllOf(one positive, Selector::Not(…) exclusions)` — an intersection, live only
+  when a class in the positive survives every direct exclusion (a fully-excluded positive is
+  correctly vacuous);
+- a `...$this->helper()` / `...array_map(fn => Selector::inNamespace(ROOT . '\Sub\' . $x), self::CONST)`
+  splat — each expanded `ROOT\Sub` namespace is checked;
+- an `enum` subject counts as a live kind;
+- `Selector::isAbstract()` as a bare top-level member is a conditional naming guard that
+  legitimately matches nothing until an abstract class is added, so it is not liveness-checked.
+
+It is a **static** check — it does not run PHPStan — and **fails closed**: every rule method
+must yield a classifiable subject, and any shape it cannot model precisely (a runtime-sourced
+or associative `array_map`, a `<Class>::class` / regex `classname` exclusion, a flag selector
+or a mixed splat inside an `AllOf`) reds rather than being assumed live — never a false green.
+A repo with no `ArchitectureTest` is skipped. Wire it as a consumer `ci:test:php:phpat-subjects`
+script (`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
 
 ## JS/TS configs
 
