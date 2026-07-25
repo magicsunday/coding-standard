@@ -799,6 +799,62 @@ ALLOF_NOT_WRAPS_ALLOF_RULE="$(cat <<'RULE'
 RULE
 )"
 
+# A direct `...array_map(…)` whose SOURCE is a transformed expression (array_slice), not the
+# bare class-constant — expanding the untransformed constant would test the wrong element
+# set, so it fails closed.
+TRANSFORMED_SOURCE_SPLAT_BLOCK="$(cat <<'RULE'
+    private const array TSUBS = [
+        'Chord',
+        'LineChart',
+    ];
+
+    #[TestRule]
+    public function transformedSourceSplat(): Rule
+    {
+        return PHPat::rule()
+            ->classes(
+                ...array_map(
+                    static fn (string $s): SelectorInterface => Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model\\' . $s),
+                    array_slice(self::TSUBS, 1),
+                ),
+            )
+            ->should()->beFinal()
+            ->because('Transformed map source.');
+    }
+RULE
+)"
+
+# An AllOf exclusion splat whose callback wraps its Not in an AllOf composite — the simple
+# "contains Selector::Not" classification would drop it as an exclusion, so the composite
+# guard must reject it as an unmodellable AllOf argument.
+ALLOF_COMPOSITE_EXCLUSION_SPLAT_BLOCK="$(cat <<'RULE'
+    private const array CSUBS = [
+        'Chord',
+    ];
+
+    #[TestRule]
+    public function allOfCompositeExclusionSplat(): Rule
+    {
+        return PHPat::rule()
+            ->classes(
+                Selector::AllOf(
+                    Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'),
+                    ...array_map(
+                        static fn (string $s): SelectorInterface => Selector::AllOf(
+                            Selector::Not(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model\\' . $s)),
+                            Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'),
+                        ),
+                        self::CSUBS,
+                    ),
+                ),
+            )
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Repository'))
+            ->because('Composite exclusion splat.');
+    }
+RULE
+)"
+
 # A direct `...array_map(…)` whose callback wraps its selector in a composite (AnyOf) — a
 # shape the simple first-selector expander would misread, so it fails closed.
 DIRECT_ARRAY_MAP_COMPOSITE_BLOCK="$(cat <<'RULE'
@@ -1189,6 +1245,18 @@ d="$work/direct-array-map-runtime"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$DIRECT_ARRAY_MAP_UNRESOLVABLE_RULE"
 assert_rejects "$d" "direct array_map over a runtime source fails closed" "could not resolve the splat subject"
+
+# --- REJECT (fail-closed): a map source transformed by array_slice (not the bare const) ---
+d="$work/transformed-source-splat"
+write_class "$d" "Model/Chord/ChordPayload.php" "Vendor\\Mod\\Model\\Chord" "final class" "ChordPayload"
+write_archtest "$d" "$TRANSFORMED_SOURCE_SPLAT_BLOCK"
+assert_rejects "$d" "transformed array_map source fails closed" "could not resolve the splat subject"
+
+# --- REJECT (fail-closed): an AllOf exclusion splat whose callback wraps a composite ---
+d="$work/allof-composite-exclusion-splat"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$ALLOF_COMPOSITE_EXCLUSION_SPLAT_BLOCK"
+assert_rejects "$d" "AllOf composite exclusion splat fails closed" "cannot model an AllOf argument"
 
 # --- REJECT: a classname exclusion removing the sole matching class is vacuous ---
 d="$work/allof-classname-cancels"

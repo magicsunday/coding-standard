@@ -373,7 +373,10 @@ function phpatExpandArrayMap(string $arrayMapExpr, ?string $namespaceRoot, strin
     // A per-element template `self::NAMESPACE_ROOT . '\Suffix\' . $var` — expand the
     // class-constant array named as array_map's second argument.
     if (($namespaceRoot !== null) && (preg_match('/^self::NAMESPACE_ROOT\s*\.\s*\'([^\']*)\'\s*\.\s*\$\w+$/', $argExpr, $tm) === 1)) {
-        if (preg_match('/self::(\w+)/', $sourceArg, $cm) !== 1) {
+        // The map source must be the class-constant array itself, ANCHORED — a transformed
+        // source (`array_slice(self::SUBS, 1)`, a merge, a slice) would expand the wrong
+        // element set, so fail closed rather than test a different array than the rule maps.
+        if (preg_match('/^self::(\w+)$/', trim($sourceArg), $cm) !== 1) {
             return $fail;
         }
 
@@ -664,10 +667,15 @@ function phpatCollectPositives(string $expr, ?string $namespaceRoot, string $sou
 
             // An exclusion: a direct Not(...), or a ...array_map(Selector::Not(...), …) splat.
             // Both contribute no positive; they are resolved by phpatAllOfExclusions below (a
-            // runtime-source splat stays narrowing-only, the one documented limitation).
-            if ((preg_match('/^Selector::Not\s*\(/', $arg) === 1)
-                || ((preg_match('/^\.\.\.\s*array_map\s*\(/', $arg) === 1) && (preg_match('/Selector::Not\s*\(/', $arg) === 1))
-            ) {
+            // runtime-source splat stays narrowing-only, the one documented limitation). The
+            // splat's callback must be a DIRECT Not — a callback that wraps its Not in an
+            // AllOf/AnyOf composite is a term this simple classification would misread, so it
+            // is NOT treated as an exclusion and falls through to the fail-closed branch.
+            $isExclusionSplat = (preg_match('/^\.\.\.\s*array_map\s*\(/', $arg) === 1)
+                && (preg_match('/Selector::Not\s*\(/', $arg) === 1)
+                && (preg_match('/Selector::(AllOf|AnyOf)\s*\(/', $arg) !== 1);
+
+            if ((preg_match('/^Selector::Not\s*\(/', $arg) === 1) || $isExclusionSplat) {
                 continue;
             }
 
