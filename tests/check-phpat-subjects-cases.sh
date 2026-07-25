@@ -444,6 +444,57 @@ SPLAT_HELPER_NOT_BLOCK="$(cat <<'RULE'
 RULE
 )"
 
+# A splat helper whose class-constant source is an ASSOCIATIVE array — array_map feeds the
+# callback only the VALUES, but a naive scan of every quoted string would also inventory the
+# KEYS. If a key names a live namespace but no value does, that would wrongly ACCEPT a vacuous
+# subject (fail-open), so an associative source must fail closed.
+SPLAT_ASSOC_SOURCE_BLOCK="$(cat <<'RULE'
+    private const array ASSOC_SUBS = [
+        'Chord' => 'Missing',
+    ];
+
+    private function splatSelectors(): array
+    {
+        return array_map(
+            static fn (string $s): SelectorInterface => Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model\\' . $s),
+            self::ASSOC_SUBS,
+        );
+    }
+
+    #[TestRule]
+    public function splatDtosAreFinal(): Rule
+    {
+        return PHPat::rule()
+            ->classes(...$this->splatSelectors())
+            ->should()->beFinal()
+            ->because('Splat DTOs are final.');
+    }
+RULE
+)"
+
+# A direct `...array_map(…)` whose callback is a CONSTANT template (ignores the mapped
+# element) over an EMPTY source — the real splat is empty (a vacuous subject), so returning
+# the constant positive would be a fail-open. An empty source must fail closed.
+DIRECT_CONST_EMPTY_SOURCE_BLOCK="$(cat <<'RULE'
+    private const array EMPTY_SUBS = [
+    ];
+
+    #[TestRule]
+    public function directConstEmptySource(): Rule
+    {
+        return PHPat::rule()
+            ->classes(
+                ...array_map(
+                    static fn (string $s): SelectorInterface => Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'),
+                    self::EMPTY_SUBS,
+                ),
+            )
+            ->should()->beFinal()
+            ->because('Constant template over an empty source.');
+    }
+RULE
+)"
+
 # A DIRECT `...array_map(…)` splat (not routed through a helper) with a positive
 # inNamespace callback — exercises the direct-array_map dispatch and expansion.
 DIRECT_ARRAY_MAP_BLOCK="$(cat <<'RULE'
@@ -1178,6 +1229,20 @@ d="$work/splat-helper-not"
 write_class "$d" "Model/Chord/ChordPayload.php" "Vendor\\Mod\\Model\\Chord" "final class" "ChordPayload"
 write_archtest "$d" "$SPLAT_HELPER_NOT_BLOCK"
 assert_rejects "$d" "splat helper mapping Selector::Not fails closed" "splat helper"
+
+# --- REJECT (fail-closed): splat helper over an ASSOCIATIVE class-constant source ---
+# Model\Chord exists (the KEY names a live namespace), so mis-inventorying keys would ACCEPT.
+d="$work/splat-assoc-source"
+write_class "$d" "Model/Chord/ChordPayload.php" "Vendor\\Mod\\Model\\Chord" "final class" "ChordPayload"
+write_archtest "$d" "$SPLAT_ASSOC_SOURCE_BLOCK"
+assert_rejects "$d" "associative class-constant splat source fails closed" "splat helper"
+
+# --- REJECT (fail-closed): direct constant-template array_map over an EMPTY source ---
+# Model exists, so returning the constant positive without checking the source would ACCEPT.
+d="$work/direct-const-empty-source"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$DIRECT_CONST_EMPTY_SOURCE_BLOCK"
+assert_rejects "$d" "constant template over an empty source fails closed" "could not resolve the splat subject"
 
 # --- ACCEPT: a direct `...array_map(...)` splat (not via a helper) with a positive callback ---
 d="$work/direct-array-map"

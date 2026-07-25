@@ -325,6 +325,15 @@ function phpatResolveConstArray(string $constName, string $source): ?array
         return null;
     }
 
+    // An associative array (`'Key' => 'Value'`) would let the `preg_match_all` below capture
+    // BOTH keys and values as elements, while `array_map()` feeds the callback only the
+    // VALUES — the guard would then inventory namespaces the rule never maps and could accept
+    // a vacuous subject (fail-open). Selector-source constants are always plain lists, so
+    // reject associative syntax rather than mis-parse it.
+    if (strpos($m[1], '=>') !== false) {
+        return null;
+    }
+
     preg_match_all('/\'([^\']*)\'/', $m[1], $em);
 
     return array_map(static fn (string $e): string => phpatUnescape($e), $em[1]);
@@ -402,7 +411,21 @@ function phpatExpandArrayMap(string $arrayMapExpr, ?string $namespaceRoot, strin
         return ['selectors' => $selectors, 'error' => null];
     }
 
-    // A constant template (no per-element variable) — one distinct positive.
+    // A constant template (no per-element variable) — `array_map` still yields ONE positive
+    // PER source element, so an empty or unresolvable source produces an EMPTY splat (a
+    // vacuous subject) even though the callback names a live namespace. Validate the source
+    // resolves to a non-empty class-constant list — the same discipline as the per-element
+    // branch — before trusting the single positive; otherwise fail closed.
+    if (preg_match('/^self::(\w+)$/', trim($sourceArg), $cm) !== 1) {
+        return $fail;
+    }
+
+    $elements = phpatResolveConstArray($cm[1], $source);
+
+    if (($elements === null) || ($elements === [])) {
+        return $fail;
+    }
+
     $resolved = phpatResolveArg($argExpr, $namespaceRoot);
 
     if ($resolved === null) {
