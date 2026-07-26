@@ -12,7 +12,8 @@ here.
 |---|---|---|
 | `php-cs-fixer/base.php` | importable | a factory returning a `PhpCsFixer\Config`; the consumer adds header + finder |
 | `phpstan/base.neon` | importable | `includes:` — `level: max`, wires phpat + the strict/deprecation/phpunit rule packs via explicit relative includes |
-| `phpstan/strict.neon` | importable | opt-in tier — shipmonk + symplify packs + extra-strict report params |
+| `phpstan/strict.neon` | importable | opt-in tier — shipmonk + symplify packs + `disallowed-calls.neon` + extra-strict report params |
+| `phpstan/disallowed-calls.neon` | importable | the case-folding bans (`strtoupper`/`strtolower`/`ucfirst`/`lcfirst`/`ucwords`, byte-wise on UTF-8) via `spaze/phpstan-disallowed-calls`; included by `strict.neon`, also includable on its own; a verified-safe site is re-allowed per entry with `allowIn` |
 | `rector/base.php` | importable | applies the shared rule sets/skips to a `RectorConfig`; 2nd arg is the target PHP floor (`80300`–`80600`, or null to keep the caller's) and derives the matching `UP_TO_PHP_8x` set — the `rector/rector: ^2.4` floor guarantees every mapped set exists (`UP_TO_PHP_86` landed in 2.4.0) |
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json`, `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
@@ -37,7 +38,7 @@ directory that matches how it is consumed, never at the root for convenience.
   **base-tier** consumer's `require-dev` is just this one entry; the PHPUnit
   constraint is pinned here and bumped once for every repository, never per-repo.
   The opt-in strict PHPStan tier and Infection are the exception: they pull the
-  `suggest`ed shipmonk/symplify/infection packs, added directly by the adopting
+  `suggest`ed shipmonk/symplify/spaze/infection packs, added directly by the adopting
   repository.
 - **JS/TS:** a GitHub **git dependency** — `github:magicsunday/coding-standard#<tag>`
   (never published to the npm registry, like `webtrees-chart-lib`). `biome.json` and

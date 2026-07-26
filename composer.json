@@ -39,6 +39,7 @@
     "suggest": {
         "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
+        "spaze/phpstan-disallowed-calls": "Required for the case-folding bans in phpstan/disallowed-calls.neon, included by the strict tier: ^4.13",
         "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
         "roave/backward-compatibility-check": "Public-API break detection for a library consumer: ^8.21. Install it via its OWN tools/backward-compatibility/composer.json, never into the root manifest — it requires php ~8.4.0 || ~8.5.0 and would make the root lock uninstallable on an 8.3 matrix leg (see the README)"
     },
@@ -59,12 +60,16 @@
         ],
         "ci:test:phpat-subjects": [
             "bash tests/check-phpat-subjects-cases.sh"
+        ],
+        "ci:test:disallowed-calls": [
+            "bash tests/check-disallowed-calls-cases.sh"
         ]
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:json": "Validate that every shipped JSON config parses.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
-        "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject."
+        "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
+        "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions. Requires tests/consumer to be installed."
     }
 }

@@ -1,0 +1,16 @@
+# CI fixture: includes the shared case-folding config exactly as a consumer does.
+# Scoped to the `case-folding/` fixture directory, which holds one banned call per
+# function. This run is EXPECTED TO FAIL — `tests/check-disallowed-calls-cases.sh`
+# asserts that it reports all five, proving the config loads from an installed
+# vendor layout and actually fires.
+includes:
+    - vendor/magicsunday/coding-standard/phpstan/base.neon
+    - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+
+parameters:
+    phpVersion:
+        min: 80300
+        max: 80500
+
+    paths:
+        - case-folding

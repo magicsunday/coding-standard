@@ -84,3 +84,10 @@ jobs:
             - name: Consumer smoke - Rector with the shared rule sets
               working-directory: tests/consumer
               run: vendor/bin/rector process --config rector.php --dry-run
+
+            # Exercise the case-folding config: the harness first proves base.neon
+            # alone is clean on the fixture, then that base.neon + disallowed-calls.neon
+            # reports all five banned functions. Without the control run a config that
+            # loaded but matched nothing would pass as "PHPStan is green".
+            - name: Case-folding self-test
+              run: composer ci:test:disallowed-calls

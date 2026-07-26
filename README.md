@@ -122,7 +122,8 @@ PHP version — and only then — keeps the scalar form.
 
 `strict.neon` (which includes `base.neon`) is the **target** — the tier every
 repository is expected to reach, not a permanent alternative. It adds the
-shipmonk/symplify rule packs and the extra-strict report parameters. The reason it
+shipmonk/symplify rule packs, the case-folding bans from `disallowed-calls.neon`,
+and the extra-strict report parameters. The reason it
 is staged rather than folded into the base is cost, not preference: turning it on
 surfaces real findings that need triaging per repository, so forcing it into the
 base would block every adoption on an unrelated backlog.
@@ -132,10 +133,72 @@ carries an open issue for reaching `strict.neon`**. The gap stays visible and
 terminated instead of quietly permanent.
 
 ```shell
-composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules
+composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules spaze/phpstan-disallowed-calls
 ```
 
 Adopt via the `adopt-strict-phpstan-ruleset` workflow, triaging each finding.
+
+### Case folding — `phpstan/disallowed-calls.neon`
+
+`strtoupper()`, `strtolower()`, `ucfirst()`, `lcfirst()` and `ucwords()` fold ASCII A–Z only and
+leave every multi-byte character untouched, so on UTF-8 text they return a
+half-folded string:
+
+```php
+strtolower('GEBÜRTIGE')       // 'gebÜrtige' — never matches 'gebürtige'
+strtoupper('über')            // 'üBER'
+ucfirst('über')               // 'über' — silently does nothing
+ucwords("anna\u{00A0}maria")  // "Anna\u{00A0}maria" — no split, "maria" stays lower-case
+```
+
+The damage is a fold-then-compare lookup that quietly stops matching, or a
+"capitalise the first letter" that is a no-op — and a genealogy domain is full of
+the names and places this hits. No other gate here catches it: phpstan-strict-rules,
+php-cs-fixer and rector all pass it through.
+
+**This is not a locale problem.** PHP 8.2 made these functions locale-independent,
+so the historical Turkish dotted-I bug (`strtoupper('i')` not yielding `'I'` under
+`tr_TR`) cannot occur on the `8.3 - 8.5` floor — verified by folding under an active
+`tr_TR.UTF-8` locale on 8.1, 8.3 and 8.5: only 8.1 still leaves `'i'` unfolded. The
+multi-byte behaviour above is what remains, and it is version-independent.
+
+This file bans the five calls. It is included by `strict.neon`, so a repository
+reaching that tier gets it automatically, and it can also be included on its own by
+a repository that wants the gate earlier:
+
+```neon
+# phpstan.neon
+includes:
+    - vendor/magicsunday/coding-standard/phpstan/base.neon
+    - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+```
+
+The replacement depends on what the call is for. Matching a tag, enum case or
+keyword should compare case-insensitively or map explicitly, rather than fold at
+all; folding whole text uses `mb_strtoupper()` / `mb_strtolower()` /
+`mb_convert_case()` with an explicit `'UTF-8'` encoding argument. Folding only the
+*first* character has no direct replacement below PHP 8.4 (`mb_convert_case()` has no
+such mode, `mb_ucfirst()` needs 8.4), so it is spelled out:
+`mb_strtoupper(mb_substr($v, 0, 1), 'UTF-8') . mb_substr($v, 1, null, 'UTF-8')`.
+
+Not every hit is a defect — a fold on known-ASCII input (a hex digest, a
+`strtolower()` on an already-validated enum value) is harmless, and the rule cannot
+tell the two apart. Re-allow such a site deliberately with `allowIn`, which takes
+`fnmatch()` patterns resolved against the working directory:
+
+```neon
+parameters:
+    disallowedFunctionCalls:
+        -
+            function: 'strtoupper()'
+            message: 'it is byte-wise'
+            allowIn:
+                - src/Formatter/LabelFormatter.php
+```
+
+Such an entry **replaces** the shipped one rather than merging into it, so an
+override restates the `message` it wants to keep. When PHPStan does not run from
+the repository root, set `filesRootDir` so the `allowIn` paths still resolve.
 
 ### Rector — `rector/base.php`
 
