@@ -90,6 +90,69 @@ extensions:
 YML
 assert_rejects "$d" ".phplint.yml with php under path, not extensions" "\`extensions:\` block"
 
+# --- deptrac.yaml: present but dropping the shared import (silent arch-drop) ---
+d="$work/deptrac-no-import"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+deptrac:
+    paths:
+        - src
+YML
+assert_rejects "$d" "deptrac.yaml dropping the shared import" "must import the shared"
+
+# --- deptrac.yaml: valid, imports the shared ruleset (build-dir path prefix) ---
+d="$work/deptrac-ok"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+imports:
+    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
+deptrac:
+    paths:
+        - src
+YML
+assert_accepts "$d" "deptrac.yaml importing the shared ruleset"
+
+# --- deptrac.yaml: shared path present but under the WRONG key (not imports) ---
+d="$work/deptrac-wrong-key"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+deptrac:
+    paths:
+        - src
+    exclude_files:
+        - vendor/magicsunday/coding-standard/deptrac/layers.yaml
+YML
+assert_rejects "$d" "deptrac.yaml with the shared path under the wrong key" "must import the shared"
+
+# --- deptrac.yaml: near-miss vendor namespace must NOT satisfy the gate ---
+d="$work/deptrac-near-miss"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+imports:
+    - vendor/notmagicsunday/coding-standard/deptrac/layers.yaml
+deptrac:
+    paths:
+        - src
+YML
+assert_rejects "$d" "deptrac.yaml importing a near-miss (notmagicsunday) path" "must import the shared"
+
+# --- deptrac.yaml: quoted scalar + trailing comment is accepted ---
+d="$work/deptrac-quoted"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+imports:
+    - 'vendor/magicsunday/coding-standard/deptrac/layers.yaml' # shared ruleset
+deptrac:
+    paths:
+        - src
+YML
+assert_accepts "$d" "deptrac.yaml with a quoted import + inline comment"
+
 # --- .editorconfig: [*] indent_style flipped to tab (only that dimension drifts) ---
 # The fixture is canon in every other respect (indent_size, root, Makefile) so the
 # ONLY violation is the [*] indent_style, and the substring discriminates exactly it.

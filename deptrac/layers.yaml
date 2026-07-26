@@ -1,0 +1,252 @@
+# Canonical layered architecture for magicsunday modules — the shared Deptrac
+# ruleset. A consumer imports this file and only adds its own `paths`; the layer
+# definitions and the allowed-dependency ruleset live here, in one place.
+#
+# Layers are matched by NAMESPACE SEGMENT (`\Segment\`), not by the repository
+# root, so the same ruleset ports across every module WITHOUT renaming anything:
+# a class `<Root>\Repository\FooRepository` lands in the `Repository` layer
+# wherever `<Root>` happens to be. Only the ruleset below is enforced; a
+# dependency on a class outside every layer (the framework, webtrees core, PHP
+# built-ins) is reported as "uncovered" but does not fail the run. Do NOT enable
+# `--fail-on-uncovered` wholesale — every external dependency is uncovered — it is
+# only useful once external namespaces get their own catch-all layer.
+#
+# The ruleset is deliberately PERMISSIVE at this stage: it forbids only the
+# uncontroversial upward edges every layered design agrees are wrong (a leaf
+# depending on a higher layer, anything depending on the composition root). The
+# domain core — Enum, Model, Contract, Configuration — is left mutually permissive
+# on purpose: a Model legitimately implements a Contract marker interface whose
+# signature references a Model, which at layer granularity is a cycle that must
+# not be forbidden. Tighten individual edges later, per module, only once a
+# `deptrac analyse` dry-run proves the stricter edge is violation-free.
+#
+# CONSTRAINT — canonical segments must not NEST. Because a layer is matched by its
+# bare `\Segment\`, a class whose namespace nests one canonical segment under
+# another (`<Root>\Service\Monitoring\Contract\Foo`) matches BOTH layers and
+# Deptrac warns "class grouped in multiple layers". Keep each canonical role at a
+# single namespace level — which the seven webtrees modules already do (verified:
+# zero nested-canonical namespaces). A consumer that genuinely must nest canonical
+# segments refines the affected collectors with an innermost-wins negative
+# lookahead (`#\\Contract\\(?!.*\\(?:Service|Support|…)\\)#`); it is deferred here
+# because no consumer needs it and Deptrac degrades to a warning, not a failure.
+#
+# @author  Rico Sonntag <mail@ricosonntag.de>
+# @license https://opensource.org/licenses/MIT The MIT License
+# @link    https://github.com/magicsunday/coding-standard/
+deptrac:
+    layers:
+        # Every layer is `segment regex AND NOT under vendor`: a canonical segment
+        # also appears in third-party FQCNs (`Illuminate\Support\Collection`,
+        # `Symfony\…\Config\…`), and an unrestricted class-name collector would file
+        # that vendor class into the consumer's layer — then a first-party class
+        # depending on it reads as a FALSE forbidden edge instead of an uncovered
+        # framework dependency. The `must_not: directory vendor/` restricts each
+        # layer to first-party classes (a consumer using a `.build/vendor` layout is
+        # covered too — the path still contains `vendor/`); vendor classes stay
+        # uncovered as documented.
+        -
+            name: Enum
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Enum\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Model
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Model\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Contract
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Contract\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Configuration
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Configuration\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Support
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Support\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Repository
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Repository\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Adapter
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Adapter\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Service
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Service\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Facade
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Facade\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+        -
+            name: Module
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Module\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
+
+    ruleset:
+        # Domain core — mutually permissive, depends on nothing outside itself.
+        # Enum is part of the core, not a pure leaf: a PHP enum may implement a
+        # Contract interface or expose a Model/Configuration, so it gets the same
+        # intra-core allowance as the others rather than an empty allowlist.
+        Enum:
+            - Model
+            - Contract
+            - Configuration
+        Model:
+            - Enum
+            - Contract
+            - Configuration
+        Contract:
+            - Enum
+            - Model
+            - Configuration
+        Configuration:
+            - Enum
+            - Model
+            - Contract
+
+        # Framework-agnostic helpers — may lean on the domain core only.
+        Support:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+
+        # Infrastructure edge — data access and framework/external adapters.
+        Repository:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+        Adapter:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+
+        # Application logic — may consume infrastructure.
+        Service:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+
+        # Public API / orchestration.
+        Facade:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+            - Service
+
+        # webtrees entry point + composition root — wires everything.
+        Module:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+            - Service
+            - Facade

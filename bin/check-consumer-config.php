@@ -14,7 +14,7 @@ declare(strict_types=1);
  *
  * The importable configs (phpstan/base.neon, rector/base.php, php-cs-fixer/base.php)
  * are consumed by reference, so their rule content cannot drift. The copy-and-adapt
- * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig) have no
+ * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig, deptrac.yaml) have no
  * include-from-vendor mechanism, so every consumer keeps a physical copy — and that
  * copy is where the house standard silently drifts loose (a phpunit.xml that quietly
  * drops `requireCoverageMetadata`, a jscpd config on a stale reporter name).
@@ -301,6 +301,41 @@ if (is_file($editorconfigFile)) {
 
     if (($makefile === null) || (($makefile['indent_style'] ?? null) !== 'tab')) {
         $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
+    }
+}
+
+// --- deptrac.yaml (optional): must import the shared layer ruleset ---
+// A consumer may set its own `paths`, but dropping the shared `imports` line
+// silently stops enforcing the canonical architecture — the one part of this copy
+// that must not drift. Assert the import is present; the path prefix is free
+// (`vendor/` or a build-dir layout resolve it differently), only the shared file
+// itself is pinned. A full YAML parse is avoided to keep the gate dependency-free;
+// the import path is distinctive enough that a whole-file match is unambiguous.
+$deptracFile = $repoRoot . '/deptrac.yaml';
+
+if (is_file($deptracFile)) {
+    $contents = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($deptracFile));
+
+    // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
+    // top-level key) and require the shared file INSIDE it — the same block-scoping
+    // the `.phplint.yml` check uses. A path sitting under some other list (e.g.
+    // `deptrac.exclude_files`) must not satisfy the check: Deptrac only loads the
+    // ruleset from `imports`.
+    $importsBlock = '';
+
+    if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+        $importsBlock = $m[1];
+    }
+
+    // Accept the shared import in any equivalent YAML shape: an optional path
+    // prefix that ENDS at a segment boundary (`vendor/` or `.build/vendor/` — so a
+    // near-miss `notmagicsunday/…` copy is rejected), an optionally quoted scalar,
+    // and an optional trailing inline comment. The `~` delimiter keeps the literal
+    // `#` of a YAML comment unescaped.
+    $importPattern = '~^[ \t]*-[ \t]*[\'"]?(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml[\'"]?[ \t]*(?:#.*)?$~m';
+
+    if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
+        $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
     }
 }
 

@@ -157,6 +157,47 @@ return static function (RectorConfig $config): void {
 };
 ```
 
+### Deptrac — architecture layers — `deptrac/layers.yaml`
+
+The canonical layered architecture every module is expected to follow, enforced
+by [Deptrac](https://github.com/deptrac/deptrac) (pulled in by this package's
+`require`, so a consumer declares nothing extra). One shared ruleset lives here;
+each consumer copies `templates/deptrac.dist.yaml` to `deptrac.yaml`, which
+`imports` this file and only declares its own `paths`.
+
+Layers are matched by **namespace segment** (`\Repository\`, `\Service\`, …), not
+by the repository root, so the same ruleset ports across every module **without
+renaming anything** — a class `<Root>\Repository\FooRepository` lands in the
+`Repository` layer wherever `<Root>` is. The canonical layers are `Enum`, `Model`,
+`Contract`, `Configuration`, `Support`, `Repository`, `Adapter`, `Service`,
+`Facade` and `Module`.
+
+```yaml
+# deptrac.yaml
+imports:
+    - vendor/magicsunday/coding-standard/deptrac/layers.yaml
+
+deptrac:
+    paths:
+        - src
+```
+
+Wire it as a consumer `ci:test:php:deptrac` script
+(`["deptrac analyse --no-progress"]`), rolled out the same script-first way. The
+ruleset is deliberately permissive at this stage — it forbids only the
+uncontroversial upward edges (a leaf depending on a higher layer, anything
+depending on the composition root), and keeps the domain core (`Enum`/`Model`/
+`Contract`/`Configuration`) mutually permissive to avoid a false `Model`↔`Contract`
+cycle. Tighten individual edges per module only after a `deptrac analyse` dry-run
+proves the stricter edge is violation-free. Dependencies on classes outside every
+layer (the framework, webtrees core) are reported as "uncovered" but do not fail
+the run; `--fail-on-uncovered` is left off because every external dependency is
+uncovered.
+
+This supersedes the older per-repo phpat layer rules and the
+`check-phpat-subjects.php` subject-liveness guard below; the guard stays until
+every consumer has migrated its layer rules to Deptrac.
+
 ## Templates (copy-and-adapt)
 
 Files under `templates/` are not importable — copy them into the consumer and
@@ -172,6 +213,7 @@ from drifting from this package.
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
+| `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 
 ### Lockstep gate — `bin/check-consumer-config.php`
 
