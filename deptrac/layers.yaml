@@ -2,14 +2,20 @@
 # ruleset. A consumer imports this file and only adds its own `paths`; the layer
 # definitions and the allowed-dependency ruleset live here, in one place.
 #
-# Layers are matched by NAMESPACE SEGMENT (`\Segment\`), not by the repository
-# root, so the same ruleset ports across every module WITHOUT renaming anything:
-# a class `<Root>\Repository\FooRepository` lands in the `Repository` layer
-# wherever `<Root>` happens to be. Only the ruleset below is enforced; a
-# dependency on a class outside every layer (the framework, webtrees core, PHP
-# built-ins) is reported as "uncovered" but does not fail the run. Do NOT enable
-# `--fail-on-uncovered` wholesale — every external dependency is uncovered — it is
-# only useful once external namespaces get their own catch-all layer.
+# Layers are matched by NAMESPACE SEGMENT via a `directory` collector (`.*/Model/.*`,
+# `.*/Repository/.*`, …), not by the repository root, so the same ruleset ports
+# across every module WITHOUT renaming anything: a class under `<any>/Repository/`
+# lands in the `Repository` layer wherever the module lives. A `directory` collector
+# matches only the files inside the analysed `paths` (a consumer's `src`), so a
+# REFERENCED third-party class — which Deptrac never analyses and therefore has no
+# file path for — falls to "uncovered" naturally. That is the whole reason the
+# collector is path-based and not a `classNameRegex` on the FQCN: a class-name regex
+# also matches vendor FQCNs carrying a canonical segment (`Illuminate\Support\…`,
+# `Fisharebest\…\Module\…`) and, because Deptrac cannot resolve a referenced class's
+# path to exclude it, would file that vendor class into the consumer's layer and
+# report a false forbidden edge. Only the ruleset below is enforced; a dependency on
+# an uncovered class does not fail the run (do NOT enable `--fail-on-uncovered`
+# wholesale — every external dependency is uncovered).
 #
 # The ruleset is deliberately PERMISSIVE at this stage: it forbids only the
 # uncontroversial upward edges every layered design agrees are wrong (a leaf
@@ -21,159 +27,79 @@
 # `deptrac analyse` dry-run proves the stricter edge is violation-free.
 #
 # CONSTRAINT — canonical segments must not NEST. Because a layer is matched by its
-# bare `\Segment\`, a class whose namespace nests one canonical segment under
-# another (`<Root>\Service\Monitoring\Contract\Foo`) matches BOTH layers and
-# Deptrac warns "class grouped in multiple layers". Keep each canonical role at a
-# single namespace level — which the seven webtrees modules already do (verified:
-# zero nested-canonical namespaces). A consumer that genuinely must nest canonical
-# segments refines the affected collectors with an innermost-wins negative
-# lookahead (`#\\Contract\\(?!.*\\(?:Service|Support|…)\\)#`); it is deferred here
-# because no consumer needs it and Deptrac degrades to a warning, not a failure.
+# bare `/Segment/` path, a class whose path nests one canonical segment under
+# another (`…/Service/Monitoring/Contract/Foo.php`) matches BOTH layers and Deptrac
+# warns "class grouped in multiple layers". Keep each canonical role at a single
+# path level. A consumer that maps a non-canonical namespace onto a layer (Deptrac
+# merges a same-named layer's collectors with this import) should anchor its own
+# collector to the ROOT level (`.*/Normalization/[^/]+$`) so a nested canonical
+# sub-namespace still falls to the shared layer.
 #
 # @author  Rico Sonntag <mail@ricosonntag.de>
 # @license https://opensource.org/licenses/MIT The MIT License
 # @link    https://github.com/magicsunday/coding-standard/
 deptrac:
     layers:
-        # Every layer is `segment regex AND NOT under vendor`: a canonical segment
-        # also appears in third-party FQCNs (`Illuminate\Support\Collection`,
-        # `Symfony\…\Config\…`), and an unrestricted class-name collector would file
-        # that vendor class into the consumer's layer — then a first-party class
-        # depending on it reads as a FALSE forbidden edge instead of an uncovered
-        # framework dependency. The `must_not: directory vendor/` restricts each
-        # layer to first-party classes (a consumer using a `.build/vendor` layout is
-        # covered too — the path still contains `vendor/`); vendor classes stay
-        # uncovered as documented.
         -
             name: Enum
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Enum\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Enum/.*'
         -
             name: Model
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Model\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Model/.*'
         -
             name: Contract
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Contract\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Contract/.*'
         -
             name: Configuration
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Configuration\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Configuration/.*'
         -
             name: Support
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Support\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Support/.*'
         -
             name: Repository
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Repository\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Repository/.*'
         -
             name: Adapter
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Adapter\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Adapter/.*'
         -
             name: Service
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Service\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Service/.*'
         -
             name: Facade
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Facade\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Facade/.*'
         -
             name: Module
             collectors:
                 -
-                    type: bool
-                    must:
-                        -
-                            type: classNameRegex
-                            value: '#\\Module\\#'
-                    must_not:
-                        -
-                            type: directory
-                            value: 'vendor/'
+                    type: directory
+                    value: '.*/Module/.*'
 
     ruleset:
         # Domain core — mutually permissive, depends on nothing outside itself.

@@ -165,12 +165,16 @@ by [Deptrac](https://github.com/deptrac/deptrac) (pulled in by this package's
 each consumer copies `templates/deptrac.dist.yaml` to `deptrac.yaml`, which
 `imports` this file and only declares its own `paths`.
 
-Layers are matched by **namespace segment** (`\Repository\`, `\Service\`, …), not
-by the repository root, so the same ruleset ports across every module **without
-renaming anything** — a class `<Root>\Repository\FooRepository` lands in the
-`Repository` layer wherever `<Root>` is. The canonical layers are `Enum`, `Model`,
-`Contract`, `Configuration`, `Support`, `Repository`, `Adapter`, `Service`,
-`Facade` and `Module`.
+Layers are matched by **namespace segment** through a `directory` collector
+(`.*/Repository/.*`, …), not by the repository root, so the same ruleset ports
+across every module **without renaming anything** — a class under `<any>/Repository/`
+lands in the `Repository` layer wherever the module lives. A `directory` collector
+matches only the analysed `src` files, so a referenced third-party class (which
+Deptrac never analyses and has no path for) falls to *uncovered* naturally — the
+reason the collector is path-based and not a `classNameRegex`, which would also
+match vendor FQCNs carrying a canonical segment (`Illuminate\Support\…`) and file
+them into a layer. The canonical layers are `Enum`, `Model`, `Contract`,
+`Configuration`, `Support`, `Repository`, `Adapter`, `Service`, `Facade` and `Module`.
 
 ```yaml
 # deptrac.yaml
