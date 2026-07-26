@@ -31,7 +31,7 @@
 # because no consumer needs it and Deptrac degrades to a warning, not a failure.
 #
 # @author  Rico Sonntag <mail@ricosonntag.de>
-# @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+# @license https://opensource.org/licenses/MIT The MIT License
 # @link    https://github.com/magicsunday/coding-standard/
 deptrac:
     layers:
@@ -98,7 +98,13 @@ deptrac:
 
     ruleset:
         # Domain core — mutually permissive, depends on nothing outside itself.
-        Enum: []
+        # Enum is part of the core, not a pure leaf: a PHP enum may implement a
+        # Contract interface or expose a Model/Configuration, so it gets the same
+        # intra-core allowance as the others rather than an empty allowlist.
+        Enum:
+            - Model
+            - Contract
+            - Configuration
         Model:
             - Enum
             - Contract
