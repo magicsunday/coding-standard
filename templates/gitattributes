@@ -2,6 +2,12 @@
 # the repo root and add repo-specific entries. Keeps the Composer/npm dist
 # archive lean by export-ignoring dev-only tooling, tests and CI config.
 /.build                     export-ignore
+# Export-ignoring /.github blinds OSSF Scorecard's file-based checks
+# (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not
+# applicable", not a penalty), because Scorecard analyses the export-ignored
+# source tarball rather than the checkout. Accepted trade-off: those checks are
+# covered on the real checkout by zizmor + the CodeQL `actions` analysis, and
+# Dependency-Update-Tool recovers via Scorecard's update-PR-activity fallback.
 /.github                    export-ignore
 /tests                      export-ignore
 /.editorconfig              export-ignore

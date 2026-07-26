@@ -1,3 +1,7 @@
+# Export-ignoring /.github blinds OSSF Scorecard's file-based checks
+# (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not
+# applicable", not a penalty) — Scorecard analyses the export-ignored tarball.
+# Accepted: those are covered on the real checkout by zizmor + CodeQL `actions`.
 /.github            export-ignore
 /.phplint.yml       export-ignore
 /.gitattributes     export-ignore
