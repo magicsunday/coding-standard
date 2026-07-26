@@ -327,7 +327,14 @@ if (is_file($deptracFile)) {
         $importsBlock = $m[1];
     }
 
-    if (($importsBlock === '') || (preg_match('#^[ \t]*-[ \t]*\S*magicsunday/coding-standard/deptrac/layers\.yaml[ \t]*$#m', $importsBlock) !== 1)) {
+    // Accept the shared import in any equivalent YAML shape: an optional path
+    // prefix that ENDS at a segment boundary (`vendor/` or `.build/vendor/` — so a
+    // near-miss `notmagicsunday/…` copy is rejected), an optionally quoted scalar,
+    // and an optional trailing inline comment. The `~` delimiter keeps the literal
+    // `#` of a YAML comment unescaped.
+    $importPattern = '~^[ \t]*-[ \t]*[\'"]?(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml[\'"]?[ \t]*(?:#.*)?$~m';
+
+    if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
         $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
     }
 }
