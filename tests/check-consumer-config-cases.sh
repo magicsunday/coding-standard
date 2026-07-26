@@ -114,6 +114,19 @@ deptrac:
 YML
 assert_accepts "$d" "deptrac.yaml importing the shared ruleset"
 
+# --- deptrac.yaml: shared path present but under the WRONG key (not imports) ---
+d="$work/deptrac-wrong-key"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cat > "$d/deptrac.yaml" <<'YML'
+deptrac:
+    paths:
+        - src
+    exclude_files:
+        - vendor/magicsunday/coding-standard/deptrac/layers.yaml
+YML
+assert_rejects "$d" "deptrac.yaml with the shared path under the wrong key" "must import the shared"
+
 # --- .editorconfig: [*] indent_style flipped to tab (only that dimension drifts) ---
 # The fixture is canon in every other respect (indent_size, root, Makefile) so the
 # ONLY violation is the [*] indent_style, and the substring discriminates exactly it.

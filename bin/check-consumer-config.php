@@ -316,8 +316,19 @@ $deptracFile = $repoRoot . '/deptrac.yaml';
 if (is_file($deptracFile)) {
     $contents = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($deptracFile));
 
-    if (preg_match('#^[ \t]*-[ \t]*\S*magicsunday/coding-standard/deptrac/layers\.yaml[ \t]*$#m', $contents) !== 1) {
-        $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset.');
+    // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
+    // top-level key) and require the shared file INSIDE it — the same block-scoping
+    // the `.phplint.yml` check uses. A path sitting under some other list (e.g.
+    // `deptrac.exclude_files`) must not satisfy the check: Deptrac only loads the
+    // ruleset from `imports`.
+    $importsBlock = '';
+
+    if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+        $importsBlock = $m[1];
+    }
+
+    if (($importsBlock === '') || (preg_match('#^[ \t]*-[ \t]*\S*magicsunday/coding-standard/deptrac/layers\.yaml[ \t]*$#m', $importsBlock) !== 1)) {
+        $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
     }
 }
 

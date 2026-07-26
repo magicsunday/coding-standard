@@ -35,66 +35,145 @@
 # @link    https://github.com/magicsunday/coding-standard/
 deptrac:
     layers:
+        # Every layer is `segment regex AND NOT under vendor`: a canonical segment
+        # also appears in third-party FQCNs (`Illuminate\Support\Collection`,
+        # `Symfony\…\Config\…`), and an unrestricted class-name collector would file
+        # that vendor class into the consumer's layer — then a first-party class
+        # depending on it reads as a FALSE forbidden edge instead of an uncovered
+        # framework dependency. The `must_not: directory vendor/` restricts each
+        # layer to first-party classes (a consumer using a `.build/vendor` layout is
+        # covered too — the path still contains `vendor/`); vendor classes stay
+        # uncovered as documented.
         -
             name: Enum
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Enum\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Enum\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Model
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Model\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Model\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Contract
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Contract\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Contract\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Configuration
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Configuration\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Configuration\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Support
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Support\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Support\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Repository
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Repository\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Repository\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Adapter
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Adapter\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Adapter\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Service
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Service\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Service\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Facade
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Facade\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Facade\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
         -
             name: Module
             collectors:
                 -
-                    type: classNameRegex
-                    value: '#\\Module\\#'
+                    type: bool
+                    must:
+                        -
+                            type: classNameRegex
+                            value: '#\\Module\\#'
+                    must_not:
+                        -
+                            type: directory
+                            value: 'vendor/'
 
     ruleset:
         # Domain core — mutually permissive, depends on nothing outside itself.
