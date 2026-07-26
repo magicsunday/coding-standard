@@ -22,6 +22,7 @@
     "require": {
         "php": "8.3 - 8.5",
         "ext-simplexml": "*",
+        "deptrac/deptrac": "^4.2",
         "friendsofphp/php-cs-fixer": "^3.50",
         "overtrue/phplint": "^9.0",
         "phpat/phpat": "^0.12.4",

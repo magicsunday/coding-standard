@@ -1,0 +1,167 @@
+# Canonical layered architecture for magicsunday modules — the shared Deptrac
+# ruleset. A consumer imports this file and only adds its own `paths`; the layer
+# definitions and the allowed-dependency ruleset live here, in one place.
+#
+# Layers are matched by NAMESPACE SEGMENT (`\Segment\`), not by the repository
+# root, so the same ruleset ports across every module WITHOUT renaming anything:
+# a class `<Root>\Repository\FooRepository` lands in the `Repository` layer
+# wherever `<Root>` happens to be. Only the ruleset below is enforced; a
+# dependency on a class outside every layer (the framework, webtrees core, PHP
+# built-ins) is reported as "uncovered" but does not fail the run. Do NOT enable
+# `--fail-on-uncovered` wholesale — every external dependency is uncovered — it is
+# only useful once external namespaces get their own catch-all layer.
+#
+# The ruleset is deliberately PERMISSIVE at this stage: it forbids only the
+# uncontroversial upward edges every layered design agrees are wrong (a leaf
+# depending on a higher layer, anything depending on the composition root). The
+# domain core — Enum, Model, Contract, Configuration — is left mutually permissive
+# on purpose: a Model legitimately implements a Contract marker interface whose
+# signature references a Model, which at layer granularity is a cycle that must
+# not be forbidden. Tighten individual edges later, per module, only once a
+# `deptrac analyse` dry-run proves the stricter edge is violation-free.
+#
+# CONSTRAINT — canonical segments must not NEST. Because a layer is matched by its
+# bare `\Segment\`, a class whose namespace nests one canonical segment under
+# another (`<Root>\Service\Monitoring\Contract\Foo`) matches BOTH layers and
+# Deptrac warns "class grouped in multiple layers". Keep each canonical role at a
+# single namespace level — which the seven webtrees modules already do (verified:
+# zero nested-canonical namespaces). A consumer that genuinely must nest canonical
+# segments refines the affected collectors with an innermost-wins negative
+# lookahead (`#\\Contract\\(?!.*\\(?:Service|Support|…)\\)#`); it is deferred here
+# because no consumer needs it and Deptrac degrades to a warning, not a failure.
+#
+# @author  Rico Sonntag <mail@ricosonntag.de>
+# @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+# @link    https://github.com/magicsunday/coding-standard/
+deptrac:
+    layers:
+        -
+            name: Enum
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Enum\\#'
+        -
+            name: Model
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Model\\#'
+        -
+            name: Contract
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Contract\\#'
+        -
+            name: Configuration
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Configuration\\#'
+        -
+            name: Support
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Support\\#'
+        -
+            name: Repository
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Repository\\#'
+        -
+            name: Adapter
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Adapter\\#'
+        -
+            name: Service
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Service\\#'
+        -
+            name: Facade
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Facade\\#'
+        -
+            name: Module
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#\\Module\\#'
+
+    ruleset:
+        # Domain core — mutually permissive, depends on nothing outside itself.
+        Enum: []
+        Model:
+            - Enum
+            - Contract
+            - Configuration
+        Contract:
+            - Enum
+            - Model
+            - Configuration
+        Configuration:
+            - Enum
+            - Model
+            - Contract
+
+        # Framework-agnostic helpers — may lean on the domain core only.
+        Support:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+
+        # Infrastructure edge — data access and framework/external adapters.
+        Repository:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+        Adapter:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+
+        # Application logic — may consume infrastructure.
+        Service:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+
+        # Public API / orchestration.
+        Facade:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+            - Service
+
+        # webtrees entry point + composition root — wires everything.
+        Module:
+            - Enum
+            - Model
+            - Contract
+            - Configuration
+            - Support
+            - Repository
+            - Adapter
+            - Service
+            - Facade
