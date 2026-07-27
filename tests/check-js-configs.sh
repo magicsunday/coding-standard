@@ -223,6 +223,61 @@ fi
 
 rm src/debugger.ts
 
+# The house rule the shared config exists to carry: a local ESM import spells the
+# extension `.js`, in TypeScript sources too, because that is what TS ESM emits
+# and what tsc resolves. Both spellings are checked, since the interesting part
+# is that they disagree — without `forceJsExtensions` Biome demanded `.ts`, which
+# tsc then rejects with TS5097 unless allowImportingTsExtensions is on. No
+# spelling satisfied both tools, so every consumer would have had to override the
+# rule the base is meant to settle.
+cat > src/imported.ts <<'TS'
+export const value = 1;
+TS
+
+cat > src/importer.ts <<'TS'
+import { value } from "./imported.js";
+
+export const doubled = (): number => value * 2;
+TS
+
+if biome_ci "$work/biome-import-js.log"; then
+    pass "biome — the house .js import extension is accepted"
+else
+    fail "biome — the house .js import extension was rejected" "$work/biome-import-js.log"
+fi
+
+if run_tsc "$work/tsc-import-js.log"; then
+    pass "tsc — the same import compiles"
+else
+    fail "tsc — the house .js import extension failed to compile" "$work/tsc-import-js.log"
+fi
+
+# The control: an extensionless import must still be reported, so the rule is
+# relaxed in spelling only, not switched off.
+cat > src/importer.ts <<'TS'
+import { value } from "./imported";
+
+export const doubled = (): number => value * 2;
+TS
+
+if biome_ci "$work/biome-import-bare.log"; then
+    fail "biome control — an extensionless import passed, useImportExtensions is not in force"
+elif grep -q 'lint/correctness/useImportExtensions' "$work/biome-import-bare.log"; then
+    pass "biome control — extensionless import rejected"
+else
+    fail "biome control — biome ci failed, but not on useImportExtensions" "$work/biome-import-bare.log"
+fi
+
+rm src/importer.ts src/imported.ts
+
+# The shared base deliberately carries NO `vcs` block, and this run is why: with
+# `vcs.useIgnoreFile: true` in it, Biome aborts with `couldn't find an ignore
+# file` in any consumer that has no .gitignore beside its config — a
+# configuration error, not a finding, so the whole run dies. Excluding build
+# output is the consumer's call, made where the build output is known; the base
+# must not make an ignore file a precondition for loading at all. This fixture
+# has no .gitignore, so the runs above prove the base stays loadable without one.
+
 # `noUncheckedIndexedAccess` comes only from the shared base; without it this
 # compiles cleanly, so a consumer silently dropping the extends would go unnoticed.
 cat > src/unchecked.ts <<'TS'

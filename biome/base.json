@@ -33,7 +33,12 @@
                 "useIsArray": "error"
             },
             "correctness": {
-                "useImportExtensions": "error",
+                "useImportExtensions": {
+                    "level": "error",
+                    "options": {
+                        "forceJsExtensions": true
+                    }
+                },
                 "noUnusedVariables": "warn",
                 "noUnusedImports": "warn",
                 "noUnusedFunctionParameters": "warn"

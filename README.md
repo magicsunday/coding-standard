@@ -541,11 +541,24 @@ skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
 { "extends": "@magicsunday/coding-standard/tsconfig/base.json" }
 ```
 
-Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. A consumer may
-override `quoteStyle` or `useImportExtensions` to fit its module system — TS ESM does
-not want `.js` extensions. The TypeScript base carries no `module`/`target`/`lib`/`jsx`
-and no `paths`; those are per-repository and belong in the consumer's own
-`compilerOptions`.
+Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. The TypeScript
+base carries no `module`/`target`/`lib`/`jsx` and no `paths`; those are per-repository
+and belong in the consumer's own `compilerOptions`.
+
+`useImportExtensions` runs with `forceJsExtensions`, so a local ESM import spells the
+extension `.js` in TypeScript sources too — which is what TS ESM emits and what `tsc`
+resolves. Without that option the two tools contradict each other and no spelling
+satisfies both: Biome demands `./bar.ts`, which `tsc` then rejects with TS5097 unless
+`allowImportingTsExtensions` is on, while the house spelling `./bar.js` is reported as
+a violation. The smoke asserts both directions, so the rule the base exists to settle
+is not left for every consumer to override.
+
+The base carries **no `vcs` block** on purpose. `useIgnoreFile: true` would look like
+the obvious way to keep a consumer's gitignored build output out of the lint run, but
+Biome then aborts with `couldn't find an ignore file` in any repository that has none
+beside its config — a configuration error rather than a finding, so the whole run
+dies. Excluding build output stays a consumer decision, made where the build output is
+known.
 
 The Biome base turns the recommended rule set on through `linter.rules.preset`, not
 the `recommended` boolean: Biome deprecated the boolean in 2.5 and announces its
