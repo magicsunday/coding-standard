@@ -176,10 +176,9 @@ matrix. A single-leg job does not help, because the poisoned lock is shared.
 
 Give the tool **its own manifest** instead, so it never enters the root resolution
 (it resolves the analysed project's dependencies internally and does not share the
-root `vendor/`):
+root `vendor/`) — `tools/backward-compatibility/composer.json`:
 
 ```json
-// tools/backward-compatibility/composer.json
 {
     "require": {
         "roave/backward-compatibility-check": "^8.21"
@@ -331,10 +330,10 @@ byte-diff, so a consumer that legitimately scans an extra JS directory is not fl
 but a loosened strictness flag is.
 
 The package `require` places it on the consumer's bin path, so wire it as a
-`ci:test:php:templates` script (vendor-dir-independent):
+`ci:test:php:templates` script (vendor-dir-independent) in the consumer's
+`composer.json`:
 
-```jsonc
-// consumer composer.json
+```json
 "scripts": {
     "ci:test:php:templates": ["check-consumer-config.php ."]
 }
