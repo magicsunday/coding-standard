@@ -450,6 +450,30 @@ d="$(mk_js_case biome-node-modules-path)"
 printf '{\n    "extends": ["./node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
 assert_accepts "$d" "biome.json extending via an explicit node_modules path"
 
+# The pnpm layout reaches the package through a second node_modules segment.
+d="$(mk_js_case biome-pnpm-path)"
+printf '{\n    "extends": ["./node_modules/.pnpm/@magicsunday+coding-standard@1.7.0/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_accepts "$d" "biome.json extending via a pnpm node_modules path"
+
+# An arbitrary local path that merely LOOKS like the package must not count: both
+# tools would load that file instead of the installed one, so accepting it would
+# report a link to a config nobody shares.
+d="$(mk_js_case biome-local-lookalike)"
+printf '{\n    "extends": ["./fixtures/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending a local look-alike copy outside node_modules" "biome/base.json"
+
+# Biome does NOT resolve an extensionless specifier — verified, it answers with
+# `module not found` — so the gate must not accept one either.
+d="$(mk_js_case biome-extensionless)"
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending without the .json suffix" "biome/base.json"
+
+# A specifier that is not a string at all must report as a missing link rather
+# than fail the gate on a type error.
+d="$(mk_js_case biome-extends-not-a-string)"
+printf '{\n    "extends": 5\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json whose extends is not a specifier at all" "biome/base.json"
+
 d="$(mk_js_case biome-linter-off)"
 cat > "$d/biome.json" <<'JSON'
 {
@@ -589,6 +613,66 @@ cat > "$d/tsconfig.json" <<'JSON'
 }
 JSON
 assert_accepts "$d" "tsconfig.json with a // inside a string value"
+
+# tsc appends `.json` itself, so this resolves to the very same file — verified
+# with 7.0.2. Rejecting it would report drift on a working consumer config.
+d="$(mk_js_case ts-extensionless)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
+assert_accepts "$d" "tsconfig.json extending without the .json suffix"
+
+# The string-protection the trailing-comma pass needs: a comma before a bracket
+# INSIDE a string value is part of the value, not punctuation to strip. Stripping
+# it silently rewrote the consumer's path.
+d="$(mk_js_case ts-comma-in-string)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": {
+        "paths": { "@app/*": ["a,] b, } c"] }
+    }
+}
+JSON
+assert_accepts "$d" "tsconfig.json with a comma before a bracket inside a string"
+
+# Block comments: the accept case, and the discriminating one — a multi-line
+# block carrying a quote and a `//` must be closed rather than swallow the rest
+# of the document, which would decode to an empty config that passes everything.
+d="$(mk_js_case ts-block-comment)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    /* A consumer may comment this file. */
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json"
+}
+JSON
+assert_accepts "$d" "tsconfig.json with a block comment"
+
+d="$(mk_js_case ts-block-comment-swallow)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    /* a " and a // inside,
+       spread over two lines */
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": { "strict": false }
+}
+JSON
+assert_rejects "$d" "tsconfig.json whose block comment must not swallow the rest" "\`compilerOptions.strict\`"
+
+# A comment placed inside a token must not fuse the halves back together.
+d="$(mk_js_case ts-comment-in-token)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json with a comment splitting a token" "not valid JSON(C)"
+
+# Escaped backslashes inside a string must survive the pass intact.
+d="$(mk_js_case ts-escapes)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": {
+        "paths": { "@app/*": ["src\\vendor\\*"] }
+    }
+}
+JSON
+assert_accepts "$d" "tsconfig.json with backslash escapes inside a string"
 
 # The JSONC tolerance must not extend to genuinely broken input: an unclosed
 # object has to be reported, not read as an empty config that passes every

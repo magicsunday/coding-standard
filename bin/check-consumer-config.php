@@ -353,98 +353,108 @@ if (is_file($deptracFile)) {
 // its own weaker standard. That is the same failure class the template gate
 // exists for, so it is checked the same way.
 //
-// tsconfig.json is JSONC by specification (TypeScript documents comments in it),
-// and Biome accepts a biome.jsonc, so a plain json_decode would report a
-// perfectly legal consumer file as "not valid JSON". Strip comments and trailing
-// commas first — string-aware, so a `"//"` KEY and any `//` inside a string
-// value survive; only real comments are removed.
-$stripJsonc = static function (string $json): string {
-    $out       = '';
-    $length    = strlen($json);
-    $inString  = false;
-    $inLine    = false;
-    $inBlock   = false;
-    $escaped   = false;
+/**
+ * Reduces a JSONC document to strict JSON, leaving string contents untouched.
+ *
+ * tsconfig.json is JSONC by specification (TypeScript documents comments in it)
+ * and Biome accepts a biome.jsonc, so a plain json_decode would report a
+ * perfectly legal consumer file as malformed.
+ *
+ * Both passes match a complete string literal FIRST and then discard it as a
+ * candidate, so nothing inside a string is ever rewritten: not a `//` in a URL,
+ * not a `"//"` KEY, and not a `,` that happens to sit before a `}` or `]`. That
+ * last one is why the trailing-comma pass needs the same protection as the
+ * comment pass rather than a plain regex — `{"a": "x,]"}` decodes to `x,]` here
+ * and decoded to `x]` before, silently changing a consumer's value.
+ *
+ * A removed comment leaves one space behind. Without that space, a block comment
+ * placed inside a token would fuse the halves back together — a `tr`, a comment,
+ * then `ue` would decode as `true` — and the gate would accept a document every
+ * real JSONC parser rejects.
+ *
+ * @param string $json The raw file contents.
+ *
+ * @return string|null The strict-JSON equivalent, or null if the regex engine failed.
+ */
+$stripJsonc = static function (string $json): ?string {
+    $string = '"(?:\\\\.|[^"\\\\])*+"';
 
-    for ($i = 0; $i < $length; ++$i) {
-        $char = $json[$i];
-        $next = $json[$i + 1] ?? '';
+    $withoutComments = preg_replace(
+        '~' . $string . '(*SKIP)(*F)|//[^\n]*|/\*.*?\*/~s',
+        ' ',
+        $json
+    );
 
-        if ($inLine) {
-            if ($char === "\n") {
-                $inLine = false;
-                $out   .= $char;
-            }
-
-            continue;
-        }
-
-        if ($inBlock) {
-            if (($char === '*') && ($next === '/')) {
-                $inBlock = false;
-                ++$i;
-            }
-
-            continue;
-        }
-
-        if ($inString) {
-            $out .= $char;
-
-            if ($escaped) {
-                $escaped = false;
-            } elseif ($char === '\\') {
-                $escaped = true;
-            } elseif ($char === '"') {
-                $inString = false;
-            }
-
-            continue;
-        }
-
-        if ($char === '"') {
-            $inString = true;
-            $out     .= $char;
-
-            continue;
-        }
-
-        if ($char === '/') {
-            if ($next === '/') {
-                $inLine = true;
-
-                continue;
-            }
-
-            if ($next === '*') {
-                $inBlock = true;
-
-                continue;
-            }
-        }
-
-        $out .= $char;
+    if ($withoutComments === null) {
+        return null;
     }
 
-    // Trailing commas are legal in tsconfig.json but not in strict JSON.
-    return (string) preg_replace('/,(\s*[}\]])/', '$1', $out);
+    // No /u: the delimiters are ASCII and the pass is byte-safe, while the
+    // modifier would make a config carrying invalid UTF-8 return null and be
+    // reported as a comment-stripping failure rather than as the encoding
+    // problem it is.
+    return preg_replace(
+        '~' . $string . '(*SKIP)(*F)|,(?=\s*[}\]])~',
+        '',
+        $withoutComments
+    );
+};
+
+/**
+ * Loads a JSONC config, or null when it does not parse.
+ *
+ * @param string $path Absolute path to the config file.
+ *
+ * @return array<array-key, mixed>|null
+ */
+$loadJsonc = static function (string $path) use ($stripJsonc): ?array {
+    $contents = file_get_contents($path);
+
+    if ($contents === false) {
+        return null;
+    }
+
+    $stripped = $stripJsonc($contents);
+
+    if ($stripped === null) {
+        return null;
+    }
+
+    $decoded = json_decode($stripped, true);
+
+    return is_array($decoded) ? $decoded : null;
 };
 
 /**
  * Reports whether an `extends` value references the shared config.
  *
  * The value may be a string (tsconfig) or a list (Biome, and tsconfig since 5.0).
- * The specifier is normally the bare package path, but a consumer may reach the
- * same file through an explicit node_modules path, so an optional prefix is
- * accepted — one that must END at a segment boundary, so a near-miss package
- * such as `notmagicsunday/coding-standard/...` is still rejected.
+ * Two spelling latitudes are allowed, each because a real tool grants it:
+ *
+ * - An explicit path is accepted only when it reaches the package THROUGH a
+ *   `node_modules/` segment, which covers the npm and pnpm layouts. An arbitrary
+ *   prefix would let `./fixtures/@magicsunday/coding-standard/tsconfig/base.json`
+ *   pass — a local look-alike that both tools would happily load INSTEAD of the
+ *   installed package, so the gate would report a link that does not exist.
+ * - The `.json` suffix is optional for tsconfig and required for Biome, because
+ *   that is what the tools do: `tsc` resolves
+ *   `@magicsunday/coding-standard/tsconfig/base` to the same file, while Biome
+ *   answers the equivalent with `Could not resolve … module not found`. Both
+ *   checked against the packed tarball with tsc 7.0.2 and Biome 2.5.5.
+ *
+ * @param array<array-key, mixed>|string|null $extends        The `extends` value as decoded.
+ * @param string                              $sharedStem     Path inside the package, without the `.json` suffix.
+ * @param bool                                $suffixOptional Whether the consuming tool resolves the suffix itself.
+ *
+ * @return bool
  */
-$extendsShared = static function (mixed $extends, string $sharedPath): bool {
+$extendsShared = static function (array|string|null $extends, string $sharedStem, bool $suffixOptional): bool {
     $candidates = is_array($extends) ? $extends : [$extends];
 
     $pattern = sprintf(
-        '~^(?:\S*/)?@?magicsunday/coding-standard/%s$~',
-        preg_quote($sharedPath, '~')
+        '~^(?:(?:\S*/)?node_modules/)?@?magicsunday/coding-standard/%s%s$~',
+        preg_quote($sharedStem, '~'),
+        $suffixOptional ? '(?:\.json)?' : '\.json'
     );
 
     foreach ($candidates as $candidate) {
@@ -457,7 +467,7 @@ $extendsShared = static function (mixed $extends, string $sharedPath): bool {
 };
 
 /**
- * Collects every `//` key in a decoded config, at any depth.
+ * Reports whether a decoded config carries a `//` key at any depth.
  *
  * Biome's deserializer rejects unknown keys and refuses the WHOLE file, so a
  * `"//"` note key makes the config unloadable while staying valid JSON — this
@@ -465,21 +475,15 @@ $extendsShared = static function (mixed $extends, string $sharedPath): bool {
  * mistake, and `biome ci` then fails with a deserialize error that reads like a
  * tooling problem rather than a config one.
  *
- * @param mixed $node
- *
- * @return bool
+ * @param array<array-key, mixed> $node The decoded config node to walk.
  */
-$hasNoteKey = static function (mixed $node) use (&$hasNoteKey): bool {
-    if (!is_array($node)) {
-        return false;
-    }
-
+$hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
     if (array_key_exists('//', $node)) {
         return true;
     }
 
     foreach ($node as $child) {
-        if ($hasNoteKey($child)) {
+        if (is_array($child) && $hasNoteKey($child)) {
             return true;
         }
     }
@@ -543,9 +547,9 @@ foreach (['biome.json', 'biome.jsonc'] as $candidate) {
 
 if ($biomeFile !== null) {
     $label = basename($biomeFile);
-    $json  = json_decode($stripJsonc((string) file_get_contents($biomeFile)), true);
+    $json  = $loadJsonc($biomeFile);
 
-    if (!is_array($json)) {
+    if ($json === null) {
         $fail($violations, $label, 'not valid JSON(C).');
     } else {
         // The one check that does NOT depend on adoption: a `"//"` key makes the
@@ -556,8 +560,15 @@ if ($biomeFile !== null) {
         }
     }
 
-    if ($adopted && is_array($json)) {
-        if (!$extendsShared($json['extends'] ?? null, 'biome/base.json')) {
+    if ($adopted && ($json !== null)) {
+        // Anything JSON allows can appear here, and a number or an object is not
+        // a specifier — narrowed to null so it reports as a missing link instead
+        // of failing the gate on a type error.
+        $biomeExtends = $json['extends'] ?? null;
+
+        // Biome requires the `.json` suffix — verified: it answers the bare
+        // specifier with `Could not resolve … module not found`.
+        if (!$extendsShared((is_array($biomeExtends) || is_string($biomeExtends)) ? $biomeExtends : null, 'biome/base', false)) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
 
@@ -593,12 +604,16 @@ if ($biomeFile !== null) {
 $tsconfigFile = $repoRoot . '/tsconfig.json';
 
 if ($adopted && is_file($tsconfigFile)) {
-    $json = json_decode($stripJsonc((string) file_get_contents($tsconfigFile)), true);
+    $json = $loadJsonc($tsconfigFile);
 
-    if (!is_array($json)) {
+    if ($json === null) {
         $fail($violations, 'tsconfig.json', 'not valid JSON(C).');
     } else {
-        if (!$extendsShared($json['extends'] ?? null, 'tsconfig/base.json')) {
+        $tsExtends = $json['extends'] ?? null;
+
+        // tsc appends `.json` itself, so the bare specifier resolves to the same
+        // file and must not be reported as a missing link — verified with 7.0.2.
+        if (!$extendsShared((is_array($tsExtends) || is_string($tsExtends)) ? $tsExtends : null, 'tsconfig/base', true)) {
             $fail($violations, 'tsconfig.json', 'must `extends` the shared `@magicsunday/coding-standard/tsconfig/base.json`.');
         }
 
