@@ -181,6 +181,20 @@ all; folding whole text uses `mb_strtoupper()` / `mb_strtolower()` /
 such mode, `mb_ucfirst()` needs 8.4), so it is spelled out:
 `mb_strtoupper(mb_substr($v, 0, 1), 'UTF-8') . mb_substr($v, 1, null, 'UTF-8')`.
 
+`mb_convert_case()` with `MB_CASE_TITLE` is **not** a drop-in for `ucwords()`, which is
+why the ban's message qualifies it. `ucwords()` only touches each word's first
+character and leaves the rest alone; `MB_CASE_TITLE` normalises the whole word and
+also treats `-` as a separator:
+
+```php
+ucwords('McDONALD anna-maria')                          // 'McDONALD Anna-maria'
+mb_convert_case('McDONALD anna-maria', MB_CASE_TITLE)   // 'Mcdonald Anna-Maria'
+```
+
+For a display-name normalisation that is usually the better result. For input whose
+interior capitals must survive — an acronym, a `McDONALD`-style name kept as entered —
+it silently rewrites the data, so upper-case each word initial explicitly instead.
+
 Not every hit is a defect — a fold on known-ASCII input (a hex digest, a
 `strtolower()` on an already-validated enum value) is harmless, and the rule cannot
 tell the two apart. Re-allow such a site deliberately with `allowIn`, which takes
