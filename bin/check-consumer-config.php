@@ -223,23 +223,29 @@ if (is_file($jscpdFile)) {
         // formats, and a copy of it here would drift from the tool and start
         // rejecting configs the tool accepts. Each entry below was checked to be
         // absent from that list, so every one of them scans nothing.
+        // Scoped to the formats the shipped template actually names, so the table
+        // is self-evidently complete: these are the spellings a consumer copying
+        // it can plausibly mistype, and each was checked against `jscpd --list`
+        // to be absent from it.
         $extensionSpellings = [
-            'js'   => 'javascript',
-            'mjs'  => 'javascript',
-            'cjs'  => 'javascript',
-            'ts'   => 'typescript',
-            'mts'  => 'typescript',
-            'cts'  => 'typescript',
-            'htm'  => 'markup',
-            'yml'  => 'yaml',
-            'py'   => 'python',
-            'rb'   => 'ruby',
+            'js'  => 'javascript',
+            'mjs' => 'javascript',
+            'cjs' => 'javascript',
+            'ts'  => 'typescript',
+            'mts' => 'typescript',
+            'cts' => 'typescript',
         ];
 
         // Presence is deliberately NOT required: without `format`, jscpd applies
         // its own defaults, which is a working gate rather than a silent one.
         // Only the spellings that disable detection are reported.
+        // A bare string is accepted alongside a list, or the very spelling this
+        // check exists to reject would slip through by not being in an array.
         $formats = $json['format'] ?? null;
+
+        if (is_string($formats)) {
+            $formats = [$formats];
+        }
 
         if (is_array($formats)) {
             foreach ($formats as $format) {
@@ -416,6 +422,12 @@ if (is_file($deptracFile)) {
  * @return string|null The strict-JSON equivalent, or null if the regex engine failed.
  */
 $stripJsonc = static function (string $json): ?string {
+    // The string branch matches a COMPLETE literal, so an unterminated one costs
+    // a scan to EOF from every quote in the document — quadratic on a file that
+    // is nothing but `\"` repeated. Deliberately not guarded: the input is the
+    // repository's own biome.json/tsconfig.json, written by whoever runs the
+    // gate, so it is a self-inflicted cost rather than an exposure. A size cap
+    // would be a guard for an input nobody else controls.
     $string = '"(?:\\\\.|[^"\\\\])*+"';
 
     $withoutComments = preg_replace(
@@ -442,6 +454,11 @@ $stripJsonc = static function (string $json): ?string {
 /**
  * Loads a JSONC config, or null when it does not parse.
  *
+ * The reader has to tolerate what the real tools tolerate, or the gate reports a
+ * defect in a file that loads perfectly well. A leading UTF-8 BOM is the case
+ * that bites: `json_decode` rejects it, while Biome 2.5.5 and tsc 7.0.2 both read
+ * a BOM-prefixed config and honour it — verified against the packed tarball.
+ *
  * @param string $path Absolute path to the config file.
  *
  * @return array<array-key, mixed>|null
@@ -453,7 +470,8 @@ $loadJsonc = static function (string $path) use ($stripJsonc): ?array {
         return null;
     }
 
-    $stripped = $stripJsonc($contents);
+    $withoutBom = preg_replace('~^\xEF\xBB\xBF~', '', $contents);
+    $stripped   = $stripJsonc($withoutBom ?? $contents);
 
     if ($stripped === null) {
         return null;
@@ -470,11 +488,14 @@ $loadJsonc = static function (string $path) use ($stripJsonc): ?array {
  * The value may be a string (tsconfig) or a list (Biome, and tsconfig since 5.0).
  * Two spelling latitudes are allowed, each because a real tool grants it:
  *
- * - An explicit path is accepted only when it reaches the package THROUGH a
- *   `node_modules/` segment, which covers the npm and pnpm layouts. An arbitrary
- *   prefix would let `./fixtures/@magicsunday/coding-standard/tsconfig/base.json`
- *   pass — a local look-alike that both tools would happily load INSTEAD of the
- *   installed package, so the gate would report a link that does not exist.
+ * - An explicit path is accepted only when it reaches the package through a
+ *   `node_modules/` directory of THIS repository — optionally `./`-prefixed, and
+ *   optionally through pnpm's `.pnpm/<pkg>/node_modules/` indirection. Anything
+ *   looser defeats the purpose: `./fixtures/@magicsunday/…` is an obvious local
+ *   look-alike, but so are `./fixtures/node_modules/@magicsunday/…` and
+ *   `../../other-repo/node_modules/@magicsunday/…` — both are loaded by the real
+ *   tools INSTEAD of the installed package, so accepting them makes the gate
+ *   report a shared link that is not the shared config.
  * - The `.json` suffix is optional for tsconfig and required for Biome, because
  *   that is what the tools do: `tsc` resolves
  *   `@magicsunday/coding-standard/tsconfig/base` to the same file, while Biome
@@ -487,17 +508,23 @@ $loadJsonc = static function (string $path) use ($stripJsonc): ?array {
  * that cannot exist. (The Composer-side deptrac import is unscoped and has its own
  * pattern; this one is npm-only.)
  *
- * @param array<array-key, mixed>|string|null $extends        The `extends` value as decoded.
- * @param string                              $sharedStem     Path inside the package, without the `.json` suffix.
- * @param bool                                $suffixOptional Whether the consuming tool resolves the suffix itself.
+ * The decoded config is passed whole rather than its `extends` value, so the
+ * caller does not have to narrow a key that may legally hold anything JSON
+ * allows: a number or an object is simply not a specifier, and falls out here as
+ * a missing link rather than a type error at the call site.
+ *
+ * @param array<array-key, mixed> $config         The decoded consumer config.
+ * @param string                  $sharedStem     Path inside the package, without the `.json` suffix.
+ * @param bool                    $suffixOptional Whether the consuming tool resolves the suffix itself.
  *
  * @return bool
  */
-$extendsShared = static function (array|string|null $extends, string $sharedStem, bool $suffixOptional): bool {
+$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional): bool {
+    $extends    = $config['extends'] ?? null;
     $candidates = is_array($extends) ? $extends : [$extends];
 
     $pattern = sprintf(
-        '~^(?:(?:\S*/)?node_modules/)?@magicsunday/coding-standard/%s%s$~',
+        '~^(?:\./)?(?:node_modules/(?:\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/%s%s$~',
         preg_quote($sharedStem, '~'),
         $suffixOptional ? '(?:\.json)?' : '\.json'
     );
@@ -521,6 +548,8 @@ $extendsShared = static function (array|string|null $extends, string $sharedStem
  * tooling problem rather than a config one.
  *
  * @param array<array-key, mixed> $node The decoded config node to walk.
+ *
+ * @return bool
  */
 $hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
     if (array_key_exists('//', $node)) {
@@ -547,8 +576,19 @@ $hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
  * claimed to have. The ordering makes that unavoidable rather than unlucky: a
  * consumer cannot pin the npm tag before the tag exists, so "align first, then
  * enforce" is the only order available, exactly as the template gate was staged.
+ *
+ * A `false` from here silences the whole JS/TS half, so it must mean "no link was
+ * claimed" and nothing else. An unreadable package.json is NOT that — it is a
+ * probe failure, and returning false for it would turn every one of those
+ * assertions off while the gate still printed OK. It is reported instead.
+ *
+ * @param string                $repoRoot   The consumer repository root to inspect.
+ * @param list<string>          $violations Collected drift reports, appended to on a probe failure.
+ * @param callable              $fail       Reporter shared with the rest of the gate.
+ *
+ * @return bool
  */
-$npmDependencyDeclared = static function (string $repoRoot): bool {
+$npmDependencyDeclared = static function (string $repoRoot, array &$violations, callable $fail): bool {
     $packageJsonFile = $repoRoot . '/package.json';
 
     if (!is_file($packageJsonFile)) {
@@ -558,13 +598,19 @@ $npmDependencyDeclared = static function (string $repoRoot): bool {
     $contents = file_get_contents($packageJsonFile);
 
     if ($contents === false) {
+        $fail($violations, 'package.json', 'exists but cannot be read, so the JS/TS contract cannot be checked.');
+
         return false;
     }
 
-    // package.json is strict JSON by npm's own rules, so no JSONC pass here.
-    $json = json_decode($contents, true);
+    // package.json is strict JSON by npm's own rules, so no JSONC pass here — but
+    // npm, Node, Biome and tsc all strip a leading BOM and json_decode does not.
+    $withoutBom = preg_replace('~^\xEF\xBB\xBF~', '', $contents);
+    $json       = json_decode($withoutBom ?? $contents, true);
 
     if (!is_array($json)) {
+        $fail($violations, 'package.json', 'is not valid JSON, so the JS/TS contract cannot be checked.');
+
         return false;
     }
 
@@ -577,7 +623,7 @@ $npmDependencyDeclared = static function (string $repoRoot): bool {
     return false;
 };
 
-$adopted = $npmDependencyDeclared($repoRoot);
+$adopted = $npmDependencyDeclared($repoRoot, $violations, $fail);
 
 // biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
 $biomeFile = null;
@@ -594,26 +640,27 @@ if ($biomeFile !== null) {
     $label = basename($biomeFile);
     $json  = $loadJsonc($biomeFile);
 
-    if ($json === null) {
-        $fail($violations, $label, 'not valid JSON(C).');
-    } else {
+    if ($json !== null) {
         // The one check that does NOT depend on adoption: a `"//"` key makes the
         // file unloadable for Biome whether or not it extends anything, so a
         // repository writing its own config is just as broken by it.
         if ($hasNoteKey($json)) {
             $fail($violations, $label, 'contains a `"//"` key — Biome rejects unknown keys and refuses the whole config, so the file is valid JSON but unloadable. Put the note in a comment or in the README.');
         }
+    } elseif ($adopted) {
+        // A parse failure IS gated on adoption, unlike the `"//"` key, because
+        // this reader is not Biome's: it can reject a file the real tool accepts,
+        // and reporting that to a repository which never claimed the link is the
+        // failure mode the adoption gate exists to prevent. Once the link is
+        // claimed, an unreadable config is a real drift — the assertions that
+        // follow cannot run at all.
+        $fail($violations, $label, 'not valid JSON(C).');
     }
 
     if ($adopted && ($json !== null)) {
-        // Anything JSON allows can appear here, and a number or an object is not
-        // a specifier — narrowed to null so it reports as a missing link instead
-        // of failing the gate on a type error.
-        $biomeExtends = $json['extends'] ?? null;
-
         // Biome requires the `.json` suffix — verified: it answers the bare
         // specifier with `Could not resolve … module not found`.
-        if (!$extendsShared((is_array($biomeExtends) || is_string($biomeExtends)) ? $biomeExtends : null, 'biome/base', false)) {
+        if (!$extendsShared($json, 'biome/base', false)) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
 
@@ -621,21 +668,21 @@ if ($biomeFile !== null) {
         // Biome's schema, again inside every entry of `overrides` — where an
         // entry matching `**` disables the same thing for every file while the
         // top-level key still reads as enabled.
-        $sections  = [['', $json]];
+        $scopes    = [['', $json]];
         $overrides = $json['overrides'] ?? null;
 
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
                 if (is_array($override)) {
-                    $sections[] = [sprintf('overrides[%s].', $index), $override];
+                    $scopes[] = [sprintf('overrides[%s].', $index), $override];
                 }
             }
         }
 
-        foreach ($sections as [$prefix, $scope]) {
-            foreach (['linter', 'formatter'] as $section) {
-                if (($scope[$section]['enabled'] ?? null) === false) {
-                    $fail($violations, $label, sprintf('`%s%s.enabled` must not be false — that disables the shared standard wholesale.', $prefix, $section));
+        foreach ($scopes as [$prefix, $scope]) {
+            foreach (['linter', 'formatter'] as $toggle) {
+                if (($scope[$toggle]['enabled'] ?? null) === false) {
+                    $fail($violations, $label, sprintf('`%s%s.enabled` must not be false — that disables the shared standard wholesale.', $prefix, $toggle));
                 }
             }
 
@@ -655,9 +702,14 @@ if ($biomeFile !== null) {
             // one spelling per group unguarded, which is the same hole one level
             // down.
             $topLevelRules = $scope['linter']['rules'] ?? null;
-            $ruleScopes    = [['linter.rules', $topLevelRules]];
+            $ruleScopes    = [];
 
+            // Seeded inside the guard so every element is an array by
+            // construction, rather than appending one that may not be and
+            // skipping it again in the loop below.
             if (is_array($topLevelRules)) {
+                $ruleScopes[] = ['linter.rules', $topLevelRules];
+
                 foreach ($topLevelRules as $group => $groupRules) {
                     if (is_array($groupRules)) {
                         $ruleScopes[] = [sprintf('linter.rules.%s', $group), $groupRules];
@@ -666,10 +718,6 @@ if ($biomeFile !== null) {
             }
 
             foreach ($ruleScopes as [$path, $rules]) {
-                if (!is_array($rules)) {
-                    continue;
-                }
-
                 if (($rules['recommended'] ?? null) === false) {
                     $fail($violations, $label, sprintf('`%s%s.recommended` must not be false — that drops the rule floor the shared config builds on.', $prefix, $path));
                 }
@@ -694,11 +742,9 @@ if ($adopted && is_file($tsconfigFile)) {
     if ($json === null) {
         $fail($violations, 'tsconfig.json', 'not valid JSON(C).');
     } else {
-        $tsExtends = $json['extends'] ?? null;
-
         // tsc appends `.json` itself, so the bare specifier resolves to the same
         // file and must not be reported as a missing link — verified with 7.0.2.
-        if (!$extendsShared((is_array($tsExtends) || is_string($tsExtends)) ? $tsExtends : null, 'tsconfig/base', true)) {
+        if (!$extendsShared($json, 'tsconfig/base', true)) {
             $fail($violations, 'tsconfig.json', 'must `extends` the shared `@magicsunday/coding-standard/tsconfig/base.json`.');
         }
 

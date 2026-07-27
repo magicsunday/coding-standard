@@ -70,8 +70,13 @@ npm init -y >/dev/null 2>&1
 # the moment CI runs, so a release on the tool's side could red the build on a
 # day nothing changed here — and worse, a green run would not say which version
 # it proved. Dependabot bumps the pins; this smoke is what vets the bump.
+# `|| true` so the guard below can report: with the key ABSENT rather than empty,
+# Object.entries(undefined) throws and node exits 1, which under `set -e` would
+# abort the script at the assignment and leave the CI log with a node stack trace
+# instead of this script's own diagnostic.
+tools=""
 tools="$(ROOT="$root" node -e 'const d=require(process.env.ROOT + "/package.json").devDependencies;
-process.stdout.write(Object.entries(d).map(([n, v]) => n + "@" + v).join(" "))')"
+process.stdout.write(Object.entries(d).map(([n, v]) => n + "@" + v).join(" "))' 2>/dev/null)" || true
 
 if [ -z "$tools" ]; then
     fail "no devDependencies in package.json — nothing to pin the smoke to"
@@ -113,8 +118,17 @@ if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-instal
     exit 1
 fi
 
-# Prove the `files` allow-list actually shipped the configs.
-for config in biome/base.json tsconfig/base.json; do
+# Prove the `files` allow-list actually shipped the configs. Derived from the
+# working tree rather than listed here, so a shared config added later is covered
+# without anyone remembering to extend this loop.
+mapfile -t shipped < <(cd "$root" && find biome tsconfig -name '*.json' | sort)
+
+if [ "${#shipped[@]}" -eq 0 ]; then
+    fail "found no shared configs in the working tree — the source layout changed"
+    exit 1
+fi
+
+for config in "${shipped[@]}"; do
     if [ -f "node_modules/@magicsunday/coding-standard/$config" ]; then
         pass "packed: $config"
     else
@@ -193,12 +207,16 @@ export const wide = (value: string): string => {
 };
 TS
 
+# The pattern has to be unique to this branch. `format|Formatter` is not: the
+# shared config's own key names contain it, so a CONFIGURATION error — the state
+# these controls exist to distinguish from a finding — matches it too. Assert the
+# fixture and the diagnostic, as the tsc control does.
 if biome_ci "$work/biome-format.log"; then
     fail "biome control — formatter drift passed, the shared formatter is not in force"
-elif grep -qE 'format|Formatter' "$work/biome-format.log"; then
+elif grep -q 'src/unformatted.ts' "$work/biome-format.log" && grep -q 'File content differs from formatting output' "$work/biome-format.log"; then
     pass "biome control — formatter drift rejected"
 else
-    fail "biome control — biome ci failed, but not on formatting" "$work/biome-format.log"
+    fail "biome control — biome ci failed, but not on the unformatted fixture" "$work/biome-format.log"
 fi
 
 rm src/unformatted.ts

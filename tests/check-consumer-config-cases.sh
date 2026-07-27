@@ -14,7 +14,10 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# CDPATH= because the target `tests/..` starts with neither /, ./ nor ../ and is
+# therefore searched in CDPATH — which both redirects it and echoes the resolved
+# path, making ROOT a two-line value that opens nothing.
+ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GATE="$ROOT/bin/check-consumer-config.php"
 FIXTURE="$ROOT/tests/consumer"
 
@@ -455,9 +458,8 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 
-d="$(mk_js_case biome-no-extends)"
-printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json without the shared extends" "biome/base.json"
+# The plain "no extends" case lives with the adoption pair further down, where it
+# is the counterpart to the same config in a repository that has not adopted.
 
 # A near-miss package name must NOT satisfy the extends check — the optional path
 # prefix has to end at a segment boundary, the same rule the deptrac import uses.
@@ -481,6 +483,17 @@ assert_accepts "$d" "biome.json extending via a pnpm node_modules path"
 d="$(mk_js_case biome-local-lookalike)"
 printf '{\n    "extends": ["./fixtures/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
 assert_rejects "$d" "biome.json extending a local look-alike copy outside node_modules" "biome/base.json"
+
+# A literal `node_modules/` segment somewhere in an arbitrary path is not this
+# repository's node_modules — both of these are loaded by the real tools INSTEAD
+# of the installed package, which is the whole failure mode.
+d="$(mk_js_case biome-nested-lookalike)"
+printf '{\n    "extends": ["./fixtures/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending through a node_modules under an unrelated path" "biome/base.json"
+
+d="$(mk_js_case biome-foreign-repo)"
+printf '{\n    "extends": ["../../other-repo/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending another repository's node_modules" "biome/base.json"
 
 # Biome does NOT resolve an extensionless specifier — verified, it answers with
 # `module not found` — so the gate must not accept one either.
@@ -801,6 +814,45 @@ d="$(mk_case js-no-package-json)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
 assert_accepts "$d" "standalone biome.json with no package.json at all"
 
+# A parse failure, unlike the `"//"` key, IS gated on adoption — this reader is
+# not Biome's, so it can reject a file the real tool accepts, and reporting that
+# to a repository which never claimed the link is the failure the adoption gate
+# exists to prevent.
+d="$(mk_unadopted_case js-unadopted-malformed)"
+printf '{\n    "linter": { "enabled": true\n' > "$d/biome.json"
+assert_accepts "$d" "malformed biome.json in a repo that has not adopted the npm package"
+
+d="$(mk_js_case js-adopted-malformed)"
+printf '{\n    "linter": { "enabled": true\n' > "$d/biome.json"
+assert_rejects "$d" "malformed biome.json once the npm package is declared" "not valid JSON(C)"
+
+# Both tools read a BOM-prefixed config and honour it; json_decode does not. A
+# reader stricter than the tools reports a defect in a file that loads fine.
+d="$(mk_js_case biome-bom)"
+printf '\xEF\xBB\xBF' > "$d/biome.json"
+cat "$FIXTURE/biome.json" >> "$d/biome.json"
+assert_accepts "$d" "biome.json saved with a UTF-8 BOM"
+
+d="$(mk_js_case ts-bom)"
+printf '\xEF\xBB\xBF' > "$d/tsconfig.json"
+cat "$FIXTURE/tsconfig.json" >> "$d/tsconfig.json"
+assert_accepts "$d" "tsconfig.json saved with a UTF-8 BOM"
+
+# The probe that decides whether any of this runs must not fail open: an
+# unreadable package.json would otherwise switch the entire JS/TS contract off
+# while the gate still printed OK.
+d="$(mk_case js-package-json-malformed)"
+printf '{\n    "devDependencies": {\n' > "$d/package.json"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_rejects "$d" "an unparseable package.json is reported, not treated as non-adoption" "package.json"
+
+# A package.json with a BOM is readable by npm, so it must not be reported — and
+# the dependency inside it must still be seen.
+d="$(mk_case js-package-json-bom)"
+printf '\xEF\xBB\xBF{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_rejects "$d" "a BOM-prefixed package.json is still read for the dependency" "biome/base.json"
+
 # The exception that proves the gate is not simply switched off: a `"//"` key
 # makes the config unloadable for Biome whether or not it extends anything, so
 # that one check stays unconditional.
@@ -817,6 +869,86 @@ assert_rejects "$d" "\"//\" key is reported even without adoption" '`"//"` key'
 d="$(mk_js_case js-adopted-no-extends)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
 assert_rejects "$d" "biome.json without extends once the npm package is declared" "biome/base.json"
+
+# --- the pinned strict flags, derived from the shipped base ------------------
+#
+# The gate pins a hand-written list of compilerOptions; tsconfig/base.json ships
+# a set. Today they agree, and nothing holds them there — a strictness flag added
+# to the shared base later would go unpinned in silence, which is precisely what
+# this gate exists to prevent one layer down. So the cases are DERIVED from the
+# base rather than listed here: every flag it ships is either pinned or a named
+# ergonomics exception, and neither list may outlive the other.
+ergonomics=" esModuleInterop resolveJsonModule skipLibCheck "
+
+mapfile -t base_flags < <(php -r '
+    $options = json_decode(file_get_contents($argv[1]), true)["compilerOptions"];
+
+    foreach ($options as $name => $value) {
+        if ($value === true) {
+            echo $name, "\n";
+        }
+    }
+' "$ROOT/tsconfig/base.json")
+
+# A scan that collected nothing must not read as "everything is classified".
+if [ "${#base_flags[@]}" -eq 0 ]; then
+    printf 'FAILED: read no compilerOptions flags from tsconfig/base.json\n' >&2
+    fails=$((fails + 1))
+fi
+
+for flag in "${base_flags[@]}"; do
+    d="$(mk_js_case "ts-flag-$flag")"
+    printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
+
+    case "$ergonomics" in
+        *" $flag "*)
+            assert_accepts "$d" "tsconfig.json turning the ergonomics flag $flag off"
+            ;;
+        *)
+            assert_rejects "$d" "tsconfig.json turning the shared strict flag $flag off" "compilerOptions.$flag"
+            ;;
+    esac
+done
+
+# The other direction, so an exception cannot outlive the flag it excepts.
+for flag in $ergonomics; do
+    if ! printf '%s\n' "${base_flags[@]}" | grep -qx "$flag"; then
+        printf 'FAILED: ergonomics exception %s is no longer shipped by tsconfig/base.json\n' "$flag" >&2
+        fails=$((fails + 1))
+    fi
+done
+
+# --- the remaining branches --------------------------------------------------
+
+# The adoption probe reads three dependency sections; only one was exercised.
+for section in dependencies optionalDependencies; do
+    d="$(mk_case "js-adopted-via-$section")"
+    printf '{\n    "%s": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' "$section" > "$d/package.json"
+    printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+    assert_rejects "$d" "the npm dependency declared under $section counts as adoption" "biome/base.json"
+done
+
+# Every overrides case so far put the violation at index 0, so a walk that only
+# inspected the first entry would pass them all — and the index in the message
+# was never proven to track the real one.
+d="$(mk_js_case biome-override-second-entry)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["tests/**"], "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } } },
+        { "includes": ["**"], "linter": { "enabled": false } }
+    ]
+}
+JSON
+assert_rejects "$d" "a violation in the SECOND overrides entry is reported with its index" "overrides[1].linter.enabled"
+
+# jscpd's `format` as a bare string rather than a list: the deny-list loop would
+# skip it, so the spelling that scans nothing would pass through the escape
+# hatch the check exists to close.
+d="$work/jscpd-format-scalar"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": "ts"/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json with a scalar format instead of a list" 'Use "typescript"'
 
 # A repo with no JS at all must stay accepted — these configs are optional.
 d="$(mk_case no-js)"
