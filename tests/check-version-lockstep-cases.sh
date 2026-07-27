@@ -166,7 +166,16 @@ assert_accepts "$d" "a pin carrying both a prerelease and build metadata"
 # exist. It is not a version, so the vacuity guard is what reports it.
 for junk in final _hotfix /x; do
     d="$(mk_case "trailing-junk${junk//\//-}" 1.7.0 "npm install --save-dev github:magicsunday/coding-standard#1.7.0${junk}")"
-    assert_rejects "$d" "a pin with the trailing characters '${junk}' is not read as a bare version" "documents no"
+    assert_rejects "$d" "a pin with the trailing characters '${junk}' is reported, not read as a bare version" "UNRECOGNISED"
+done
+
+# The configuration the three cases above structurally cannot reach: a junk pin
+# BESIDE a well-formed one. Dropping an unrecognised pin instead of reporting it
+# is invisible there, because the vacuity guard only fires when no pin is left.
+for junk in final _hotfix /x; do
+    d="$(mk_case "junk-beside-good${junk//\//-}" 1.7.0 "github:magicsunday/coding-standard#1.7.0
+and also github:magicsunday/coding-standard#1.7.0${junk}")"
+    assert_rejects "$d" "a junk pin '${junk}' is reported even beside a matching one" "UNRECOGNISED  README.md:2"
 done
 
 # And the discriminator for the shape: a pin that differs only in its last

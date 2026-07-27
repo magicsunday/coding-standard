@@ -71,38 +71,47 @@ if ($readme === false) {
     exit(1);
 }
 
-// Every documented pin, with its position, so a mismatch can name the line.
+// Every documented OCCURRENCE, matched permissively on purpose.
 //
-// The capture is a version SHAPE, not "everything up to the next quote or
-// space". `\S` includes a backtick, a closing paren and a sentence-ending
-// period, so the inline forms this repository's own prose uses captured the
-// punctuation with the pin and reported a mismatch against a README that was
-// perfectly correct.
+// A shape-only pattern would DROP an unrecognised pin instead of reporting it,
+// and dropping is indistinguishable from absence — the vacuity guard below only
+// fires when there is no pin at all. So `#1.8.0_hotfix` written beside a correct
+// pin left the gate printing OK for a README documenting a tag that does not
+// exist: the very outcome the shape check was added to prevent, one step further
+// along. The shape is applied per occurrence instead, and a failure is a
+// violation rather than a skip.
 //
-// The shape has to hold for a prerelease and build metadata too, and both edges
-// of it matter:
-//
-// - each `-`/`+` group is dot-separated alphanumerics rather than a class that
-//   contains `.`, so `#1.8.0-rc.1.` at the end of a sentence yields `1.8.0-rc.1`
-//   and not `1.8.0-rc.1.`; the group repeats, so `#1.2.3-beta.1+build.5` is
-//   captured whole instead of truncated at the prerelease.
-// - the lookaheads terminate it: nothing that is legal in a git ref may follow
-//   (so `#1.7.0final`, `#1.7.0_hotfix` and `#1.7.0/x` are not silently read as
-//   the tag `1.7.0`, certifying lockstep for a tag that does not exist), and a
-//   following `.` may not begin another segment (so a sentence period is fine
-//   and a longer version is not truncated). Punctuation that cannot appear in a
-//   ref — a backtick, a paren, a comma, a sentence period — is deliberately NOT
-//   in the class, because that is what ends a pin written inline in prose.
-//
-// A documented `#<tag>` placeholder matches nothing, which is what it is.
+// The terminating class is what a pin written inline in prose ends on — a
+// backtick, a paren, a comma, whitespace — none of which may appear in a git ref.
 preg_match_all(
-    '~github:magicsunday/coding-standard#(\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*)(?![0-9A-Za-z_+/-])(?!\.[0-9A-Za-z])~',
+    '~github:magicsunday/coding-standard#([^\s`\'"()\[\]{},]+)~',
     $readme,
     $matches,
     \PREG_OFFSET_CAPTURE
 );
 
-$pins = $matches[1] ?? [];
+// The version shape, applied to each occurrence. It has to hold for a prerelease
+// and build metadata too: each `-`/`+` group is dot-separated alphanumerics
+// rather than a class containing `.`, and the group repeats, so
+// `#1.2.3-beta.1+build.5` is taken whole instead of truncated at the prerelease.
+// A git ref may not END in a period (git check-ref-format), so a trailing one is
+// always prose and is stripped before the comparison.
+$shape = '~^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*$~D';
+
+$pins = [];
+
+foreach ($matches[1] ?? [] as [$raw, $offset]) {
+    $token = rtrim($raw, '.');
+
+    // A documented `#<tag>` placeholder is not a pin and must not be compared as
+    // one — nor does it count towards the vacuity guard, since a README carrying
+    // only a placeholder documents no pin.
+    if ($token === '<tag>') {
+        continue;
+    }
+
+    $pins[] = [$token, $offset, preg_match($shape, $token) === 1];
+}
 
 // A README that documents no pin at all would make this gate pass vacuously —
 // exactly the failure mode the phpat subject-liveness guard exists to prevent.
@@ -113,8 +122,15 @@ if (count($pins) === 0) {
 
 $failed = false;
 
-foreach ($pins as [$pin, $offset]) {
+foreach ($pins as [$pin, $offset, $wellFormed]) {
     $line = substr_count(substr($readme, 0, $offset), "\n") + 1;
+
+    if (!$wellFormed) {
+        fwrite(\STDERR, sprintf("UNRECOGNISED  README.md:%d pins #%s, which is not a version tag\n", $line, $pin));
+        $failed = true;
+
+        continue;
+    }
 
     if ($pin !== $version) {
         fwrite(\STDERR, sprintf("MISMATCH  README.md:%d pins #%s, package.json says %s\n", $line, $pin, $version));

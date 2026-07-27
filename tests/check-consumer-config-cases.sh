@@ -54,6 +54,28 @@ assert_rejects() {
     fi
 }
 
+# assert_reports_once <dir> <label> <file prefix>
+#
+# The two assert_* helpers above grep for the PRESENCE of one substring, so they
+# cannot express "and nothing further was said about this file" — which is exactly
+# the property a read-failure path needs, since the defect it guards against is an
+# EXTRA fabricated violation rather than a missing one.
+assert_reports_once() {
+    local dir="$1" label="$2" prefix="$3" out rc count
+    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
+    count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
+
+    if [ "$rc" -eq 0 ]; then
+        printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$count" -ne 1 ]; then
+        printf 'FAIL (expected exactly one %s violation, got %s): %s\n%s\n' "$prefix" "$count" "$label" "$out"
+        fails=$((fails + 1))
+    else
+        printf 'ok (reported exactly once): %s\n' "$label"
+    fi
+}
+
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
 
@@ -173,6 +195,15 @@ indent_size = 4
 indent_style = tab
 EC
 assert_rejects "$d" ".editorconfig with indent_style = tab in [*]" "must set \`indent_style = space\`"
+
+# Editors honour a BOM'd .editorconfig — editorconfig-core-js reads one and
+# returns its settings, because JavaScript's `\s` matches U+FEFF. PHP's trim()
+# does not, so without the strip the key parses as "\u{FEFF}root" and a file
+# every editor obeys is reported as drift.
+d="$(mk_case editorconfig-bom)"
+printf '\xEF\xBB\xBF' > "$d/.editorconfig"
+cat "$ROOT/templates/editorconfig" >> "$d/.editorconfig"
+assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM"
 
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"
@@ -615,6 +646,39 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json dropping the rule floor through an overrides entry" "overrides[0].linter.rules.preset"
 
+# Biome carries linter/formatter a THIRD time, per language — and there it
+# silences the shared standard for every file of that language while the
+# top-level keys still read as enabled. Verified against 2.5.5: with this config
+# a `==` comparison and a 2-space indent both pass.
+d="$(mk_js_case biome-language-linter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "javascript": { "linter": { "enabled": false } }
+}
+JSON
+assert_rejects "$d" "biome.json disabling the linter for a whole language" "javascript.linter.enabled"
+
+d="$(mk_js_case biome-language-formatter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "javascript": { "formatter": { "enabled": false } }
+}
+JSON
+assert_rejects "$d" "biome.json disabling the formatter for a whole language" "javascript.formatter.enabled"
+
+# The counterpart: a per-language block that only sets style options is normal
+# consumer use and must not be reported.
+d="$(mk_js_case biome-language-legitimate)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "javascript": { "formatter": { "quoteStyle": "single" } }
+}
+JSON
+assert_accepts "$d" "biome.json setting a per-language style option"
+
 # A legitimate overrides entry — narrowing a single rule for one path — must not
 # be reported, or the check would push consumers off a feature they need.
 d="$(mk_js_case biome-override-legitimate)"
@@ -637,8 +701,22 @@ d="$(mk_js_case biome-malformed)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"\n' > "$d/biome.json"
 assert_rejects "$d" "biome.json that is not valid JSON(C)" "not valid JSON(C)"
 
-# biome.jsonc is Biome's own alternative filename; the gate must find it there too.
+# biome.jsonc is Biome's own alternative filename; the gate must find it there
+# too. Asserted as a REJECT, because that is the only shape that proves discovery:
+# an accept case stays green when the .jsonc candidate is dropped from the list —
+# the fixture then has no biome file at all and the whole block is skipped.
 d="$(mk_js_case biome-jsonc)"
+rm "$d/biome.json"
+cat > "$d/biome.jsonc" <<'JSON'
+{
+    // A jsonc file exists precisely so a consumer can comment it.
+    "//": "and this note key makes it unloadable",
+    "extends": ["@magicsunday/coding-standard/biome/base.json"]
+}
+JSON
+assert_rejects "$d" "biome.jsonc is discovered, parsed with comments, and named in the report" "biome.jsonc: "
+
+d="$(mk_js_case biome-jsonc-clean)"
 rm "$d/biome.json"
 cat > "$d/biome.jsonc" <<'JSON'
 {
@@ -646,7 +724,7 @@ cat > "$d/biome.jsonc" <<'JSON'
     "extends": ["@magicsunday/coding-standard/biome/base.json"]
 }
 JSON
-assert_accepts "$d" "biome.jsonc discovered and parsed with comments"
+assert_accepts "$d" "a clean biome.jsonc is accepted"
 
 d="$(mk_js_case ts-no-extends)"
 printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
@@ -987,18 +1065,77 @@ sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "f
 assert_rejects "$d" ".jscpd.json with a scalar format instead of a list" 'Use "typescript"'
 
 # An unreadable config is not a syntax error, and reporting it as one sends the
-# reader to fix the wrong thing. Unconditional, unlike a parse failure: no reader
-# tolerance is in play when the file cannot be opened at all.
-d="$(mk_unadopted_case js-unreadable-biome)"
-cp "$FIXTURE/biome.json" "$d/biome.json"
-chmod 000 "$d/biome.json"
-assert_rejects "$d" "an unreadable biome.json reports as unreadable, not as malformed" "cannot be read"
-chmod 644 "$d/biome.json"
+# reader to fix the wrong thing. Every read site gets a case, because two of them
+# fail OPEN without one: an unreadable .jscpd.json leaves the gate printing OK for
+# a config it never read, and an unreadable package.json switches the ENTIRE JS/TS
+# contract off while still printing OK.
+#
+# Skipped for uid 0: root bypasses DAC, so mode 000 stays readable, the gate
+# correctly accepts and every one of these would read as a false regression. CI
+# runs non-root, so the branches stay exercised there — the skip line is printed
+# rather than silent so the omission is visible when it happens.
+if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip (running as root: mode 000 does not deny read): the unreadable-config cases\n'
+else
+    d="$(mk_unadopted_case js-unreadable-biome)"
+    cp "$FIXTURE/biome.json" "$d/biome.json"
+    chmod 000 "$d/biome.json"
+    assert_rejects "$d" "an unreadable biome.json reports as unreadable, not as malformed" "biome.json: exists but cannot be read"
+    chmod 644 "$d/biome.json"
 
-d="$(mk_js_case js-unreadable-tsconfig)"
-chmod 000 "$d/tsconfig.json"
-assert_rejects "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "cannot be read"
-chmod 644 "$d/tsconfig.json"
+    d="$(mk_js_case js-unreadable-tsconfig)"
+    chmod 000 "$d/tsconfig.json"
+    assert_rejects "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "tsconfig.json: exists but cannot be read"
+    chmod 644 "$d/tsconfig.json"
+
+    # Fails open without the guard: the gate would print OK for a config it never read.
+    d="$work/jscpd-unreadable"; jscpd_fixture "$d"
+    chmod 000 "$d/.jscpd.json"
+    assert_rejects "$d" "an unreadable .jscpd.json is reported rather than skipped" ".jscpd.json: exists but cannot be read"
+    chmod 644 "$d/.jscpd.json"
+
+    # Fails open too, and wider: this one silences the whole JS/TS contract.
+    d="$(mk_case js-package-json-unreadable)"
+    printf '{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
+    printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+    chmod 000 "$d/package.json"
+    assert_rejects "$d" "an unreadable package.json does not switch the JS/TS contract off" "package.json: exists but cannot be read"
+    chmod 644 "$d/package.json"
+
+    # But a repository with NO JS config is never probed, so a broken package.json
+    # there is not this gate's business — it would be a red for a contract that has
+    # nothing to check.
+    d="$(mk_case php-only-broken-package-json)"
+    printf '{\n    "devDependencies": {\n' > "$d/package.json"
+    assert_accepts "$d" "a PHP-only repo is not probed for the JS/TS contract at all"
+
+    # These three degraded differently: the read failure WAS reported, and then the
+    # content assertions ran against an empty string and fabricated more.
+    for pair in phplint.yml:.phplint.yml editorconfig:.editorconfig; do
+        template="${pair%%:*}"
+        target="${pair##*:}"
+        d="$(mk_case "unreadable-$template")"
+        cp "$ROOT/templates/$template" "$d/$target"
+        chmod 000 "$d/$target"
+        assert_rejects "$d" "an unreadable $target reports only that it cannot be read" "$target: exists but cannot be read"
+        assert_reports_once "$d" "an unreadable $target fabricates no content drift" "$target"
+        chmod 644 "$d/$target"
+    done
+
+    d="$(mk_case unreadable-deptrac)"
+    printf 'imports:\n    - vendor/magicsunday/coding-standard/deptrac/layers.yaml\n' > "$d/deptrac.yaml"
+    chmod 000 "$d/deptrac.yaml"
+    assert_rejects "$d" "an unreadable deptrac.yaml reports only that it cannot be read" "deptrac.yaml: exists but cannot be read"
+    assert_reports_once "$d" "an unreadable deptrac.yaml fabricates no content drift" "deptrac.yaml"
+    chmod 644 "$d/deptrac.yaml"
+
+    # phpunit.xml is the one REQUIRED file, and libxml returns the same false for
+    # unreadable as for malformed — so this used to read as a syntax error.
+    d="$(mk_case unreadable-phpunit)"
+    chmod 000 "$d/phpunit.xml"
+    assert_rejects "$d" "an unreadable phpunit.xml is not reported as malformed XML" "phpunit.xml: exists but cannot be read"
+    chmod 644 "$d/phpunit.xml"
+fi
 
 # The silent-skip arms: a malformed sub-node must not quietly drop the checks
 # below it in a gate whose whole purpose is not to pass silently.
@@ -1042,6 +1179,23 @@ for pair in js:javascript mjs:javascript cjs:javascript ts:typescript mts:typesc
     sed -i "s/\"reporters\": \[\"console-full\"\]/\"reporters\": [\"console-full\"],\n    \"format\": [\"php\", \"$spelling\"]/" "$d/.jscpd.json"
     assert_rejects "$d" ".jscpd.json using the \"$spelling\" extension as a format name" "Use \"$canonical\""
 done
+
+# `reporters` takes the same list-vs-scalar mistake as `format`, and without the
+# is_array guard the gate dies on in_array() with a TypeError instead of
+# reporting — a crash where a finding belongs.
+d="$work/jscpd-reporters-scalar"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": "console-full"/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json with a scalar reporters instead of a list" "console-full"
+
+# The "must be present" half of both thresholds: every other fixture always
+# carries the key, so only the ">" comparison was exercised.
+d="$work/jscpd-no-mintokens"; jscpd_fixture "$d"
+sed -i '/"minTokens"/d' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json omitting minTokens entirely" "minTokens"
+
+d="$work/jscpd-no-minlines"; jscpd_fixture "$d"
+sed -i '/"minLines"/d' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json omitting minLines entirely" "minLines"
 
 # A repo with no JS at all must stay accepted — these configs are optional.
 d="$(mk_case no-js)"

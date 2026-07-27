@@ -117,29 +117,21 @@ if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-instal
     exit 1
 fi
 
-# Prove the `files` allow-list actually shipped the configs. Derived from that
-# allow-list itself — the thing under test — rather than from two hard-coded
-# directory names: a third entry added to `files` is then covered without anyone
-# remembering to extend this loop, and every declared entry is proven present in
-# the tarball.
+# Prove the `files` allow-list actually shipped the configs — read from the
+# TARBALL npm produced, not from a re-implementation of npm's semantics. A walk
+# over the `files` entries has to reproduce glob expansion and the default-ignore
+# list (`*.orig`, `.DS_Store`, …) to stay in step; reading what npm actually
+# packed agrees with it by construction.
 listing=""
-listing="$(ROOT="$root" node -e '
-const {readdirSync, statSync} = require("node:fs");
-const {join} = require("node:path");
-const root = process.env.ROOT;
-const walk = (rel) => statSync(join(root, rel)).isDirectory()
-    ? readdirSync(join(root, rel)).flatMap((entry) => walk(join(rel, entry)))
-    : [rel];
-process.stdout.write(require(root + "/package.json").files.flatMap(walk).sort().join("\n"));
-')" || {
-    fail "could not read the files allow-list from package.json — nothing to verify"
+listing="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | grep -E '\.(json|md)$' | sort)" || {
+    fail "could not list the tarball contents — nothing to verify"
     exit 1
 }
 
 mapfile -t shipped <<<"$listing"
 
 if [ "${#shipped[@]}" -eq 0 ] || [ -z "${shipped[0]}" ]; then
-    fail "package.json declares an empty files allow-list — nothing to verify"
+    fail "the npm tarball carries no config files at all — check package.json \"files\""
     exit 1
 fi
 
@@ -147,7 +139,18 @@ for config in "${shipped[@]}"; do
     if [ -f "node_modules/@magicsunday/coding-standard/$config" ]; then
         pass "packed: $config"
     else
-        fail "packed: $config — missing from the npm tarball (check package.json \"files\")"
+        fail "packed: $config — in the tarball but not installed"
+    fi
+done
+
+# The tarball is the artefact, but `files` is the declaration: every entry of it
+# must be represented, or a directory silently stops shipping while the loop above
+# stays green on whatever else is in there.
+for entry in $(ROOT="$root" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join(" "))'); do
+    if printf '%s\n' "${shipped[@]}" | grep -q "^${entry%/}/"; then
+        pass "declared and packed: $entry"
+    else
+        fail "declared in package.json \"files\" but absent from the tarball: $entry"
     fi
 done
 

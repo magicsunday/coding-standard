@@ -120,18 +120,26 @@ if (is_file($phpunitPath)) {
 if ($phpunitFile === null) {
     $fail($violations, 'phpunit.xml', 'missing — the strict PHPUnit config is required.');
 } else {
-    // A malformed file makes simplexml_load_file emit an E_WARNING per libxml
-    // error and return false; capture those warnings through a scoped handler
-    // rather than the banned `@` prefix, then branch on the return value.
+    // Read it first: simplexml returns the same `false` for an unreadable file as
+    // for a malformed one, so without this a permissions problem is reported as a
+    // syntax error — on the one file this gate declares REQUIRED, which is the
+    // worst place to send the reader to the wrong fix.
+    $phpunitContents = $readFile($phpunitFile);
+
+    // A malformed file makes simplexml emit an E_WARNING per libxml error and
+    // return false; capture those warnings through a scoped handler rather than
+    // the banned `@` prefix, then branch on the return value.
     set_error_handler(static fn (): bool => true);
 
     try {
-        $xml = simplexml_load_file($phpunitFile);
+        $xml = ($phpunitContents === false) ? false : simplexml_load_string($phpunitContents);
     } finally {
         restore_error_handler();
     }
 
-    if ($xml === false) {
+    if ($phpunitContents === false) {
+        $fail($violations, 'phpunit.xml', 'exists but cannot be read.');
+    } elseif ($xml === false) {
         $fail($violations, 'phpunit.xml', 'not well-formed XML.');
     } else {
         // Every strict attribute must be present AND "true" on the root element.
@@ -311,23 +319,22 @@ if (is_file($phplintFile)) {
 
     if ($contents === false) {
         $fail($violations, '.phplint.yml', 'exists but cannot be read.');
-        $contents = '';
-    }
+    } else {
+        $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
-    $contents = str_replace(["\r\n", "\r"], "\n", $contents);
+        // A full YAML parse is avoided to keep the gate dependency-free; instead
+        // the `extensions:` block is isolated (its indented list items, up to the
+        // next top-level key) and `php` is required INSIDE that block — a `- php`
+        // sitting under some other list must not satisfy the check.
+        $extensionsBlock = '';
 
-    // A full YAML parse is avoided to keep the gate dependency-free; instead the
-    // `extensions:` block is isolated (its indented list items, up to the next
-    // top-level key) and `php` is required INSIDE that block — a `- php` sitting
-    // under some other list must not satisfy the check.
-    $extensionsBlock = '';
+        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+            $extensionsBlock = $m[1];
+        }
 
-    if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
-        $extensionsBlock = $m[1];
-    }
-
-    if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
-        $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
+        if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
+            $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
+        }
     }
 }
 
@@ -339,73 +346,78 @@ if (is_file($editorconfigFile)) {
 
     if ($contents === false) {
         $fail($violations, '.editorconfig', 'exists but cannot be read.');
-        $contents = '';
-    }
+    } else {
+        // Editors honour a BOM'd .editorconfig — editorconfig-core-js reads one
+        // and returns its settings, because JavaScript's `\s` matches U+FEFF.
+        // PHP's trim() does not, so without this the key parses as
+        // "\u{FEFF}root" and a file every editor obeys is reported as drift.
+        $contents = $stripBom($contents);
 
-    // EditorConfig is section-scoped INI: `root` is a preamble key valid only
-    // BEFORE the first `[section]`, and each key belongs to the section it sits
-    // under. A per-line whole-file regex accepts drift (a `root` moved into a
-    // section, `indent_style` set only in a narrow `[*.md]` while `[*]` uses tabs,
-    // the Makefile override deleted), so parse the file into a preamble map plus a
-    // per-section key map and assert each value in the section it must hold in.
-    /** @var array<string, string> $preamble */
-    $preamble = [];
-    /** @var array<string, array<string, string>> $sections */
-    $sections = [];
-    $current  = null;
+        // EditorConfig is section-scoped INI: `root` is a preamble key valid only
+        // BEFORE the first `[section]`, and each key belongs to the section it sits
+        // under. A per-line whole-file regex accepts drift (a `root` moved into a
+        // section, `indent_style` set only in a narrow `[*.md]` while `[*]` uses tabs,
+        // the Makefile override deleted), so parse the file into a preamble map plus a
+        // per-section key map and assert each value in the section it must hold in.
+        /** @var array<string, string> $preamble */
+        $preamble = [];
+        /** @var array<string, array<string, string>> $sections */
+        $sections = [];
+        $current  = null;
 
-    foreach (preg_split('/\R/', $contents) ?: [] as $line) {
-        $trimmed = trim($line);
+        foreach (preg_split('/\R/', $contents) ?: [] as $line) {
+            $trimmed = trim($line);
 
-        if (($trimmed === '') || ($trimmed[0] === '#') || ($trimmed[0] === ';')) {
-            continue;
-        }
+            if (($trimmed === '') || ($trimmed[0] === '#') || ($trimmed[0] === ';')) {
+                continue;
+            }
 
-        if (preg_match('/^\[(.+)\]$/', $trimmed, $m) === 1) {
-            $current            = $m[1];
-            $sections[$current] = $sections[$current] ?? [];
+            if (preg_match('/^\[(.+)\]$/', $trimmed, $m) === 1) {
+                $current            = $m[1];
+                $sections[$current] = $sections[$current] ?? [];
 
-            continue;
-        }
+                continue;
+            }
 
-        if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $m) === 1) {
-            $key   = strtolower(trim($m[1]));
-            $value = strtolower(trim($m[2]));
+            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $m) === 1) {
+                $key   = strtolower(trim($m[1]));
+                $value = strtolower(trim($m[2]));
 
-            if ($current === null) {
-                $preamble[$key] = $value;
-            } else {
-                $sections[$current][$key] = $value;
+                if ($current === null) {
+                    $preamble[$key] = $value;
+                } else {
+                    $sections[$current][$key] = $value;
+                }
             }
         }
-    }
 
-    if (($preamble['root'] ?? null) !== 'true') {
-        $fail($violations, '.editorconfig', 'must set `root = true` in the preamble (before any section).');
-    }
-
-    $global = $sections['*'] ?? null;
-
-    if ($global === null) {
-        $fail($violations, '.editorconfig', 'must define a global `[*]` section.');
-    } else {
-        if (($global['indent_style'] ?? null) !== 'space') {
-            $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_style = space`.');
+        if (($preamble['root'] ?? null) !== 'true') {
+            $fail($violations, '.editorconfig', 'must set `root = true` in the preamble (before any section).');
         }
 
-        if (($global['indent_size'] ?? null) !== '4') {
-            $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_size = 4`.');
+        $global = $sections['*'] ?? null;
+
+        if ($global === null) {
+            $fail($violations, '.editorconfig', 'must define a global `[*]` section.');
+        } else {
+            if (($global['indent_style'] ?? null) !== 'space') {
+                $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_style = space`.');
+            }
+
+            if (($global['indent_size'] ?? null) !== '4') {
+                $fail($violations, '.editorconfig', 'the `[*]` section must set `indent_size = 4`.');
+            }
         }
-    }
 
-    // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`. The
-    // glob is case-sensitive, so the section name must match exactly — a lowercase
-    // `{makefile,*.mk}` would not match the real `Makefile` and silently apply no
-    // tab rule, so it is NOT accepted as an equivalent.
-    $makefile = $sections['{Makefile,*.mk}'] ?? null;
+        // Makefiles keep hard tabs; the canonical override is `[{Makefile,*.mk}]`. The
+        // glob is case-sensitive, so the section name must match exactly — a lowercase
+        // `{makefile,*.mk}` would not match the real `Makefile` and silently apply no
+        // tab rule, so it is NOT accepted as an equivalent.
+        $makefile = $sections['{Makefile,*.mk}'] ?? null;
 
-    if (($makefile === null) || (($makefile['indent_style'] ?? null) !== 'tab')) {
-        $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
+        if (($makefile === null) || (($makefile['indent_style'] ?? null) !== 'tab')) {
+            $fail($violations, '.editorconfig', 'must keep the `[{Makefile,*.mk}]` section with `indent_style = tab`.');
+        }
     }
 }
 
@@ -423,31 +435,30 @@ if (is_file($deptracFile)) {
 
     if ($contents === false) {
         $fail($violations, 'deptrac.yaml', 'exists but cannot be read.');
-        $contents = '';
-    }
+    } else {
+        $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
-    $contents = str_replace(["\r\n", "\r"], "\n", $contents);
+        // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
+        // top-level key) and require the shared file INSIDE it — the same block-scoping
+        // the `.phplint.yml` check uses. A path sitting under some other list (e.g.
+        // `deptrac.exclude_files`) must not satisfy the check: Deptrac only loads the
+        // ruleset from `imports`.
+        $importsBlock = '';
 
-    // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
-    // top-level key) and require the shared file INSIDE it — the same block-scoping
-    // the `.phplint.yml` check uses. A path sitting under some other list (e.g.
-    // `deptrac.exclude_files`) must not satisfy the check: Deptrac only loads the
-    // ruleset from `imports`.
-    $importsBlock = '';
+        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+            $importsBlock = $m[1];
+        }
 
-    if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
-        $importsBlock = $m[1];
-    }
+        // Accept the shared import in any equivalent YAML shape: an optional path
+        // prefix that ENDS at a segment boundary (`vendor/` or `.build/vendor/` — so a
+        // near-miss `notmagicsunday/…` copy is rejected), an optionally quoted scalar,
+        // and an optional trailing inline comment. The `~` delimiter keeps the literal
+        // `#` of a YAML comment unescaped.
+        $importPattern = '~^[ \t]*-[ \t]*[\'"]?(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml[\'"]?[ \t]*(?:#.*)?$~m';
 
-    // Accept the shared import in any equivalent YAML shape: an optional path
-    // prefix that ENDS at a segment boundary (`vendor/` or `.build/vendor/` — so a
-    // near-miss `notmagicsunday/…` copy is rejected), an optionally quoted scalar,
-    // and an optional trailing inline comment. The `~` delimiter keeps the literal
-    // `#` of a YAML comment unescaped.
-    $importPattern = '~^[ \t]*-[ \t]*[\'"]?(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml[\'"]?[ \t]*(?:#.*)?$~m';
-
-    if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
-        $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
+        if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
+            $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
+        }
     }
 }
 
@@ -521,7 +532,7 @@ $stripJsonc = static function (string $json): ?string {
  * not be read at all. Collapsing the last two reports a permissions problem as a
  * syntax error, which is the wrong file to go and fix.
  *
- * @param string $path Absolute path to the config file.
+ * @param string $path Path to the config file.
  *
  * @return array<array-key, mixed>|null|false
  */
@@ -683,8 +694,6 @@ $npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $
     return false;
 };
 
-$adopted = $npmDependencyDeclared($repoRoot);
-
 // biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
 $biomeFile = null;
 
@@ -695,6 +704,13 @@ foreach (['biome.json', 'biome.jsonc'] as $candidate) {
         break;
     }
 }
+
+// Probed only when there is a JS/TS config to hold to the contract. Otherwise a
+// PHP-only consumer with a malformed package.json would be reported for a
+// contract that has nothing to check — the same "red for something you never
+// claimed" the adoption keying itself exists to avoid.
+$hasJsConfig = ($biomeFile !== null) || is_file($repoRoot . '/tsconfig.json');
+$adopted     = $hasJsConfig && $npmDependencyDeclared($repoRoot);
 
 if ($biomeFile !== null) {
     $label     = basename($biomeFile);
@@ -740,6 +756,19 @@ if ($biomeFile !== null) {
                 if (is_array($override)) {
                     $scopes[] = [sprintf('overrides[%s].', $index), $override];
                 }
+            }
+        }
+
+        // Biome carries `linter`/`formatter` a third time inside each per-language
+        // block, where `javascript.linter.enabled: false` silences the shared
+        // standard for every JS/TS file while the top-level key still reads as
+        // enabled — verified under 2.5.5, where such a config lets `a == b` and a
+        // 2-space indent through while this gate reported OK.
+        foreach (['javascript', 'json', 'css', 'graphql', 'grit', 'html'] as $language) {
+            $languageScope = $biomeJson[$language] ?? null;
+
+            if (is_array($languageScope)) {
+                $scopes[] = [sprintf('%s.', $language), $languageScope];
             }
         }
 
