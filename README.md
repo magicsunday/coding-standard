@@ -244,9 +244,21 @@ automatically a required status check, so a detected break reports red and the P
 still merges. Register it in the same change:
 
 ```shell
-gh api repos/<owner>/<repo>/branches/main/protection/required_status_checks --jq '.contexts'
-gh api -X PATCH repos/<owner>/<repo>/branches/main/protection/required_status_checks \
-    -f 'contexts[]=<every existing context>' -f 'contexts[]=Backward compatibility'
+# Read what the branch already requires.
+gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" --jq '.checks'
+
+# Re-send that list plus the new context. `checks` REPLACES the whole list, so every
+# existing entry has to be repeated — omitting one silently un-requires it. `strict`
+# is optional here and is left untouched when the body does not mention it.
+gh api -X PATCH "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+    --input - <<'JSON'
+{
+    "checks": [
+        {"context": "<every existing context>"},
+        {"context": "Backward compatibility"}
+    ]
+}
+JSON
 ```
 
 Note the interaction with the house rule on first-party libraries: where every consumer

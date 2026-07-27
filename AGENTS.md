@@ -89,6 +89,19 @@ directory that matches how it is consumed, never at the root for convenience.
   compatibility; never grow it into a narrowed `require`, which would hide *why* the
   version is excluded.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
+- **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
+  manifest, never a root `require --dev`.** The case that forced the rule is
+  `roave/backward-compatibility-check` (`php: ~8.4.0 || ~8.5.0` from 8.20.0 on): required
+  at the root of an `^8.3` library it writes itself into the root `composer.lock`, and
+  every other leg of the 8.3/8.4/8.5 matrix then aborts `composer install` with *"Your
+  lock file does not contain a compatible set of packages"* — verified, exit 2. A
+  single-leg CI job does not help, because the poisoned lock is shared. Give it
+  `tools/<name>/composer.json` with `bin-dir: .build/bin` / `vendor-dir: .build/vendor`
+  (the house `.build/` layout) and install it with `--working-dir`. This repository only
+  DOCUMENTS the tool for consumers — it declares it under `suggest`, and the adoption
+  recipe (single-leg job, `fetch-depth: 0`, `ext-intl`, at least one existing tag, and
+  registering the status context as required) lives in the README's
+  *Backward-compatibility check* section.
 - **README.md and this file ship in the same change** as any layout/config/consumer
   claim they describe.
 - **Versioning:** the Composer package is tag-versioned (Packagist); tag `X.Y.Z` and
