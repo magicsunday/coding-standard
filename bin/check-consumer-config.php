@@ -748,27 +748,39 @@ if ($biomeFile !== null) {
         // Biome's schema, again inside every entry of `overrides` — where an
         // entry matching `**` disables the same thing for every file while the
         // top-level key still reads as enabled.
-        $scopes    = [['', $biomeJson]];
-        $overrides = $biomeJson['overrides'] ?? null;
+        // Biome carries `linter`/`formatter` in three nested places, and they
+        // COMBINE: the document, each `overrides` entry, and a per-language block
+        // inside either of those. `javascript.linter.enabled: false` silences the
+        // shared standard for every JS/TS file while the top-level key still reads
+        // as enabled — verified under 2.5.5, where such a config lets `a == b` and
+        // a 2-space indent through.
+        //
+        // So the languages are expanded per BASE scope rather than per document.
+        // Walking them off the document alone leaves the cross product open, and
+        // an override is the idiomatic place to write a language block, since that
+        // is how a language setting gets scoped to a path set.
+        $baseScopes = [['', $biomeJson]];
+        $overrides  = $biomeJson['overrides'] ?? null;
 
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
                 if (is_array($override)) {
-                    $scopes[] = [sprintf('overrides[%s].', $index), $override];
+                    $baseScopes[] = [sprintf('overrides[%s].', $index), $override];
                 }
             }
         }
 
-        // Biome carries `linter`/`formatter` a third time inside each per-language
-        // block, where `javascript.linter.enabled: false` silences the shared
-        // standard for every JS/TS file while the top-level key still reads as
-        // enabled — verified under 2.5.5, where such a config lets `a == b` and a
-        // 2-space indent through while this gate reported OK.
-        foreach (['javascript', 'json', 'css', 'graphql', 'grit', 'html'] as $language) {
-            $languageScope = $biomeJson[$language] ?? null;
+        $scopes = [];
 
-            if (is_array($languageScope)) {
-                $scopes[] = [sprintf('%s.', $language), $languageScope];
+        foreach ($baseScopes as [$prefix, $baseScope]) {
+            $scopes[] = [$prefix, $baseScope];
+
+            foreach (['javascript', 'json', 'css', 'graphql', 'grit', 'html'] as $language) {
+                $languageScope = $baseScope[$language] ?? null;
+
+                if (is_array($languageScope)) {
+                    $scopes[] = [sprintf('%s%s.', $prefix, $language), $languageScope];
+                }
             }
         }
 

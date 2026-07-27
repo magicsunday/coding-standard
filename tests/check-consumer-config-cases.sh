@@ -668,6 +668,47 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json disabling the formatter for a whole language" "javascript.formatter.enabled"
 
+# The cross product: a per-language block INSIDE an overrides entry. That is the
+# idiomatic place to write one, since an override is how a language setting gets
+# scoped to a path set — and walking languages off the document alone left it open.
+d="$(mk_js_case biome-override-language-linter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["**"], "javascript": { "linter": { "enabled": false } } }
+    ]
+}
+JSON
+assert_rejects "$d" "biome.json disabling a language's linter inside an overrides entry" "overrides[0].javascript.linter.enabled"
+
+# A non-zero index and a non-JS language, so neither the index nor the language
+# list is satisfied by the first entry alone.
+d="$(mk_js_case biome-override-language-second)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["tests/**"], "javascript": { "formatter": { "quoteStyle": "single" } } },
+        { "includes": ["**"], "json": { "formatter": { "enabled": false } } }
+    ]
+}
+JSON
+assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the SECOND overrides entry" "overrides[1].json.formatter.enabled"
+
+# The counterpart at the same nesting: a per-language style option inside an
+# override is exactly what overrides are for and must not be reported.
+d="$(mk_js_case biome-override-language-legitimate)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["tests/**"], "javascript": { "formatter": { "quoteStyle": "single" } } }
+    ]
+}
+JSON
+assert_accepts "$d" "biome.json setting a per-language style option inside an overrides entry"
+
 # The counterpart: a per-language block that only sets style options is normal
 # consumer use and must not be reported.
 d="$(mk_js_case biome-language-legitimate)"

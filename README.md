@@ -491,9 +491,10 @@ its own config is just as broken by it.
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
 their rule content genuinely cannot drift — the **link** can. Five things are asserted: the
 shared config is actually extended (a look-alike package name does not count), neither
-`linter` nor `formatter` is switched off — at the top level or inside any `overrides`
-entry, where one matching `**` disables it for every file while the top-level key still
-reads `true` — the
+`linter` nor `formatter` is switched off — Biome offers that toggle in three nested
+places and they combine: the document, every `overrides` entry, and a per-language block
+inside either of those, so `javascript.linter.enabled: false` silences the shared
+standard for every JS/TS file while the top-level key still reads `true` — the
 strict flags are not overridden back to `false` underneath it
 (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
 `noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`),
