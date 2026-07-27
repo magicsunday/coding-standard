@@ -39,7 +39,8 @@
     "suggest": {
         "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
-        "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34"
+        "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
+        "roave/backward-compatibility-check": "Public-API break detection for a library consumer: ^8.21. Install it via its OWN tools/backward-compatibility/composer.json, never into the root manifest — it requires php ~8.4.0 || ~8.5.0 and would make the root lock uninstallable on an 8.3 matrix leg (see the README)"
     },
     "bin": [
         "bin/check-consumer-config.php",

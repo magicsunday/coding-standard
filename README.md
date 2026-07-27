@@ -157,6 +157,111 @@ return static function (RectorConfig $config): void {
 };
 ```
 
+### Backward-compatibility check — `roave/backward-compatibility-check`
+
+A public-API break — most often a new constructor parameter inserted *before* the
+existing ones instead of appended, which breaks every positional caller — is the one
+defect class none of the gates here catch. PHPStan analyses a single revision, so it
+has nothing to compare against. `roave/backward-compatibility-check` diffs the public
+API against the last tag and reports the break mechanically.
+
+**Never `composer require --dev` it into the root manifest.** The tool requires
+`php: ~8.4.0 || ~8.5.0` from 8.20.0 on, and a root `require` writes it into the root
+`composer.lock`. Every *other* job of the same matrix then runs `composer install`
+against that lock and aborts on the 8.3 leg with *"Your lock file does not contain a
+compatible set of packages"* — verified: a `^8.3` library with the tool required at the
+root fails `composer install` with exit 2 under PHP 8.3. That hits exactly the
+repositories this section is for, the ones with a `^8.3` floor and an 8.3/8.4/8.5
+matrix. A single-leg job does not help, because the poisoned lock is shared.
+
+Give the tool **its own manifest** instead, so it never enters the root resolution
+(it resolves the analysed project's dependencies internally and does not share the
+root `vendor/`) — `tools/backward-compatibility/composer.json`:
+
+```json
+{
+    "require": {
+        "roave/backward-compatibility-check": "^8.21"
+    },
+    "config": {
+        "bin-dir": ".build/bin",
+        "vendor-dir": ".build/vendor"
+    }
+}
+```
+
+The `bin-dir`/`vendor-dir` overrides keep this in step with the house layout the
+modules use, so the tool's own dependencies land under `.build/` like every other
+generated artefact rather than in a second top-level `vendor/`.
+
+**Then wire it as a single-leg CI job, never a matrix job.** The check compares API
+signatures against the previous tag and is runtime-independent, so running it once per
+PHP version buys nothing — and a matrix job would have to pin `8.19.*` to stay
+installable on 8.3. Even pinned that does not hold: `roave/better-reflection` then
+resolves to 6.69.0 on 8.3 but 6.71.0 on 8.4/8.5 (6.70+ require `~8.4.1 || ~8.5.0`), so
+a lock written on 8.5 is not installable on 8.3. One 8.4 or 8.5 job avoids all of it
+and tracks the current release:
+
+```yaml
+    backward-compatibility:
+        name: Backward compatibility
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  extensions: intl
+                  tools: composer:v2
+
+            - run: composer install --prefer-dist --no-interaction --no-progress --working-dir=tools/backward-compatibility
+            - run: tools/backward-compatibility/.build/bin/roave-backward-compatibility-check
+```
+
+Three details are easy to miss:
+
+- **`ext-intl`** is required transitively (via `php-standard-library/date-time` and
+  `/locale`) — resolved and confirmed against the 8.21 tree. `ext-bcmath` is *not*:
+  it came from `azjezz/psl`, which the 8.20+ releases no longer depend on. Declaring
+  `intl` is belt-and-braces, since setup-php already installs it by default, but it
+  documents a hard requirement.
+- **`fetch-depth: 0`** plus tags, or there is no previous release to compare against.
+- **At least one tag must exist.** A library adopting the job before its first release
+  gets an uncaught `Could not detect any released versions for the given repository`,
+  which reads like a tool bug rather than a missing precondition. Adopt the job with,
+  or after, the first tag.
+
+**Adding the job does not make it gate.** A new job's status context is not
+automatically a required status check, so a detected break reports red and the PR
+still merges. Register it in the same change:
+
+```shell
+# Read the existing entries and append the new one in the same step. `checks` REPLACES
+# the whole list, so an entry left out is silently un-required — and each entry's
+# `app_id` pins WHICH integration may satisfy that check, so rebuilding entries from
+# their `context` alone would quietly widen them to "any app". Passing the returned
+# objects through verbatim avoids both. `strict` is optional and stays untouched when
+# the body does not mention it.
+gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+    --jq '{checks: (.checks + [{context: "Backward compatibility"}])}' > checks.json
+
+gh api -X PATCH "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+    --input checks.json
+```
+
+Note the interaction with the house rule on first-party libraries: where every consumer
+of a library is one of our own repositories, an obsolete API is removed outright rather
+than deprecated. The check reports that removal as a break — which is the point. It
+turns "did anyone think about the major bump?" into an answer the build gives you.
+
 ### Deptrac — architecture layers — `deptrac/layers.yaml`
 
 The canonical layered architecture every module is expected to follow, enforced
@@ -233,10 +338,10 @@ byte-diff, so a consumer that legitimately scans an extra JS directory is not fl
 but a loosened strictness flag is.
 
 The package `require` places it on the consumer's bin path, so wire it as a
-`ci:test:php:templates` script (vendor-dir-independent):
+`ci:test:php:templates` script (vendor-dir-independent) in the consumer's
+`composer.json`:
 
-```jsonc
-// consumer composer.json
+```json
 "scripts": {
     "ci:test:php:templates": ["check-consumer-config.php ."]
 }
