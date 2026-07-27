@@ -43,8 +43,12 @@ assert_accepts() {
 assert_rejects() {
     local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
+    if [ "$rc" -ne 1 ]; then
+        # Exactly 1, the gate's drift verdict — not merely "not zero". 2 is the
+        # usage error and 255 a fatal, and both used to satisfy every case here:
+        # dropping an is_array guard made the gate die on a TypeError whose stack
+        # trace contained the asserted value, and the case reported ok.
+        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
         fails=$((fails + 1))
     elif ! grep -qF "$expected" <<<"$out"; then
         printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
@@ -65,14 +69,33 @@ assert_reports_once() {
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
     count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
 
-    if [ "$rc" -eq 0 ]; then
-        printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
+    if [ "$rc" -ne 1 ]; then
+        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
         fails=$((fails + 1))
     elif [ "$count" -ne 1 ]; then
         printf 'FAIL (expected exactly one %s violation, got %s): %s\n%s\n' "$prefix" "$count" "$label" "$out"
         fails=$((fails + 1))
     else
         printf 'ok (reported exactly once): %s\n' "$label"
+    fi
+}
+
+# assert_usage_error <dir> <label> <expected substring>
+#
+# Exit 2 is the gate's usage verdict, deliberately distinct from the drift code —
+# so it cannot go through assert_rejects, which now requires exactly 1.
+assert_usage_error() {
+    local dir="$1" label="$2" expected="$3" out rc
+    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    if [ "$rc" -ne 2 ]; then
+        printf 'FAIL (expected the usage verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
+        fails=$((fails + 1))
+    elif ! grep -qF "$expected" <<<"$out"; then
+        printf 'FAIL (exit 2, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
+        fails=$((fails + 1))
+    else
+        printf 'ok (usage error on the tested condition): %s\n' "$label"
     fi
 }
 
@@ -1105,6 +1128,28 @@ d="$work/jscpd-format-scalar"; jscpd_fixture "$d"
 sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": "ts"/' "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json with a scalar format instead of a list" 'Use "typescript"'
 
+# A repository with NO JS config is never probed, so a broken package.json there
+# is not this gate's business — it would be a red for a contract that has nothing
+# to check. Deliberately OUTSIDE the root guard below: it needs no permissions
+# trick, and it is the only case covering that arm.
+d="$(mk_case php-only-broken-package-json)"
+printf '{\n    "devDependencies": {\n' > "$d/package.json"
+assert_accepts "$d" "a PHP-only repo is not probed for the JS/TS contract at all"
+
+# The other arm of the same condition: a TypeScript-only consumer has no
+# biome.json, so a probe keyed on that alone would leave the whole tsconfig
+# contract — and the derived pinned-flag lockstep — silently switched off.
+d="$(mk_case ts-only-adopted)"
+printf '{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": false }\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "a TypeScript-only consumer is still held to the tsconfig contract" "\`compilerOptions.strict\`"
+
+# A path that is not a directory is a usage error, not drift — a distinct verdict
+# nothing pinned, so the block could be deleted and every case stayed green while
+# a mistyped path reported "phpunit.xml: missing" against a directory that does
+# not exist.
+assert_usage_error "$work/does-not-exist" "a path that is not a directory" "Not a directory"
+
 # An unreadable config is not a syntax error, and reporting it as one sends the
 # reader to fix the wrong thing. Every read site gets a case, because two of them
 # fail OPEN without one: an unreadable .jscpd.json leaves the gate printing OK for
@@ -1143,12 +1188,6 @@ else
     assert_rejects "$d" "an unreadable package.json does not switch the JS/TS contract off" "package.json: exists but cannot be read"
     chmod 644 "$d/package.json"
 
-    # But a repository with NO JS config is never probed, so a broken package.json
-    # there is not this gate's business — it would be a red for a contract that has
-    # nothing to check.
-    d="$(mk_case php-only-broken-package-json)"
-    printf '{\n    "devDependencies": {\n' > "$d/package.json"
-    assert_accepts "$d" "a PHP-only repo is not probed for the JS/TS contract at all"
 
     # These three degraded differently: the read failure WAS reported, and then the
     # content assertions ran against an empty string and fabricated more.
@@ -1226,7 +1265,7 @@ done
 # reporting — a crash where a finding belongs.
 d="$work/jscpd-reporters-scalar"; jscpd_fixture "$d"
 sed -i 's/"reporters": \["console-full"\]/"reporters": "console-full"/' "$d/.jscpd.json"
-assert_rejects "$d" ".jscpd.json with a scalar reporters instead of a list" "console-full"
+assert_rejects "$d" ".jscpd.json with a scalar reporters instead of a list" '`reporters` must contain'
 
 # The "must be present" half of both thresholds: every other fixture always
 # carries the key, so only the ">" comparison was exercised.

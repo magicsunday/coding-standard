@@ -534,7 +534,7 @@ $stripJsonc = static function (string $json): ?string {
  *
  * @param string $path Path to the config file.
  *
- * @return array<array-key, mixed>|null|false
+ * @return array<array-key, mixed>|false|null
  */
 $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|null|false {
     $contents = $readFile($path);

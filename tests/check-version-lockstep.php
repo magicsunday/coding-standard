@@ -64,7 +64,7 @@ if (!is_array($packageJson) || !is_string($packageJson['version'] ?? null)) {
 }
 
 $version = $packageJson['version'];
-$readme = $read($root . '/README.md');
+$readme  = $read($root . '/README.md');
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));

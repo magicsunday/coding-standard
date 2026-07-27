@@ -146,13 +146,31 @@ done
 # The tarball is the artefact, but `files` is the declaration: every entry of it
 # must be represented, or a directory silently stops shipping while the loop above
 # stays green on whatever else is in there.
-for entry in $(ROOT="$root" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join(" "))'); do
-    if printf '%s\n' "${shipped[@]}" | grep -q "^${entry%/}/"; then
+#
+# Captured first: a non-zero command inside a `for` word-list does NOT trip
+# `set -e`, so a `files` that is missing, misspelled or not an array would skip
+# the loop entirely — switching this assertion off while npm falls back to packing
+# the whole repository.
+declared=""
+declared="$(ROOT="$root" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join("\n"))')" || true
+
+if [ -z "$declared" ]; then
+    fail "could not read the files allow-list from package.json — the declared-entry check did not run"
+    exit 1
+fi
+
+while IFS= read -r entry; do
+    entry="${entry%/}"
+
+    # An entry may be a directory OR a plain file, so both shapes count. Matched
+    # literally, since a glob entry would otherwise behave as a regex.
+    if printf '%s\n' "${shipped[@]}" | grep -qxF -- "$entry" \
+        || printf '%s\n' "${shipped[@]}" | grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/"; then
         pass "declared and packed: $entry"
     else
         fail "declared in package.json \"files\" but absent from the tarball: $entry"
     fi
-done
+done <<<"$declared"
 
 # --- a consumer extending both shared configs --------------------------------
 
