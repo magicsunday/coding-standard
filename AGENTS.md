@@ -103,6 +103,13 @@ directory that matches how it is consumed, never at the root for convenience.
   `ci:test:php:templates` script to every consumer and align its template copies to the
   canon, (3) only then add the step to the reusable workflow. Never add the workflow
   step before all consumers carry the script.
+- **The JS/TS lockstep checks do not reach a repository without Composer.** They live
+  in `bin/check-consumer-config.php`, a Composer-installed entry point a consumer runs
+  from `ci:test:php:templates` — so they only ever see repositories that consume the
+  PHP side too. `webtrees-chart-lib`, the one repository whose main toolchain IS the
+  shared Biome/TS setup, has no `composer.json` and is therefore unreachable. Do not
+  read a green run as "every consumer's JS config is checked"; a node-side entry point
+  for the pure-JS repositories is tracked separately.
 - **A gate over a shared link keys on ADOPTION, never on the file being present.**
   The JS/TS half of the lockstep gate asserts that `biome.json`/`tsconfig.json` extend
   the shared configs — but only once the repository declares the npm dependency. Keyed
