@@ -75,21 +75,26 @@ which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standa
 assert_accepts "$d" "package.json and every README pin agree"
 
 # The release that bumps two of the three copies — the case the gate exists for.
-# The stale pin comes FIRST and a matching one after it, so the loop has to carry
-# on past a mismatch: a gate that stopped at the first one would pass otherwise.
-d="$(mk_case stale-pin 1.8.0 'which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"`, install with
+# A MATCHING pin comes first and the stale one after it, which is the ordering that
+# discriminates: a gate stopping after the first match — printing OK and never
+# reaching the stale pin — passes every other case in this file. Verified by
+# mutation: adding a `break` after the OK branch survives the whole suite without
+# this ordering, and is caught with it.
+d="$(mk_case stale-pin 1.8.0 'install with
 
 ```shell
 npm install --save-dev github:magicsunday/coding-standard#1.8.0
-```')"
-assert_rejects "$d" "a README pin left behind by a release" "MISMATCH"
+```
+
+which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"`.')"
+assert_rejects "$d" "a README pin left behind by a release" "MISMATCH  README.md:7 pins #1.7.0"
 
 # Two stale pins, so a gate reporting only the first or only the last is caught.
 d="$(mk_case two-stale-pins 1.8.0 'github:magicsunday/coding-standard#1.7.0
 and also
 github:magicsunday/coding-standard#1.6.1')"
-assert_rejects "$d" "the first of two stale pins is reported" "README.md:1 pins #1.7.0"
-assert_rejects "$d" "the second of two stale pins is reported as well" "README.md:3 pins #1.6.1"
+assert_rejects "$d" "the first of two stale pins is reported" "MISMATCH  README.md:1 pins #1.7.0"
+assert_rejects "$d" "the second of two stale pins is reported as well" "MISMATCH  README.md:3 pins #1.6.1"
 
 # The report has to name the line, or a README with many pins gives the reader
 # nothing to go on. Asserted with the MISMATCH prefix, because the gate prints
@@ -103,8 +108,10 @@ assert_rejects "$d" "the mismatch names the README line" "MISMATCH  README.md:3"
 d="$(mk_case no-pin 1.7.0 'The install instructions moved elsewhere.')"
 assert_rejects "$d" "a README documenting no pin at all" "documents no"
 
-d="$(mk_case no-version '' 'github:magicsunday/coding-standard#1.7.0')"
+d="$work/no-version"
+mkdir -p "$d"
 printf '{\n    "name": "@magicsunday/coding-standard"\n}\n' > "$d/package.json"
+printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
 assert_rejects "$d" "package.json without a version" "no string \`version\`"
 
 # An IO failure must report as one rather than as a content defect: without the
@@ -112,12 +119,12 @@ assert_rejects "$d" "package.json without a version" "no string \`version\`"
 d="$work/missing-readme"
 mkdir -p "$d"
 printf '{\n    "version": "1.7.0"\n}\n' > "$d/package.json"
-assert_rejects "$d" "a missing README reports as unreadable, not as a content defect" "Cannot read"
+assert_rejects "$d" "a missing README reports as unreadable, not as a content defect" "/README.md."
 
 d="$work/missing-package-json"
 mkdir -p "$d"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
-assert_rejects "$d" "a missing package.json reports as unreadable" "Cannot read"
+assert_rejects "$d" "a missing package.json reports as unreadable" "/package.json."
 
 # The inline forms this repository's own prose uses. `\S` swallowed the trailing
 # backtick and the closing paren, so a correct README reported a mismatch
@@ -157,8 +164,10 @@ assert_accepts "$d" "a pin carrying both a prerelease and build metadata"
 # The other direction: a pin with trailing junk must not be truncated to a
 # version that happens to match, certifying lockstep for a tag that does not
 # exist. It is not a version, so the vacuity guard is what reports it.
-d="$(mk_case trailing-junk 1.7.0 'npm install --save-dev github:magicsunday/coding-standard#1.7.0final')"
-assert_rejects "$d" "a pin with trailing characters is not read as a bare version" "documents no"
+for junk in final _hotfix /x; do
+    d="$(mk_case "trailing-junk${junk//\//-}" 1.7.0 "npm install --save-dev github:magicsunday/coding-standard#1.7.0${junk}")"
+    assert_rejects "$d" "a pin with the trailing characters '${junk}' is not read as a bare version" "documents no"
+done
 
 # And the discriminator for the shape: a pin that differs only in its last
 # segment must still be caught, so the looser match is not simply truncating.

@@ -489,8 +489,11 @@ config unloadable for Biome whether or not it extends anything, so a repository 
 its own config is just as broken by it.
 
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
-their rule content genuinely cannot drift — the **link** can. Four things are asserted: the
-shared config is actually extended (a look-alike package name does not count), the
+their rule content genuinely cannot drift — the **link** can. Five things are asserted: the
+shared config is actually extended (a look-alike package name does not count), neither
+`linter` nor `formatter` is switched off — at the top level or inside any `overrides`
+entry, where one matching `**` disables it for every file while the top-level key still
+reads `true` — the
 strict flags are not overridden back to `false` underneath it
 (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
 `noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`),
@@ -500,11 +503,10 @@ the recommended rule floor is still on. That last one is checked everywhere Biom
 offers it, which is more places than it first appears: two spellings (the
 `recommended` boolean deprecated in 2.5, and `preset`), on `linter.rules` **and on
 every rule group beneath it**, and again inside **every `overrides` entry**. Each
-combination reaches the same end — `linter.rules.suspicious.preset: "none"` lets a
-`debugger` statement through, and an `overrides` entry matching `**` switches the
-linter off for every file while the top-level key still reads `true`. A narrower
-check would close the front door and leave those open. Legitimate `overrides` use —
-relaxing a single rule for one path — stays untouched.
+combination reaches the same end: `linter.rules.suspicious.preset: "none"` lets a
+`debugger` statement through while every top-level key still reads as it should. A
+narrower check would close the front door and leave those open. Legitimate
+`overrides` use — relaxing a single rule for one path — stays untouched.
 Ergonomics flags stay free: turning `skipLibCheck` off is stricter, not drift, and
 `module`/`target`/`lib`/`jsx`/`paths` are per-repository by design. Both files are
 parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments and

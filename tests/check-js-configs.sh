@@ -74,7 +74,6 @@ npm init -y >/dev/null 2>&1
 # Object.entries(undefined) throws and node exits 1, which under `set -e` would
 # abort the script at the assignment and leave the CI log with a node stack trace
 # instead of this script's own diagnostic.
-tools=""
 tools="$(ROOT="$root" node -e 'const d=require(process.env.ROOT + "/package.json").devDependencies;
 process.stdout.write(Object.entries(d).map(([n, v]) => n + "@" + v).join(" "))' 2>/dev/null)" || true
 
@@ -118,13 +117,29 @@ if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-instal
     exit 1
 fi
 
-# Prove the `files` allow-list actually shipped the configs. Derived from the
-# working tree rather than listed here, so a shared config added later is covered
-# without anyone remembering to extend this loop.
-mapfile -t shipped < <(cd "$root" && find biome tsconfig -name '*.json' | sort)
+# Prove the `files` allow-list actually shipped the configs. Derived from that
+# allow-list itself — the thing under test — rather than from two hard-coded
+# directory names: a third entry added to `files` is then covered without anyone
+# remembering to extend this loop, and every declared entry is proven present in
+# the tarball.
+listing=""
+listing="$(ROOT="$root" node -e '
+const {readdirSync, statSync} = require("node:fs");
+const {join} = require("node:path");
+const root = process.env.ROOT;
+const walk = (rel) => statSync(join(root, rel)).isDirectory()
+    ? readdirSync(join(root, rel)).flatMap((entry) => walk(join(rel, entry)))
+    : [rel];
+process.stdout.write(require(root + "/package.json").files.flatMap(walk).sort().join("\n"));
+')" || {
+    fail "could not read the files allow-list from package.json — nothing to verify"
+    exit 1
+}
 
-if [ "${#shipped[@]}" -eq 0 ]; then
-    fail "found no shared configs in the working tree — the source layout changed"
+mapfile -t shipped <<<"$listing"
+
+if [ "${#shipped[@]}" -eq 0 ] || [ -z "${shipped[0]}" ]; then
+    fail "package.json declares an empty files allow-list — nothing to verify"
     exit 1
 fi
 

@@ -66,6 +66,46 @@ $fail = static function (array &$violations, string $file, string $detail): void
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
 
+/**
+ * Reads a file, or returns false without letting PHP print its own warning first.
+ *
+ * `is_file()` passing does not mean the file can be READ — a mode-000 file, or one
+ * whose permissions change between the two calls, still fails. PHP raises an
+ * unsuppressed E_WARNING on that path, so the raw
+ * `Failed to open stream: Permission denied` lands in the output ahead of this
+ * gate's own diagnostic and reads like a crash rather than a finding. Captured
+ * through a scoped handler, the same shape this file already uses for
+ * simplexml_load_file, rather than the banned `@` prefix.
+ *
+ * @param string $path Path to the file to read.
+ *
+ * @return string|false
+ */
+$readFile = static function (string $path): string|false {
+    set_error_handler(static fn (): bool => true);
+
+    try {
+        return file_get_contents($path);
+    } finally {
+        restore_error_handler();
+    }
+};
+
+/**
+ * Strips a leading UTF-8 BOM.
+ *
+ * npm, Node, Biome and tsc all read a BOM-prefixed config and honour it, while
+ * `json_decode` rejects it — so without this the gate reports a defect in a file
+ * that loads perfectly well for every tool that matters.
+ *
+ * @param string $contents The raw file contents.
+ *
+ * @return string
+ */
+$stripBom = static fn (string $contents): string => str_starts_with($contents, "\xEF\xBB\xBF")
+    ? substr($contents, 3)
+    : $contents;
+
 // --- phpunit.xml (REQUIRED): the strict-flag set + the uniform src/tests layout ---
 $phpunitPath = $repoRoot . '/phpunit.xml';
 $phpunitDist = $repoRoot . '/phpunit.xml.dist';
@@ -177,9 +217,12 @@ if ($phpunitFile === null) {
 $jscpdFile = $repoRoot . '/.jscpd.json';
 
 if (is_file($jscpdFile)) {
-    $json = json_decode((string) file_get_contents($jscpdFile), true);
+    $jscpdContents = $readFile($jscpdFile);
+    $json          = ($jscpdContents === false) ? null : json_decode($jscpdContents, true);
 
-    if (!is_array($json)) {
+    if ($jscpdContents === false) {
+        $fail($violations, '.jscpd.json', 'exists but cannot be read.');
+    } elseif (!is_array($json)) {
         $fail($violations, '.jscpd.json', 'not valid JSON.');
     } else {
         if (($json['threshold'] ?? null) !== 0) {
@@ -264,7 +307,14 @@ if (is_file($phplintFile)) {
     // Normalise line endings first: the block-isolation regex uses `\n`, so a CRLF
     // file would leave a trailing `\r` on each list item and false-fail the `- php`
     // match (the .editorconfig parser normalises the same way via preg_split('/\R/')).
-    $contents = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($phplintFile));
+    $contents = $readFile($phplintFile);
+
+    if ($contents === false) {
+        $fail($violations, '.phplint.yml', 'exists but cannot be read.');
+        $contents = '';
+    }
+
+    $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
     // A full YAML parse is avoided to keep the gate dependency-free; instead the
     // `extensions:` block is isolated (its indented list items, up to the next
@@ -285,7 +335,12 @@ if (is_file($phplintFile)) {
 $editorconfigFile = $repoRoot . '/.editorconfig';
 
 if (is_file($editorconfigFile)) {
-    $contents = (string) file_get_contents($editorconfigFile);
+    $contents = $readFile($editorconfigFile);
+
+    if ($contents === false) {
+        $fail($violations, '.editorconfig', 'exists but cannot be read.');
+        $contents = '';
+    }
 
     // EditorConfig is section-scoped INI: `root` is a preamble key valid only
     // BEFORE the first `[section]`, and each key belongs to the section it sits
@@ -364,7 +419,14 @@ if (is_file($editorconfigFile)) {
 $deptracFile = $repoRoot . '/deptrac.yaml';
 
 if (is_file($deptracFile)) {
-    $contents = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($deptracFile));
+    $contents = $readFile($deptracFile);
+
+    if ($contents === false) {
+        $fail($violations, 'deptrac.yaml', 'exists but cannot be read.');
+        $contents = '';
+    }
+
+    $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
     // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
     // top-level key) and require the shared file INSIDE it — the same block-scoping
@@ -452,26 +514,28 @@ $stripJsonc = static function (string $json): ?string {
 };
 
 /**
- * Loads a JSONC config, or null when it does not parse.
+ * Loads a JSONC config.
  *
- * The reader has to tolerate what the real tools tolerate, or the gate reports a
- * defect in a file that loads perfectly well. A leading UTF-8 BOM is the case
- * that bites: `json_decode` rejects it, while Biome 2.5.5 and tsc 7.0.2 both read
- * a BOM-prefixed config and honour it — verified against the packed tarball.
+ * Three outcomes, kept apart because they send the reader to different places:
+ * the decoded config, `null` when it does not parse, and `false` when it could
+ * not be read at all. Collapsing the last two reports a permissions problem as a
+ * syntax error, which is the wrong file to go and fix.
  *
  * @param string $path Absolute path to the config file.
  *
- * @return array<array-key, mixed>|null
+ * @return array<array-key, mixed>|null|false
  */
-$loadJsonc = static function (string $path) use ($stripJsonc): ?array {
-    $contents = file_get_contents($path);
+$loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|null|false {
+    $contents = $readFile($path);
 
     if ($contents === false) {
-        return null;
+        return false;
     }
 
-    $withoutBom = preg_replace('~^\xEF\xBB\xBF~', '', $contents);
-    $stripped   = $stripJsonc($withoutBom ?? $contents);
+    // Null here means the PCRE engine failed rather than the document being
+    // malformed — not constructible from a config file, so it has no case; it is
+    // reported as unparseable because there is nothing more specific to say.
+    $stripped = $stripJsonc($stripBom($contents));
 
     if ($stripped === null) {
         return null;
@@ -582,20 +646,18 @@ $hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
  * probe failure, and returning false for it would turn every one of those
  * assertions off while the gate still printed OK. It is reported instead.
  *
- * @param string                $repoRoot   The consumer repository root to inspect.
- * @param list<string>          $violations Collected drift reports, appended to on a probe failure.
- * @param callable              $fail       Reporter shared with the rest of the gate.
+ * @param string $repoRoot The consumer repository root to inspect.
  *
  * @return bool
  */
-$npmDependencyDeclared = static function (string $repoRoot, array &$violations, callable $fail): bool {
+$npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $fail, $readFile, $stripBom): bool {
     $packageJsonFile = $repoRoot . '/package.json';
 
     if (!is_file($packageJsonFile)) {
         return false;
     }
 
-    $contents = file_get_contents($packageJsonFile);
+    $contents = $readFile($packageJsonFile);
 
     if ($contents === false) {
         $fail($violations, 'package.json', 'exists but cannot be read, so the JS/TS contract cannot be checked.');
@@ -603,10 +665,8 @@ $npmDependencyDeclared = static function (string $repoRoot, array &$violations, 
         return false;
     }
 
-    // package.json is strict JSON by npm's own rules, so no JSONC pass here — but
-    // npm, Node, Biome and tsc all strip a leading BOM and json_decode does not.
-    $withoutBom = preg_replace('~^\xEF\xBB\xBF~', '', $contents);
-    $json       = json_decode($withoutBom ?? $contents, true);
+    // package.json is strict JSON by npm's own rules, so no JSONC pass here.
+    $json = json_decode($stripBom($contents), true);
 
     if (!is_array($json)) {
         $fail($violations, 'package.json', 'is not valid JSON, so the JS/TS contract cannot be checked.');
@@ -623,7 +683,7 @@ $npmDependencyDeclared = static function (string $repoRoot, array &$violations, 
     return false;
 };
 
-$adopted = $npmDependencyDeclared($repoRoot, $violations, $fail);
+$adopted = $npmDependencyDeclared($repoRoot);
 
 // biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
 $biomeFile = null;
@@ -637,30 +697,34 @@ foreach (['biome.json', 'biome.jsonc'] as $candidate) {
 }
 
 if ($biomeFile !== null) {
-    $label = basename($biomeFile);
-    $json  = $loadJsonc($biomeFile);
+    $label     = basename($biomeFile);
+    $biomeJson = $loadJsonc($biomeFile);
 
-    if ($json !== null) {
+    if (is_array($biomeJson)) {
         // The one check that does NOT depend on adoption: a `"//"` key makes the
         // file unloadable for Biome whether or not it extends anything, so a
         // repository writing its own config is just as broken by it.
-        if ($hasNoteKey($json)) {
+        if ($hasNoteKey($biomeJson)) {
             $fail($violations, $label, 'contains a `"//"` key — Biome rejects unknown keys and refuses the whole config, so the file is valid JSON but unloadable. Put the note in a comment or in the README.');
         }
+    } elseif ($biomeJson === false) {
+        // Unreadable is unconditional: no reader tolerance is in play, the file
+        // simply cannot be opened, and that is true whoever wrote it.
+        $fail($violations, $label, 'exists but cannot be read.');
     } elseif ($adopted) {
-        // A parse failure IS gated on adoption, unlike the `"//"` key, because
-        // this reader is not Biome's: it can reject a file the real tool accepts,
-        // and reporting that to a repository which never claimed the link is the
-        // failure mode the adoption gate exists to prevent. Once the link is
-        // claimed, an unreadable config is a real drift — the assertions that
-        // follow cannot run at all.
+        // A PARSE failure is gated on adoption, unlike the `"//"` key and unlike
+        // an unreadable file, because this reader is not Biome's: it can reject a
+        // file the real tool accepts, and reporting that to a repository which
+        // never claimed the link is the failure mode the adoption gate exists to
+        // prevent. Once the link is claimed, an unparseable config is a real
+        // drift — the assertions that follow cannot run at all.
         $fail($violations, $label, 'not valid JSON(C).');
     }
 
-    if ($adopted && ($json !== null)) {
+    if ($adopted && is_array($biomeJson)) {
         // Biome requires the `.json` suffix — verified: it answers the bare
         // specifier with `Could not resolve … module not found`.
-        if (!$extendsShared($json, 'biome/base', false)) {
+        if (!$extendsShared($biomeJson, 'biome/base', false)) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
 
@@ -668,8 +732,8 @@ if ($biomeFile !== null) {
         // Biome's schema, again inside every entry of `overrides` — where an
         // entry matching `**` disables the same thing for every file while the
         // top-level key still reads as enabled.
-        $scopes    = [['', $json]];
-        $overrides = $json['overrides'] ?? null;
+        $scopes    = [['', $biomeJson]];
+        $overrides = $biomeJson['overrides'] ?? null;
 
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
@@ -737,14 +801,16 @@ if ($biomeFile !== null) {
 $tsconfigFile = $repoRoot . '/tsconfig.json';
 
 if ($adopted && is_file($tsconfigFile)) {
-    $json = $loadJsonc($tsconfigFile);
+    $tsconfigJson = $loadJsonc($tsconfigFile);
 
-    if ($json === null) {
+    if ($tsconfigJson === false) {
+        $fail($violations, 'tsconfig.json', 'exists but cannot be read.');
+    } elseif ($tsconfigJson === null) {
         $fail($violations, 'tsconfig.json', 'not valid JSON(C).');
     } else {
         // tsc appends `.json` itself, so the bare specifier resolves to the same
         // file and must not be reported as a missing link — verified with 7.0.2.
-        if (!$extendsShared($json, 'tsconfig/base', true)) {
+        if (!$extendsShared($tsconfigJson, 'tsconfig/base', true)) {
             $fail($violations, 'tsconfig.json', 'must `extends` the shared `@magicsunday/coding-standard/tsconfig/base.json`.');
         }
 
@@ -762,7 +828,7 @@ if ($adopted && is_file($tsconfigFile)) {
         ];
 
         foreach ($pinnedFlags as $flag) {
-            if (($json['compilerOptions'][$flag] ?? null) === false) {
+            if (($tsconfigJson['compilerOptions'][$flag] ?? null) === false) {
                 $fail($violations, 'tsconfig.json', sprintf('`compilerOptions.%s` must not be false — it overrides the shared strict base.', $flag));
             }
         }

@@ -878,7 +878,28 @@ assert_rejects "$d" "biome.json without extends once the npm package is declared
 # this gate exists to prevent one layer down. So the cases are DERIVED from the
 # base rather than listed here: every flag it ships is either pinned or a named
 # ergonomics exception, and neither list may outlive the other.
-ergonomics=" esModuleInterop resolveJsonModule skipLibCheck "
+ergonomics=(esModuleInterop resolveJsonModule skipLibCheck)
+
+# Membership asked the same way in every direction, so the three set relations
+# below read as one property rather than three spellings of it.
+contains() { # <needle> <haystack…>
+    local needle="$1" candidate
+    shift
+
+    for candidate in "$@"; do
+        if [ "$candidate" = "$needle" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# The derived loops can fail before any gate run, so they report directly.
+report_failure() { # <message>
+    printf 'FAIL (harness): %s\n' "$1" >&2
+    fails=$((fails + 1))
+}
 
 mapfile -t base_flags < <(php -r '
     $options = json_decode(file_get_contents($argv[1]), true)["compilerOptions"];
@@ -892,29 +913,44 @@ mapfile -t base_flags < <(php -r '
 
 # A scan that collected nothing must not read as "everything is classified".
 if [ "${#base_flags[@]}" -eq 0 ]; then
-    printf 'FAILED: read no compilerOptions flags from tsconfig/base.json\n' >&2
-    fails=$((fails + 1))
+    report_failure 'read no compilerOptions flags from tsconfig/base.json'
+fi
+
+# The gate's own list, so the lockstep is a real bijection rather than a
+# one-directional check. Without it a flag can outlive the base: dropped from
+# tsconfig/base.json it generates no case, while the gate keeps rejecting every
+# consumer that turns it off — a red for a flag the shared base no longer sets.
+mapfile -t pinned_flags < <(
+    sed -n '/\$pinnedFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
+        | grep -oE "'[A-Za-z]+'" \
+        | tr -d "'"
+)
+
+if [ "${#pinned_flags[@]}" -eq 0 ]; then
+    report_failure 'read no $pinnedFlags entries from bin/check-consumer-config.php'
 fi
 
 for flag in "${base_flags[@]}"; do
     d="$(mk_js_case "ts-flag-$flag")"
     printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
 
-    case "$ergonomics" in
-        *" $flag "*)
-            assert_accepts "$d" "tsconfig.json turning the ergonomics flag $flag off"
-            ;;
-        *)
-            assert_rejects "$d" "tsconfig.json turning the shared strict flag $flag off" "compilerOptions.$flag"
-            ;;
-    esac
+    if contains "$flag" "${ergonomics[@]}"; then
+        assert_accepts "$d" "tsconfig.json turning the ergonomics flag $flag off"
+    else
+        assert_rejects "$d" "tsconfig.json turning the shared strict flag $flag off" "compilerOptions.$flag"
+    fi
 done
 
-# The other direction, so an exception cannot outlive the flag it excepts.
-for flag in $ergonomics; do
-    if ! printf '%s\n' "${base_flags[@]}" | grep -qx "$flag"; then
-        printf 'FAILED: ergonomics exception %s is no longer shipped by tsconfig/base.json\n' "$flag" >&2
-        fails=$((fails + 1))
+# The other two directions, so neither list can outlive the base it describes.
+for flag in "${ergonomics[@]}"; do
+    if ! contains "$flag" "${base_flags[@]}"; then
+        report_failure "ergonomics exception $flag is no longer shipped by tsconfig/base.json"
+    fi
+done
+
+for flag in "${pinned_flags[@]}"; do
+    if ! contains "$flag" "${base_flags[@]}"; then
+        report_failure "pinned flag $flag is no longer shipped by tsconfig/base.json"
     fi
 done
 
@@ -949,6 +985,63 @@ assert_rejects "$d" "a violation in the SECOND overrides entry is reported with 
 d="$work/jscpd-format-scalar"; jscpd_fixture "$d"
 sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": "ts"/' "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json with a scalar format instead of a list" 'Use "typescript"'
+
+# An unreadable config is not a syntax error, and reporting it as one sends the
+# reader to fix the wrong thing. Unconditional, unlike a parse failure: no reader
+# tolerance is in play when the file cannot be opened at all.
+d="$(mk_unadopted_case js-unreadable-biome)"
+cp "$FIXTURE/biome.json" "$d/biome.json"
+chmod 000 "$d/biome.json"
+assert_rejects "$d" "an unreadable biome.json reports as unreadable, not as malformed" "cannot be read"
+chmod 644 "$d/biome.json"
+
+d="$(mk_js_case js-unreadable-tsconfig)"
+chmod 000 "$d/tsconfig.json"
+assert_rejects "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "cannot be read"
+chmod 644 "$d/tsconfig.json"
+
+# The silent-skip arms: a malformed sub-node must not quietly drop the checks
+# below it in a gate whose whole purpose is not to pass silently.
+d="$(mk_js_case biome-override-not-an-object)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": ["not-an-object", { "includes": ["**"], "linter": { "enabled": false } }]
+}
+JSON
+assert_rejects "$d" "a non-object overrides entry does not hide the next one" "overrides[1].linter.enabled"
+
+d="$(mk_js_case biome-rules-not-an-object)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "enabled": false, "rules": "off" }
+}
+JSON
+assert_rejects "$d" "a scalar linter.rules does not hide the enabled check" "linter.enabled"
+
+d="$(mk_js_case biome-group-not-an-object)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": "info", "correctness": { "preset": "none" } } }
+}
+JSON
+assert_rejects "$d" "a scalar rule group does not hide the next group" "linter.rules.correctness.preset"
+
+d="$work/jscpd-format-non-string"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": [5, "ts"]/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json with a non-string format entry beside a bad one" 'Use "typescript"'
+
+# Every entry of the deny-list table, so a wrong canonical name in any row ships
+# pinned rather than unexercised.
+for pair in js:javascript mjs:javascript cjs:javascript ts:typescript mts:typescript cts:typescript; do
+    spelling="${pair%%:*}"
+    canonical="${pair##*:}"
+    d="$work/jscpd-format-$spelling"; jscpd_fixture "$d"
+    sed -i "s/\"reporters\": \[\"console-full\"\]/\"reporters\": [\"console-full\"],\n    \"format\": [\"php\", \"$spelling\"]/" "$d/.jscpd.json"
+    assert_rejects "$d" ".jscpd.json using the \"$spelling\" extension as a format name" "Use \"$canonical\""
+done
 
 # A repo with no JS at all must stay accepted — these configs are optional.
 d="$(mk_case no-js)"

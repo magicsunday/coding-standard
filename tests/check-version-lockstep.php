@@ -29,15 +29,27 @@ declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__);
 
-// A scoped handler rather than the `@` prefix: the sibling gate does it this way
-// for the same reason, and `@` would also swallow an error worth seeing.
-set_error_handler(static fn (): bool => true);
+/**
+ * Reads a file, or returns false without letting PHP print its own warning first.
+ *
+ * A scoped handler rather than the `@` prefix: the sibling gate does it this way
+ * for the same reason, and `@` would also swallow an error worth seeing.
+ *
+ * @param string $path Path to the file to read.
+ *
+ * @return string|false
+ */
+$read = static function (string $path): string|false {
+    set_error_handler(static fn (): bool => true);
 
-try {
-    $packageJsonContents = file_get_contents($root . '/package.json');
-} finally {
-    restore_error_handler();
-}
+    try {
+        return file_get_contents($path);
+    } finally {
+        restore_error_handler();
+    }
+};
+
+$packageJsonContents = $read($root . '/package.json');
 
 if ($packageJsonContents === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
@@ -52,13 +64,7 @@ if (!is_array($packageJson) || !is_string($packageJson['version'] ?? null)) {
 }
 
 $version = $packageJson['version'];
-set_error_handler(static fn (): bool => true);
-
-try {
-    $readme = file_get_contents($root . '/README.md');
-} finally {
-    restore_error_handler();
-}
+$readme = $read($root . '/README.md');
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));
@@ -80,14 +86,17 @@ if ($readme === false) {
 //   contains `.`, so `#1.8.0-rc.1.` at the end of a sentence yields `1.8.0-rc.1`
 //   and not `1.8.0-rc.1.`; the group repeats, so `#1.2.3-beta.1+build.5` is
 //   captured whole instead of truncated at the prerelease.
-// - the lookaheads terminate it: no alphanumeric may follow (so `#1.7.0final`
-//   is not silently read as the tag `1.7.0`, certifying lockstep for a tag that
-//   does not exist), and a following `.` may not begin another segment (so a
-//   sentence period is fine and a longer version is not truncated).
+// - the lookaheads terminate it: nothing that is legal in a git ref may follow
+//   (so `#1.7.0final`, `#1.7.0_hotfix` and `#1.7.0/x` are not silently read as
+//   the tag `1.7.0`, certifying lockstep for a tag that does not exist), and a
+//   following `.` may not begin another segment (so a sentence period is fine
+//   and a longer version is not truncated). Punctuation that cannot appear in a
+//   ref — a backtick, a paren, a comma, a sentence period — is deliberately NOT
+//   in the class, because that is what ends a pin written inline in prose.
 //
 // A documented `#<tag>` placeholder matches nothing, which is what it is.
 preg_match_all(
-    '~github:magicsunday/coding-standard#(\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*)(?![0-9A-Za-z+-])(?!\.[0-9A-Za-z])~',
+    '~github:magicsunday/coding-standard#(\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*)(?![0-9A-Za-z_+/-])(?!\.[0-9A-Za-z])~',
     $readme,
     $matches,
     \PREG_OFFSET_CAPTURE
