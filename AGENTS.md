@@ -81,14 +81,6 @@ directory that matches how it is consumed, never at the root for convenience.
   consumer copy must not drop a strict flag. When tightening a template, verify the
   aligned consumers stay green (the chart modules' suites already pass under the full
   strict `phpunit.xml` — proven via the buildbox) before the gate is wired.
-- **The `conflict` block is a temporary quarantine, not a constraint.** It currently
-  excludes `phpstan/phpstan: 2.2.6`, which removed `PHPStan\Parser\RichParser::$container`
-  — a private property `rector/rector` reads by reflection, so every Rector run dies with
-  a `MissingPrivatePropertyException` before any rule executes. Verified by version
-  bisect: 2.2.5 green, 2.2.6 fatal, nothing else changed; reported upstream as
-  `rectorphp/rector#9824`. Lift the entry as soon as a Rector release restores
-  compatibility; never grow it into a narrowed `require`, which would hide *why* the
-  version is excluded.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
   manifest, never a root `require --dev`.** The case that forced the rule is
