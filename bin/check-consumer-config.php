@@ -487,6 +487,49 @@ $hasNoteKey = static function (mixed $node) use (&$hasNoteKey): bool {
     return false;
 };
 
+/**
+ * Reports whether the repository consumes the npm side of this package.
+ *
+ * Everything below except the `"//"` guard asserts the LINK to a shared config,
+ * which only means something once that config is a dependency. Keying the
+ * assertions on the file's mere existence instead would red every repository
+ * that has a biome.json and has not adopted the npm package — and it would do so
+ * on the update that first delivers this gate, for a link the repository never
+ * claimed to have. The ordering makes that unavoidable rather than unlucky: a
+ * consumer cannot pin the npm tag before the tag exists, so "align first, then
+ * enforce" is the only order available, exactly as the template gate was staged.
+ */
+$npmDependencyDeclared = static function (string $repoRoot): bool {
+    $packageJsonFile = $repoRoot . '/package.json';
+
+    if (!is_file($packageJsonFile)) {
+        return false;
+    }
+
+    $contents = file_get_contents($packageJsonFile);
+
+    if ($contents === false) {
+        return false;
+    }
+
+    // package.json is strict JSON by npm's own rules, so no JSONC pass here.
+    $json = json_decode($contents, true);
+
+    if (!is_array($json)) {
+        return false;
+    }
+
+    foreach (['dependencies', 'devDependencies', 'optionalDependencies'] as $section) {
+        if (isset($json[$section]['@magicsunday/coding-standard'])) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+$adopted = $npmDependencyDeclared($repoRoot);
+
 // biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
 $biomeFile = null;
 
@@ -505,10 +548,15 @@ if ($biomeFile !== null) {
     if (!is_array($json)) {
         $fail($violations, $label, 'not valid JSON(C).');
     } else {
+        // The one check that does NOT depend on adoption: a `"//"` key makes the
+        // file unloadable for Biome whether or not it extends anything, so a
+        // repository writing its own config is just as broken by it.
         if ($hasNoteKey($json)) {
             $fail($violations, $label, 'contains a `"//"` key — Biome rejects unknown keys and refuses the whole config, so the file is valid JSON but unloadable. Put the note in a comment or in the README.');
         }
+    }
 
+    if ($adopted && is_array($json)) {
         if (!$extendsShared($json['extends'] ?? null, 'biome/base.json')) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
@@ -539,9 +587,12 @@ if ($biomeFile !== null) {
 }
 
 // tsconfig.json: the strict flags the shared base sets must not be turned back off.
+// Gated on adoption for the same reason as the biome block, and more plainly so:
+// `strict: false` in a repository that never extended the shared base is that
+// repository's own setting, not drift from a standard it does not follow.
 $tsconfigFile = $repoRoot . '/tsconfig.json';
 
-if (is_file($tsconfigFile)) {
+if ($adopted && is_file($tsconfigFile)) {
     $json = json_decode($stripJsonc((string) file_get_contents($tsconfigFile)), true);
 
     if (!is_array($json)) {

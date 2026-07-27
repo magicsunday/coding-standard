@@ -18,7 +18,7 @@ here.
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract (shared `extends` present, strict flags not overridden to false, recommended rule floor not switched off in either spelling — `recommended: false` or `preset: "none"` — and no `"//"` key in the Biome config), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (only the `"//"` guard is unconditional), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
@@ -103,6 +103,17 @@ directory that matches how it is consumed, never at the root for convenience.
   `ci:test:php:templates` script to every consumer and align its template copies to the
   canon, (3) only then add the step to the reusable workflow. Never add the workflow
   step before all consumers carry the script.
+- **A gate over a shared link keys on ADOPTION, never on the file being present.**
+  The JS/TS half of the lockstep gate asserts that `biome.json`/`tsconfig.json` extend
+  the shared configs — but only once the repository declares the npm dependency. Keyed
+  on the file instead, it reds every consumer that ships a `biome.json` and has not
+  adopted, on the update that first delivers the gate; verified against the four real
+  consumers, each of which went to exit 1 on a link they never claimed. And they could
+  not have pre-empted it: a consumer cannot pin an npm tag that does not exist yet, so
+  "align first, enforce second" is the only order the dependency direction allows. Same
+  staging rule as the workflow step, one layer down. The exception is a check that is a
+  defect on its own terms rather than a broken link — the `"//"` key makes a Biome
+  config unloadable however it was written, so that one stays unconditional.
 - **A stricter template is a change to every consumer, same as a stricter base.** The
   canonical `templates/*` are the house standard, not a starting point to loosen: a
   consumer copy must not drop a strict flag. When tightening a template, verify the

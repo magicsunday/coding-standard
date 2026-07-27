@@ -476,8 +476,20 @@ skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
 
 The gate also covers `biome.json` (or `biome.jsonc`) and `tsconfig.json`, on a
-narrower contract. Those are not copies but one-line `extends` stubs, so their rule
-content genuinely cannot drift — the **link** can. Four things are asserted: the
+narrower contract, and only for a repository that **declares the npm dependency**
+(`@magicsunday/coding-standard` in `dependencies` / `devDependencies` /
+`optionalDependencies`). That gate on adoption is not politeness: a consumer cannot pin
+an npm tag before the tag exists, so a check that demanded the link the moment the file
+existed would red every repository that ships a `biome.json` today — on the very update
+that first delivers the check, for a link they never claimed to have. Align first,
+enforce second, exactly as the template gate itself was staged.
+
+The one assertion that does **not** wait for adoption is the `"//"` key: it makes the
+config unloadable for Biome whether or not it extends anything, so a repository writing
+its own config is just as broken by it.
+
+Once the dependency is declared, the files are treated as one-line `extends` stubs, so
+their rule content genuinely cannot drift — the **link** can. Four things are asserted: the
 shared config is actually extended (a look-alike package name does not count), the
 strict flags are not overridden back to `false` underneath it
 (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,

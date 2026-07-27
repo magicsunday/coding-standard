@@ -387,12 +387,21 @@ assert_rejects "$d" ".editorconfig with a lowercase {makefile,*.mk} glob" "{Make
 # so each case below can corrupt exactly one of them and be rejected for that
 # reason alone.
 mk_js_case() {
-    local name="$1"
-    local dir="$work/$name"
-    mkdir -p "$dir"
-    cp "$FIXTURE/phpunit.xml" "$dir/phpunit.xml"
+    local dir
+    dir="$(mk_case "$1")"
     cp "$FIXTURE/biome.json" "$dir/biome.json"
     cp "$FIXTURE/tsconfig.json" "$dir/tsconfig.json"
+    # The extends contract is asserted only for a repository that actually
+    # consumes the npm package, so every case below has to declare it — the
+    # non-adopter cases further down leave this out on purpose.
+    cat > "$dir/package.json" <<'JSON'
+{
+    "name": "fixture",
+    "devDependencies": {
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"
+    }
+}
+JSON
     printf '%s' "$dir"
 }
 
@@ -428,13 +437,13 @@ assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 
 d="$(mk_js_case biome-no-extends)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json without the shared extends" "must \`extends\` the shared"
+assert_rejects "$d" "biome.json without the shared extends" "biome/base.json"
 
 # A near-miss package name must NOT satisfy the extends check — the optional path
 # prefix has to end at a segment boundary, the same rule the deptrac import uses.
 d="$(mk_js_case biome-lookalike-extends)"
 printf '{\n    "extends": ["notmagicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending a look-alike package" "must \`extends\` the shared"
+assert_rejects "$d" "biome.json extending a look-alike package" "biome/base.json"
 
 # Reaching the same file through an explicit node_modules path is legitimate.
 d="$(mk_js_case biome-node-modules-path)"
@@ -512,7 +521,7 @@ assert_accepts "$d" "biome.jsonc discovered and parsed with comments"
 
 d="$(mk_js_case ts-no-extends)"
 printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json without the shared extends" "must \`extends\` the shared"
+assert_rejects "$d" "tsconfig.json without the shared extends" "tsconfig/base.json"
 
 d="$(mk_js_case ts-strict-off)"
 cat > "$d/tsconfig.json" <<'JSON'
@@ -588,10 +597,53 @@ d="$(mk_js_case ts-malformed)"
 printf '{\n    "compilerOptions": { "strict": true\n' > "$d/tsconfig.json"
 assert_rejects "$d" "tsconfig.json that is not valid JSON(C)" "not valid JSON(C)"
 
+# --- the adoption gate -------------------------------------------------------
+#
+# Three existing consumers ship a standalone biome.json today and pull this
+# package over Composer. If the extends contract keyed on the file being present,
+# their next `composer update` would red a build for a link they never claimed —
+# and they could not fix it, because a consumer cannot pin an npm tag that does
+# not exist yet. So the assertions key on the npm dependency being declared.
+mk_unadopted_case() {
+    local dir
+    dir="$(mk_case "$1")"
+    printf '{\n    "name": "fixture",\n    "devDependencies": { "typescript": "^7.0.2" }\n}\n' > "$dir/package.json"
+    printf '%s' "$dir"
+}
+
+d="$(mk_unadopted_case js-unadopted-biome)"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_accepts "$d" "standalone biome.json in a repo that has not adopted the npm package"
+
+d="$(mk_unadopted_case js-unadopted-tsconfig)"
+printf '{\n    "compilerOptions": { "strict": false }\n}\n' > "$d/tsconfig.json"
+assert_accepts "$d" "standalone tsconfig.json in a repo that has not adopted the npm package"
+
+# A repo with no package.json at all is the same case, and is the shape every
+# PHP-only consumer has.
+d="$(mk_case js-no-package-json)"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_accepts "$d" "standalone biome.json with no package.json at all"
+
+# The exception that proves the gate is not simply switched off: a `"//"` key
+# makes the config unloadable for Biome whether or not it extends anything, so
+# that one check stays unconditional.
+d="$(mk_unadopted_case js-unadopted-note-key)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "//": "shared config for this repo",
+    "linter": { "enabled": true }
+}
+JSON
+assert_rejects "$d" "\"//\" key is reported even without adoption" '`"//"` key'
+
+# And the counterpart: once the dependency IS declared, the full contract is back.
+d="$(mk_js_case js-adopted-no-extends)"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json without extends once the npm package is declared" "biome/base.json"
+
 # A repo with no JS at all must stay accepted — these configs are optional.
-d="$work/no-js"
-mkdir -p "$d"
-cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+d="$(mk_case no-js)"
 assert_accepts "$d" "PHP-only repo without biome.json or tsconfig.json"
 
 if [ "$fails" -ne 0 ]; then
