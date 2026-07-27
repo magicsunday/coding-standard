@@ -17,19 +17,50 @@
 
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `CDPATH= cd --` because CI invokes this as `bash tests/check-js-configs.sh`:
+# the cd target is then `tests/..`, which starts with neither `/`, `./` nor
+# `../` and is therefore searched in CDPATH. An exported CDPATH both redirects
+# it to a foreign tree and prints the resolved path, so $root would become a
+# two-line value pointing at the wrong checkout — which npm pack would then
+# pack. Same for $work: mktemp honours a relative TMPDIR verbatim, and every
+# "$work/…" below is used after the cd, so it has to be absolute up front.
+root="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 work="$(mktemp -d)"
+work="$(CDPATH= cd -- "$work" && pwd)"
 trap 'rm -rf "$work"' EXIT
 
 failed=0
 
 pass() { printf 'OK       %s\n' "$1"; }
-fail() { printf 'FAILED   %s\n' "$1" >&2; failed=1; }
+
+# The optional second argument is a log to excerpt, so each failure carries its
+# own diagnostic instead of leaving the CI log with a bare FAILED line.
+fail() {
+    printf 'FAILED   %s\n' "$1" >&2
+    failed=1
+
+    if [ "$#" -gt 1 ]; then
+        sed -n '1,40p' "$2" >&2
+    fi
+}
+
+# One definition per tool. A control only proves anything if it runs the exact
+# invocation the green run does, and a copy-paste only promises that.
+biome_ci() { npx --no-install biome ci --error-on-warnings --colors=off . >"$1" 2>&1; }
+run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
 # --- pack and install exactly as a consumer receives the package -------------
 
-tarball="$(cd "$root" && npm pack --pack-destination "$work" --silent | tail -n1)"
+# `npm pack --silent` can exit 0 with empty stdout, so `set -e` does not catch
+# it; the install below would then be handed a directory rather than a tarball
+# and the failure would surface as a misleading "check package.json files".
+tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)"
+
+if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
+    fail "npm pack produced no tarball — cannot run the smoke"
+    exit 1
+fi
 
 cd "$work"
 npm init -y >/dev/null 2>&1
@@ -39,7 +70,7 @@ npm init -y >/dev/null 2>&1
 # the moment CI runs, so a release on the tool's side could red the build on a
 # day nothing changed here — and worse, a green run would not say which version
 # it proved. Dependabot bumps the pins; this smoke is what vets the bump.
-tools="$(node -e 'const d=require("'"$root"'/package.json").devDependencies;
+tools="$(ROOT="$root" node -e 'const d=require(process.env.ROOT + "/package.json").devDependencies;
 process.stdout.write(Object.entries(d).map(([n, v]) => n + "@" + v).join(" "))')"
 
 if [ -z "$tools" ]; then
@@ -53,9 +84,14 @@ printf 'INFO     tools under test: %s\n' "$tools"
 # EBADENGINE unless engine-strict is set, so without this a CI runner drifting
 # below the floor — or a `node-version` edit — would go green and the floor would
 # quietly mean nothing.
-node -e '
-const pkg = require("'"$root"'/package.json");
-const want = parseInt(String(pkg.engines?.node ?? "").replace(/[^0-9]/g, ""), 10);
+# Take the FIRST numeric group, not every digit in the string: stripping all
+# non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
+# above every real version, so the check would hard-fail on a runner that
+# satisfies the floor. Only ">=24" happens to survive that, and the floor will
+# not stay dot-free forever.
+ROOT="$root" node -e '
+const pkg = require(process.env.ROOT + "/package.json");
+const want = parseInt(String(pkg.engines?.node ?? "").match(/(\d+)/)?.[1] ?? "", 10);
 const have = parseInt(process.versions.node.split(".")[0], 10);
 if (!Number.isInteger(want)) {
     console.error("package.json declares no parseable engines.node floor");
@@ -68,8 +104,14 @@ if (have < want) {
 console.log(`INFO     node ${process.versions.node} (engines floor >=${want})`);
 '
 
+# A registry hiccup or a bad pin would otherwise abort the script here with no
+# output at all — the same red as a genuine config regression, and with the EXIT
+# trap deleting $work there is nothing left in the CI log to tell them apart.
 # shellcheck disable=SC2086 # deliberate word splitting: one npm arg per tool
-npm install --no-audit --no-fund --silent "$work/$tarball" $tools >/dev/null 2>&1
+if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-install.log" 2>&1; then
+    fail "npm install failed — cannot run the smoke" "$work/npm-install.log"
+    exit 1
+fi
 
 # Prove the `files` allow-list actually shipped the configs.
 for config in biome/base.json tsconfig/base.json; do
@@ -99,38 +141,67 @@ export const greet = (name: string): string => `hi ${name}`;
 export const isSame = (left: string, right: string): boolean => left === right;
 TS
 
-if npx --no-install biome ci --error-on-warnings --colors=off . >"$work/biome.log" 2>&1; then
+# Note for whoever edits tests/consumer/biome.json: Biome checks its own config
+# file regardless of `files.includes`, so a reformat there reds this run with a
+# message that points at the shared config instead of at the reformat.
+if biome_ci "$work/biome.log"; then
     pass "biome ci — shared config loads and the clean fixture passes"
 else
-    fail "biome ci — shared config rejected or the clean fixture reported findings"
-    sed -n '1,40p' "$work/biome.log" >&2
+    fail "biome ci — shared config rejected or the clean fixture reported findings" "$work/biome.log"
 fi
 
-if npx --no-install tsc -p tsconfig.json >"$work/tsc.log" 2>&1; then
+if run_tsc "$work/tsc.log"; then
     pass "tsc — shared config loads and the clean fixture compiles"
 else
-    fail "tsc — shared config rejected or the clean fixture failed to compile"
-    sed -n '1,40p' "$work/tsc.log" >&2
+    fail "tsc — shared config rejected or the clean fixture failed to compile" "$work/tsc.log"
 fi
 
 # --- controls: the shared rules must actually bite ---------------------------
+#
+# Every control below asserts the DIAGNOSTIC, never the exit status. A non-zero
+# exit is worth nothing here: `biome ci` also exits non-zero when the config is
+# unloadable, when a fixture has unrelated formatter drift, and when `npx
+# --no-install` cannot find the binary at all — so an exit-status control reports
+# "the rule is in force" in exactly the situations where nothing was in force.
+# Verified rather than reasoned: with `"linter": { "enabled": false }` grafted
+# onto the shared base, the previous form of the control below still printed OK,
+# because the fixture's 2-space indent failed the formatter check on its own.
 
-# `noDoubleEquals` is "error" in the shared linter block; a consumer that only
-# inherited Biome's own recommended set would still flag it, so pair it with
-# formatter drift (2-space indent, single quotes), which is purely ours.
+# `noDoubleEquals` is "error" in the shared linter block.
 cat > src/dirty.ts <<'TS'
 export const loose = (a: string, b: string): boolean => {
-  return a == b;
+    return a == b;
 };
 TS
 
-if npx --no-install biome ci --error-on-warnings --colors=off . >"$work/biome-dirty.log" 2>&1; then
+if biome_ci "$work/biome-dirty.log"; then
     fail "biome control — a rule violation passed, the shared linter is not in force"
-else
+elif grep -q 'lint/suspicious/noDoubleEquals' "$work/biome-dirty.log"; then
     pass "biome control — rule violation rejected"
+else
+    fail "biome control — biome ci failed, but not on noDoubleEquals" "$work/biome-dirty.log"
 fi
 
 rm src/dirty.ts
+
+# The formatter half of the standard, as its own control with its own cause —
+# the two used to share one fixture, which is what let the linter control pass
+# on the formatter's finding.
+cat > src/unformatted.ts <<'TS'
+export const wide = (value: string): string => {
+  return value;
+};
+TS
+
+if biome_ci "$work/biome-format.log"; then
+    fail "biome control — formatter drift passed, the shared formatter is not in force"
+elif grep -qE 'format|Formatter' "$work/biome-format.log"; then
+    pass "biome control — formatter drift rejected"
+else
+    fail "biome control — biome ci failed, but not on formatting" "$work/biome-format.log"
+fi
+
+rm src/unformatted.ts
 
 # A second control, aimed at the recommended FLOOR rather than an explicit rule.
 # `noDebugger` is in Biome's recommended set and is deliberately not listed in
@@ -142,15 +213,12 @@ export const trace = (): void => {
 };
 TS
 
-# A non-zero exit alone would not prove it: formatter drift in the fixture would
-# produce one just as well. The diagnostic has to name the rule.
-if npx --no-install biome ci --error-on-warnings --colors=off . >"$work/biome-preset.log" 2>&1; then
+if biome_ci "$work/biome-preset.log"; then
     fail "biome control — the recommended rule preset is not in force"
 elif grep -q 'lint/suspicious/noDebugger' "$work/biome-preset.log"; then
     pass "biome control — the recommended preset rejected a debugger statement"
 else
-    fail "biome control — biome ci failed, but not on noDebugger; the preset may be off"
-    sed -n '1,40p' "$work/biome-preset.log" >&2
+    fail "biome control — biome ci failed, but not on noDebugger; the preset may be off" "$work/biome-preset.log"
 fi
 
 rm src/debugger.ts
@@ -165,10 +233,16 @@ export const first = (values: string[]): string => {
 };
 TS
 
-if npx --no-install tsc -p tsconfig.json >"$work/tsc-dirty.log" 2>&1; then
+# Same rule as the biome controls, and the exposure here is concrete: if the
+# `files` allow-list ever stopped shipping tsconfig/, tsc would exit non-zero
+# with TS5083 "Cannot read file …/tsconfig/base.json" — and an exit-status
+# control would report the shared base as in force precisely because it is gone.
+if run_tsc "$work/tsc-dirty.log"; then
     fail "tsc control — noUncheckedIndexedAccess did not bite, the shared base is not in force"
-else
+elif grep -q 'unchecked.ts' "$work/tsc-dirty.log" && grep -q 'TS2322' "$work/tsc-dirty.log"; then
     pass "tsc control — noUncheckedIndexedAccess rejected the unchecked index"
+else
+    fail "tsc control — tsc failed, but not on the unchecked index" "$work/tsc-dirty.log"
 fi
 
 rm src/unchecked.ts
