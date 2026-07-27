@@ -49,6 +49,25 @@ fi
 
 printf 'INFO     tools under test: %s\n' "$tools"
 
+# Enforce the engines floor rather than documenting it. npm only WARNS on
+# EBADENGINE unless engine-strict is set, so without this a CI runner drifting
+# below the floor — or a `node-version` edit — would go green and the floor would
+# quietly mean nothing.
+node -e '
+const pkg = require("'"$root"'/package.json");
+const want = parseInt(String(pkg.engines?.node ?? "").replace(/[^0-9]/g, ""), 10);
+const have = parseInt(process.versions.node.split(".")[0], 10);
+if (!Number.isInteger(want)) {
+    console.error("package.json declares no parseable engines.node floor");
+    process.exit(1);
+}
+if (have < want) {
+    console.error(`node ${process.versions.node} is below the engines floor >=${want}`);
+    process.exit(1);
+}
+console.log(`INFO     node ${process.versions.node} (engines floor >=${want})`);
+'
+
 # shellcheck disable=SC2086 # deliberate word splitting: one npm arg per tool
 npm install --no-audit --no-fund --silent "$work/$tarball" $tools >/dev/null 2>&1
 

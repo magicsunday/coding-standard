@@ -67,6 +67,15 @@ The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5
 by Dependabot's npm ecosystem, so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
+`engines` declares **Node >= 24**, the house floor. It is deliberately higher than
+what the tools themselves demand (Biome asks for >= 14.21.3, TypeScript for
+>= 16.20.0): those floors are years behind the maintained release lines, so meeting
+them says nothing about a repository being current. npm only *warns* on
+`EBADENGINE` unless `engine-strict` is set, so the floor is enforced where it can be —
+`tests/check-js-configs.sh` fails outright on an older Node, and the CI job pins
+`node-version: 24` rather than the floating `lts/*` alias, which would move up a major
+on its own every October.
+
 ## Layout
 
 The directory a file lives in states how it is meant to be consumed:

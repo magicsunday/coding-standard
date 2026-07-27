@@ -47,7 +47,7 @@ directory that matches how it is consumed, never at the root for convenience.
   two configs and nothing else, so it does NOT deliver the toolchain the way `require`
   does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself. The
   versions the shared configs are proven against are declared as **optional**
-  `peerDependencies` (`^2.4.11`, `^5.0.0 || ^6.0.0 || ^7.0.0`); optional, because a
+  `peerDependencies`; optional, because a
   repo adopting only one of the two must not be nagged about the other. **Node tool
   versions track the current major — always pin forward.** The ranges are `^2.5.0` and
   `^7.0.2`, and a new tool release moves the floor up rather than being added next to
@@ -56,7 +56,11 @@ directory that matches how it is consumed, never at the root for convenience.
   `devDependencies`; `tests/check-js-configs.sh` runs against those pins, never
   against `latest`, so a tool release cannot red the build on a day nothing changed
   here. Moving a range means bumping the pin, letting the smoke vet it, and only then
-  widening the peer range.
+  widening the peer range. The same applies to the runtime: `engines` declares
+  **node >= 24** — above what Biome and TypeScript formally require, because their
+  floors sit years behind the maintained release lines — and the smoke enforces it,
+  since npm only warns on `EBADENGINE`. CI pins `node-version: 24`; do not put the
+  floating `lts/*` back, it changes major on its own schedule.
 
 ## Conventions
 
