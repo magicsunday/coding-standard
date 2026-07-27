@@ -10,7 +10,7 @@
 # Consumer phpstan.neon:
 #
 #     includes:
-#         - vendor/magicsunday/coding-standard/phpstan/base.neon
+#         - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
 #     parameters:
 #         # A range for a multi-version repository (min = floor, max = ceiling);
 #         # a single-PHP repository uses the scalar `phpVersion: 80300`.

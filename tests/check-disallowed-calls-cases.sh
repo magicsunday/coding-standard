@@ -27,7 +27,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONSUMER="$ROOT/tests/consumer"
-PHPSTAN="$CONSUMER/vendor/bin/phpstan"
+PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
 if [ ! -x "$PHPSTAN" ]; then
     printf 'FAIL: %s is missing — run `composer install` in tests/consumer first.\n' "$PHPSTAN"

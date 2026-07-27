@@ -81,6 +81,15 @@ directory that matches how it is consumed, never at the root for convenience.
   consumer copy must not drop a strict flag. When tightening a template, verify the
   aligned consumers stay green (the chart modules' suites already pass under the full
   strict `phpunit.xml` — proven via the buildbox) before the gate is wired.
+- **Generated dependencies live under `.build/`, here as much as in the modules.** Both
+  manifests (root and `tests/consumer`) set `config.vendor-dir` to `.build/vendor` and
+  `config.bin-dir` to `.build/bin`, matching the sibling repositories — a repo that
+  defines the house layout and then ignores it teaches the wrong path to everyone
+  copying from it. Documentation examples use the `.build/vendor/…` prefix for the same
+  reason, with the note that the prefix is the consumer's own `vendor-dir`. No shipped
+  config may depend on the choice: `base.neon` reaches its sibling rule packs with
+  `../../../`, resolved from the package's own position, so both layouts work and the
+  fixture proves it.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
   manifest, never a root `require --dev`.** The case that forced the rule is

@@ -3,7 +3,7 @@
 # every parameter it sets is schema-valid. It also uses the recommended
 # `phpVersion` min/max range so the smoke test exercises the documented pattern.
 includes:
-    - vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
 
 parameters:
     phpVersion:

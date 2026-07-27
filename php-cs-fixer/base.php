@@ -16,7 +16,7 @@ use PhpCsFixer\Runner\Parallel\ParallelConfig;
  * Builds the shared magicsunday php-cs-fixer configuration. The consumer supplies
  * its own file header and finder:
  *
- *     $factory = require __DIR__ . '/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
+ *     $factory = require __DIR__ . '/.build/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
  *
  *     return $factory(<<<EOF
  *         This file is part of the package magicsunday/<repo>.

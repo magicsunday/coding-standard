@@ -16,7 +16,7 @@ For the full copyright and license information, please read the
 LICENSE file that was distributed with this source code.
 EOF;
 
-$factory = require __DIR__ . '/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
+$factory = require __DIR__ . '/.build/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
 
 return $factory($header)
     ->setFinder(

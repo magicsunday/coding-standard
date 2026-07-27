@@ -37,7 +37,7 @@ jobs:
             - name: Validate composer.json
               run: composer validate --strict
 
-            # The gates below run tools from this package's own vendor/bin
+            # The gates below run tools from this package's own .build/bin
             # (phplint), so the root install is a prerequisite — not only the
             # fixture install further down.
             - name: Install dependencies
@@ -75,15 +75,15 @@ jobs:
 
             - name: Consumer smoke - PHPStan with the shared base config
               working-directory: tests/consumer
-              run: vendor/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1 --error-format=github
+              run: .build/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1 --error-format=github
 
             - name: Consumer smoke - php-cs-fixer with the shared ruleset
               working-directory: tests/consumer
-              run: vendor/bin/php-cs-fixer fix --config .php-cs-fixer.dist.php --dry-run --diff
+              run: .build/bin/php-cs-fixer fix --config .php-cs-fixer.dist.php --dry-run --diff
 
             - name: Consumer smoke - Rector with the shared rule sets
               working-directory: tests/consumer
-              run: vendor/bin/rector process --config rector.php --dry-run
+              run: .build/bin/rector process --config rector.php --dry-run
 
             # Exercise the case-folding config: the harness first proves base.neon
             # alone is clean on the fixture, then that base.neon + disallowed-calls.neon

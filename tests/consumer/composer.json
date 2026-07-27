@@ -26,6 +26,8 @@
         }
     },
     "config": {
-        "sort-packages": true
+        "bin-dir": ".build/bin",
+        "sort-packages": true,
+        "vendor-dir": ".build/vendor"
     }
 }

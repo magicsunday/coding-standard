@@ -11,7 +11,7 @@
 # their own, and pinning their number here would turn every upstream rule addition into
 # a false failure.
 includes:
-    - vendor/magicsunday/coding-standard/phpstan/strict.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/strict.neon
 
 parameters:
     phpVersion:

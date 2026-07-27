@@ -30,7 +30,7 @@ use Rector\Set\ValueObject\SetList;
  *         $config->paths([__DIR__ . '/src/', __DIR__ . '/tests/']);
  *         $config->phpstanConfig(__DIR__ . '/phpstan.neon');
  *
- *         (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
+ *         (require __DIR__ . '/.build/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
  *     };
  *
  * The version is the target the transformed code must run on, independent of the

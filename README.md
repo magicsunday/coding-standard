@@ -46,9 +46,18 @@ The directory a file lives in states how it is meant to be consumed:
 
 | Location | Kind | How a consumer uses it |
 |---|---|---|
-| `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of `vendor/` or `node_modules/` — `includes:`, `require`, `extends` |
+| `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
 | `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
 | repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. The package lints itself with its own template. |
+
+Every include path below is written as `.build/vendor/…`, the house layout: the
+`magicsunday/*` repositories set `config.vendor-dir` to `.build/vendor` and
+`config.bin-dir` to `.build/bin`, so that generated dependencies sit with every other
+build artefact instead of in a second top-level directory. This package and its CI
+fixture use the same layout. **The prefix is the consumer's own `vendor-dir`** — a
+repository left on Composer's default substitutes `vendor/` throughout. Nothing in the
+shipped configs depends on the choice; `base.neon`'s relative includes resolve from the
+package's own position either way.
 
 ## PHP configs
 
@@ -59,7 +68,7 @@ own file header and finder.
 
 ```php
 // .php-cs-fixer.dist.php
-$factory = require __DIR__ . '/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
+$factory = require __DIR__ . '/.build/vendor/magicsunday/coding-standard/php-cs-fixer/base.php';
 
 return $factory(<<<EOF
     This file is part of the package magicsunday/<repo>.
@@ -89,7 +98,7 @@ does not reach Rector's bundled PHPStan, so a base relying on it makes `rector.p
 ```neon
 # phpstan.neon
 includes:
-    - vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
 
 parameters:
     phpVersion:
@@ -169,8 +178,8 @@ a repository that wants the gate earlier:
 ```neon
 # phpstan.neon
 includes:
-    - vendor/magicsunday/coding-standard/phpstan/base.neon
-    - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
 ```
 
 The replacement depends on what the call is for. Matching a tag, enum case or
@@ -230,7 +239,7 @@ return static function (RectorConfig $config): void {
     $config->paths([__DIR__ . '/src/', __DIR__ . '/tests/']);
     $config->phpstanConfig(__DIR__ . '/phpstan.neon');
 
-    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
+    (require __DIR__ . '/.build/vendor/magicsunday/coding-standard/rector/base.php')($config, 80300);
 };
 ```
 
@@ -361,7 +370,7 @@ them into a layer. The canonical layers are `Enum`, `Model`, `Contract`,
 ```yaml
 # deptrac.yaml
 imports:
-    - vendor/magicsunday/coding-standard/deptrac/layers.yaml
+    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
 
 deptrac:
     paths:
