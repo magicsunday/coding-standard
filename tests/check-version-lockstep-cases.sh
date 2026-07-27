@@ -75,21 +75,29 @@ which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standa
 assert_accepts "$d" "package.json and every README pin agree"
 
 # The release that bumps two of the three copies — the case the gate exists for.
-d="$(mk_case stale-pin 1.8.0 'Install with
+# The stale pin comes FIRST and a matching one after it, so the loop has to carry
+# on past a mismatch: a gate that stopped at the first one would pass otherwise.
+d="$(mk_case stale-pin 1.8.0 'which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"`, install with
 
 ```shell
 npm install --save-dev github:magicsunday/coding-standard#1.8.0
-```
-
-which records `"@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"`.')"
+```')"
 assert_rejects "$d" "a README pin left behind by a release" "MISMATCH"
 
+# Two stale pins, so a gate reporting only the first or only the last is caught.
+d="$(mk_case two-stale-pins 1.8.0 'github:magicsunday/coding-standard#1.7.0
+and also
+github:magicsunday/coding-standard#1.6.1')"
+assert_rejects "$d" "the first of two stale pins is reported" "README.md:1 pins #1.7.0"
+assert_rejects "$d" "the second of two stale pins is reported as well" "README.md:3 pins #1.6.1"
+
 # The report has to name the line, or a README with many pins gives the reader
-# nothing to go on.
+# nothing to go on. Asserted with the MISMATCH prefix, because the gate prints
+# the same `README.md:<line>` shape on its OK path too.
 d="$(mk_case names-the-line 1.8.0 'line one
 
 github:magicsunday/coding-standard#1.7.0')"
-assert_rejects "$d" "the mismatch names the README line" "README.md:3"
+assert_rejects "$d" "the mismatch names the README line" "MISMATCH  README.md:3"
 
 # Deleting the instructions must not make the gate pass vacuously.
 d="$(mk_case no-pin 1.7.0 'The install instructions moved elsewhere.')"
@@ -133,6 +141,24 @@ assert_accepts "$d" "a placeholder documented beside a real pin"
 # A prerelease tag is still a version and must compare as one.
 d="$(mk_case prerelease 1.8.0-rc.1 'npm install --save-dev github:magicsunday/coding-standard#1.8.0-rc.1')"
 assert_accepts "$d" "a prerelease pin"
+
+# The combination the two separate cases never exercised: a prerelease pin at the
+# end of a sentence. The suffix class used to swallow the period, so a correct
+# README reported a mismatch against itself.
+d="$(mk_case prerelease-sentence 1.8.0-rc.1 'The current prerelease is github:magicsunday/coding-standard#1.8.0-rc.1.')"
+assert_accepts "$d" "a prerelease pin at the end of a sentence"
+
+d="$(mk_case build-metadata 1.7.0+build.5 'see github:magicsunday/coding-standard#1.7.0+build.5.')"
+assert_accepts "$d" "a build-metadata pin at the end of a sentence"
+
+d="$(mk_case prerelease-and-build 1.2.3-beta.1+build.5 'github:magicsunday/coding-standard#1.2.3-beta.1+build.5')"
+assert_accepts "$d" "a pin carrying both a prerelease and build metadata"
+
+# The other direction: a pin with trailing junk must not be truncated to a
+# version that happens to match, certifying lockstep for a tag that does not
+# exist. It is not a version, so the vacuity guard is what reports it.
+d="$(mk_case trailing-junk 1.7.0 'npm install --save-dev github:magicsunday/coding-standard#1.7.0final')"
+assert_rejects "$d" "a pin with trailing characters is not read as a bare version" "documents no"
 
 # And the discriminator for the shape: a pin that differs only in its last
 # segment must still be caught, so the looser match is not simply truncating.

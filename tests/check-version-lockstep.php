@@ -29,7 +29,15 @@ declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__);
 
-$packageJsonContents = @file_get_contents($root . '/package.json');
+// A scoped handler rather than the `@` prefix: the sibling gate does it this way
+// for the same reason, and `@` would also swallow an error worth seeing.
+set_error_handler(static fn (): bool => true);
+
+try {
+    $packageJsonContents = file_get_contents($root . '/package.json');
+} finally {
+    restore_error_handler();
+}
 
 if ($packageJsonContents === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
@@ -44,7 +52,13 @@ if (!is_array($packageJson) || !is_string($packageJson['version'] ?? null)) {
 }
 
 $version = $packageJson['version'];
-$readme  = @file_get_contents($root . '/README.md');
+set_error_handler(static fn (): bool => true);
+
+try {
+    $readme = file_get_contents($root . '/README.md');
+} finally {
+    restore_error_handler();
+}
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));
@@ -55,14 +69,25 @@ if ($readme === false) {
 //
 // The capture is a version SHAPE, not "everything up to the next quote or
 // space". `\S` includes a backtick, a closing paren and a sentence-ending
-// period, so the inline forms this repository's own prose uses — a pin in
-// backticks, in parentheses, or at the end of a sentence — captured the
+// period, so the inline forms this repository's own prose uses captured the
 // punctuation with the pin and reported a mismatch against a README that was
-// perfectly correct. Matching digits and dot-separated groups stops exactly
-// where the version does, and a documented `#<tag>` placeholder is not captured
-// at all, which is what it is: a placeholder, not a pin.
+// perfectly correct.
+//
+// The shape has to hold for a prerelease and build metadata too, and both edges
+// of it matter:
+//
+// - each `-`/`+` group is dot-separated alphanumerics rather than a class that
+//   contains `.`, so `#1.8.0-rc.1.` at the end of a sentence yields `1.8.0-rc.1`
+//   and not `1.8.0-rc.1.`; the group repeats, so `#1.2.3-beta.1+build.5` is
+//   captured whole instead of truncated at the prerelease.
+// - the lookaheads terminate it: no alphanumeric may follow (so `#1.7.0final`
+//   is not silently read as the tag `1.7.0`, certifying lockstep for a tag that
+//   does not exist), and a following `.` may not begin another segment (so a
+//   sentence period is fine and a longer version is not truncated).
+//
+// A documented `#<tag>` placeholder matches nothing, which is what it is.
 preg_match_all(
-    '~github:magicsunday/coding-standard#(\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?)~',
+    '~github:magicsunday/coding-standard#(\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*)(?![0-9A-Za-z+-])(?!\.[0-9A-Za-z])~',
     $readme,
     $matches,
     \PREG_OFFSET_CAPTURE
