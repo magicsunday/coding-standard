@@ -49,19 +49,6 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
-            # The npm tag is hand-written in the README and repeated in
-            # package.json, so a release that bumps only one of them leaves the
-            # install instructions pointing at a tag without the fix.
-            - name: Version lockstep gate
-              run: composer ci:test:version
-
-            # The gate above runs against this repository, where every copy of
-            # the version already agrees — so it only ever takes the happy path
-            # and would stay green if it lost the ability to fail. These cases
-            # put it in each failing state on purpose.
-            - name: Version lockstep gate self-test
-              run: composer ci:test:version-lockstep
-
             # Exercise the template lockstep gate: the fixture-driven harness proves
             # it ACCEPTS the canon and REJECTS every drift class (loosened strict
             # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the
@@ -106,6 +93,26 @@ jobs:
             # only place that tier is loaded at all, so it doubles as its smoke test.
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
+
+            # These two sit LAST on purpose. A failing step skips every later one,
+            # and what they catch is a documentation mismatch — a release that
+            # bumps package.json's version without the README pin. Ahead of the
+            # consumer smoke, that one-line defect would suppress PHPStan, Rector
+            # and php-cs-fixer against the installed fixture on all three legs,
+            # exactly on the release commit where that answer matters most.
+            #
+            # The npm tag is hand-written in the README and repeated in
+            # package.json, so a release that bumps only one of them leaves the
+            # install instructions pointing at a tag without the fix.
+            - name: Version lockstep gate
+              run: composer ci:test:version
+
+            # The gate above runs against this repository, where every copy of
+            # the version already agrees — so it only ever takes the happy path
+            # and would stay green if it lost the ability to fail. These cases
+            # put it in each failing state on purpose.
+            - name: Version lockstep gate self-test
+              run: composer ci:test:version-lockstep
 
     js:
         name: JS/TS configs

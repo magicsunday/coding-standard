@@ -45,22 +45,18 @@ directory that matches how it is consumed, never at the root for convenience.
   `tsconfig.json` `extends` the shared files from `node_modules`. **The npm side is
   deliberately not the mirror image of the Composer side:** `package.json` ships the
   two configs and nothing else, so it does NOT deliver the toolchain the way `require`
-  does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself. The
-  versions the shared configs are proven against are declared as **optional**
-  `peerDependencies`; optional, because a
-  repo adopting only one of the two must not be nagged about the other. **Node tool
-  versions track the current major — always pin forward.** The ranges are `^2.5.0` and
-  `^7.0.2`, and a new tool release moves the floor up rather than being added next to
-  the old major: a range spanning majors that CI never exercises is a promise this
-  package cannot keep. The exact versions CI proves live in the root
-  `devDependencies`; `tests/check-js-configs.sh` runs against those pins, never
-  against `latest`, so a tool release cannot red the build on a day nothing changed
-  here. Moving a range means bumping the pin, letting the smoke vet it, and only then
-  widening the peer range. The same applies to the runtime: `engines` declares
-  **node >= 24** — above what Biome and TypeScript formally require, because their
-  floors sit years behind the maintained release lines — and the smoke enforces it,
-  since npm only warns on `EBADENGINE`. CI pins `node-version: 24`; do not put the
-  floating `lts/*` back, it changes major on its own schedule.
+  does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself.
+  **Node tool versions track the current major — always pin forward.** The peer ranges
+  are `^2.5.0` and `^7.0.2` and never span a major CI does not exercise; moving one
+  means bumping the exact root `devDependencies` pin first, letting
+  `tests/check-js-configs.sh` vet it, and only then widening the range. `engines` is
+  **node >= 24** and CI pins `node-version: 24` — do not put the floating `lts/*`
+  back, it changes major on its own schedule. Dependabot's npm ecosystem reads
+  `devDependencies`, not `peerDependencies`, which is why the pins are the moving
+  part. The reasoning behind each of these — why the peers are optional, why the
+  ranges are a policy rather than a compatibility promise, and what a consumer below
+  them actually hits — is in the README under *The npm side is not the mirror image of
+  the Composer side*; keep it in one place.
 
 ## Conventions
 
@@ -187,12 +183,16 @@ directory that matches how it is consumed, never at the root for convenience.
 
 The reusable `magicsunday/.github` workflows provide code-scanning, zizmor,
 scorecard, dependency-review, yamllint, commit-convention, label-sync and
-auto-merge; `.github/dependabot.yml` covers composer + npm + github-actions. The npm
-ecosystem tracks the root `devDependencies`, NOT the `peerDependencies` — Dependabot's
-npm parser reads `dependencies`, `devDependencies` and `optionalDependencies` only, so
-a package.json carrying peer ranges alone would give it nothing to do. The
+auto-merge; `.github/dependabot.yml` covers composer + npm + github-actions. The
 own `ci.yml` adds a `js` job running the JS consumer smoke, the counterpart to the
-PHP consumer smoke. Community
+PHP consumer smoke. **That job publishes the status context `JS/TS configs` — no
+spaces around the slash, and no matrix suffix — and it must be registered in the
+branch's `required_status_checks`.** A branch-protection setting is invisible in git,
+so it is recorded here: without it the smoke cannot block a merge, and the npm
+Dependabot group auto-merges patch and minor bumps of the very tools it smokes, so a
+Biome release lands with the gate red and unread. Adding a matrix dimension to that
+job later would rewrite the context and desync the setting silently, the same way a
+`Build (8.x)` leg does. Community
 health files (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`) are inherited
 from `magicsunday/.github`.
 
