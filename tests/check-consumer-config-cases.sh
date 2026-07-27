@@ -488,6 +488,17 @@ d="$(mk_js_case biome-extensionless)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > "$d/biome.json"
 assert_rejects "$d" "biome.json extending without the .json suffix" "biome/base.json"
 
+# The scope is part of the package name. Neither tool resolves the unscoped
+# spelling — Biome answers `module not found`, tsc `TS6053: File … not found` —
+# so accepting it would report a link that cannot exist.
+d="$(mk_js_case biome-unscoped)"
+printf '{\n    "extends": ["magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending the unscoped package name" "biome/base.json"
+
+d="$(mk_js_case ts-unscoped)"
+printf '{\n    "extends": "magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json extending the unscoped package name" "tsconfig/base.json"
+
 # A specifier that is not a string at all must report as a missing link rather
 # than fail the gate on a type error.
 d="$(mk_js_case biome-extends-not-a-string)"

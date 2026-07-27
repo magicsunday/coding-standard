@@ -481,6 +481,12 @@ $loadJsonc = static function (string $path) use ($stripJsonc): ?array {
  *   answers the equivalent with `Could not resolve … module not found`. Both
  *   checked against the packed tarball with tsc 7.0.2 and Biome 2.5.5.
  *
+ * The scope `@` is NOT optional. The npm package is `@magicsunday/coding-standard`,
+ * and the unscoped spelling resolves for neither tool — Biome answers `module not
+ * found` and tsc `TS6053: File … not found` — so accepting it would report a link
+ * that cannot exist. (The Composer-side deptrac import is unscoped and has its own
+ * pattern; this one is npm-only.)
+ *
  * @param array<array-key, mixed>|string|null $extends        The `extends` value as decoded.
  * @param string                              $sharedStem     Path inside the package, without the `.json` suffix.
  * @param bool                                $suffixOptional Whether the consuming tool resolves the suffix itself.
@@ -491,7 +497,7 @@ $extendsShared = static function (array|string|null $extends, string $sharedStem
     $candidates = is_array($extends) ? $extends : [$extends];
 
     $pattern = sprintf(
-        '~^(?:(?:\S*/)?node_modules/)?@?magicsunday/coding-standard/%s%s$~',
+        '~^(?:(?:\S*/)?node_modules/)?@magicsunday/coding-standard/%s%s$~',
         preg_quote($sharedStem, '~'),
         $suffixOptional ? '(?:\.json)?' : '\.json'
     );
