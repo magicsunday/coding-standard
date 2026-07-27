@@ -1,0 +1,22 @@
+# CI fixture: includes the shared STRICT tier exactly as a consumer does. Two things
+# are proven here that the base smoke test cannot: that `strict.neon`'s relative
+# includes resolve from an installed vendor layout at all (nothing else loads it), and
+# that a repository reaching the strict tier gets the case-folding bans automatically
+# — the claim README and AGENTS make about `disallowed-calls.neon`.
+#
+# Scoped to the same `case-folding/` fixture as phpstan-disallowed-calls.neon, so the
+# run is EXPECTED TO FAIL: `tests/check-disallowed-calls-cases.sh` asserts every banned
+# function is reported THROUGH this config. Unlike the two-include run it does not
+# assert a report count — the shipmonk/symplify packs may legitimately add findings of
+# their own, and pinning their number here would turn every upstream rule addition into
+# a false failure.
+includes:
+    - vendor/magicsunday/coding-standard/phpstan/strict.neon
+
+parameters:
+    phpVersion:
+        min: 80300
+        max: 80500
+
+    paths:
+        - case-folding

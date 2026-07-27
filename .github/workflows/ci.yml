@@ -87,7 +87,9 @@ jobs:
 
             # Exercise the case-folding config: the harness first proves base.neon
             # alone is clean on the fixture, then that base.neon + disallowed-calls.neon
-            # reports all five banned functions. Without the control run a config that
-            # loaded but matched nothing would pass as "PHPStan is green".
+            # reports all five banned functions, then that the same five come back
+            # through strict.neon. Without the control run a config that loaded but
+            # matched nothing would pass as "PHPStan is green"; the strict run is the
+            # only place that tier is loaded at all, so it doubles as its smoke test.
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls

@@ -70,6 +70,6 @@
         "ci:test:json": "Validate that every shipped JSON config parses.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
-        "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions. Requires tests/consumer to be installed."
+        "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed."
     }
 }

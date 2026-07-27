@@ -16,6 +16,10 @@
 # with base.neon ALONE and must come back clean — only then does a report in the
 # second run prove it was disallowed-calls.neon that produced it.
 #
+# A third run goes through strict.neon, the tier README and AGENTS say delivers the
+# bans automatically. That is the only place the strict tier is loaded at all, so the
+# run doubles as its smoke test: a broken relative include in strict.neon reds here.
+#
 # Requires the consumer fixture to be installed (tests/consumer: composer install).
 # Run from the package root: bash tests/check-disallowed-calls-cases.sh
 
@@ -47,18 +51,6 @@ if [ "${#BANNED[@]}" -eq 0 ]; then
     exit 2
 fi
 printf 'derived %d banned function(s) from the shipped config: %s\n' "${#BANNED[@]}" "${BANNED[*]}"
-
-# --- WIRING: strict.neon must include the config, or the documented "a repository
-# --- reaching the strict tier gets it automatically" claim is false. The positive
-# --- run below goes through base + disallowed-calls directly, so without this
-# --- assertion the include could be deleted and the suite would stay green.
-if grep -qE '^\s*-\s*disallowed-calls\.neon\s*$' "$ROOT/phpstan/strict.neon"; then
-    printf 'ok (wiring): strict.neon includes disallowed-calls.neon\n'
-else
-    printf 'FAIL (wiring): strict.neon does not include disallowed-calls.neon, so the\n'
-    printf '  documented automatic inclusion in the strict tier does not hold.\n'
-    fails=$((fails + 1))
-fi
 
 # --- CONTROL: the same fixture under base.neon alone must be clean ---
 # If this run reports anything, the positive run below proves nothing.
@@ -102,6 +94,31 @@ else
             "$reported" "${#BANNED[@]}" "$out"
         fails=$((fails + 1))
     fi
+fi
+
+# --- WIRING: the same bans must fire through strict.neon, which is the tier README
+# --- and AGENTS say delivers them automatically. Running the tier is what proves it:
+# --- an assertion on the include LINE would stay green if strict.neon stopped loading
+# --- altogether, and nothing else in the suite loads that file. No count assertion
+# --- here — the shipmonk/symplify packs may add findings of their own, and pinning
+# --- their number would turn every upstream rule addition into a false failure.
+strict_out="$(cd "$CONSUMER" && "$PHPSTAN" analyse \
+    --configuration phpstan-strict.neon --error-format=raw --no-progress --memory-limit=-1 2>&1)" \
+    && strict_rc=0 || strict_rc=$?
+
+if [ "$strict_rc" -eq 0 ]; then
+    printf 'FAIL (wiring): the strict tier reported nothing on the case-folding fixture,\n'
+    printf '  so the documented automatic inclusion does not hold.\n%s\n' "$strict_out"
+    fails=$((fails + 1))
+else
+    for fn in "${BANNED[@]}"; do
+        if grep -qF "Calling ${fn}() is forbidden" <<<"$strict_out"; then
+            printf 'ok (wiring): %s() is reported through strict.neon\n' "$fn"
+        else
+            printf 'FAIL (wiring): %s() is not reported through strict.neon.\n%s\n' "$fn" "$strict_out"
+            fails=$((fails + 1))
+        fi
+    done
 fi
 
 if [ "$fails" -ne 0 ]; then

@@ -14,7 +14,9 @@
     ],
     "require-dev": {
         "magicsunday/coding-standard": "*",
-        "spaze/phpstan-disallowed-calls": "^4.13"
+        "shipmonk/phpstan-rules": "^4.0",
+        "spaze/phpstan-disallowed-calls": "^4.13",
+        "symplify/phpstan-rules": "^14.0"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
