@@ -17,5 +17,21 @@
     "files": [
         "biome",
         "tsconfig"
-    ]
+    ],
+    "devDependencies": {
+        "@biomejs/biome": "2.5.5",
+        "typescript": "7.0.2"
+    },
+    "peerDependencies": {
+        "@biomejs/biome": "^2.5.0",
+        "typescript": "^7.0.2"
+    },
+    "peerDependenciesMeta": {
+        "@biomejs/biome": {
+            "optional": true
+        },
+        "typescript": {
+            "optional": true
+        }
+    }
 }

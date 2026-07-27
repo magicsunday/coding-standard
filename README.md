@@ -40,6 +40,33 @@ which records in `package.json`:
 }
 ```
 
+**The npm side is not the mirror image of the Composer side.** The Composer package
+delivers the whole PHP toolchain transitively; the npm package ships the two config
+files and nothing else, so it installs no tooling. Each consumer adds the tools it
+uses itself:
+
+```shell
+npm install --save-dev @biomejs/biome typescript
+```
+
+The versions the shared configs are proven against are declared as **optional**
+`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^7.0.2`. Optional, because
+a repository adopting only the Biome config should not be warned about a missing
+TypeScript, and vice versa; npm still validates the range of whichever one is
+installed.
+
+**The ranges track the current major, they are not a compatibility promise.** A tool
+release is adopted here and the floor moves up with it, rather than accumulating old
+majors a green CI never exercises — so a consumer on an older Biome or TypeScript
+updates its tools together with this package, not independently of it. That is the
+same bargain as the PHP side, where the toolchain versions are pinned here once for
+every repository; only the mechanism differs, because npm cannot deliver the tools.
+
+The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
+`typescript 7.0.2`) and are what Dependabot tracks — `peerDependencies` are not parsed
+by Dependabot's npm ecosystem, so the pins are the moving part and the ranges are
+widened by hand once a bump is green.
+
 ## Layout
 
 The directory a file lives in states how it is meant to be consumed:
@@ -469,7 +496,18 @@ skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
 { "extends": "@magicsunday/coding-standard/tsconfig/base.json" }
 ```
 
-Lint with `biome ci --error-on-warnings` so every warning is CI-fatal.
+Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. A consumer may
+override `quoteStyle` or `useImportExtensions` to fit its module system — TS ESM does
+not want `.js` extensions. The TypeScript base carries no `module`/`target`/`lib`/`jsx`
+and no `paths`; those are per-repository and belong in the consumer's own
+`compilerOptions`.
+
+Note that `biome.json` cannot carry a `"//"` note key: Biome rejects unknown keys and
+refuses the whole config, so a file that is valid JSON can still be unloadable for
+every consumer. `tests/check-js-configs.sh` guards this — it packs the package as npm
+ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
+shared configs, with controls proving a `==` comparison and an unchecked array index
+are actually rejected. The `js` CI job runs it on every push.
 
 ## License
 

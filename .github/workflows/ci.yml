@@ -93,3 +93,29 @@ jobs:
             # only place that tier is loaded at all, so it doubles as its smoke test.
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
+
+    js:
+        name: JS/TS configs
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: lts/*
+
+            # The PHP consumer smoke has no JS counterpart, which is how an
+            # unloadable biome/base.json shipped: `ci:test:json` proves the file
+            # parses as JSON, but Biome rejects an unknown key outright, so a
+            # perfectly valid JSON document can still fail every consumer. This
+            # packs the package as npm ships it, installs it into a throwaway
+            # consumer and runs Biome and tsc against the shared configs — with
+            # controls proving a rule violation and an unchecked index are
+            # actually rejected, so the gate cannot pass vacuously.
+            - name: JS consumer smoke
+              run: bash tests/check-js-configs.sh

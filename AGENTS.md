@@ -42,7 +42,21 @@ directory that matches how it is consumed, never at the root for convenience.
   repository.
 - **JS/TS:** a GitHub **git dependency** — `github:magicsunday/coding-standard#<tag>`
   (never published to the npm registry, like `webtrees-chart-lib`). `biome.json` and
-  `tsconfig.json` `extends` the shared files from `node_modules`.
+  `tsconfig.json` `extends` the shared files from `node_modules`. **The npm side is
+  deliberately not the mirror image of the Composer side:** `package.json` ships the
+  two configs and nothing else, so it does NOT deliver the toolchain the way `require`
+  does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself. The
+  versions the shared configs are proven against are declared as **optional**
+  `peerDependencies` (`^2.4.11`, `^5.0.0 || ^6.0.0 || ^7.0.0`); optional, because a
+  repo adopting only one of the two must not be nagged about the other. **Node tool
+  versions track the current major — always pin forward.** The ranges are `^2.5.0` and
+  `^7.0.2`, and a new tool release moves the floor up rather than being added next to
+  the old major: a range spanning majors that CI never exercises is a promise this
+  package cannot keep. The exact versions CI proves live in the root
+  `devDependencies`; `tests/check-js-configs.sh` runs against those pins, never
+  against `latest`, so a tool release cannot red the build on a day nothing changed
+  here. Moving a range means bumping the pin, letting the smoke vet it, and only then
+  widening the peer range.
 
 ## Conventions
 
@@ -60,6 +74,15 @@ directory that matches how it is consumed, never at the root for convenience.
   least one real adopter before releasing, and ship it as its own version — a
   consumer on `^1.0` picks a stricter base up on its next update, and a red build
   they did not ask for is the failure mode to avoid.
+- **Never put a `"//"` note key in `biome/base.json`.** Biome's config deserializer is
+  strict about unknown keys and refuses the whole file (`Found an unknown key "//"`),
+  so a config that is perfectly valid JSON is still unloadable for every consumer —
+  which is exactly what shipped once. `tsconfig/base.json` and `templates/jscpd.json`
+  tolerate the key and keep it; Biome's documentation belongs in the README instead.
+  `composer ci:test:json` cannot catch this class of break (it only proves the file
+  parses); only `tests/check-js-configs.sh`, which loads the config with the real
+  tool, can. Any new shipped config gets a guard that runs its actual tool, not a
+  syntax check.
 - **The importable PHP configs must stay valid in Rector's `phpstanConfig` context**,
   not only the main PHPStan run: the rule extensions are pulled in by explicit
   relative `includes` in `base.neon` (not `phpstan/extension-installer`, which does
@@ -113,7 +136,12 @@ directory that matches how it is consumed, never at the root for convenience.
 
 The reusable `magicsunday/.github` workflows provide code-scanning, zizmor,
 scorecard, dependency-review, yamllint, commit-convention, label-sync and
-auto-merge; `.github/dependabot.yml` covers composer + github-actions. Community
+auto-merge; `.github/dependabot.yml` covers composer + npm + github-actions. The npm
+ecosystem tracks the root `devDependencies`, NOT the `peerDependencies` — Dependabot's
+npm parser reads `dependencies`, `devDependencies` and `optionalDependencies` only, so
+a package.json carrying peer ranges alone would give it nothing to do. The
+own `ci.yml` adds a `js` job running the JS consumer smoke, the counterpart to the
+PHP consumer smoke. Community
 health files (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`) are inherited
 from `magicsunday/.github`.
 

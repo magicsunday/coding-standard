@@ -1,6 +1,5 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
-    "//": "Shared Biome config for magicsunday/* JS/TS projects. A consumer extends it: { \"extends\": [\"@magicsunday/coding-standard/biome.json\"] } and may override quoteStyle or useImportExtensions to fit its module system (TS ESM does not want .js extensions). Lint with `biome ci --error-on-warnings` so every warning is CI-fatal.",
+    "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
     "formatter": {
         "enabled": true,
         "indentStyle": "space",
