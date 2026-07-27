@@ -18,5 +18,5 @@ return static function (RectorConfig $rectorConfig): void {
 
     $rectorConfig->phpstanConfig(__DIR__ . '/phpstan.neon');
 
-    (require __DIR__ . '/vendor/magicsunday/coding-standard/rector/base.php')($rectorConfig, 80300);
+    (require __DIR__ . '/.build/vendor/magicsunday/coding-standard/rector/base.php')($rectorConfig, 80300);
 };

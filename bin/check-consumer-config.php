@@ -351,5 +351,5 @@ foreach ($violations as $violation) {
     fwrite(\STDERR, sprintf("  - %s\n", $violation));
 }
 
-fwrite(\STDERR, "\nAlign the file(s) with vendor/magicsunday/coding-standard/templates/.\n");
+fwrite(\STDERR, "\nAlign the file(s) with the templates/ directory of magicsunday/coding-standard.\n");
 exit(1);

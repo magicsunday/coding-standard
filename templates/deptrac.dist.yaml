@@ -15,7 +15,7 @@
 # it wholesale, since every external dependency is uncovered; it is only useful
 # once external namespaces are given their own catch-all layer.
 imports:
-    - vendor/magicsunday/coding-standard/deptrac/layers.yaml
+    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
 
 deptrac:
     paths:

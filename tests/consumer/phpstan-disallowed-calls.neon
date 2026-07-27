@@ -4,8 +4,8 @@
 # asserts that it reports all five, proving the config loads from an installed
 # vendor layout and actually fires.
 includes:
-    - vendor/magicsunday/coding-standard/phpstan/base.neon
-    - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
 
 parameters:
     phpVersion:

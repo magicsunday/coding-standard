@@ -11,7 +11,7 @@
 # Consumer phpstan.neon:
 #
 #     includes:
-#         - vendor/magicsunday/coding-standard/phpstan/strict.neon
+#         - .build/vendor/magicsunday/coding-standard/phpstan/strict.neon
 includes:
     - base.neon
     - disallowed-calls.neon

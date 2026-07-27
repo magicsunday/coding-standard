@@ -33,7 +33,7 @@
 # the gate without the rest of that tier:
 #
 #     includes:
-#         - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+#         - .build/vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
 #
 # A deliberate, verified-safe call site is re-allowed with `allowIn`, which takes
 # fnmatch() patterns resolved against the working directory (set `filesRootDir`

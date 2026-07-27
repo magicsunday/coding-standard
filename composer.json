@@ -45,7 +45,9 @@
         "bin/check-phpat-subjects.php"
     ],
     "config": {
-        "sort-packages": true
+        "bin-dir": ".build/bin",
+        "sort-packages": true,
+        "vendor-dir": ".build/vendor"
     },
     "scripts": {
         "ci:test:php:lint": [
