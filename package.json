@@ -21,6 +21,9 @@
     "engines": {
         "node": ">=24"
     },
+    "scripts": {
+        "ci:test:js": "bash tests/check-js-configs.sh"
+    },
     "devDependencies": {
         "@biomejs/biome": "2.5.5",
         "typescript": "7.0.2"

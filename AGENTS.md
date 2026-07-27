@@ -128,6 +128,15 @@ directory that matches how it is consumed, never at the root for convenience.
   config may depend on the choice: `base.neon` reaches its sibling rule packs with
   `../../../`, resolved from the package's own position, so both layouts work and the
   fixture proves it.
+- **Every gate has exactly one definition, and CI invokes that one.** The manifest
+  declaring the gate is the definition — `composer.json` for the PHP gates,
+  `package.json` for the JS one, since the `js` job runs without PHP. A workflow step
+  that repeats the inner command instead is a second definition that drifts silently:
+  the composer entries are arrays, so a second element added to one of them would
+  never run in CI, which keeps passing the first command alone. It also decides where
+  a gate is discoverable — the JS smoke had no manifest entry at all and was reachable
+  only by reading the workflow, while the class of break it exists to catch
+  (`ci:test:json` cannot see an unloadable Biome config) has no other local check.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
   manifest, never a root `require --dev`.** The case that forced the rule is
