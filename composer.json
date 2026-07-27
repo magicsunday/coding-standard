@@ -55,6 +55,12 @@
         ],
         "ci:test:json": "@php tests/lint-json.php",
         "ci:test:version": "@php tests/check-version-lockstep.php",
+        "ci:test:version-lockstep": [
+            "bash tests/check-version-lockstep-cases.sh"
+        ],
+        "ci:test:js": [
+            "bash tests/check-js-configs.sh"
+        ],
         "ci:test:templates": [
             "bash tests/check-consumer-config-cases.sh"
         ],
@@ -69,6 +75,8 @@
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:json": "Validate that every shipped JSON config parses.",
         "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",
+        "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",
+        "ci:test:js": "Consumer smoke for the JS/TS configs: packs the package as npm ships it, installs it into a throwaway consumer and runs Biome and tsc against the shared configs, with controls that assert their own diagnostic. Requires Node at the engines floor.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
         "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed."
