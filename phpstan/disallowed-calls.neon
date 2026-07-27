@@ -1,0 +1,76 @@
+# Case-folding rules for magicsunday/* projects.
+#
+# Bans the five byte-wise case-folding functions. They fold ASCII A-Z only and
+# leave every multi-byte character untouched, so on UTF-8 text they produce a
+# half-folded string:
+#
+#     strtolower('GEBÜRTIGE')        === 'gebÜrtige'   (never matches 'gebürtige')
+#     strtoupper('über')             === 'üBER'
+#     ucfirst('über')                === 'über'        (silently does nothing)
+#     ucwords("anna\u{00A0}maria")   === "Anna\u{00A0}maria"  (does not split on NBSP)
+#
+# The damage is a fold-then-compare lookup that stops matching, or a "capitalise
+# the first letter" that is a no-op — both silent. A genealogy domain is full of
+# the names and places this hits.
+#
+# NOT a locale problem. PHP 8.2 made these functions locale-independent (ASCII
+# only), so the historical Turkish dotted-I bug — strtoupper('i') not yielding
+# 'I' under tr_TR — cannot occur on this package's 8.3-8.5 floor. Verified by
+# running the same fold under an active tr_TR.UTF-8 locale on 8.1, 8.3 and 8.5:
+# 8.1 leaves 'i' unfolded, 8.3 and 8.5 both return 'I'. Do not reintroduce the
+# locale rationale.
+#
+# The replacement depends on the intent:
+#   - matching a tag/enum/keyword  -> compare case-insensitively, or map explicitly
+#   - folding whole text           -> mb_strtoupper()/mb_strtolower()/mb_convert_case()
+#                                     with an explicit 'UTF-8' encoding argument
+#   - folding the FIRST character     -> mb_strtoupper(mb_substr($v, 0, 1), 'UTF-8')
+#                                     . mb_substr($v, 1, null, 'UTF-8'); mb_convert_case()
+#                                     has no first-character-only mode, and mb_ucfirst()
+#                                     needs PHP 8.4
+#
+# Included by strict.neon, and includable on its own by a repository that wants
+# the gate without the rest of that tier:
+#
+#     includes:
+#         - vendor/magicsunday/coding-standard/phpstan/disallowed-calls.neon
+#
+# A deliberate, verified-safe call site is re-allowed with `allowIn`, which takes
+# fnmatch() patterns resolved against the working directory (set `filesRootDir`
+# when PHPStan does not run from the repository root):
+#
+#     parameters:
+#         disallowedFunctionCalls:
+#             -
+#                 function: 'strtoupper()'
+#                 message: 'it is byte-wise'
+#                 allowIn:
+#                     - src/Formatter/LabelFormatter.php
+#
+# Note that such an entry REPLACES the one below rather than merging into it, so
+# an override has to restate the `message` it wants to keep.
+includes:
+    - ../../../spaze/phpstan-disallowed-calls/extension.neon
+
+parameters:
+    disallowedFunctionCalls:
+        -
+            function: 'strtoupper()'
+            message: 'it folds ASCII only; use mb_strtoupper() with an explicit encoding, or compare case-insensitively instead of folding'
+            errorTip: 'strtoupper("über") is "üBER" — the multi-byte character is left as it was.'
+        -
+            function: 'strtolower()'
+            message: 'it folds ASCII only; use mb_strtolower() with an explicit encoding, or compare case-insensitively instead of folding'
+            errorTip: 'strtolower("GEBÜRTIGE") is "gebÜrtige", which then never matches "gebürtige".'
+        -
+            function: 'ucfirst()'
+            message: 'it uppercases the first BYTE; fold only the first character explicitly, e.g. mb_strtoupper(mb_substr($v, 0, 1), "UTF-8") . mb_substr($v, 1, null, "UTF-8")'
+            errorTip: 'ucfirst("über") returns "über" unchanged — a silent no-op on any multi-byte first character.'
+        -
+            function: 'lcfirst()'
+            message: 'it lowercases the first BYTE; fold only the first character explicitly, e.g. mb_strtolower(mb_substr($v, 0, 1), "UTF-8") . mb_substr($v, 1, null, "UTF-8")'
+            errorTip: 'lcfirst("Über") returns "Über" unchanged — the exact mirror of ucfirst().'
+        -
+            function: 'ucwords()'
+            message: 'it is byte-wise and splits on ASCII whitespace only; use mb_convert_case($value, MB_CASE_TITLE, "UTF-8") where normalising the whole word is intended'
+            errorTip: 'It does not split on a non-breaking space, so a name joined by one keeps its lower-case second part. mb_convert_case() is not a drop-in replacement: MB_CASE_TITLE also LOWER-cases the rest of every word and treats "-" as a word separator ("McDONALD" becomes "Mcdonald", "anna-maria" becomes "Anna-Maria"), so where interior capitals must survive, upper-case each word initial explicitly instead.'
