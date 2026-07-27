@@ -65,25 +65,12 @@ done
 
 mkdir -p src
 
-cat > biome.json <<'JSON'
-{
-    "extends": ["@magicsunday/coding-standard/biome/base.json"],
-    "files": { "includes": ["src/**"] }
-}
-JSON
-
-cat > tsconfig.json <<'JSON'
-{
-    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
-    "compilerOptions": {
-        "module": "esnext",
-        "target": "es2022",
-        "moduleResolution": "bundler",
-        "noEmit": true
-    },
-    "include": ["src"]
-}
-JSON
+# The consumer configs are the SAME files the lockstep gate's canon fixture uses.
+# Keeping one copy means the gate and the real tools can never disagree about
+# what the canon is: tests/check-consumer-config-cases.sh proves the gate accepts
+# them, and this smoke proves Biome and tsc actually load them.
+cp "$root/tests/consumer/biome.json" biome.json
+cp "$root/tests/consumer/tsconfig.json" tsconfig.json
 
 # Formatted to the shared ruleset: 4 spaces, double quotes, semicolons, template
 # literal instead of concatenation, arrow function, strict equality.

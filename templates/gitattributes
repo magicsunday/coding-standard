@@ -1,6 +1,12 @@
 # Shared .gitattributes for magicsunday/* projects. Copy to `.gitattributes` at
-# the repo root and add repo-specific entries. Keeps the Composer/npm dist
-# archive lean by export-ignoring dev-only tooling, tests and CI config.
+# the repo root and add repo-specific entries. Keeps the COMPOSER dist archive
+# lean by export-ignoring dev-only tooling, tests and CI config.
+#
+# This has no effect on an npm package: npm never reads .gitattributes, not even
+# for a `github:` git dependency. There, the `files` allow-list in package.json
+# decides what ships (or `.npmignore`, if no `files` is given). A repo publishing
+# to both therefore needs BOTH lists — export-ignore here, `files` there — and
+# they have to be kept in step by hand.
 /.build                     export-ignore
 # Export-ignoring /.github blinds OSSF Scorecard's file-based checks
 # (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not

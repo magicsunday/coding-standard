@@ -49,6 +49,12 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
+            # The npm tag is hand-written in the README and repeated in
+            # package.json, so a release that bumps only one of them leaves the
+            # install instructions pointing at a tag without the fix.
+            - name: Version lockstep gate
+              run: composer ci:test:version
+
             # Exercise the template lockstep gate: the fixture-driven harness proves
             # it ACCEPTS the canon and REJECTS every drift class (loosened strict
             # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the

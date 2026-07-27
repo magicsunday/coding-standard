@@ -431,9 +431,9 @@ from drifting from this package.
 | `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev` |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
-| `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene |
+| `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene — Composer only; npm ignores `.gitattributes` and goes by `files` in `package.json` |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
-| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate |
+| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 
@@ -465,6 +465,21 @@ every consumer needs the script before the shared step is added, or the step red
 repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`) is
 skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
+
+The gate also covers `biome.json` (or `biome.jsonc`) and `tsconfig.json`, on a
+narrower contract. Those are not copies but one-line `extends` stubs, so their rule
+content genuinely cannot drift — the **link** can. Three things are asserted: the
+shared config is actually extended (a look-alike package name does not count), the
+strict flags are not overridden back to `false` underneath it
+(`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+`noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`), and
+`biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
+config, so that one key makes a file that is valid JSON completely unloadable.
+Ergonomics flags stay free: turning `skipLibCheck` off is stricter, not drift, and
+`module`/`target`/`lib`/`jsx`/`paths` are per-repository by design. Both files are
+parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments and
+trailing commas are accepted, and a `//` inside a string value is not mistaken for
+one.
 
 ### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
 

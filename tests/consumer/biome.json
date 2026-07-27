@@ -1,0 +1,6 @@
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "files": {
+        "includes": ["src/**"]
+    }
+}

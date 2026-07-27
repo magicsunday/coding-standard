@@ -1,0 +1,13 @@
+{
+    // A consumer legitimately carries comments here: tsconfig.json is JSONC by
+    // specification. The canon fixture keeps one so the gate is proven to parse
+    // a real-world consumer file rather than only strict JSON.
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": {
+        "module": "esnext",
+        "target": "es2022",
+        "moduleResolution": "bundler",
+        "noEmit": true
+    },
+    "include": ["src"]
+}

@@ -381,6 +381,172 @@ indent_style = tab
 EC
 assert_rejects "$d" ".editorconfig with a lowercase {makefile,*.mk} glob" "{Makefile,*.mk}"
 
+# --- biome.json / tsconfig.json: the JS/TS extends contract ------------------
+#
+# mk_js_case gives a case the required phpunit.xml plus the canonical JS configs,
+# so each case below can corrupt exactly one of them and be rejected for that
+# reason alone.
+mk_js_case() {
+    local name="$1"
+    local dir="$work/$name"
+    mkdir -p "$dir"
+    cp "$FIXTURE/phpunit.xml" "$dir/phpunit.xml"
+    cp "$FIXTURE/biome.json" "$dir/biome.json"
+    cp "$FIXTURE/tsconfig.json" "$dir/tsconfig.json"
+    printf '%s' "$dir"
+}
+
+# The canon pair must be accepted — including the JSONC comment tsconfig.json
+# legitimately carries, which a plain json_decode would have rejected.
+d="$(mk_js_case js-canon)"
+assert_accepts "$d" "canonical biome.json + tsconfig.json (with a JSONC comment)"
+
+# The bug this package shipped: a "//" note key is valid JSON but makes Biome
+# refuse the entire config.
+d="$(mk_js_case biome-note-key)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "//": "shared config for this repo",
+    "extends": ["@magicsunday/coding-standard/biome/base.json"]
+}
+JSON
+assert_rejects "$d" "biome.json with a \"//\" note key" '`"//"` key'
+
+# The same key nested one level down is just as fatal — Biome rejects unknown
+# keys at any depth, so a top-level-only check would pass this vacuously.
+d="$(mk_js_case biome-note-key-nested)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": {
+        "//": "our overrides",
+        "enabled": true
+    }
+}
+JSON
+assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
+
+d="$(mk_js_case biome-no-extends)"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json without the shared extends" "must \`extends\` the shared"
+
+# A near-miss package name must NOT satisfy the extends check — the optional path
+# prefix has to end at a segment boundary, the same rule the deptrac import uses.
+d="$(mk_js_case biome-lookalike-extends)"
+printf '{\n    "extends": ["notmagicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json extending a look-alike package" "must \`extends\` the shared"
+
+# Reaching the same file through an explicit node_modules path is legitimate.
+d="$(mk_js_case biome-node-modules-path)"
+printf '{\n    "extends": ["./node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
+assert_accepts "$d" "biome.json extending via an explicit node_modules path"
+
+d="$(mk_js_case biome-linter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "enabled": false }
+}
+JSON
+assert_rejects "$d" "biome.json with the linter disabled" "\`linter.enabled\` must not be false"
+
+d="$(mk_js_case biome-recommended-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "recommended": false } }
+}
+JSON
+assert_rejects "$d" "biome.json with the recommended set disabled" "\`linter.rules.recommended\`"
+
+# biome.jsonc is Biome's own alternative filename; the gate must find it there too.
+d="$(mk_js_case biome-jsonc)"
+rm "$d/biome.json"
+cat > "$d/biome.jsonc" <<'JSON'
+{
+    // A jsonc file exists precisely so a consumer can comment it.
+    "extends": ["@magicsunday/coding-standard/biome/base.json"]
+}
+JSON
+assert_accepts "$d" "biome.jsonc discovered and parsed with comments"
+
+d="$(mk_js_case ts-no-extends)"
+printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json without the shared extends" "must \`extends\` the shared"
+
+d="$(mk_js_case ts-strict-off)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": { "strict": false }
+}
+JSON
+assert_rejects "$d" "tsconfig.json overriding strict to false" "\`compilerOptions.strict\`"
+
+# The subtler override: `strict` stays on, but the flag the shared base adds ON
+# TOP of strict is switched off. This is the realistic drift, and a check that
+# only looked at `strict` would miss it.
+d="$(mk_js_case ts-unchecked-index-off)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": { "strict": true, "noUncheckedIndexedAccess": false }
+}
+JSON
+assert_rejects "$d" "tsconfig.json disabling noUncheckedIndexedAccess" "noUncheckedIndexedAccess"
+
+# An extends ARRAY is legal in TypeScript 5+; the shared base may sit anywhere in it.
+d="$(mk_js_case ts-extends-array)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["./tsconfig.paths.json", "@magicsunday/coding-standard/tsconfig/base.json"],
+    "compilerOptions": { "noEmit": true }
+}
+JSON
+assert_accepts "$d" "tsconfig.json with the shared base in an extends array"
+
+# Ergonomics flags are deliberately NOT pinned: turning skipLibCheck off is
+# stricter, not looser, and must not be reported as drift.
+d="$(mk_js_case ts-skiplibcheck-off)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": { "skipLibCheck": false }
+}
+JSON
+assert_accepts "$d" "tsconfig.json turning skipLibCheck off (stricter, not drift)"
+
+# A trailing comma is legal in tsconfig.json and must not read as malformed.
+d="$(mk_js_case ts-trailing-comma)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": {
+        "noEmit": true,
+    },
+}
+JSON
+assert_accepts "$d" "tsconfig.json with trailing commas"
+
+# A "//" sequence INSIDE a string is not a comment — stripping it would corrupt
+# the document and turn a valid consumer config into a false rejection.
+d="$(mk_js_case ts-url-in-string)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
+    "compilerOptions": {
+        "paths": { "@app/*": ["https://example.com/not-a-comment/*"] }
+    }
+}
+JSON
+assert_accepts "$d" "tsconfig.json with a // inside a string value"
+
+# A repo with no JS at all must stay accepted — these configs are optional.
+d="$work/no-js"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+assert_accepts "$d" "PHP-only repo without biome.json or tsconfig.json"
+
 if [ "$fails" -ne 0 ]; then
     printf '\n%d case(s) failed.\n' "$fails"
     exit 1

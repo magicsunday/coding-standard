@@ -54,6 +54,7 @@
             "phplint --configuration .phplint.yml"
         ],
         "ci:test:json": "@php tests/lint-json.php",
+        "ci:test:version": "@php tests/check-version-lockstep.php",
         "ci:test:templates": [
             "bash tests/check-consumer-config-cases.sh"
         ],
@@ -67,6 +68,7 @@
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:json": "Validate that every shipped JSON config parses.",
+        "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
         "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed."

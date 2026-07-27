@@ -30,9 +30,14 @@ declare(strict_types=1);
  *
  *     php .build/vendor/magicsunday/coding-standard/bin/check-consumer-config.php .
  *
+ * The JS/TS configs (biome.json, tsconfig.json) are checked too, on a narrower
+ * contract: they are `extends` stubs rather than copies, so their rule content
+ * cannot drift — but the LINK can. The gate asserts the extends is present and
+ * that the strict flags underneath it are not overridden back to false.
+ *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
- * .jscpd.json); the strict phpunit.xml is REQUIRED.
+ * .jscpd.json, biome.json or tsconfig.json); the strict phpunit.xml is REQUIRED.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -336,6 +341,223 @@ if (is_file($deptracFile)) {
 
     if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
         $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
+    }
+}
+
+// --- biome.json / tsconfig.json (optional): the JS/TS counterpart ------------
+//
+// These are NOT copy-and-adapt templates — they are one-line `extends` stubs, so
+// unlike the PHP templates their rule content genuinely cannot drift. What CAN
+// drift is the link itself: a consumer that drops the `extends`, or overrides a
+// strict flag back to false underneath it, keeps a green build while enforcing
+// its own weaker standard. That is the same failure class the template gate
+// exists for, so it is checked the same way.
+//
+// tsconfig.json is JSONC by specification (TypeScript documents comments in it),
+// and Biome accepts a biome.jsonc, so a plain json_decode would report a
+// perfectly legal consumer file as "not valid JSON". Strip comments and trailing
+// commas first — string-aware, so a `"//"` KEY and any `//` inside a string
+// value survive; only real comments are removed.
+$stripJsonc = static function (string $json): string {
+    $out       = '';
+    $length    = strlen($json);
+    $inString  = false;
+    $inLine    = false;
+    $inBlock   = false;
+    $escaped   = false;
+
+    for ($i = 0; $i < $length; ++$i) {
+        $char = $json[$i];
+        $next = $json[$i + 1] ?? '';
+
+        if ($inLine) {
+            if ($char === "\n") {
+                $inLine = false;
+                $out   .= $char;
+            }
+
+            continue;
+        }
+
+        if ($inBlock) {
+            if (($char === '*') && ($next === '/')) {
+                $inBlock = false;
+                ++$i;
+            }
+
+            continue;
+        }
+
+        if ($inString) {
+            $out .= $char;
+
+            if ($escaped) {
+                $escaped = false;
+            } elseif ($char === '\\') {
+                $escaped = true;
+            } elseif ($char === '"') {
+                $inString = false;
+            }
+
+            continue;
+        }
+
+        if ($char === '"') {
+            $inString = true;
+            $out     .= $char;
+
+            continue;
+        }
+
+        if ($char === '/') {
+            if ($next === '/') {
+                $inLine = true;
+
+                continue;
+            }
+
+            if ($next === '*') {
+                $inBlock = true;
+
+                continue;
+            }
+        }
+
+        $out .= $char;
+    }
+
+    // Trailing commas are legal in tsconfig.json but not in strict JSON.
+    return (string) preg_replace('/,(\s*[}\]])/', '$1', $out);
+};
+
+/**
+ * Reports whether an `extends` value references the shared config.
+ *
+ * The value may be a string (tsconfig) or a list (Biome, and tsconfig since 5.0).
+ * The specifier is normally the bare package path, but a consumer may reach the
+ * same file through an explicit node_modules path, so an optional prefix is
+ * accepted — one that must END at a segment boundary, so a near-miss package
+ * such as `notmagicsunday/coding-standard/...` is still rejected.
+ */
+$extendsShared = static function (mixed $extends, string $sharedPath): bool {
+    $candidates = is_array($extends) ? $extends : [$extends];
+
+    $pattern = sprintf(
+        '~^(?:\S*/)?@?magicsunday/coding-standard/%s$~',
+        preg_quote($sharedPath, '~')
+    );
+
+    foreach ($candidates as $candidate) {
+        if (is_string($candidate) && (preg_match($pattern, trim($candidate)) === 1)) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+/**
+ * Collects every `//` key in a decoded config, at any depth.
+ *
+ * Biome's deserializer rejects unknown keys and refuses the WHOLE file, so a
+ * `"//"` note key makes the config unloadable while staying valid JSON — this
+ * package shipped exactly that once. The consumer copy can make the same
+ * mistake, and `biome ci` then fails with a deserialize error that reads like a
+ * tooling problem rather than a config one.
+ *
+ * @param mixed $node
+ *
+ * @return bool
+ */
+$hasNoteKey = static function (mixed $node) use (&$hasNoteKey): bool {
+    if (!is_array($node)) {
+        return false;
+    }
+
+    if (array_key_exists('//', $node)) {
+        return true;
+    }
+
+    foreach ($node as $child) {
+        if ($hasNoteKey($child)) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+// biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
+$biomeFile = null;
+
+foreach (['biome.json', 'biome.jsonc'] as $candidate) {
+    if (is_file($repoRoot . '/' . $candidate)) {
+        $biomeFile = $repoRoot . '/' . $candidate;
+
+        break;
+    }
+}
+
+if ($biomeFile !== null) {
+    $label = basename($biomeFile);
+    $json  = json_decode($stripJsonc((string) file_get_contents($biomeFile)), true);
+
+    if (!is_array($json)) {
+        $fail($violations, $label, 'not valid JSON(C).');
+    } else {
+        if ($hasNoteKey($json)) {
+            $fail($violations, $label, 'contains a `"//"` key — Biome rejects unknown keys and refuses the whole config, so the file is valid JSON but unloadable. Put the note in a comment or in the README.');
+        }
+
+        if (!$extendsShared($json['extends'] ?? null, 'biome/base.json')) {
+            $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
+        }
+
+        foreach (['linter', 'formatter'] as $section) {
+            if (($json[$section]['enabled'] ?? null) === false) {
+                $fail($violations, $label, sprintf('`%s.enabled` must not be false — that disables the shared standard wholesale.', $section));
+            }
+        }
+
+        // Turning the recommended set off leaves the shared rule list in place
+        // but removes the floor it builds on, so the extends becomes decorative.
+        if (($json['linter']['rules']['recommended'] ?? null) === false) {
+            $fail($violations, $label, '`linter.rules.recommended` must not be false.');
+        }
+    }
+}
+
+// tsconfig.json: the strict flags the shared base sets must not be turned back off.
+$tsconfigFile = $repoRoot . '/tsconfig.json';
+
+if (is_file($tsconfigFile)) {
+    $json = json_decode($stripJsonc((string) file_get_contents($tsconfigFile)), true);
+
+    if (!is_array($json)) {
+        $fail($violations, 'tsconfig.json', 'not valid JSON(C).');
+    } else {
+        if (!$extendsShared($json['extends'] ?? null, 'tsconfig/base.json')) {
+            $fail($violations, 'tsconfig.json', 'must `extends` the shared `@magicsunday/coding-standard/tsconfig/base.json`.');
+        }
+
+        // Only the strictness flags are pinned. `esModuleInterop`,
+        // `resolveJsonModule` and `skipLibCheck` are ergonomics, not strictness —
+        // a consumer turning skipLibCheck off is stricter, not looser — so they
+        // are deliberately left free, as are module/target/lib/jsx and paths.
+        $pinnedFlags = [
+            'strict',
+            'noUncheckedIndexedAccess',
+            'exactOptionalPropertyTypes',
+            'noImplicitOverride',
+            'forceConsistentCasingInFileNames',
+            'isolatedModules',
+        ];
+
+        foreach ($pinnedFlags as $flag) {
+            if (($json['compilerOptions'][$flag] ?? null) === false) {
+                $fail($violations, 'tsconfig.json', sprintf('`compilerOptions.%s` must not be false — it overrides the shared strict base.', $flag));
+            }
+        }
     }
 }
 
