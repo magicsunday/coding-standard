@@ -271,6 +271,26 @@ d="$work/jscpd-mintokens"; jscpd_fixture "$d"
 sed -i 's/"minTokens": 100/"minTokens": 9999/' "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json minTokens raised to disable detection" "minTokens"
 
+# The format-name footgun the widened template warns about: an extension
+# spelling is not an error, it analyses nothing and reports a clean run.
+d="$work/jscpd-format-ts"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": ["php", "ts"]/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json using the \"ts\" extension as a format name" 'Use "typescript"'
+
+d="$work/jscpd-format-js"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": ["js"]/' "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json using the \"js\" extension as a format name" 'Use "javascript"'
+
+# The counterpart, so the check cannot be satisfied by rejecting every format:
+# the canonical names must pass, as must a config that declares none at all
+# (jscpd then applies its own defaults, which still detects).
+d="$work/jscpd-format-canonical"; jscpd_fixture "$d"
+sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": ["php", "javascript", "typescript", "jsx", "tsx"]/' "$d/.jscpd.json"
+assert_accepts "$d" ".jscpd.json using jscpd's own format names"
+
+d="$work/jscpd-format-absent"; jscpd_fixture "$d"
+assert_accepts "$d" ".jscpd.json declaring no format at all"
+
 # --- phpunit.xml layout checks: source include, testsuite dir, Architecture exclude ---
 d="$(mk_case no-src-include)"
 # The only <directory>src</directory> is the <source><include> one (the suite uses
@@ -525,6 +545,67 @@ cat > "$d/biome.json" <<'JSON'
 }
 JSON
 assert_accepts "$d" "biome.json keeping the recommended rule preset"
+
+# Biome carries `recommended`/`preset` on every rule GROUP as well, so switching
+# one group off drops that group's floor while the top-level keys stay untouched.
+# Verified: with this, `biome ci` passes a file containing `debugger;`.
+d="$(mk_js_case biome-group-preset-none)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": { "preset": "none" } } }
+}
+JSON
+assert_rejects "$d" "biome.json switching one rule group's preset to none" "linter.rules.suspicious.preset"
+
+d="$(mk_js_case biome-group-recommended-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "correctness": { "recommended": false } } }
+}
+JSON
+assert_rejects "$d" "biome.json switching one rule group's recommended off" "linter.rules.correctness.recommended"
+
+# An overrides entry has its own linter/formatter block, so one matching `**`
+# disables the shared standard for every file while the top level reads enabled.
+d="$(mk_js_case biome-override-linter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["**"], "linter": { "enabled": false } }
+    ]
+}
+JSON
+assert_rejects "$d" "biome.json disabling the linter through an overrides entry" "overrides[0].linter.enabled"
+
+d="$(mk_js_case biome-override-preset-none)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["src/**"], "linter": { "rules": { "preset": "none" } } }
+    ]
+}
+JSON
+assert_rejects "$d" "biome.json dropping the rule floor through an overrides entry" "overrides[0].linter.rules.preset"
+
+# A legitimate overrides entry — narrowing a single rule for one path — must not
+# be reported, or the check would push consumers off a feature they need.
+d="$(mk_js_case biome-override-legitimate)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        {
+            "includes": ["tests/**"],
+            "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+        }
+    ]
+}
+JSON
+assert_accepts "$d" "biome.json narrowing a single rule for one path through overrides"
 
 # A malformed config must be reported as such rather than silently skipped —
 # json_decode returns null, which an `?? null` read cannot tell from "absent".

@@ -209,6 +209,45 @@ if (is_file($jscpdFile)) {
         if (!is_array($reporters) || !in_array('console-full', $reporters, true)) {
             $fail($violations, '.jscpd.json', '`reporters` must contain "console-full" (the jscpd 5 name; "consoleFull" is the removed v4 spelling).');
         }
+
+        // `format` takes jscpd's FORMAT names, and an unknown one is NOT an
+        // error — it silently analyses nothing and reports a clean run. Verified
+        // against 5.0.14 on a fixture holding two near-identical TypeScript
+        // functions: `["ts"]` prints "No duplicates found" and exits 0, while
+        // `["typescript"]` reports 2 clones and exits 1. Same fixture, same
+        // threshold. A consumer "fixing" the template to its file extensions
+        // therefore keeps a gate that looks active and detects nothing.
+        //
+        // This is deliberately a deny-list of the extension spellings that look
+        // right, not an allow-list of valid names: `jscpd --list` carries ~250
+        // formats, and a copy of it here would drift from the tool and start
+        // rejecting configs the tool accepts. Each entry below was checked to be
+        // absent from that list, so every one of them scans nothing.
+        $extensionSpellings = [
+            'js'   => 'javascript',
+            'mjs'  => 'javascript',
+            'cjs'  => 'javascript',
+            'ts'   => 'typescript',
+            'mts'  => 'typescript',
+            'cts'  => 'typescript',
+            'htm'  => 'markup',
+            'yml'  => 'yaml',
+            'py'   => 'python',
+            'rb'   => 'ruby',
+        ];
+
+        // Presence is deliberately NOT required: without `format`, jscpd applies
+        // its own defaults, which is a working gate rather than a silent one.
+        // Only the spellings that disable detection are reported.
+        $formats = $json['format'] ?? null;
+
+        if (is_array($formats)) {
+            foreach ($formats as $format) {
+                if (is_string($format) && isset($extensionSpellings[$format])) {
+                    $fail($violations, '.jscpd.json', sprintf('`format` entry "%s" is a file extension, not a jscpd format name — jscpd does not error on it, it silently analyses nothing and reports a clean run. Use "%s".', $format, $extensionSpellings[$format]));
+                }
+            }
+        }
     }
 }
 
@@ -572,27 +611,67 @@ if ($biomeFile !== null) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
 
-        foreach (['linter', 'formatter'] as $section) {
-            if (($json[$section]['enabled'] ?? null) === false) {
-                $fail($violations, $label, sprintf('`%s.enabled` must not be false — that disables the shared standard wholesale.', $section));
+        // `linter`/`formatter` can be switched off at the top level and, per
+        // Biome's schema, again inside every entry of `overrides` — where an
+        // entry matching `**` disables the same thing for every file while the
+        // top-level key still reads as enabled.
+        $sections  = [['', $json]];
+        $overrides = $json['overrides'] ?? null;
+
+        if (is_array($overrides)) {
+            foreach ($overrides as $index => $override) {
+                if (is_array($override)) {
+                    $sections[] = [sprintf('overrides[%s].', $index), $override];
+                }
             }
         }
 
-        // Turning the recommended set off leaves the shared rule list in place
-        // but removes the floor it builds on, so the extends becomes decorative.
-        // Biome offers two spellings for it: the `recommended` boolean, which it
-        // deprecated in 2.5 in favour of `preset`, and `preset: "none"`. Both are
-        // accepted by the current tool and both silence the same rules — verified
-        // under 2.5.0 and 2.5.5, where a `debugger` statement (a recommended-set
-        // rule the shared config does not list explicitly) goes unreported under
-        // either. Checking only the deprecated spelling would leave the modern
-        // one as an unguarded way out.
-        if (($json['linter']['rules']['recommended'] ?? null) === false) {
-            $fail($violations, $label, '`linter.rules.recommended` must not be false.');
-        }
+        foreach ($sections as [$prefix, $scope]) {
+            foreach (['linter', 'formatter'] as $section) {
+                if (($scope[$section]['enabled'] ?? null) === false) {
+                    $fail($violations, $label, sprintf('`%s%s.enabled` must not be false — that disables the shared standard wholesale.', $prefix, $section));
+                }
+            }
 
-        if (($json['linter']['rules']['preset'] ?? null) === 'none') {
-            $fail($violations, $label, '`linter.rules.preset` must not be `none` — that drops the recommended floor the shared config builds on.');
+            // Turning the recommended set off leaves the shared rule list in
+            // place but removes the floor it builds on, so the extends becomes
+            // decorative. Biome offers two spellings: the `recommended` boolean,
+            // which it deprecated in 2.5 in favour of `preset`, and `preset`.
+            // Both are accepted by the current tool and both silence the same
+            // rules — verified under 2.5.0 and 2.5.5, where a `debugger`
+            // statement (a recommended-set rule the shared config does not list
+            // explicitly) goes unreported under either.
+            //
+            // And both exist on every rule GROUP as well as on `rules` itself,
+            // so `rules.suspicious.preset: "none"` drops that group's floor while
+            // the top-level keys stay untouched. Verified: with it, `biome ci`
+            // passes a file containing `debugger;`. A top-level-only check leaves
+            // one spelling per group unguarded, which is the same hole one level
+            // down.
+            $topLevelRules = $scope['linter']['rules'] ?? null;
+            $ruleScopes    = [['linter.rules', $topLevelRules]];
+
+            if (is_array($topLevelRules)) {
+                foreach ($topLevelRules as $group => $groupRules) {
+                    if (is_array($groupRules)) {
+                        $ruleScopes[] = [sprintf('linter.rules.%s', $group), $groupRules];
+                    }
+                }
+            }
+
+            foreach ($ruleScopes as [$path, $rules]) {
+                if (!is_array($rules)) {
+                    continue;
+                }
+
+                if (($rules['recommended'] ?? null) === false) {
+                    $fail($violations, $label, sprintf('`%s%s.recommended` must not be false — that drops the rule floor the shared config builds on.', $prefix, $path));
+                }
+
+                if (($rules['preset'] ?? null) === 'none') {
+                    $fail($violations, $label, sprintf('`%s%s.preset` must not be `none` — that drops the rule floor the shared config builds on.', $prefix, $path));
+                }
+            }
         }
     }
 }

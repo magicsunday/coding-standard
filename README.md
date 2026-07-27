@@ -442,7 +442,7 @@ from drifting from this package.
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene — Composer only; npm ignores `.gitattributes` and goes by `files` in `package.json` |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
-| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing |
+| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 
@@ -496,10 +496,15 @@ strict flags are not overridden back to `false` underneath it
 `noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
 config, so that one key makes a file that is valid JSON completely unloadable — and
-the recommended rule floor is still on. That last one has two spellings: the
-`recommended` boolean Biome deprecated in 2.5, and `preset`. Both are rejected at
-their off value (`recommended: false`, `preset: "none"`), because either one
-silences the same rules and leaves the `extends` decorative.
+the recommended rule floor is still on. That last one is checked everywhere Biome
+offers it, which is more places than it first appears: two spellings (the
+`recommended` boolean deprecated in 2.5, and `preset`), on `linter.rules` **and on
+every rule group beneath it**, and again inside **every `overrides` entry**. Each
+combination reaches the same end — `linter.rules.suspicious.preset: "none"` lets a
+`debugger` statement through, and an `overrides` entry matching `**` switches the
+linter off for every file while the top-level key still reads `true`. A narrower
+check would close the front door and leave those open. Legitimate `overrides` use —
+relaxing a single rule for one path — stays untouched.
 Ergonomics flags stay free: turning `skipLibCheck` off is stricter, not drift, and
 `module`/`target`/`lib`/`jsx`/`paths` are per-repository by design. Both files are
 parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments and
