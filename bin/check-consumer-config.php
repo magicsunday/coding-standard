@@ -521,8 +521,19 @@ if ($biomeFile !== null) {
 
         // Turning the recommended set off leaves the shared rule list in place
         // but removes the floor it builds on, so the extends becomes decorative.
+        // Biome offers two spellings for it: the `recommended` boolean, which it
+        // deprecated in 2.5 in favour of `preset`, and `preset: "none"`. Both are
+        // accepted by the current tool and both silence the same rules — verified
+        // under 2.5.0 and 2.5.5, where a `debugger` statement (a recommended-set
+        // rule the shared config does not list explicitly) goes unreported under
+        // either. Checking only the deprecated spelling would leave the modern
+        // one as an unguarded way out.
         if (($json['linter']['rules']['recommended'] ?? null) === false) {
             $fail($violations, $label, '`linter.rules.recommended` must not be false.');
+        }
+
+        if (($json['linter']['rules']['preset'] ?? null) === 'none') {
+            $fail($violations, $label, '`linter.rules.preset` must not be `none` — that drops the recommended floor the shared config builds on.');
         }
     }
 }

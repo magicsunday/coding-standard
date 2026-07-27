@@ -18,7 +18,7 @@ here.
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract (shared `extends` present, strict flags not overridden to false, no `"//"` key in the Biome config), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract (shared `extends` present, strict flags not overridden to false, recommended rule floor not switched off in either spelling — `recommended: false` or `preset: "none"` — and no `"//"` key in the Biome config), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
@@ -146,6 +146,15 @@ directory that matches how it is consumed, never at the root for convenience.
   both go green. When adding or editing a shipped config, run its real tool against a
   fixture that MUST produce a finding, and only trust the config once that finding
   appears.
+- **A shipped config uses the tool's current spelling, and a gate over it covers
+  every spelling.** `linter.rules.recommended` still works, but Biome deprecated it
+  in 2.5 in favour of `preset` and announces removal for the next major — a shared
+  config on the old key hands that break to every consumer at once. Two consequences,
+  and the second is the one that gets missed: the deprecation surfaces only inside
+  Biome's `biome migrate` advisory (which appears when `$schema` and CLI version
+  differ), so a repo with a matching `$schema` never sees the notice; and while the
+  old spelling survives, the gate must reject BOTH off values, since the new one is
+  otherwise an unguarded way to drop the same rules.
 
 ## CI and security
 

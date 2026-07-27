@@ -459,6 +459,46 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json with the recommended set disabled" "\`linter.rules.recommended\`"
 
+# The formatter is half the shared standard; disabling it is the same class of
+# drift as disabling the linter, and shares the loop that reports it.
+d="$(mk_js_case biome-formatter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "formatter": { "enabled": false }
+}
+JSON
+assert_rejects "$d" "biome.json with the formatter disabled" "\`formatter.enabled\` must not be false"
+
+# `preset: "none"` is the modern spelling of `recommended: false` — Biome
+# deprecated the boolean in 2.5 — and silences exactly the same rules. Checking
+# only the deprecated spelling would leave the current one unguarded.
+d="$(mk_js_case biome-preset-none)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "preset": "none" } }
+}
+JSON
+assert_rejects "$d" "biome.json with the rule preset set to none" "\`linter.rules.preset\`"
+
+# The counterpart: the preset a consumer is SUPPOSED to keep must pass, so the
+# check above cannot be satisfied by rejecting the key outright.
+d="$(mk_js_case biome-preset-recommended)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "preset": "recommended" } }
+}
+JSON
+assert_accepts "$d" "biome.json keeping the recommended rule preset"
+
+# A malformed config must be reported as such rather than silently skipped —
+# json_decode returns null, which an `?? null` read cannot tell from "absent".
+d="$(mk_js_case biome-malformed)"
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json that is not valid JSON(C)" "not valid JSON(C)"
+
 # biome.jsonc is Biome's own alternative filename; the gate must find it there too.
 d="$(mk_js_case biome-jsonc)"
 rm "$d/biome.json"
@@ -540,6 +580,13 @@ cat > "$d/tsconfig.json" <<'JSON'
 }
 JSON
 assert_accepts "$d" "tsconfig.json with a // inside a string value"
+
+# The JSONC tolerance must not extend to genuinely broken input: an unclosed
+# object has to be reported, not read as an empty config that passes every
+# subsequent `?? null` check.
+d="$(mk_js_case ts-malformed)"
+printf '{\n    "compilerOptions": { "strict": true\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json that is not valid JSON(C)" "not valid JSON(C)"
 
 # A repo with no JS at all must stay accepted — these configs are optional.
 d="$work/no-js"

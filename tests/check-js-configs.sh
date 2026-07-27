@@ -132,6 +132,29 @@ fi
 
 rm src/dirty.ts
 
+# A second control, aimed at the recommended FLOOR rather than an explicit rule.
+# `noDebugger` is in Biome's recommended set and is deliberately not listed in
+# biome/base.json, so it only fires while the preset is actually on — which is
+# what makes this the fixture that must produce a finding for the `preset` key.
+cat > src/debugger.ts <<'TS'
+export const trace = (): void => {
+    debugger;
+};
+TS
+
+# A non-zero exit alone would not prove it: formatter drift in the fixture would
+# produce one just as well. The diagnostic has to name the rule.
+if npx --no-install biome ci --error-on-warnings --colors=off . >"$work/biome-preset.log" 2>&1; then
+    fail "biome control — the recommended rule preset is not in force"
+elif grep -q 'lint/suspicious/noDebugger' "$work/biome-preset.log"; then
+    pass "biome control — the recommended preset rejected a debugger statement"
+else
+    fail "biome control — biome ci failed, but not on noDebugger; the preset may be off"
+    sed -n '1,40p' "$work/biome-preset.log" >&2
+fi
+
+rm src/debugger.ts
+
 # `noUncheckedIndexedAccess` comes only from the shared base; without it this
 # compiles cleanly, so a consumer silently dropping the extends would go unnoticed.
 cat > src/unchecked.ts <<'TS'

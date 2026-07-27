@@ -477,13 +477,17 @@ skipped; the strict PHPUnit config is required — the gate accepts it as either
 
 The gate also covers `biome.json` (or `biome.jsonc`) and `tsconfig.json`, on a
 narrower contract. Those are not copies but one-line `extends` stubs, so their rule
-content genuinely cannot drift — the **link** can. Three things are asserted: the
+content genuinely cannot drift — the **link** can. Four things are asserted: the
 shared config is actually extended (a look-alike package name does not count), the
 strict flags are not overridden back to `false` underneath it
 (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
-`noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`), and
+`noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
-config, so that one key makes a file that is valid JSON completely unloadable.
+config, so that one key makes a file that is valid JSON completely unloadable — and
+the recommended rule floor is still on. That last one has two spellings: the
+`recommended` boolean Biome deprecated in 2.5, and `preset`. Both are rejected at
+their off value (`recommended: false`, `preset: "none"`), because either one
+silences the same rules and leaves the `extends` decorative.
 Ergonomics flags stay free: turning `skipLibCheck` off is stricter, not drift, and
 `module`/`target`/`lib`/`jsx`/`paths` are per-repository by design. Both files are
 parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments and
@@ -525,6 +529,13 @@ override `quoteStyle` or `useImportExtensions` to fit its module system — TS E
 not want `.js` extensions. The TypeScript base carries no `module`/`target`/`lib`/`jsx`
 and no `paths`; those are per-repository and belong in the consumer's own
 `compilerOptions`.
+
+The Biome base turns the recommended rule set on through `linter.rules.preset`, not
+the `recommended` boolean: Biome deprecated the boolean in 2.5 and announces its
+removal for the next major. Both spellings still work today and enable the same
+rules, so this is a forward-compatibility choice, not a behavioural one — a consumer
+overriding either of them to its off value (`preset: "none"`, `recommended: false`)
+is reported by the lockstep gate.
 
 Note that `biome.json` cannot carry a `"//"` note key: Biome rejects unknown keys and
 refuses the whole config, so a file that is valid JSON can still be unloadable for
