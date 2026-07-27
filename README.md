@@ -244,21 +244,17 @@ automatically a required status check, so a detected break reports red and the P
 still merges. Register it in the same change:
 
 ```shell
-# Read what the branch already requires.
-gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" --jq '.checks'
+# Read the existing entries and append the new one in the same step. `checks` REPLACES
+# the whole list, so an entry left out is silently un-required — and each entry's
+# `app_id` pins WHICH integration may satisfy that check, so rebuilding entries from
+# their `context` alone would quietly widen them to "any app". Passing the returned
+# objects through verbatim avoids both. `strict` is optional and stays untouched when
+# the body does not mention it.
+gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+    --jq '{checks: (.checks + [{context: "Backward compatibility"}])}' > checks.json
 
-# Re-send that list plus the new context. `checks` REPLACES the whole list, so every
-# existing entry has to be repeated — omitting one silently un-requires it. `strict`
-# is optional here and is left untouched when the body does not mention it.
 gh api -X PATCH "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
-    --input - <<'JSON'
-{
-    "checks": [
-        {"context": "<every existing context>"},
-        {"context": "Backward compatibility"}
-    ]
-}
-JSON
+    --input checks.json
 ```
 
 Note the interaction with the house rule on first-party libraries: where every consumer
