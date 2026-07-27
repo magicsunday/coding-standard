@@ -86,7 +86,11 @@ else
 
     # Cardinality, so a stray extra report — or a fixture that stopped covering
     # one ban while another fires twice — cannot hide behind the per-function loop.
-    reported=$(grep -cF 'is forbidden' <<<"$out")
+    # `grep -c` prints 0 and exits 1 when nothing matches, which under `set -e` would
+    # kill the harness right here — before the diagnostic below could say what went
+    # wrong. That case is reachable: PHPStan exits non-zero for a config error or for
+    # findings from another rule pack too, neither of which contains "is forbidden".
+    reported=$(grep -cF 'is forbidden' <<<"$out" || true)
     if [ "$reported" -eq "${#BANNED[@]}" ]; then
         printf 'ok (count): %d report(s) for %d ban(s)\n' "$reported" "${#BANNED[@]}"
     else
