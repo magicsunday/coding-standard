@@ -1145,9 +1145,9 @@ printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n  
 assert_rejects "$d" "a TypeScript-only consumer is still held to the tsconfig contract" "\`compilerOptions.strict\`"
 
 # A path that is not a directory is a usage error, not drift — a distinct verdict
-# nothing pinned, so the block could be deleted and every case stayed green while
-# a mistyped path reported "phpunit.xml: missing" against a directory that does
-# not exist.
+# with nothing pinning it, so the block could be deleted and every case stayed
+# green while a mistyped path reported "phpunit.xml: missing" against a directory
+# that does not exist.
 assert_usage_error "$work/does-not-exist" "a path that is not a directory" "Not a directory"
 
 # An unreadable config is not a syntax error, and reporting it as one sends the
