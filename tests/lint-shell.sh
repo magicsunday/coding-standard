@@ -81,6 +81,11 @@ errors="$work_error"
 #
 # A partial scan is the same defect as an empty one, one step milder, and this
 # gate exists precisely so that "did not look" cannot read as "found nothing".
+#
+# The status alone carries it: GNU find, bfs and busybox find all exit 1 after a
+# per-path error rather than 0 — measured, because a second guard reading
+# `[ -s "$errors" ]` was written here on the opposite assumption and was
+# unreachable dead code behind this branch.
 listing=""
 listing="$(find "$ROOT" \
     \( -name .build -o -name vendor -o -name node_modules \) -prune -o \
@@ -89,14 +94,6 @@ listing="$(find "$ROOT" \
     cat "$errors" >&2
     exit 1
 }
-
-# find exits 0 while still reporting per-path errors on stderr (an unreadable
-# subdirectory is not a fatal error to it), so the status alone is not enough.
-if [ -s "$errors" ]; then
-    printf 'FAILED   %s could not be scanned completely\n' "$ROOT" >&2
-    cat "$errors" >&2
-    exit 1
-fi
 
 while IFS= read -r script; do
     [ -n "$script" ] || continue

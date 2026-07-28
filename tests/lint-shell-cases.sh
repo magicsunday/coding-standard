@@ -26,7 +26,12 @@ GATE="$ROOT/tests/lint-shell.sh"
 
 work="$(mktemp -d)"
 work="$(CDPATH= cd -- "$work" && pwd)"
-trap 'rm -rf "$work"' EXIT
+# The mode-000 fixture below is a DIRECTORY, and `rm -rf` cannot traverse one —
+# it fails, the whole tree survives as an undeletable /tmp leftover, and under
+# `set -e` a failing EXIT trap additionally rewrites an all-passed run into a red
+# one. Restoring the mode in the trap rather than only in the straight line makes
+# the cleanup independent of where the run stops.
+trap 'chmod -R u+rwX "$work" 2>/dev/null || true; rm -rf "$work"' EXIT
 
 fails=0
 
@@ -144,7 +149,7 @@ else
     printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/private/hidden.sh"
     chmod 000 "$d/private"
     assert_rejects "$d" "a directory the scan cannot descend into is reported, not silently skipped" "scan is incomplete"
-    chmod 755 "$d/private"
+    chmod 755 "$d/private" || true
 fi
 
 # The usage verdict, distinct from the syntax one, so a mistyped path cannot read
