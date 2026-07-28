@@ -52,6 +52,9 @@ jobs:
             - name: Lint the shell harnesses
               run: composer ci:test:shell:lint
 
+            - name: Shell lint gate self-test
+              run: composer ci:test:shell:lint-cases
+
             - name: Validate the JSON configs
               run: composer ci:test:json
 

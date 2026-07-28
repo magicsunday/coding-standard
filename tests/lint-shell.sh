@@ -22,10 +22,21 @@
 
 set -euo pipefail
 
+# An optional path argument points it at another directory, which is what lets
+# tests/lint-shell-cases.sh drive it over fixtures instead of over this repository
+# alone — where every run takes the happy path, all harnesses parse, and a gate
+# that had stopped checking would be indistinguishable from a clean one. Same
+# shape as tests/check-version-lockstep.php's `$argv[1]`.
+#
 # CDPATH= because the target `tests/..` starts with neither /, ./ nor ../ and is
 # therefore searched in CDPATH — which both redirects it and echoes the resolved
 # path, making ROOT a two-line value that opens nothing.
-ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${1:-$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+if [ ! -d "$ROOT" ]; then
+    printf 'Not a directory: %s\n' "$ROOT" >&2
+    exit 2
+fi
 
 failed=0
 checked=0
@@ -54,6 +65,15 @@ trap 'rm -f "$work_error"' EXIT
 # dependency nobody here wrote.
 errors="$work_error"
 
+# A fixture root passed on the command line holds the scripts directly; this
+# repository keeps them under tests/. Both shapes have to work, or the cases
+# below would drive a different code path than the real run does.
+if [ -d "$ROOT/tests" ]; then
+    scan_root="$ROOT/tests"
+else
+    scan_root="$ROOT"
+fi
+
 while IFS= read -r script; do
     checked=$((checked + 1))
 
@@ -64,7 +84,7 @@ while IFS= read -r script; do
         cat "$errors" >&2
         failed=1
     fi
-done < <(find "$ROOT/tests" \
+done < <(find "$scan_root" \
     \( -name .build -o -name vendor -o -name node_modules \) -prune -o \
     -type f -name '*.sh' -print | sort)
 
