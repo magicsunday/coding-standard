@@ -84,14 +84,14 @@ node -e '
 process.stdout.write("never reached");
 '
 SCRIPT
-assert_rejects "$d" "an apostrophe closing an embedded node -e block is reported" "broken.sh"
+assert_rejects "$d" "an apostrophe closing an embedded node -e block is reported" "FAILED   broken.sh"
 
 # The plainer shape, so the case above is not the only thing standing between
 # this gate and a syntax error.
 d="$work/unclosed"
 mkdir -p "$d"
 printf '#!/usr/bin/env bash\nmain() {\n    printf "no closing brace\\n"\n' > "$d/unclosed.sh"
-assert_rejects "$d" "an unclosed function body is reported" "unclosed.sh"
+assert_rejects "$d" "an unclosed function body is reported" "FAILED   unclosed.sh"
 
 # The report names the FILE, or a run over a dozen harnesses leaves the reader
 # to find which one died.
@@ -99,7 +99,12 @@ d="$work/named"
 mkdir -p "$d"
 printf '#!/usr/bin/env bash\nset -euo pipefail\nprintf "fine\\n"\n' > "$d/fine.sh"
 printf '#!/usr/bin/env bash\nif [ 1 -eq 1 ]; then\n' > "$d/incomplete.sh"
-assert_rejects "$d" "the report names the offending script rather than only the error" "incomplete.sh"
+# The gate's OWN line, verbatim — `bash -n` writes its diagnostic as an absolute
+# path followed by `: line N:`, so it can never produce the `FAILED` marker with
+# the root-relative name. Asserting the bare filename pinned nothing: it appears
+# in bash's message too, so deleting the gate's report line left this case green
+# while the run no longer named which script died. Measured.
+assert_rejects "$d" "the report names the offending script rather than only the error" "FAILED   incomplete.sh"
 
 # The vacuity guard. A root with no scripts at all must report rather than
 # congratulate itself — this is the arm that caught a `git ls-files` returning
@@ -112,12 +117,18 @@ assert_rejects "$d" "a root carrying no shell scripts is reported, not passed va
 # and a syntax error in one must not be reported as ours. Paired with a valid
 # script beside it, so the run has something legitimate to find and the accept
 # cannot come from the vacuity guard instead.
+# One directory per prune arm, at its OWN depth: a broken script under
+# `.build/vendor/` is pruned at `.build` and says nothing about the `vendor`
+# arm, which is how that arm came to be unreachable — deleting `-o -name vendor`
+# left every case green. A repository using Composer's default vendor-dir has
+# `vendor/` at the root, so the arm is not decorative.
 d="$work/pruned"
-mkdir -p "$d/.build/vendor/foreign" "$d/node_modules/other"
+mkdir -p "$d/.build/nested" "$d/vendor/foreign" "$d/node_modules/other"
 printf '#!/usr/bin/env bash\nprintf "ours\\n"\n' > "$d/ours.sh"
-printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/.build/vendor/foreign/theirs.sh"
+printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/.build/nested/theirs.sh"
+printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/vendor/foreign/theirs.sh"
 printf '#!/usr/bin/env bash\ncase x in\n' > "$d/node_modules/other/theirs.sh"
-assert_accepts "$d" "a broken script inside .build/vendor or node_modules is not this repository's to report"
+assert_accepts "$d" "a broken script inside .build, vendor or node_modules is not this repository's to report"
 
 # A scan that could not see the whole tree. `find` prints `Permission denied` for
 # a directory it cannot descend into and carries on, so without this the gate

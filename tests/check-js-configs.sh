@@ -786,6 +786,8 @@ if [ -z "$jscpd_formats" ]; then
     exit 1
 fi
 
+declare -A seen_format=()
+
 while IFS= read -r format; do
     [ -n "$format" ] || continue
     extension="${jscpd_extension[$format]:-}"
@@ -794,6 +796,8 @@ while IFS= read -r format; do
         fail "templates/jscpd.json names the format \"$format\", which this smoke has no fixture extension for — add one rather than shipping it unproven"
         continue
     fi
+
+    seen_format[$format]=1
 
     rm -rf jscpd-fixture
     mkdir -p jscpd-fixture/src
@@ -810,6 +814,16 @@ while IFS= read -r format; do
         fail "jscpd control — the \"$format\" run failed, but not by reporting the clone" "$work/jscpd-$format.log"
     fi
 done <<<"$jscpd_formats"
+
+# A format DROPPED from the template leaves the derived list without that line,
+# so the loop never reaches it and no assertion runs — the same silence the
+# extensionMappings completeness pass above exists for. Every consumer copying
+# the narrowed template would then run a clone gate blind to that format.
+for format in "${!jscpd_extension[@]}"; do
+    if [ -z "${seen_format[$format]:-}" ]; then
+        fail "templates/jscpd.json no longer names the \"$format\" format, which this smoke proves — the entry was dropped rather than renamed"
+    fi
+done
 
 rm -rf jscpd-fixture .jscpd.json
 

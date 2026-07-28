@@ -63,16 +63,13 @@ trap 'rm -f "$work_error"' EXIT
 # an installed vendor tree, and without it this gate lints third-party scripts —
 # reporting a foreign syntax error as this repository's, or going red on a
 # dependency nobody here wrote.
+#
+# The whole root is scanned rather than `$ROOT/tests`. A narrowing branch was
+# tried and removed: find is recursive and the prune list already excludes
+# everything else, so both forms produce the identical seven files here — an
+# unproven code path buying nothing, and one that would silently skip a
+# root-level script in any layout that does have one.
 errors="$work_error"
-
-# A fixture root passed on the command line holds the scripts directly; this
-# repository keeps them under tests/. Both shapes have to work, or the cases
-# below would drive a different code path than the real run does.
-if [ -d "$ROOT/tests" ]; then
-    scan_root="$ROOT/tests"
-else
-    scan_root="$ROOT"
-fi
 
 # The listing is materialised FIRST, so `find`'s exit status is a value this
 # script can act on. Left inside a process substitution it is discarded: a
@@ -85,10 +82,10 @@ fi
 # A partial scan is the same defect as an empty one, one step milder, and this
 # gate exists precisely so that "did not look" cannot read as "found nothing".
 listing=""
-listing="$(find "$scan_root" \
+listing="$(find "$ROOT" \
     \( -name .build -o -name vendor -o -name node_modules \) -prune -o \
     -type f -name '*.sh' -print 2>"$errors" | sort)" || {
-    printf 'FAILED   could not list %s — the scan is incomplete, so its result says nothing\n' "$scan_root" >&2
+    printf 'FAILED   could not list %s — the scan is incomplete, so its result says nothing\n' "$ROOT" >&2
     cat "$errors" >&2
     exit 1
 }
@@ -96,7 +93,7 @@ listing="$(find "$scan_root" \
 # find exits 0 while still reporting per-path errors on stderr (an unreadable
 # subdirectory is not a fatal error to it), so the status alone is not enough.
 if [ -s "$errors" ]; then
-    printf 'FAILED   %s could not be scanned completely\n' "$scan_root" >&2
+    printf 'FAILED   %s could not be scanned completely\n' "$ROOT" >&2
     cat "$errors" >&2
     exit 1
 fi
