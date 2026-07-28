@@ -128,6 +128,27 @@ assert_usage_error() {
     fi
 }
 
+# Membership asked the same way in every direction, so the three set relations
+# below read as one property rather than three spellings of it.
+contains() { # <needle> <haystack…>
+    local needle="$1" candidate
+    shift
+
+    for candidate in "$@"; do
+        if [ "$candidate" = "$needle" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# The derived loops can fail before any gate run, so they report directly.
+report_failure() { # <message>
+    printf 'FAIL (harness): %s\n' "$1" >&2
+    fails=$((fails + 1))
+}
+
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
 
@@ -838,16 +859,44 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the SECOND overrides entry" "overrides[1].json.formatter.enabled"
 
-# Every row of the gate's language table, driven rather than trusted. Two of the
-# six had cases; a typo in any of the other four — `grahpql` for `graphql` — would
-# leave a consumer able to disable that language's linter unreported while the
-# whole suite stayed green. Same treatment the jscpd extension deny-list already
-# gets, and for the same reason: a hand-written list of canonical names is only
-# pinned where something drives each entry.
-for language in javascript json css graphql grit html; do
+# Every row of the gate's language table, READ from the gate rather than retyped
+# here. Two of the six had cases; a typo in any of the other four — `grahpql` for
+# `graphql` — left a consumer able to disable that language's linter unreported
+# while the suite stayed green.
+#
+# Derived rather than hand-listed for the reason the derived-flags lockstep
+# further down already exists: a copy of the table catches a row the gate LOSES
+# and never one it GAINS, so adding `'vue'` there would ship that language's
+# escape unproven, which is the same hole one step along. Both directions are
+# asserted, so neither list can move without the other.
+# The ONE line carrying the array literal, not the block around it: a range
+# ending at `as $language` also swallows the loop body, whose `linter` and
+# `formatter` keys then read as language names.
+mapfile -t gate_languages < <(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php" \
+    | grep -oE "'[a-z]+'" | tr -d "'")
+
+if [ "${#gate_languages[@]}" -eq 0 ]; then
+    report_failure 'read no language names from the gate — the language lockstep did not run'
+fi
+
+# The languages this harness knows how to drive. A row the gate gains that is not
+# here fails below rather than shipping unexercised.
+proven_languages=(javascript json css graphql grit html)
+
+for language in "${gate_languages[@]}"; do
     d="$(mk_js_case "biome-language-$language-linter-off")"
     printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    "%s": { "linter": { "enabled": false } }\n}\n' "$language" > "$d/biome.json"
     assert_rejects "$d" "biome.json disabling the linter for $language" "$language.linter.enabled"
+
+    if ! contains "$language" "${proven_languages[@]}"; then
+        report_failure "the gate now walks the language \`$language\`, which this harness does not name — add it rather than leaving the row unexercised"
+    fi
+done
+
+for language in "${proven_languages[@]}"; do
+    if ! contains "$language" "${gate_languages[@]}"; then
+        report_failure "the gate no longer walks the language \`$language\`, which this harness proves — the row was dropped rather than renamed"
+    fi
 done
 
 # The counterpart at the same nesting: a per-language style option inside an
@@ -1179,26 +1228,7 @@ assert_rejects "$d" "biome.json without extends once the npm package is declared
 # ergonomics exception, and neither list may outlive the other.
 ergonomics=(esModuleInterop resolveJsonModule skipLibCheck)
 
-# Membership asked the same way in every direction, so the three set relations
-# below read as one property rather than three spellings of it.
-contains() { # <needle> <haystack…>
-    local needle="$1" candidate
-    shift
 
-    for candidate in "$@"; do
-        if [ "$candidate" = "$needle" ]; then
-            return 0
-        fi
-    done
-
-    return 1
-}
-
-# The derived loops can fail before any gate run, so they report directly.
-report_failure() { # <message>
-    printf 'FAIL (harness): %s\n' "$1" >&2
-    fails=$((fails + 1))
-}
 
 mapfile -t base_flags < <(php -r '
     $options = json_decode(file_get_contents($argv[1]), true)["compilerOptions"];
@@ -1420,7 +1450,32 @@ assert_rejects "$d" ".jscpd.json with a non-string format entry beside a bad one
 
 # Every entry of the deny-list table, so a wrong canonical name in any row ships
 # pinned rather than unexercised.
-for pair in js:javascript mjs:javascript cjs:javascript ts:typescript mts:typescript cts:typescript; do
+# READ from the gate rather than retyped, the same way the language table above
+# is: a copy catches an entry the gate loses and never one it gains, so adding
+# `'jsonc' => 'json'` there would ship an unexercised message — and an unproven
+# canonical name the gate then tells consumers to use — with the suite green.
+mapfile -t gate_spellings < <(sed -n "/\$extensionSpellings = \[/,/\];/p" "$ROOT/bin/check-consumer-config.php" \
+    | grep -oE "'[a-z]+' *=> *'[a-z]+'" | tr -d "' " | sed 's/=>/:/')
+
+if [ "${#gate_spellings[@]}" -eq 0 ]; then
+    report_failure 'read no extension spellings from the gate — the jscpd deny-list lockstep did not run'
+fi
+
+proven_spellings=(js:javascript mjs:javascript cjs:javascript ts:typescript mts:typescript cts:typescript)
+
+for pair in "${gate_spellings[@]}"; do
+    if ! contains "$pair" "${proven_spellings[@]}"; then
+        report_failure "the gate now rejects the spelling \`${pair%%:*}\`, which this harness does not name — add it rather than leaving the entry unexercised"
+    fi
+done
+
+for pair in "${proven_spellings[@]}"; do
+    if ! contains "$pair" "${gate_spellings[@]}"; then
+        report_failure "the gate no longer rejects the spelling \`${pair%%:*}\` as \`${pair##*:}\`, which this harness proves — the entry was dropped or its canonical name changed"
+    fi
+done
+
+for pair in "${gate_spellings[@]}"; do
     spelling="${pair%%:*}"
     canonical="${pair##*:}"
     d="$work/jscpd-format-$spelling"; jscpd_fixture "$d"

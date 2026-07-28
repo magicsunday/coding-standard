@@ -235,6 +235,28 @@ manifest_rejects "$(manifest_fixture peer-major-drift \
     "manifest control — a peer range naming another major than the pin is reported" \
     "is not satisfied by the pinned"
 
+# The only ACCEPT case among the manifest controls, and the one that reaches the
+# numeric comparison at all. Every rejection above short-circuits before it —
+# peer-major-drift on the major, peer-without-pin on the missing pin — so the
+# whole `false` return of below() rested on this repository's own single-digit
+# pins, and replacing its body with a string compare of the joined form changed
+# no verdict anywhere. A pin whose minor is past nine is exactly what a string
+# compare gets wrong: "2.10.0" sorts below "2.9.0".
+manifest_accepts() { # <dir> <label>
+    local out
+    if out="$(manifest_check "$1" 2>&1)"; then
+        pass "$2"
+    else
+        fail "$2 — rejected: $out"
+    fi
+}
+
+manifest_accepts "$(manifest_fixture peer-minor-past-nine \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.10.0" },
+       "peerDependencies": { "@biomejs/biome": "^2.9.0" } }')" \
+    "manifest control — a pin whose minor is past nine satisfies a lower caret floor"
+
 manifest_rejects "$(manifest_fixture no-devengines \
     '{ "devDependencies": { "@biomejs/biome": "2.5.5" } }')" \
     "manifest control — a package.json with no devEngines floor is reported" \
