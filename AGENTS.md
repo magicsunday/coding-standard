@@ -192,10 +192,12 @@ directory that matches how it is consumed, never at the root for convenience.
   reads the abort as a clean pass. That is not hypothetical: an apostrophe inside a
   comment within an embedded `node -e '…'` block closed the surrounding single quote,
   bash died at that line having run nothing, and a `grep -E '^FAILED'` check reported
-  green. Two rules follow. **Judge a run by its exit code, never by the absence of a
-  string in its output** — the string is missing for both outcomes. And
-  `composer ci:test:shell:lint` (`bash -n` over every harness) runs in CI ahead of the
-  suites, so the class is caught by a gate rather than by whoever is paying attention.
+  green. The rule that follows: **judge a run by its exit code, never by the absence of a
+  string in its output** — the string is missing for both outcomes. That rule is free
+  and closes the class outright: every harness is invoked by exactly one CI step that
+  judges its exit code, and bash exits 2 on a syntax error. A `bash -n` gate over the
+  same files was written and removed again — it could not see a defect the harness's
+  own step does not already red, and cost 347 lines to say so a second time.
 - **A no-op config is worse than a missing one, and tool names are where they hide.**
   Two shipped configs looked active while enforcing nothing: a `"//"` key made
   `biome/base.json` unloadable, and jscpd's `format` takes FORMAT names, so the
