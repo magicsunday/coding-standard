@@ -119,6 +119,23 @@ printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/.build/vendor/foreign/t
 printf '#!/usr/bin/env bash\ncase x in\n' > "$d/node_modules/other/theirs.sh"
 assert_accepts "$d" "a broken script inside .build/vendor or node_modules is not this repository's to report"
 
+# A scan that could not see the whole tree. `find` prints `Permission denied` for
+# a directory it cannot descend into and carries on, so without this the gate
+# checked whatever it did reach and reported OK — "did not look" reading as
+# "found nothing", which is the failure this gate exists to rule out one step
+# milder than an empty listing. Skipped as root, where mode 000 denies nothing.
+if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip (running as root: mode 000 does not deny traversal): the incomplete-scan case\n'
+else
+    d="$work/unreadable-subdir"
+    mkdir -p "$d/private"
+    printf '#!/usr/bin/env bash\nprintf "fine\\n"\n' > "$d/visible.sh"
+    printf '#!/usr/bin/env bash\nfunction broken( {\n' > "$d/private/hidden.sh"
+    chmod 000 "$d/private"
+    assert_rejects "$d" "a directory the scan cannot descend into is reported, not silently skipped" "scan is incomplete"
+    chmod 755 "$d/private"
+fi
+
 # The usage verdict, distinct from the syntax one, so a mistyped path cannot read
 # as a repository full of broken scripts.
 out="$(bash "$GATE" "$work/does-not-exist" 2>&1)" && rc=0 || rc=$?

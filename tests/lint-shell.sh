@@ -74,7 +74,35 @@ else
     scan_root="$ROOT"
 fi
 
+# The listing is materialised FIRST, so `find`'s exit status is a value this
+# script can act on. Left inside a process substitution it is discarded: a
+# directory the run cannot descend into makes find print `Permission denied` and
+# exit 1, the loop then checks whatever it did reach, `checked` is non-zero, and
+# the gate reports OK for a scan that skipped part of the tree. Measured — a root
+# holding one readable script beside a mode-000 directory containing a broken one
+# reported `lint-shell: OK — 1 shell script(s) parse.` and exit 0.
+#
+# A partial scan is the same defect as an empty one, one step milder, and this
+# gate exists precisely so that "did not look" cannot read as "found nothing".
+listing=""
+listing="$(find "$scan_root" \
+    \( -name .build -o -name vendor -o -name node_modules \) -prune -o \
+    -type f -name '*.sh' -print 2>"$errors" | sort)" || {
+    printf 'FAILED   could not list %s — the scan is incomplete, so its result says nothing\n' "$scan_root" >&2
+    cat "$errors" >&2
+    exit 1
+}
+
+# find exits 0 while still reporting per-path errors on stderr (an unreadable
+# subdirectory is not a fatal error to it), so the status alone is not enough.
+if [ -s "$errors" ]; then
+    printf 'FAILED   %s could not be scanned completely\n' "$scan_root" >&2
+    cat "$errors" >&2
+    exit 1
+fi
+
 while IFS= read -r script; do
+    [ -n "$script" ] || continue
     checked=$((checked + 1))
 
     if bash -n "$script" 2>"$errors"; then
@@ -84,9 +112,7 @@ while IFS= read -r script; do
         cat "$errors" >&2
         failed=1
     fi
-done < <(find "$scan_root" \
-    \( -name .build -o -name vendor -o -name node_modules \) -prune -o \
-    -type f -name '*.sh' -print | sort)
+done <<<"$listing"
 
 # A pattern that matches nothing would make this gate pass vacuously — the same
 # failure mode the phpat subject-liveness guard exists to prevent, and the one
