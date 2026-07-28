@@ -863,15 +863,21 @@ if ($biomeFile !== null) {
 // `strict: false` in a repository that never extended the shared base is that
 // repository's own setting, not drift from a standard it does not follow.
 $tsconfigFile = $repoRoot . '/tsconfig.json';
+$tsconfigJson = is_file($tsconfigFile) ? $loadJsonc($tsconfigFile) : null;
+
+// Unreadable is unconditional, exactly as it is for the Biome config: no reader
+// tolerance is in play, the file simply cannot be opened, and that is true whoever
+// wrote it. Gating this one on adoption while the sibling reports it either way
+// would make the same defect visible or invisible depending on which config it is
+// in — the asymmetry is a bug in the reporting, not a difference between the files.
+if (is_file($tsconfigFile) && ($tsconfigJson === false)) {
+    $fail($violations, 'tsconfig.json', 'exists but cannot be read.');
+}
 
 if ($adopted && is_file($tsconfigFile)) {
-    $tsconfigJson = $loadJsonc($tsconfigFile);
-
-    if ($tsconfigJson === false) {
-        $fail($violations, 'tsconfig.json', 'exists but cannot be read.');
-    } elseif ($tsconfigJson === null) {
+    if ($tsconfigJson === null) {
         $fail($violations, 'tsconfig.json', 'not valid JSON(C).');
-    } else {
+    } elseif (is_array($tsconfigJson)) {
         // tsc appends `.json` itself, so the bare specifier resolves to the same
         // file and must not be reported as a missing link — verified with 7.0.2.
         if (!$extendsShared($tsconfigJson, 'tsconfig/base', true)) {

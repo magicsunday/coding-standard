@@ -1209,6 +1209,17 @@ else
     assert_rejects "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "tsconfig.json: exists but cannot be read"
     chmod 644 "$d/tsconfig.json"
 
+    # The same file in a NON-adopting repository. The biome case above is written
+    # this way already; the tsconfig one was reachable only through the adoption
+    # gate, so the identical defect was reported or silent depending on which of
+    # the two configs it sat in. An unopenable file is a defect on its own terms —
+    # no reader tolerance is in play — so neither of them waits for adoption.
+    d="$(mk_unadopted_case js-unreadable-tsconfig-unadopted)"
+    cp "$FIXTURE/tsconfig.json" "$d/tsconfig.json"
+    chmod 000 "$d/tsconfig.json"
+    assert_rejects "$d" "an unreadable tsconfig.json is reported even without adoption" "tsconfig.json: exists but cannot be read"
+    chmod 644 "$d/tsconfig.json"
+
     # Fails open without the guard: the gate would print OK for a config it never read.
     d="$work/jscpd-unreadable"; jscpd_fixture "$d"
     chmod 000 "$d/.jscpd.json"
