@@ -506,12 +506,31 @@ rm src/importer.ts
 #
 # The mapping is Biome's, so tsc is not run on these; the source extension is what
 # selects the row, and the import spells the mapped target.
-# READ from biome/base.json rather than listed here, for the reason the jscpd
-# control was just changed for: a hand list catches a row that disappears and
-# never one that appears. Adding `"js": "mjs"` to the table left the suite green
-# — no .js source exists anywhere in the smoke tree — while a consumer's .js
-# import would get a SAFE autofix pointing at a path that does not exist, which
-# is the harm this control's own comment names.
+# The table is READ from biome/base.json, and the expected target is held HERE.
+# Both halves are needed and each catches what the other cannot.
+#
+# Derivation alone was worse than the hand list it replaced: reading the target
+# out of the same table the assertion then verifies makes the table answer its
+# own question. Measured — corrupting the row to `"mts": "js"` produced a fixture
+# importing `./mod.js` from a `.mts` source, which is exactly what that corrupted
+# table asks for, so Biome accepted it and the control reported the row "in
+# force". Biome does not check that the imported path exists, so nothing else
+# could have made it discriminate.
+#
+# A hand list alone was the original defect: it catches a row that changes or
+# disappears and never one that APPEARS, so a fifth row shipped unproven.
+#
+# So: the derived list decides WHICH rows run (an unknown one fails), and this
+# table decides what each row must map to (a changed target fails). The
+# completeness check after the loop closes the third case, a row deleted from the
+# base — the derived list simply would not carry it, and no assertion would run.
+declare -A expected_target=(
+    [ts]=js
+    [tsx]=js
+    [mts]=mjs
+    [cts]=cjs
+)
+
 mappings="$(ROOT="$root" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
     .linter.rules.correctness.useImportExtensions.options.extensionMappings;
 process.stdout.write(Object.entries(m).map(([from, to]) => from + " " + to).join("\n"))')" || true
@@ -521,32 +540,49 @@ if [ -z "$mappings" ]; then
     exit 1
 fi
 
+declare -A seen_row=()
+
 # `ts` is already covered by the .js import pair above, which additionally proves
 # the tsc direction; the rest need a source file in their own extension.
 while IFS=' ' read -r source_ext target_ext; do
     [ -n "$source_ext" ] || continue
 
-    case "$source_ext" in
-        ts) continue ;;
-        tsx|mts|cts) ;;
-        *)
-            fail "biome/base.json maps the .$source_ext extension, which this smoke has no fixture for — add one rather than shipping the row unproven"
-            continue
-            ;;
-    esac
+    want="${expected_target[$source_ext]:-}"
+
+    if [ -z "$want" ]; then
+        fail "biome/base.json maps the .$source_ext extension, which this smoke has no proven target for — add one rather than shipping the row unproven"
+        continue
+    fi
+
+    seen_row[$source_ext]=1
+
+    if [ "$target_ext" != "$want" ]; then
+        fail "biome/base.json maps .$source_ext to .$target_ext; the target this smoke proves is .$want"
+        continue
+    fi
+
+    [ "$source_ext" = "ts" ] && continue
 
     printf 'export const value = 1;\n' > "src/mod.$source_ext"
     printf 'import { value } from "./mod.%s";\n\nexport const doubled = (): number => value * 2;\n' \
-        "$target_ext" > "src/use.$source_ext"
+        "$want" > "src/use.$source_ext"
 
     if biome_ci "$work/biome-map-$source_ext.log"; then
-        pass "biome — the extensionMappings row .$source_ext -> .$target_ext is in force"
+        pass "biome — the extensionMappings row .$source_ext -> .$want is in force"
     else
-        fail "biome — an import spelling .$target_ext from a .$source_ext source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
+        fail "biome — an import spelling .$want from a .$source_ext source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
     fi
 
     rm "src/mod.$source_ext" "src/use.$source_ext"
 done <<<"$mappings"
+
+# A row DELETED from the base leaves the derived list without that line, so the
+# loop never reaches it and no assertion runs — silence that reads as success.
+for source_ext in "${!expected_target[@]}"; do
+    if [ -z "${seen_row[$source_ext]:-}" ]; then
+        fail "biome/base.json no longer maps the .$source_ext extension, which this smoke proves — the row was dropped rather than retargeted"
+    fi
+done
 
 # The other half of the same option choice, and the one that made the blunt
 # spelling wrong for a SHARED base. `forceJsExtensions: true` settles the TS/tsc

@@ -252,14 +252,16 @@ assert_rejects "$d" ".editorconfig with indent_style = tab in [*]" "must set \`i
 # returns its settings, because JavaScript's `\s` matches U+FEFF. PHP's trim()
 # does not, so without the strip the key parses as "\u{FEFF}root" and a file
 # every editor obeys is reported as drift.
-# The comment block the template opens with is dropped, so the BOM ABUTS the key
-# the strip protects. With the template's header in place the BOM lands on a
-# comment line that both the section and the key regex discard, `root = true` on
-# line 3 is untouched, and the case passes with or without the strip — pinning
-# nothing. A consumer may legitimately write the file without a header.
+# Written literally rather than derived from the template, so the BOM ABUTS the
+# key the strip protects. With the template's header in place the BOM lands on a
+# comment line that both the section and the key regex discard, `root = true` is
+# untouched, and the case passes with or without the strip — pinning nothing.
+# Filtering the header out of the template restores that vacuity the moment the
+# template grows a blank line before its first key, which is an edit nobody would
+# connect to this case. A consumer may legitimately write the file without a
+# header, and that shape is the one that exercises the strip.
 d="$(mk_case editorconfig-bom)"
-printf '\xEF\xBB\xBF' > "$d/.editorconfig"
-grep -v '^#' "$ROOT/templates/editorconfig" >> "$d/.editorconfig"
+printf '\xEF\xBB\xBFroot = true\n\n[*]\nindent_style = space\nindent_size = 4\n\n[{Makefile,*.mk}]\nindent_style = tab\n' > "$d/.editorconfig"
 assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM directly before its first key"
 
 # The BOM decision is per tool, because the three disagree — each measured
@@ -294,6 +296,12 @@ assert_rejects "$d" "deptrac.yaml saved with a UTF-8 BOM, which deptrac itself r
 # that does import it.
 d="$(mk_case deptrac-bom-anchored)"
 printf '\xEF\xBB\xBFimports:\n    - vendor/magicsunday/coding-standard/deptrac/layers.yaml\n\ndeptrac:\n    paths:\n        - ./src\n' > "$d/deptrac.yaml"
+# Both assertions, because either alone passes for the wrong reason: the count
+# alone is satisfied by ONE report of the fabricated kind (lose the BOM report
+# while the strip is also gone, and the displaced anchor produces exactly one
+# "does not import the shared ruleset" line), and the substring alone cannot see
+# a second report beside it.
+assert_rejects "$d" "a BOM'd deptrac.yaml that opens on imports: is reported as a BOM" "deptrac.yaml: starts with a UTF-8 BOM"
 assert_reports_once "$d" "a BOM'd deptrac.yaml that opens on imports: fabricates no missing-import report" "deptrac.yaml"
 
 # jscpd refuses a BOM'd config outright (`expected value at line 1 column 1`), so
