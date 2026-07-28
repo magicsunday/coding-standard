@@ -406,4 +406,62 @@ fi
 
 rm src/unchecked.ts
 
+# --- templates/jscpd.json: the format names, against jscpd itself ------------
+#
+# The template's own note explains why this control has to exist: jscpd's `format`
+# takes FORMAT names, and an unknown one is NOT an error — it silently analyses
+# nothing and the run reports a clean tree. Measured: on two near-identical
+# TypeScript functions, `["ts"]` prints "No duplicates found" and exits 0 while
+# `["typescript"]` reports the clone and exits 1.
+#
+# The lockstep gate can only deny-list the six extension spellings that look
+# right; it cannot tell whether `typescript`, `jsx` and `tsx` — the three names
+# this change added — are names jscpd still recognises. Nothing else in the
+# repository runs jscpd, so a rename or a dropped format on the tool's side would
+# leave every consumer with a green JS/TS clone gate that detects nothing. That is
+# the exact "looks active, enforces nothing" failure this template was widened to
+# close, so it is pinned here rather than trusted.
+cp "$root/templates/jscpd.json" .jscpd.json
+
+# jscpd refuses a config carrying an unknown key, and the template's note lives in
+# `"//"` — the same trap the Biome base fell into once. It is legal here (jscpd
+# reads JSON5 and ignores it), but the copy a consumer makes is what the gate
+# checks, so the run below uses the template verbatim rather than a stripped copy.
+mkdir -p jscpd-fixture/src
+
+# The two bodies are IDENTICAL and only the exported name differs. jscpd matches
+# token sequences, so renaming the parameters as well — the shape a hand-written
+# "near-identical" pair naturally takes — breaks the sequence and the fixture finds
+# nothing for a reason that has nothing to do with the format names.
+jscpd_body() {
+    cat <<TS
+export const $1 = (values: number[]): string => {
+    const total = values.reduce((carry, value) => carry + value, 0);
+    const average = values.length === 0 ? 0 : total / values.length;
+    const highest = values.length === 0 ? 0 : Math.max(...values);
+    const lowest = values.length === 0 ? 0 : Math.min(...values);
+    const spread = highest - lowest;
+    const count = values.length;
+    const label = count === 1 ? "value" : "values";
+
+    return \`\${count} \${label}: total \${total}, average \${average}, spread \${spread}\`;
+};
+TS
+}
+
+jscpd_body summarise > jscpd-fixture/src/one.ts
+jscpd_body describe > jscpd-fixture/src/two.ts
+
+# minTokens/minLines come from the template; the fixture has to clear them, or a
+# clean run would prove the thresholds rather than the format names.
+if npx --no-install jscpd --config .jscpd.json --pattern "**/*.ts" jscpd-fixture/src > "$work/jscpd.log" 2>&1; then
+    fail "jscpd control — found no clone in two near-identical TypeScript functions; the \`typescript\` format name no longer analyses anything" "$work/jscpd.log"
+elif grep -qiE 'clone|duplicat' "$work/jscpd.log"; then
+    pass "jscpd — the shared template's TypeScript format name is still recognised and the clone is found"
+else
+    fail "jscpd control — the run failed, but not by reporting the clone" "$work/jscpd.log"
+fi
+
+rm -rf jscpd-fixture .jscpd.json
+
 exit "$failed"
