@@ -579,6 +579,28 @@ d="$(mk_js_case biome-padded-specifier)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json "]\n}\n' > "$d/biome.json"
 assert_rejects "$d" "biome.json whose specifier carries trailing whitespace" "biome/base.json"
 
+# The trailing whitespace character the pattern's ANCHOR lets through rather than
+# its body: PCRE's `$` matches before a single trailing newline unless the `D`
+# modifier is set, so this spelling passed while the trailing-SPACE case above was
+# rejected — the same latitude, decided by which whitespace character it is.
+d="$(mk_js_case biome-newline-specifier)"
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json\\n"]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json whose specifier ends in a newline" "biome/base.json"
+
+d="$(mk_js_case ts-newline-specifier)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json\\n"\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json whose specifier ends in a newline" "tsconfig/base.json"
+
+# Biome accepts only `"//"` or an array for `extends` and answers a bare string
+# with `The 'extends' field must be either '//' or an array of paths` — verified
+# against 2.5.5. So a scalar specifier is a config Biome refuses to load at all,
+# and reporting the link as present would certify exactly the unloadable state
+# this gate exists to catch. tsc, by contrast, takes a bare string, which is why
+# the two are asserted in opposite directions.
+d="$(mk_js_case biome-extends-scalar)"
+printf '{\n    "extends": "@magicsunday/coding-standard/biome/base.json"\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json whose extends is a bare string instead of a list" "biome/base.json"
+
 # A specifier that is not a string at all must report as a missing link rather
 # than fail the gate on a type error.
 d="$(mk_js_case biome-extends-not-a-string)"

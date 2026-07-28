@@ -593,18 +593,36 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  * allows: a number or an object is simply not a specifier, and falls out here as
  * a missing link rather than a type error at the call site.
  *
+ * A bare string is a specifier for tsconfig and NOT for Biome, which accepts only
+ * `"//"` or an array of paths and answers anything else with `The 'extends' field
+ * must be either '//' or an array of paths` — a deserialize error that kills the
+ * whole run. Verified against Biome 2.5.5. So `$listRequired` is what keeps the
+ * gate from reporting a link inside a config the consumer's own tool refuses to
+ * load, which is this gate's central failure mode rather than a spelling nicety.
+ *
  * @param array<array-key, mixed> $config         The decoded consumer config.
  * @param string                  $sharedStem     Path inside the package, without the `.json` suffix.
  * @param bool                    $suffixOptional Whether the consuming tool resolves the suffix itself.
+ * @param bool                    $listRequired   Whether the consuming tool accepts only a list, never a bare string.
  *
  * @return bool
  */
-$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional): bool {
-    $extends    = $config['extends'] ?? null;
+$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional, bool $listRequired = false): bool {
+    $extends = $config['extends'] ?? null;
+
+    if ($listRequired && !is_array($extends)) {
+        return false;
+    }
+
     $candidates = is_array($extends) ? $extends : [$extends];
 
+    // `$~D` rather than `$~`: without the D modifier PCRE lets `$` match before a
+    // single trailing newline, so `"…/base.json\n"` — valid JSON, and a string
+    // neither tool trims before resolving — would be read as the shared link. That
+    // is the whitespace latitude the paragraph above rules out, reintroduced by the
+    // anchor rather than by the pattern body.
     $pattern = sprintf(
-        '~^(?:\./)?(?:node_modules/(?:\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/%s%s$~',
+        '~^(?:\./)?(?:node_modules/(?:\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/%s%s$~D',
         preg_quote($sharedStem, '~'),
         $suffixOptional ? '(?:\.json)?' : '\.json'
     );
@@ -745,7 +763,7 @@ if ($biomeFile !== null) {
     if ($adopted && is_array($biomeJson)) {
         // Biome requires the `.json` suffix — verified: it answers the bare
         // specifier with `Could not resolve … module not found`.
-        if (!$extendsShared($biomeJson, 'biome/base', false)) {
+        if (!$extendsShared($biomeJson, 'biome/base', false, true)) {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
         }
 
