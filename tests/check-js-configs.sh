@@ -198,6 +198,33 @@ for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
     }
 }
 
+// The fourth hand-kept copy of the Biome version, and the only one nothing tied
+// to anything: the pin, the peer range, the README prose and the $schema URL in
+// biome/base.json all name it. Biome never fetches or validates against that URL,
+// so a drifted `$schema` mis-autocompletes in an editor rather than breaking a
+// run — but it is the copy a Dependabot bump leaves behind, silently, forever.
+// Deriving it here makes the bump carry it.
+//
+// Read with readFileSync rather than require: a base config that stops being
+// valid JSON belongs to ci:test:json, and swallowing it here as a missing
+// `$schema` would name the wrong cause.
+const basePath = process.env.ROOT + "/biome/base.json";
+let schemaVersion = null;
+
+try {
+    schemaVersion = /schemas\/([0-9]+\.[0-9]+\.[0-9]+)\//.exec(JSON.parse(require("node:fs").readFileSync(basePath, "utf8")).$schema ?? "")?.[1] ?? null;
+} catch (error) {
+    console.error(`biome/base.json could not be read for its $schema: ${error.message}`);
+    failed = true;
+}
+
+const biomePin = pkg.devDependencies?.["@biomejs/biome"];
+
+if ((schemaVersion !== null) && (biomePin !== undefined) && (schemaVersion !== biomePin)) {
+    console.error(`biome/base.json pins $schema at ${schemaVersion}, but the devDependency proving it is ${biomePin}`);
+    failed = true;
+}
+
 if (failed) {
     process.exit(1);
 }
@@ -215,9 +242,23 @@ manifest_check "$root" || {
 # statement rather than a check.
 manifest_fixtures="$work/manifest-fixtures"
 
+# Each fixture also gets a biome/base.json whose $schema agrees with its own pin.
+# The check reads that file unconditionally — a missing one is a finding, not a
+# skip — so a fixture without it would fail for a reason it was not built to
+# measure, and the control would report the wrong cause. The $schema is derived
+# from the fixture body rather than hard-coded, so a fixture varying the Biome pin
+# stays consistent by construction.
 manifest_fixture() { # <name> <package.json body>
-    mkdir -p "$manifest_fixtures/$1"
+    mkdir -p "$manifest_fixtures/$1/biome"
     printf '%s\n' "$2" > "$manifest_fixtures/$1/package.json"
+
+    local pin
+    pin="$(BODY="$2" node -e 'const p = JSON.parse(process.env.BODY).devDependencies?.["@biomejs/biome"];
+process.stdout.write(p === undefined ? "0.0.0" : p)')"
+
+    printf '{"$schema": "https://biomejs.dev/schemas/%s/schema.json"}\n' "$pin" \
+        > "$manifest_fixtures/$1/biome/base.json"
+
     printf '%s' "$manifest_fixtures/$1"
 }
 
@@ -299,6 +340,31 @@ manifest_rejects "$(manifest_fixture peer-without-pin \
        "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')" \
     "manifest control — a peer with no pin proving it is reported" \
     "no devDependencies pin proves it"
+
+# The $schema check, driven both ways. The helper writes a fixture $schema that
+# agrees with the fixture pin, so every case above proves the accepting
+# direction; this one overwrites it afterwards to prove the rejecting one.
+schema_drift="$(manifest_fixture schema-drift \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
+printf '{"$schema": "https://biomejs.dev/schemas/2.4.0/schema.json"}\n' > "$schema_drift/biome/base.json"
+
+manifest_rejects "$schema_drift" \
+    "manifest control — a base config whose \$schema lags the pin is reported" \
+    "pins \$schema at 2.4.0"
+
+schema_absent="$(manifest_fixture schema-absent \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
+rm -f "$schema_absent/biome/base.json"
+
+# A base config that cannot be read is reported here rather than skipped: a check
+# whose subject disappears must fail, or removing the file removes the check.
+manifest_rejects "$schema_absent" \
+    "manifest control — an unreadable base config is reported, not skipped" \
+    "could not be read for its"
 
 rm -rf "$manifest_fixtures"
 
