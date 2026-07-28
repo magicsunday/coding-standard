@@ -783,6 +783,18 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the SECOND overrides entry" "overrides[1].json.formatter.enabled"
 
+# Every row of the gate's language table, driven rather than trusted. Two of the
+# six had cases; a typo in any of the other four — `grahpql` for `graphql` — would
+# leave a consumer able to disable that language's linter unreported while the
+# whole suite stayed green. Same treatment the jscpd extension deny-list already
+# gets, and for the same reason: a hand-written list of canonical names is only
+# pinned where something drives each entry.
+for language in javascript json css graphql grit html; do
+    d="$(mk_js_case "biome-language-$language-linter-off")"
+    printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    "%s": { "linter": { "enabled": false } }\n}\n' "$language" > "$d/biome.json"
+    assert_rejects "$d" "biome.json disabling the linter for $language" "$language.linter.enabled"
+done
+
 # The counterpart at the same nesting: a per-language style option inside an
 # override is exactly what overrides are for and must not be reported.
 d="$(mk_js_case biome-override-language-legitimate)"
@@ -827,7 +839,7 @@ assert_accepts "$d" "biome.json narrowing a single rule for one path through ove
 # json_decode returns null, which an `?? null` read cannot tell from "absent".
 d="$(mk_js_case biome-malformed)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json that is not valid JSON(C)" "not valid JSON(C)"
+assert_rejects "$d" "biome.json that is not valid JSON(C)" "biome.json: not valid JSON(C)"
 
 # biome.jsonc is Biome's own alternative filename; the gate must find it there
 # too. Asserted as a REJECT, because that is the only shape that proves discovery:
@@ -853,6 +865,20 @@ cat > "$d/biome.jsonc" <<'JSON'
 }
 JSON
 assert_accepts "$d" "a clean biome.jsonc is accepted"
+
+# The two cases above reach only the note-key guard and the clean-parse path,
+# both of which run before the adoption gate. So nothing drove a .jsonc file
+# through the assertions that follow it, and a regression reaching those only via
+# the .json filename would have passed. One reject per class closes that.
+d="$(mk_js_case biome-jsonc-no-extends)"
+rm "$d/biome.json"
+printf '{\n    // no shared link\n    "linter": { "enabled": true }\n}\n' > "$d/biome.jsonc"
+assert_rejects "$d" "biome.jsonc without the shared extends" "biome.jsonc: must \`extends\`"
+
+d="$(mk_js_case biome-jsonc-linter-off)"
+rm "$d/biome.json"
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    // switched off\n    "linter": { "enabled": false }\n}\n' > "$d/biome.jsonc"
+assert_rejects "$d" "biome.jsonc with the linter disabled" "biome.jsonc: \`linter.enabled\`"
 
 d="$(mk_js_case ts-no-extends)"
 printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
@@ -932,18 +958,24 @@ printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "
 assert_accepts "$d" "tsconfig.json extending without the .json suffix"
 
 # The string-protection the trailing-comma pass needs: a comma before a bracket
-# INSIDE a string value is part of the value, not punctuation to strip. Stripping
-# it silently rewrote the consumer's path.
-d="$(mk_js_case ts-comma-in-string)"
-cat > "$d/tsconfig.json" <<'JSON'
+# INSIDE a string value is part of the value, not punctuation to strip.
+#
+# Asserted through a value the gate REPORTS BACK, not through a `paths` entry.
+# An in-string comma-strip can never break JSON validity — `"a,] b"` becomes
+# `"a] b"` and the document still parses — so an accept/reject case placed on a
+# key the gate only has to skip is decided identically with and without the
+# protection, and pins nothing. A rule GROUP name is interpolated into the
+# violation text, so a corrupted one is visible: drop the string guard from the
+# comma pass and the report reads `linter.rules.sus]picious`, the expected
+# substring is absent, and the case goes red.
+d="$(mk_js_case biome-comma-in-string)"
+cat > "$d/biome.json" <<'JSON'
 {
-    "extends": "@magicsunday/coding-standard/tsconfig/base.json",
-    "compilerOptions": {
-        "paths": { "@app/*": ["a,] b, } c"] }
-    }
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "sus,]picious": { "preset": "none" } } }
 }
 JSON
-assert_accepts "$d" "tsconfig.json with a comma before a bracket inside a string"
+assert_rejects "$d" "biome.json whose reported rule group carries a comma before a bracket inside a string" "linter.rules.sus,]picious"
 
 # Block comments: the accept case, and the discriminating one — a multi-line
 # block carrying a quote and a `//` must be closed rather than swallow the rest
@@ -971,30 +1003,36 @@ assert_rejects "$d" "tsconfig.json whose block comment must not swallow the rest
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json with a comment splitting a token" "not valid JSON(C)"
+assert_rejects "$d" "tsconfig.json with a comment splitting a token" "tsconfig.json: not valid JSON(C)"
 
-# Escaped backslashes inside a string must survive the pass intact.
-d="$(mk_js_case ts-escapes)"
+# The `\\.` branch of the string pattern, driven by the only input that needs it:
+# an ESCAPED QUOTE followed by a comment opener. A backslash pair alone does not
+# discriminate — `"src\\vendor\\*"` carries no quote, so a naive `"[^"]*"` consumes
+# it exactly as the escape-aware form does and the case is green either way. With
+# the escape branch the string is consumed whole and the file parses; without it
+# the pass mis-terminates the string at the `\"`, reads ` // b"] }` as a comment,
+# strips to end of line and the gate reports the config as unparseable.
+d="$(mk_js_case ts-escaped-quote)"
 cat > "$d/tsconfig.json" <<'JSON'
 {
     "extends": "@magicsunday/coding-standard/tsconfig/base.json",
     "compilerOptions": {
-        "paths": { "@app/*": ["src\\vendor\\*"] }
+        "paths": { "@app/*": ["a \" // b"] }
     }
 }
 JSON
-assert_accepts "$d" "tsconfig.json with backslash escapes inside a string"
+assert_accepts "$d" "tsconfig.json with an escaped quote before a comment opener inside a string"
 
 # The JSONC tolerance must not extend to genuinely broken input: an unclosed
 # object has to be reported, not read as an empty config that passes every
 # subsequent `?? null` check.
 d="$(mk_js_case ts-malformed)"
 printf '{\n    "compilerOptions": { "strict": true\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json that is not valid JSON(C)" "not valid JSON(C)"
+assert_rejects "$d" "tsconfig.json that is not valid JSON(C)" "tsconfig.json: not valid JSON(C)"
 
 # --- the adoption gate -------------------------------------------------------
 #
-# Three existing consumers ship a standalone biome.json today and pull this
+# Four existing consumers ship a standalone biome.json today and pull this
 # package over Composer. If the extends contract keyed on the file being present,
 # their next `composer update` would red a build for a link they never claimed —
 # and they could not fix it, because a consumer cannot pin an npm tag that does
@@ -1030,7 +1068,7 @@ assert_accepts "$d" "malformed biome.json in a repo that has not adopted the npm
 
 d="$(mk_js_case js-adopted-malformed)"
 printf '{\n    "linter": { "enabled": true\n' > "$d/biome.json"
-assert_rejects "$d" "malformed biome.json once the npm package is declared" "not valid JSON(C)"
+assert_rejects "$d" "malformed biome.json once the npm package is declared" "biome.json: not valid JSON(C)"
 
 # Both tools read a BOM-prefixed config and honour it; json_decode does not. A
 # reader stricter than the tools reports a defect in a file that loads fine.
@@ -1050,7 +1088,7 @@ assert_accepts "$d" "tsconfig.json saved with a UTF-8 BOM"
 d="$(mk_case js-package-json-malformed)"
 printf '{\n    "devDependencies": {\n' > "$d/package.json"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "an unparseable package.json is reported, not treated as non-adoption" "package.json"
+assert_rejects "$d" "an unparseable package.json is reported, not treated as non-adoption" "package.json: is not valid JSON"
 
 # A package.json with a BOM is readable by npm, so it must not be reported — and
 # the dependency inside it must still be seen.
