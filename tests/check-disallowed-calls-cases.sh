@@ -25,7 +25,10 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# CDPATH= because the target `tests/..` starts with neither /, ./ nor ../ and is
+# therefore searched in CDPATH — which both redirects it and echoes the resolved
+# path, making ROOT a two-line value that opens nothing.
+ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
