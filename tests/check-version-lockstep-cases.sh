@@ -29,11 +29,26 @@ fails=0
 # The gate's exit code carries the verdict, so it is captured rather than piped:
 # under `set -o pipefail` a `php … | grep` would report the deliberately failing
 # run as a harness error.
+
+# degraded <output>
+#
+# True when PHP emitted a diagnostic of its own — a warning, a notice or a fatal.
+# Such a run produced no verdict, whatever it exited with, so no assertion below
+# may read it as one. The sibling harness carries the same guard for the same
+# reason: a crash that prints the asserted substring on its way down otherwise
+# reports `ok`.
+degraded() {
+    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Fatal error|Parse error|Uncaught)' <<<"$1"
+}
+
 assert_accepts() { # <dir> <name>
     local out rc
     out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
 
-    if [ "$rc" -eq 0 ]; then
+    if degraded "$out"; then
+        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
+        fails=$((fails + 1))
+    elif [ "$rc" -eq 0 ]; then
         printf 'ok (accepted): %s\n' "$2"
     else
         printf 'FAILED (should have been accepted): %s\n%s\n' "$2" "$out" >&2
@@ -45,8 +60,18 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
     local out rc
     out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
 
-    if [ "$rc" -eq 0 ]; then
-        printf 'FAILED (should have been rejected): %s\n' "$2" >&2
+    # Exactly 1, the gate's own verdict — not merely "not zero". This gate exits
+    # 0 or 1 and nothing else, so any other status is a fatal or a missing `php`,
+    # and both used to satisfy every case here: the report is written per pin
+    # inside the loop, so a crash AFTER the first diagnostic printed the asserted
+    # substring and then died, and the case said ok. The sibling harness was
+    # tightened for exactly this; the tightening did not reach here, so the two
+    # copies enforced different contracts under the same helper name.
+    if degraded "$out"; then
+        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 1 ]; then
+        printf 'FAILED (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$2" "$out" >&2
         fails=$((fails + 1))
     elif grep -qF "$3" <<<"$out"; then
         printf 'ok (rejected on the tested violation): %s\n' "$2"

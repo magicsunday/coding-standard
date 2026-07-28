@@ -23,11 +23,31 @@ FIXTURE="$ROOT/tests/consumer"
 
 fails=0
 
+# degraded <output>
+#
+# True when PHP emitted a diagnostic of its own, which every assertion below has
+# to treat as a failed run rather than as a verdict.
+#
+# The exit-code tightening closed only half of this hole: a fatal is caught by the
+# exit code, but an E_WARNING is not — PHP prints it, carries on, and the gate goes
+# on to reach its normal exit. Concretely: drop the `is_array($topLevelRules)`
+# guard and `biome-rules-not-an-object` still reports ok, because `foreach ("off"
+# as …)` warns, skips the loop, and the case's OTHER violation still produces the
+# expected exit 1 and substring. Three guards named in case labels are unprotected
+# that way. The repository's own bar is zero notices; a harness that certifies a
+# gate has no business accepting a run that did not meet it.
+degraded() {
+    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Fatal error|Parse error|Uncaught)' <<<"$1"
+}
+
 # assert_accepts <dir> <label>
 assert_accepts() {
     local dir="$1" label="$2" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -ne 0 ]; then
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 0 ]; then
         printf 'FAIL (expected accept): %s\n%s\n' "$label" "$out"
         fails=$((fails + 1))
     else
@@ -43,7 +63,10 @@ assert_accepts() {
 assert_rejects() {
     local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -ne 1 ]; then
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 1 ]; then
         # Exactly 1, the gate's drift verdict — not merely "not zero". 2 is the
         # usage error and 255 a fatal, and both used to satisfy every case here:
         # dropping an is_array guard made the gate die on a TypeError whose stack
@@ -69,7 +92,10 @@ assert_reports_once() {
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
     count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
 
-    if [ "$rc" -ne 1 ]; then
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 1 ]; then
         printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
         fails=$((fails + 1))
     elif [ "$count" -ne 1 ]; then
@@ -88,7 +114,10 @@ assert_usage_error() {
     local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    if [ "$rc" -ne 2 ]; then
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 2 ]; then
         printf 'FAIL (expected the usage verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
         fails=$((fails + 1))
     elif ! grep -qF "$expected" <<<"$out"; then
