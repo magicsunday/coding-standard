@@ -84,7 +84,11 @@ directory that matches how it is consumed, never at the root for convenience.
   strict about unknown keys and refuses the whole file (`Found an unknown key "//"`),
   so a config that is perfectly valid JSON is still unloadable for every consumer —
   which is exactly what shipped once. `tsconfig/base.json` and `templates/jscpd.json`
-  tolerate the key and keep it; Biome's documentation belongs in the README instead.
+  tolerate the key and keep it — measured, not assumed, and the mixture is therefore
+  not an inconsistency to tidy up. The gate follows the same split: it reports a `"//"`
+  key in a consumer's `biome.json`/`biome.jsonc` and says nothing about one in
+  `tsconfig.json`. A new shipped config gets the key only after its tool has been run
+  against a copy carrying it. Biome's documentation belongs in the README instead.
   `composer ci:test:json` cannot catch this class of break (it only proves the file
   parses); only `tests/check-js-configs.sh`, which loads the config with the real
   tool, can. Any new shipped config gets a guard that runs its actual tool, not a

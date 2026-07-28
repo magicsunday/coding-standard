@@ -637,9 +637,29 @@ exactly that, so the failure surfaces as a lockstep violation on a config the
 consumer believes it just migrated correctly; the fix is to write
 `"preset": "recommended"` by hand.
 
-Note that `biome.json` cannot carry a `"//"` note key: Biome rejects unknown keys and
-refuses the whole config, so a file that is valid JSON can still be unloadable for
-every consumer. `tests/check-js-configs.sh` guards this — it packs the package as npm
+### The `"//"` note key is decided per tool, not banned
+
+JSON has no comments, so a note is conventionally smuggled in as a `"//"` key. Whether
+that works is a property of the reader, and the three readers here disagree — so this
+package uses the key in some shipped files and forbids it in others. That looks like a
+contradiction until the measurements are written down, so here they are:
+
+| File | `"//"` | Because |
+|---|---|---|
+| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
+| `templates/jscpd.json` | **yes** | jscpd reads JSON5 and ignores it; the smoke runs the template verbatim, note key and all |
+| `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
+
+The gate follows the same split: it reports a `"//"` key in a consumer's
+`biome.json`/`biome.jsonc` and says nothing about one in `tsconfig.json`. That check is
+one of the few that does not wait for adoption, because the file is unloadable however
+it was written.
+
+The Biome case is not hypothetical — this package shipped a `biome/base.json` carrying
+one, and it was dead config for every consumer that extended it while `ci:test:json`
+reported the file as perfectly valid JSON. That is what the JS smoke exists for.
+
+`tests/check-js-configs.sh` guards this — it packs the package as npm
 ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
 shared configs, with controls proving a `==` comparison and an unchecked array index
 are actually rejected. The `js` CI job runs it on every push.
