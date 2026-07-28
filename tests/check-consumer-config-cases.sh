@@ -1227,10 +1227,26 @@ ergonomics=(esModuleInterop resolveJsonModule skipLibCheck)
 
 
 
+# The decode is guarded rather than indexed straight into. tsconfig is JSONC by
+# specification, so the shipped base gaining a comment is a legitimate edit — and
+# then `json_decode` returns null, `null["compilerOptions"]` raises a warning, and
+# that warning is written to STDOUT by the CLI SAPI, so mapfile reads it as data.
+# Measured: the flag list then carries `Warning: Trying to access array offset on
+# null in Command line code on line 2` as an entry, and the cases below run with
+# that as a flag name. The empty-scan guard underneath never fires, because the
+# array is not empty — it is wrong.
+#
+# `ci:test:json` rejects a commented base first and would stop the CI chain before
+# this file runs; someone invoking this script directly gets no such protection.
 mapfile -t base_flags < <(php -r '
-    $options = json_decode(file_get_contents($argv[1]), true)["compilerOptions"];
+    $decoded = json_decode(file_get_contents($argv[1]), true);
 
-    foreach ($options as $name => $value) {
+    if (!is_array($decoded) || !is_array($decoded["compilerOptions"] ?? null)) {
+        fwrite(STDERR, "tsconfig/base.json did not decode as JSON carrying compilerOptions\n");
+        exit(1);
+    }
+
+    foreach ($decoded["compilerOptions"] as $name => $value) {
         if ($value === true) {
             echo $name, "\n";
         }
