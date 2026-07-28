@@ -36,7 +36,12 @@
                 "useImportExtensions": {
                     "level": "error",
                     "options": {
-                        "forceJsExtensions": true
+                        "extensionMappings": {
+                            "ts": "js",
+                            "tsx": "js",
+                            "mts": "mjs",
+                            "cts": "cjs"
+                        }
                     }
                 },
                 "noUnusedVariables": "warn",

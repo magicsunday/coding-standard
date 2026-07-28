@@ -548,13 +548,23 @@ Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. The TypeS
 base carries no `module`/`target`/`lib`/`jsx` and no `paths`; those are per-repository
 and belong in the consumer's own `compilerOptions`.
 
-`useImportExtensions` runs with `forceJsExtensions`, so a local ESM import spells the
-extension `.js` in TypeScript sources too — which is what TS ESM emits and what `tsc`
-resolves. Without that option the two tools contradict each other and no spelling
-satisfies both: Biome demands `./bar.ts`, which `tsc` then rejects with TS5097 unless
-`allowImportingTsExtensions` is on, while the house spelling `./bar.js` is reported as
-a violation. The smoke asserts both directions, so the rule the base exists to settle
-is not left for every consumer to override.
+`useImportExtensions` runs with an `extensionMappings` table (`ts`/`tsx` → `js`,
+`mts` → `mjs`, `cts` → `cjs`), so a local ESM import spells the extension `.js` in
+TypeScript sources too — which is what TS ESM emits and what `tsc` resolves. Without
+it the two tools contradict each other and no spelling satisfies both: Biome demands
+`./bar.ts`, which `tsc` then rejects with TS5097 unless `allowImportingTsExtensions`
+is on, while the house spelling `./bar.js` is reported as a violation.
+
+The blunter `forceJsExtensions: true` settles the same conflict and was tried first.
+It is wrong for a shared base, because it rewrites the suggestion for **every**
+extension rather than the TypeScript ones: measured against Biome 2.5.5,
+`import "./theme.css"` and `import palette from "./palette.json"` are both reported,
+each carrying a *Safe* fix that rewrites the specifier to a `.js` path that does not
+exist — so a plain `biome check --write` or an editor save-action silently breaks a
+consumer that imports a stylesheet or a JSON asset. `extensionMappings` buys the
+TypeScript case and leaves the rest alone. The smoke asserts both directions plus the
+asset imports, so neither the rule the base exists to settle nor the regression that
+option class invites is left for a consumer to discover.
 
 The base carries **no `vcs` block** on purpose. `useIgnoreFile: true` would look like
 the obvious way to keep a consumer's gitignored build output out of the lint run, but

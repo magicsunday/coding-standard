@@ -280,10 +280,10 @@ rm src/debugger.ts
 # The house rule the shared config exists to carry: a local ESM import spells the
 # extension `.js`, in TypeScript sources too, because that is what TS ESM emits
 # and what tsc resolves. Both spellings are checked, since the interesting part
-# is that they disagree — without `forceJsExtensions` Biome demanded `.ts`, which
-# tsc then rejects with TS5097 unless allowImportingTsExtensions is on. No
-# spelling satisfied both tools, so every consumer would have had to override the
-# rule the base is meant to settle.
+# is that they disagree — without the `extensionMappings` table Biome demanded
+# `.ts`, which tsc then rejects with TS5097 unless allowImportingTsExtensions is
+# on. No spelling satisfied both tools, so every consumer would have had to
+# override the rule the base is meant to settle.
 cat > src/imported.ts <<'TS'
 export const value = 1;
 TS
@@ -322,7 +322,49 @@ else
     fail "biome control — biome ci failed, but not on useImportExtensions" "$work/biome-import-bare.log"
 fi
 
-rm src/importer.ts src/imported.ts
+rm src/importer.ts
+
+# The other half of the same option choice, and the one that made the blunt
+# spelling wrong for a SHARED base. `forceJsExtensions: true` settles the TS/tsc
+# conflict above, but it rewrites the suggestion for every extension rather than
+# the TypeScript ones: measured against Biome 2.5.5, a stylesheet and a JSON asset
+# import are both reported, each carrying a SAFE fix that points at a `.js` path
+# which does not exist — so `biome check --write` or an editor save-action breaks
+# the consumer's build silently. `extensionMappings` maps ts/tsx→js and
+# mts/cts→mjs/cjs and leaves everything else alone. Without a fixture importing a
+# non-TS asset the smoke proved only the direction that both spellings share.
+#
+# Both fixtures are written already formatted to the shared ruleset. Biome checks
+# every file it is pointed at, so a one-line stylesheet would fail on formatter
+# drift and the control would report "not on useImportExtensions" — a red that
+# says nothing about the rule under test.
+cat > src/theme.css <<'CSS'
+body {
+    color: red;
+}
+CSS
+
+cat > src/palette.json <<'JSON'
+{ "accent": "#b60205" }
+JSON
+
+cat > src/assets.ts <<'TS'
+import palette from "./palette.json";
+
+import "./theme.css";
+
+export const accent = (): unknown => palette;
+TS
+
+if biome_ci "$work/biome-asset-imports.log"; then
+    pass "biome — a stylesheet and a JSON asset import are left alone"
+elif grep -q 'lint/correctness/useImportExtensions' "$work/biome-asset-imports.log"; then
+    fail "biome — an asset import was told to add a .js extension; the base is back on a blanket rewrite" "$work/biome-asset-imports.log"
+else
+    fail "biome — the asset fixture failed, but not on useImportExtensions" "$work/biome-asset-imports.log"
+fi
+
+rm src/assets.ts src/theme.css src/palette.json src/imported.ts
 
 # The shared base deliberately carries NO `vcs` block, and this run is why: with
 # `vcs.useIgnoreFile: true` in it, Biome aborts with `couldn't find an ignore
