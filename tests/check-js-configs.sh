@@ -84,10 +84,14 @@ fi
 
 printf 'INFO     tools under test: %s\n' "$tools"
 
-# Enforce the engines floor rather than documenting it. npm only WARNS on
-# EBADENGINE unless engine-strict is set, so without this a CI runner drifting
-# below the floor — or a `node-version` edit — would go green and the floor would
-# quietly mean nothing.
+# Enforce the devEngines floor rather than documenting it. The floor is declared
+# in `devEngines` rather than `engines` on purpose: `engines` is consumer-facing —
+# npm evaluates it on every install and prints EBADENGINE in the CONSUMER's log —
+# and this package publishes two JSON files with no code that runs on Node at all,
+# so it has no business constraining a consumer's runtime. `devEngines` constrains
+# only this repository, which is where the floor belongs. It also means npm no
+# longer checks anything on our behalf here, so this gate is now the only
+# enforcement rather than a belt to npm's braces.
 # Take the FIRST numeric group, not every digit in the string: stripping all
 # non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
 # above every real version, so the check would hard-fail on a runner that
@@ -95,10 +99,14 @@ printf 'INFO     tools under test: %s\n' "$tools"
 # not stay dot-free forever.
 ROOT="$root" node -e '
 const pkg = require(process.env.ROOT + "/package.json");
-const want = parseInt(String(pkg.engines?.node ?? "").match(/(\d+)/)?.[1] ?? "", 10);
+const want = parseInt(String(pkg.devEngines?.runtime?.version ?? "").match(/(\d+)/)?.[1] ?? "", 10);
 const have = parseInt(process.versions.node.split(".")[0], 10);
 if (!Number.isInteger(want)) {
-    console.error("package.json declares no parseable engines.node floor");
+    console.error("package.json declares no parseable devEngines.runtime.version floor");
+    process.exit(1);
+}
+if (pkg.engines?.node !== undefined) {
+    console.error("package.json declares engines.node — the Node floor belongs in devEngines, which does not ride into a consumer install");
     process.exit(1);
 }
 if (have < want) {

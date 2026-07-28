@@ -49,9 +49,12 @@ directory that matches how it is consumed, never at the root for convenience.
   **Node tool versions track the current major — always pin forward.** The peer ranges
   are `^2.5.0` and `^7.0.2` and never span a major CI does not exercise; moving one
   means bumping the exact root `devDependencies` pin first, letting
-  `tests/check-js-configs.sh` vet it, and only then widening the range. `engines` is
-  **node >= 24** and CI pins `node-version: 24` — do not put the floating `lts/*`
-  back, it changes major on its own schedule. Dependabot's npm ecosystem reads
+  `tests/check-js-configs.sh` vet it, and only then widening the range. The Node floor
+  is **node >= 24**, declared in `devEngines` and NOT in `engines` — `engines` is
+  consumer-facing and this package ships no code that runs on Node, so a floor there
+  would fail a consumer's install over a constraint the artifact never exercises. CI
+  pins `node-version: 24` — do not put the floating `lts/*` back, it changes major on
+  its own schedule. Dependabot's npm ecosystem reads
   `devDependencies`, not `peerDependencies`, which is why the pins are the moving
   part. The reasoning behind each of these — why the peers are optional, why the
   ranges are a policy rather than a compatibility promise, and what a consumer below
