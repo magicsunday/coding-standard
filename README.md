@@ -628,6 +628,15 @@ Biome is installed at a workspace root, run through `npx`, or installed globally
 A consumer overriding either spelling to its off value (`preset: "none"`,
 `recommended: false`) is reported by the lockstep gate.
 
+**Do not reach for `biome migrate --write` to make that move.** Measured against
+2.5.0 and 2.5.5, it rewrites `linter.rules.recommended` to `preset: "none"` — the
+OFF value — and it does so for `true` and `false` alike, discarding the distinction
+rather than translating it. A repository that follows the tool's own migration path
+therefore ends up with every recommended rule silently disabled. The gate rejects
+exactly that, so the failure surfaces as a lockstep violation on a config the
+consumer believes it just migrated correctly; the fix is to write
+`"preset": "recommended"` by hand.
+
 Note that `biome.json` cannot carry a `"//"` note key: Biome rejects unknown keys and
 refuses the whole config, so a file that is valid JSON can still be unloadable for
 every consumer. `tests/check-js-configs.sh` guards this — it packs the package as npm
