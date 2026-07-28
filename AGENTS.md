@@ -2,9 +2,12 @@
 
 Single source of truth for the shared PHP and JS/TS tooling configuration of the
 `magicsunday/*` projects. This repository ships **configuration only** — no runtime
-library code and no test suite. Its correctness is proven by *consumer adoption*
-(a repo wires the configs and its own `composer ci:test` stays green), not by tests
-here.
+library code, and no PHPUnit suite. Its correctness is proven two ways: by *consumer
+adoption* (a repo wires the configs and its own `composer ci:test` stays green), and
+by the fixture-driven gates under `tests/`, each of which drives the thing it certifies
+against inputs that must produce a finding — including `tests/check-js-configs.sh`,
+which runs the real Biome and `tsc` against the shared configs. A gate that cannot be
+shown to fail proves nothing, so no gate here is trusted without its failure path.
 
 ## Layout
 
@@ -18,7 +21,7 @@ here.
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (only the `"//"` guard is unconditional), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config and a broken `package.json` probe stay unconditional), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
@@ -165,6 +168,17 @@ directory that matches how it is consumed, never at the root for convenience.
   `composer ci:test:version` asserts all of them agree — bump them in the same commit
   as the tag. The gate fails closed if the README documents no pin at all, so deleting
   the instructions cannot make it pass vacuously.
+  **Narrowing an npm peer range ships as a MINOR, and the release notes say so.** In
+  the npm ecosystem a raised peer floor is the canonical breaking change — npm 7+
+  answers a conflict with a hard `ERESOLVE`, not a warning — so the reflex is to call
+  it MAJOR. Here it is not, because one tag serves both halves and they want opposite
+  answers: the npm side is consumed by an exact `#<tag>` pin, where the number carries
+  no mechanical force at all, while the Composer consumers sit on a caret range that a
+  peer bump does not touch. Forcing a major would push a `^2.0` migration onto every
+  Composer consumer for a change that cannot reach them. Invert this the day the npm
+  side moves to a caret range. Raising the shared Biome base's own floor — a key that
+  does not exist in the older tool, which Biome rejects wholesale — falls under the
+  same rule and the same obligation to name it in the notes.
 - **A no-op config is worse than a missing one, and tool names are where they hide.**
   Two shipped configs looked active while enforcing nothing: a `"//"` key made
   `biome/base.json` unloadable, and jscpd's `format` takes FORMAT names, so the

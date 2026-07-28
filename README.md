@@ -46,7 +46,7 @@ files and nothing else, so it installs no tooling. Each consumer adds the tools 
 uses itself:
 
 ```shell
-npm install --save-dev @biomejs/biome typescript
+npm install --save-dev @biomejs/biome@^2.5.0 typescript@^7.0.2
 ```
 
 The versions the shared configs are proven against are declared as **optional**
@@ -492,9 +492,22 @@ existed would red every repository that ships a `biome.json` today — on the ve
 that first delivers the check, for a link they never claimed to have. Align first,
 enforce second, exactly as the template gate itself was staged.
 
-The one assertion that does **not** wait for adoption is the `"//"` key: it makes the
-config unloadable for Biome whether or not it extends anything, so a repository writing
-its own config is just as broken by it.
+Three reports do **not** wait for adoption, each because it names a defect on the
+file's own terms rather than a missing link:
+
+- a `"//"` key in the Biome config — it makes the file unloadable for Biome whether or
+  not it extends anything, so a repository writing its own config is just as broken by it;
+- a `biome.json`/`biome.jsonc` or `tsconfig.json` that **cannot be opened** — no reader
+  tolerance is in play there, the file simply is not readable, and that is true whoever
+  wrote it;
+- a `package.json` that cannot be read or does not parse — that file *is* the adoption
+  probe, so treating a broken one as "has not adopted" would switch the whole JS/TS
+  contract off precisely when the repository's own tooling is in an unknown state.
+
+A JSON(C) **parse** failure of a Biome or TypeScript config, by contrast, is gated on
+adoption: this reader is not Biome's, it can reject a file the real tool accepts, and
+reporting that to a repository which never claimed the link is the failure mode the
+adoption gate exists to prevent.
 
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
 their rule content genuinely cannot drift — the **link** can. Five things are asserted: the
@@ -582,11 +595,18 @@ dies. Excluding build output stays a consumer decision, made where the build out
 known.
 
 The Biome base turns the recommended rule set on through `linter.rules.preset`, not
-the `recommended` boolean: Biome deprecated the boolean in 2.5 and announces its
-removal for the next major. Both spellings still work today and enable the same
-rules, so this is a forward-compatibility choice, not a behavioural one — a consumer
-overriding either of them to its off value (`preset: "none"`, `recommended: false`)
-is reported by the lockstep gate.
+the `recommended` boolean, which Biome's configuration reference marks deprecated in
+favour of it. Both spellings still enable the same rules on 2.5, so nothing lints
+differently — but the choice is **not** free, and the cost is a version floor rather
+than behaviour: `preset` does not exist before Biome 2.5, and Biome refuses a config
+carrying an unknown key outright rather than ignoring it. Measured against 2.4.11,
+the shared base answers `Found an unknown key 'preset'` and the whole run dies. So a
+repository extending this base needs **Biome 2.5 or newer** — the same floor the
+`^2.5.0` peer declares, stated here because an optional peer is not consulted when
+Biome is installed at a workspace root, run through `npx`, or installed globally.
+
+A consumer overriding either spelling to its off value (`preset: "none"`,
+`recommended: false`) is reported by the lockstep gate.
 
 Note that `biome.json` cannot carry a `"//"` note key: Biome rejects unknown keys and
 refuses the whole config, so a file that is valid JSON can still be unloadable for

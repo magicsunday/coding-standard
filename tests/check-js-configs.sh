@@ -110,10 +110,10 @@ if (pkg.engines?.node !== undefined) {
     process.exit(1);
 }
 if (have < want) {
-    console.error(`node ${process.versions.node} is below the engines floor >=${want}`);
+    console.error(`node ${process.versions.node} is below the devEngines floor >=${want}`);
     process.exit(1);
 }
-console.log(`INFO     node ${process.versions.node} (engines floor >=${want})`);
+console.log(`INFO     node ${process.versions.node} (devEngines floor >=${want})`);
 '
 
 # A registry hiccup or a bad pin would otherwise abort the script here with no
