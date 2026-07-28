@@ -46,6 +46,12 @@ jobs:
             - name: Lint the PHP config factories
               run: composer ci:test:php:lint
 
+            # Syntax only, and it earns its place: a syntax error aborts a
+            # harness before its first assertion, so the run prints no FAILED
+            # line and reads as clean to anything judging the output.
+            - name: Lint the shell harnesses
+              run: composer ci:test:shell:lint
+
             - name: Validate the JSON configs
               run: composer ci:test:json
 

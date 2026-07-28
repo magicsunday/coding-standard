@@ -53,6 +53,9 @@
         "ci:test:php:lint": [
             "phplint --configuration .phplint.yml"
         ],
+        "ci:test:shell:lint": [
+            "bash tests/lint-shell.sh"
+        ],
         "ci:test:json": "@php tests/lint-json.php",
         "ci:test:version": "@php tests/check-version-lockstep.php",
         "ci:test:version-lockstep": [
@@ -70,6 +73,7 @@
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
+        "ci:test:shell:lint": "Syntax-check every tracked shell script. A syntax error aborts a harness before its first assertion, so it prints no FAILED line and reads as a clean run to anything that judges the output rather than the exit code.",
         "ci:test:json": "Validate that every shipped JSON config parses.",
         "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",
         "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",

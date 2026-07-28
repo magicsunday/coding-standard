@@ -179,6 +179,16 @@ directory that matches how it is consumed, never at the root for convenience.
   side moves to a caret range. Raising the shared Biome base's own floor — a key that
   does not exist in the older tool, which Biome rejects wholesale — falls under the
   same rule and the same obligation to name it in the notes.
+- **A gate that aborts must not read as a gate that passed.** These harnesses report
+  their results line by line, so a run that dies before its first assertion prints no
+  failure marker at all — and anything judging the run by grepping its output for one
+  reads the abort as a clean pass. That is not hypothetical: an apostrophe inside a
+  comment within an embedded `node -e '…'` block closed the surrounding single quote,
+  bash died at that line having run nothing, and a `grep -E '^FAILED'` check reported
+  green. Two rules follow. **Judge a run by its exit code, never by the absence of a
+  string in its output** — the string is missing for both outcomes. And
+  `composer ci:test:shell:lint` (`bash -n` over every harness) runs in CI ahead of the
+  suites, so the class is caught by a gate rather than by whoever is paying attention.
 - **A no-op config is worse than a missing one, and tool names are where they hide.**
   Two shipped configs looked active while enforcing nothing: a `"//"` key made
   `biome/base.json` unloadable, and jscpd's `format` takes FORMAT names, so the
