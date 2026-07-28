@@ -97,10 +97,27 @@ printf 'INFO     tools under test: %s\n' "$tools"
 # above every real version, so the check would hard-fail on a runner that
 # satisfies the floor. Only ">=24" happens to survive that, and the floor will
 # not stay dot-free forever.
-ROOT="$root" node -e '
+# Taken as a function over a package.json directory rather than inline, so the
+# fixtures below can drive its failure paths. Run against this repository alone it
+# only ever takes the happy path: CI pins node-version 24 and the floor says >=24,
+# so `have` equals `want` on every lane and the comparison fires in NEITHER
+# direction — inverting `<` to `>` left it green while it enforced nothing. Same
+# vacuity the version gate got a fixture harness for in this branch; the Node-side
+# self-checks did not get the same treatment until now.
+#
+# It also checks the second hand-written copy of the proven versions: the peer
+# RANGES. The smoke proves the exact devDependencies pins, and the README calls
+# the ranges "the versions the shared configs are proven against" — but nothing
+# tied the two together, so widening `^2.5.0` to `^1.9.0` would have left the
+# package declaring compatibility with a Biome major whose parser rejects
+# `linter.rules.preset` outright, with a green suite.
+manifest_check() {
+    ROOT="$1" node -e '
 const pkg = require(process.env.ROOT + "/package.json");
+
 const want = parseInt(String(pkg.devEngines?.runtime?.version ?? "").match(/(\d+)/)?.[1] ?? "", 10);
 const have = parseInt(process.versions.node.split(".")[0], 10);
+
 if (!Number.isInteger(want)) {
     console.error("package.json declares no parseable devEngines.runtime.version floor");
     process.exit(1);
@@ -113,8 +130,107 @@ if (have < want) {
     console.error(`node ${process.versions.node} is below the devEngines floor >=${want}`);
     process.exit(1);
 }
-console.log(`INFO     node ${process.versions.node} (devEngines floor >=${want})`);
+
+// Every peer range must be satisfied by the pin the smoke actually proves. A
+// range naming a major the pin does not carry is the interesting case; a floor
+// above the pin is the mirror error and is caught by the same comparison.
+const segments = (value) => {
+    const parts = String(value).replace(/^[^0-9]*/, "").split(".").map((n) => parseInt(n, 10) || 0);
+
+    return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+};
+
+// Compared segment by segment as NUMBERS. A string compare of the joined form
+// reads "2.10.0" as below "2.9.0", which is the direction that matters — a minor
+// past nine is where the pin normally sits by the time a range is questioned.
+const below = (left, right) => {
+    for (let i = 0; i < 3; i += 1) {
+        if (left[i] !== right[i]) {
+            return left[i] < right[i];
+        }
+    }
+
+    return false;
+};
+
+let failed = false;
+
+for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+    const pin = pkg.devDependencies?.[name];
+
+    if (pin === undefined) {
+        console.error(`peerDependencies declares ${name}, but no devDependencies pin proves it`);
+        failed = true;
+        continue;
+    }
+
+    const wanted = segments(range);
+    const pinned = segments(pin);
+
+    if ((wanted[0] !== pinned[0]) || below(pinned, wanted)) {
+        console.error(`peerDependencies ${name} ${range} is not satisfied by the pinned ${pin} the smoke proves`);
+        failed = true;
+    }
+}
+
+if (failed) {
+    process.exit(1);
+}
+
+console.log(`INFO     node ${process.versions.node} (devEngines floor >=${want}); peer ranges agree with the pins`);
 '
+}
+
+manifest_check "$root" || {
+    fail "package.json — the Node floor or a peer range does not hold"
+    exit 1
+}
+
+# The failure paths, driven over fixtures. Without them the block above is a
+# statement rather than a check.
+manifest_fixtures="$work/manifest-fixtures"
+
+manifest_fixture() { # <name> <package.json body>
+    mkdir -p "$manifest_fixtures/$1"
+    printf '%s\n' "$2" > "$manifest_fixtures/$1/package.json"
+    printf '%s' "$manifest_fixtures/$1"
+}
+
+manifest_rejects() { # <dir> <label> <substring the diagnostic must carry>
+    local out
+    if out="$(manifest_check "$1" 2>&1)"; then
+        fail "$2 — accepted, so the check does not discriminate"
+    elif grep -qF -- "$3" <<<"$out"; then
+        pass "$2"
+    else
+        fail "$2 — rejected, but not for the tested reason: $out"
+    fi
+}
+
+manifest_rejects "$(manifest_fixture floor-above-runtime \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=999" } } }')" \
+    "manifest control — a floor above the running Node is reported" \
+    "below the devEngines floor"
+
+manifest_rejects "$(manifest_fixture engines-readded \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } }, "engines": { "node": ">=24" } }')" \
+    "manifest control — a re-added engines.node is reported" \
+    "belongs in devEngines"
+
+manifest_rejects "$(manifest_fixture peer-major-drift \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^1.9.0" } }')" \
+    "manifest control — a peer range naming another major than the pin is reported" \
+    "is not satisfied by the pinned"
+
+manifest_rejects "$(manifest_fixture peer-without-pin \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')" \
+    "manifest control — a peer with no pin proving it is reported" \
+    "no devDependencies pin proves it"
+
+rm -rf "$manifest_fixtures"
 
 # A registry hiccup or a bad pin would otherwise abort the script here with no
 # output at all — the same red as a genuine config regression, and with the EXIT
