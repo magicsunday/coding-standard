@@ -333,9 +333,9 @@ printf '\xEF\xBB\xBF' > "$d/.jscpd.json"
 cat "$ROOT/templates/jscpd.json" >> "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json saved with a UTF-8 BOM is reported as such, not as malformed" ".jscpd.json: starts with a UTF-8 BOM"
 
-# The Makefile arm the seven other .editorconfig fixtures never reach: every one
-# of them that writes `[{Makefile,*.mk}]` at all sets `indent_style = tab`, so
-# only the section-MISSING half was driven. Reducing the condition to
+# The Makefile arm no other .editorconfig fixture reaches: every one that writes
+# `[{Makefile,*.mk}]` at all sets `indent_style = tab`, so only the
+# section-MISSING half was driven. Reducing the condition to
 # `$makefile === null` left the whole suite green — and the surviving half is the
 # unrealistic one, since a repository moving its Makefile to spaces edits the
 # value rather than deleting the header.
