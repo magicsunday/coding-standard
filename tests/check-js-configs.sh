@@ -45,6 +45,20 @@ fail() {
     fi
 }
 
+# The bookkeeping is proven before anything relies on it. Every control below
+# reports through `fail`, which both PRINTS and sets the flag the exit code is
+# built from — so if that assignment is lost, each control degrades into a print
+# statement and the run says FAILED on every line while exiting 0. Measured on the
+# sibling harness: dropping the increment left a drifted gate reporting failures
+# with exit 0, i.e. the whole layer silently off. Nothing else can catch that,
+# because the controls it disables are the only things that would have reported.
+#
+# Run in a subshell, so the probe cannot touch the real flag.
+if ! ( failed=0; fail 'bookkeeping self-test'; [ "$failed" -eq 1 ] ) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: fail() does not raise the failure flag\n' >&2
+    exit 1
+fi
+
 # One definition per tool. A control only proves anything if it runs the exact
 # invocation the green run does, and a copy-paste only promises that.
 biome_ci() { npx --no-install biome ci --error-on-warnings --colors=off . >"$1" 2>&1; }

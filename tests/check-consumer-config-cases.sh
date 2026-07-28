@@ -149,6 +149,22 @@ report_failure() { # <message>
     fails=$((fails + 1))
 }
 
+
+# The bookkeeping is proven before anything relies on it. Every assertion below
+# reports through a helper that both PRINTS and increments the counter the exit
+# code is built from — so if the increment is lost, each helper degrades into a
+# print statement: the run says FAILED on every line and still exits 0. Measured
+# on this file: dropping the increment from report_failure left a drifted gate
+# printing `FAIL (harness)` with exit 0, i.e. the whole derived lockstep layer
+# silently switched off. Nothing else can catch that, because the guards it
+# disables are the only things that would have reported.
+#
+# Run in a subshell so the probe cannot touch the real counter.
+if ! ( fails=0; report_failure 'bookkeeping self-test' >/dev/null 2>&1; [ "$fails" -eq 1 ] ); then
+    printf 'FAILED  harness bookkeeping: %s does not raise the failure counter\n' 'report_failure' >&2
+    exit 1
+fi
+
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
 

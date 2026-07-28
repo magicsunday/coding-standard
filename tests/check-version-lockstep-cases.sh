@@ -89,6 +89,26 @@ mk_case() { # <name> <version> <readme body>
     printf '%s' "$dir"
 }
 
+# The bookkeeping is proven before anything relies on it. Every assertion below
+# reports through a helper that both PRINTS and raises the counter the exit code
+# is built from — so if the increment is lost, each helper degrades into a print
+# statement: the run says FAILED on every line and still exits 0. Measured on the
+# sibling harness: dropping the increment left a drifted gate printing
+# `FAIL (harness)` with exit 0, the whole derived lockstep layer silently off.
+# Nothing else can catch it, because the guards it disables are the only things
+# that would have reported.
+#
+# The probe runs in a subshell, so it cannot touch the real counter, and it drives
+# the FAILING path of a real helper rather than a stand-in.
+if ! (
+    fails=0
+    assert_rejects "$work/__bookkeeping_probe__" 'probe' 'a substring the gate never prints'
+    [ "$fails" -eq 1 ]
+) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: %s does not raise the failure counter\n' 'assert_rejects' >&2
+    exit 1
+fi
+
 # The canon: package.json and both documented pins agree.
 d="$(mk_case canon 1.7.0 'Install with
 
