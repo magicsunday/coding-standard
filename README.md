@@ -535,6 +535,26 @@ parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments 
 trailing commas are accepted, and a `//` inside a string value is not mistaken for
 one.
 
+**What it does not do, stated because the list above reads as if it did.** The gate
+inspects the consumer's own config file for explicit off-switches; it does not
+compute the configuration the tool ends up with. Two consequences, both measured
+against Biome 2.5.5 rather than reasoned about:
+
+- An `extends` list may name a further **local** file after the shared one, and that
+  file wins. `["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"]`
+  with `{"linter": {"enabled": false}}` in the second lets `a == b` through while the
+  gate reports OK. The same holds for `tsconfig.json`, where a later entry setting
+  `noUncheckedIndexedAccess: false` survives into `tsc --showConfig`.
+- A single rule may be switched off by name — `"noDoubleEquals": "off"` — which the
+  gate does not look at. It pins the preset floor and each rule group, not the
+  individual rules the base enables.
+
+So this is a **drift detector, not a bypass guard**: it catches a consumer copy that
+has fallen out of step, not one that deliberately steers around the standard — and a
+repository willing to do the latter can equally drop the gate from its CI. Closing
+both would mean resolving the `extends` chain and deriving the rule names from the
+shared base; that is tracked in #36 rather than half-done here.
+
 ### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
 
 phpat rules run inside PHPStan, and a rule whose **subject matches nothing** enforces
