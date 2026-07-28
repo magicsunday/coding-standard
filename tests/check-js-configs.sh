@@ -130,8 +130,14 @@ fi
 # over the `files` entries has to reproduce glob expansion and the default-ignore
 # list (`*.orig`, `.DS_Store`, …) to stay in step; reading what npm actually
 # packed agrees with it by construction.
+# The `grep` filter is neutralised with `|| true`, or it decides the diagnostic:
+# under `set -o pipefail` a no-match exit 1 fails the whole pipeline, so a tarball
+# carrying no config at all — the regression this block exists to catch, `files`
+# losing `biome`/`tsconfig` — reported "could not list the tarball contents" and
+# pointed the reader at tar, while the guard below that names the real cause could
+# never run. Filtering is not an error condition; only `tar` failing is.
 listing=""
-listing="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | grep -E '\.(json|md)$' | sort)" || {
+listing="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | { grep -E '\.(json|md)$' || true; } | sort)" || {
     fail "could not list the tarball contents — nothing to verify"
     exit 1
 }
@@ -172,8 +178,16 @@ while IFS= read -r entry; do
 
     # An entry may be a directory OR a plain file, so both shapes count. Matched
     # literally, since a glob entry would otherwise behave as a regex.
-    if printf '%s\n' "${shipped[@]}" | grep -qxF -- "$entry" \
-        || printf '%s\n' "${shipped[@]}" | grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/"; then
+    #
+    # Fed from a here-string rather than a pipe: `grep -q` exits at the first
+    # match, and under `set -o pipefail` the SIGPIPE that kills the upstream
+    # `printf` then decides the pipeline, so a match reads as a miss once the
+    # listing outgrows the pipe buffer. Measured: identical at 100 entries,
+    # spuriously absent at 1000. Latent today — `files` holds two entries — and it
+    # fails towards a false red, but the shape is the one the other harnesses
+    # already avoid.
+    if grep -qxF -- "$entry" <<<"$listing" \
+        || grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/" <<<"$listing"; then
         pass "declared and packed: $entry"
     else
         fail "declared in package.json \"files\" but absent from the tarball: $entry"
@@ -341,7 +355,6 @@ rm src/importer.ts
 # the consumer's build silently. `extensionMappings` maps ts/tsx→js and
 # mts/cts→mjs/cjs and leaves everything else alone. Without a fixture importing a
 # non-TS asset the smoke proved only the direction that both spellings share.
-#
 # Both fixtures are written already formatted to the shared ruleset. Biome checks
 # every file it is pointed at, so a one-line stylesheet would fail on formatter
 # drift and the control would report "not on useImportExtensions" — a red that
@@ -374,13 +387,51 @@ fi
 
 rm src/assets.ts src/theme.css src/palette.json src/imported.ts
 
+# The two resolution latitudes the gate hard-codes, asserted against the tools
+# that grant them rather than against the gate's own fixtures. bin/check-consumer-
+# config.php accepts an extensionless specifier for tsconfig and requires the
+# suffix for Biome, on the strength of a prose comment naming tsc 7.0.2 and Biome
+# 2.5.5. A pinned-version bump that changed either resolver would leave every
+# fixture case green while the gate rejected working consumer configs — this is
+# the only place both real tools run, so the asymmetry is pinned here.
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > tsconfig.json
+
+if run_tsc "$work/tsc-extensionless.log"; then
+    pass "tsc — resolves the extensionless specifier, as the gate assumes"
+else
+    fail "tsc — no longer resolves the extensionless specifier; the gate's suffixOptional=true is wrong" "$work/tsc-extensionless.log"
+fi
+
+cp "$root/tests/consumer/tsconfig.json" tsconfig.json
+
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > biome.json
+
+if biome_ci "$work/biome-extensionless.log"; then
+    fail "biome — resolved the extensionless specifier; the gate rejects a config that works" "$work/biome-extensionless.log"
+elif grep -qi 'not found\|could not resolve' "$work/biome-extensionless.log"; then
+    pass "biome — refuses the extensionless specifier, as the gate assumes"
+else
+    fail "biome — failed on the extensionless specifier, but not by failing to resolve it" "$work/biome-extensionless.log"
+fi
+
+cp "$root/tests/consumer/biome.json" biome.json
+
 # The shared base deliberately carries NO `vcs` block, and this run is why: with
 # `vcs.useIgnoreFile: true` in it, Biome aborts with `couldn't find an ignore
 # file` in any consumer that has no .gitignore beside its config — a
 # configuration error, not a finding, so the whole run dies. Excluding build
 # output is the consumer's call, made where the build output is known; the base
-# must not make an ignore file a precondition for loading at all. This fixture
-# has no .gitignore, so the runs above prove the base stays loadable without one.
+# must not make an ignore file a precondition for loading at all.
+#
+# That guarantee holds only while this fixture has no .gitignore, which was
+# recorded in prose and asserted by nothing: a later step, an npm version that
+# scaffolds one, or a copied fixture would void it silently and every run would
+# stay green.
+if [ -e .gitignore ]; then
+    fail "the fixture grew a .gitignore — the no-vcs-block guarantee is no longer proven by the runs above"
+else
+    pass "the fixture carries no .gitignore, so the base is proven loadable without one"
+fi
 
 # `noUncheckedIndexedAccess` comes only from the shared base; without it this
 # compiles cleanly, so a consumer silently dropping the extends would go unnoticed.
