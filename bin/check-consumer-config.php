@@ -320,6 +320,15 @@ if (is_file($phplintFile)) {
     if ($contents === false) {
         $fail($violations, '.phplint.yml', 'exists but cannot be read.');
     } else {
+        // The BOM is stripped here and NOT at the jscpd or deptrac read, because
+        // the three tools disagree and the gate follows each one. Measured:
+        // phplint 9.7.2 reads a BOM-prefixed .phplint.yml and runs normally, so
+        // not stripping would false-reject a file the tool accepts — the
+        // `^extensions` anchor below sits at offset 0 and the BOM displaces it.
+        // jscpd 5.0.14 answers its own BOM'd config with `expected value at line
+        // 1 column 1`, and deptrac with `no extension able to load "<BOM>imports"`,
+        // so for those two a BOM IS the defect and stripping it would hide one.
+        $contents = $stripBom($contents);
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
         // A full YAML parse is avoided to keep the gate dependency-free; instead
@@ -436,6 +445,21 @@ if (is_file($deptracFile)) {
     if ($contents === false) {
         $fail($violations, 'deptrac.yaml', 'exists but cannot be read.');
     } else {
+        // A BOM is reported rather than stripped, because deptrac refuses the file
+        // outright: measured against 4.x, a BOM'd config answers `no extension able
+        // to load "<BOM>imports"` and the run dies. Same class as the `"//"` key in
+        // a Biome config — valid on its own terms, unloadable for the tool — so it
+        // is a defect rather than a spelling the gate should tolerate. Stripping it
+        // would report OK for a ruleset that never loads. (The sibling `.phplint.yml`
+        // read strips instead, because phplint 9.7.2 reads a BOM'd config and runs.)
+        //
+        // Note that the anchors below would NOT catch it: the shipped template opens
+        // with a comment, so the BOM displaces nothing and `^imports` still matches
+        // on its own line.
+        if (str_starts_with($contents, "\xEF\xBB\xBF")) {
+            $fail($violations, 'deptrac.yaml', 'starts with a UTF-8 BOM, which deptrac refuses to load — it reports the first key as unknown and the run dies.');
+        }
+
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
         // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next

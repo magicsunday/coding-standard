@@ -257,6 +257,28 @@ printf '\xEF\xBB\xBF' > "$d/.editorconfig"
 cat "$ROOT/templates/editorconfig" >> "$d/.editorconfig"
 assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM"
 
+# The BOM decision is per tool, because the three disagree — each measured
+# against the real tool rather than assumed, and pinned here so the asymmetry
+# cannot drift back into a uniform guess in either direction.
+#
+# phplint 9.7.2 reads a BOM'd config and runs normally, so the gate strips: the
+# `^extensions` anchor sits at offset 0 and the BOM would displace it, reporting
+# drift in a file the tool obeys.
+d="$(mk_case phplint-bom)"
+printf '\xEF\xBB\xBF' > "$d/.phplint.yml"
+cat "$ROOT/templates/phplint.yml" >> "$d/.phplint.yml"
+assert_accepts "$d" ".phplint.yml saved with a UTF-8 BOM"
+
+# deptrac answers its own BOM'd config with `no extension able to load
+# "<BOM>imports"` and dies, so there a BOM IS the defect and stripping it would
+# hide one — the gate names that cause rather than reporting a missing import.
+# Note the anchors alone would not have caught it: the shipped template opens
+# with a comment, so the BOM displaces nothing and `^imports` still matches.
+d="$(mk_case deptrac-bom)"
+printf '\xEF\xBB\xBF' > "$d/deptrac.yaml"
+cat "$ROOT/templates/deptrac.dist.yaml" >> "$d/deptrac.yaml"
+assert_rejects "$d" "deptrac.yaml saved with a UTF-8 BOM, which deptrac itself refuses to load" "deptrac.yaml: starts with a UTF-8 BOM"
+
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"
 mkdir -p "$d"
