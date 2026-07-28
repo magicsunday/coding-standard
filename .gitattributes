@@ -8,3 +8,10 @@
 /.gitignore         export-ignore
 /tests              export-ignore
 /AGENTS.md          export-ignore
+# The npm manifest carries devEngines, scripts and devDependencies that mean
+# nothing to a Composer consumer, and `git archive` — which is what Packagist
+# serves — shipped all of it. npm is unaffected: a `github:` dependency is packed
+# by the `files` allow-list, which does not read .gitattributes. The template
+# this package publishes already carries the line; the package lints itself with
+# its own template, so it has to carry it too.
+/package.json       export-ignore
