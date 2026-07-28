@@ -19,14 +19,18 @@ set -euo pipefail
 # therefore searched in CDPATH — which both redirects it and echoes the resolved
 # path, making ROOT a two-line value that opens nothing.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GATE="$ROOT/bin/check-phpat-subjects.php"
+. "$ROOT/tests/harness.sh"
+harness_workdir
 
-fails=0
+GATE="$ROOT/bin/check-phpat-subjects.php"
 
 assert_accepts() {
     local dir="$1" label="$2" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -ne 0 ]; then
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 0 ]; then
         printf 'FAIL (expected accept): %s\n%s\n' "$label" "$out"
         fails=$((fails + 1))
     else
@@ -37,8 +41,16 @@ assert_accepts() {
 assert_rejects() {
     local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
+
+    # Exactly 1, the gate's own verdict — not merely "not zero". This gate exits
+    # 0 or 1 and nothing else, so any other status is a fatal or a missing `php`.
+    # Both used to satisfy every case here while the siblings had already been
+    # tightened, which is the drift that made the shared harness worth having.
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 1 ]; then
+        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
         fails=$((fails + 1))
     elif ! grep -qF "$expected" <<<"$out"; then
         printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
@@ -48,8 +60,43 @@ assert_rejects() {
     fi
 }
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# assert_usage_error <dir> <label> <expected substring>
+#
+# This gate has THREE exit codes, not two: 0 is a pass, 1 is the drift verdict,
+# and 2 says the gate could not run — no src/ directory, an unreadable root. The
+# two must not share a helper: `assert_rejects` accepting "any non-zero" was what
+# let a setup failure count as a caught violation, and tightening it to the
+# verdict exit is what surfaced this case.
+assert_usage_error() {
+    local dir="$1" label="$2" expected="$3" out rc
+    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    if degraded "$out"; then
+        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 2 ]; then
+        printf 'FAIL (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
+        fails=$((fails + 1))
+    elif ! grep -qF "$expected" <<<"$out"; then
+        printf 'FAIL (refused, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
+        fails=$((fails + 1))
+    else
+        printf 'ok (refused to run, as expected): %s\n' "$label"
+    fi
+}
+
+# Both reporters, driven down their failing path. A path that is not a directory
+# is all it takes: the gate answers that with a non-verdict exit, so `accepts`
+# sees a rejection and `rejects` sees neither exit 1 nor its substring.
+probe_reporters() {
+    local probe="$ROOT/__bookkeeping_probe__"
+
+    assert_accepts     "$probe" 'probe'
+    assert_rejects     "$probe" 'probe' 'a substring the gate never prints'
+    assert_usage_error "$probe" 'probe' 'a substring the gate never prints'
+}
+
+harness_probe_reporters 3 probe_reporters
 
 # write_class <dir> <relpath-under-src> <namespace> <kind> <name>
 write_class() {
@@ -330,7 +377,7 @@ assert_rejects "$d" "no #[TestRule] methods" "no #[TestRule] methods found"
 # --- REJECT (exit 2): an ArchitectureTest present but no src/ directory ---
 d="$work/no-src"
 write_archtest "$d" "$MODEL_RULE"
-assert_rejects "$d" "ArchitectureTest but no src/" "no src/ directory"
+assert_usage_error "$d" "ArchitectureTest but no src/" "no src/ directory"
 
 # --- REJECT: a malformed rule must not adopt a following helper's selector ---
 # Model/ HAS a class, so if the search leaked into buildRule() it would wrongly ACCEPT
@@ -396,9 +443,4 @@ d="$work/no-archtest"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 assert_accepts "$d" "no ArchitectureTest present"
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails"
-    exit 1
-fi
-
-printf '\nAll cases passed.\n'
+verdict

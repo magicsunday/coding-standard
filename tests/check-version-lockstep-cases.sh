@@ -18,28 +18,14 @@ set -euo pipefail
 # CDPATH= because the target starts with neither /, ./ nor ../ and would
 # otherwise be searched in CDPATH, resolving to a foreign tree.
 root="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$root/tests/harness.sh"
+harness_workdir
+
 gate="$root/tests/check-version-lockstep.php"
-
-work="$(mktemp -d)"
-work="$(CDPATH= cd -- "$work" && pwd)"
-trap 'rm -rf "$work"' EXIT
-
-fails=0
 
 # The gate's exit code carries the verdict, so it is captured rather than piped:
 # under `set -o pipefail` a `php … | grep` would report the deliberately failing
 # run as a harness error.
-
-# degraded <output>
-#
-# True when PHP emitted a diagnostic of its own — a warning, a notice or a fatal.
-# Such a run produced no verdict, whatever it exited with, so no assertion below
-# may read it as one. The sibling harness carries the same guard for the same
-# reason: a crash that prints the asserted substring on its way down otherwise
-# reports `ok`.
-degraded() {
-    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Fatal error|Parse error|Uncaught)' <<<"$1"
-}
 
 assert_accepts() { # <dir> <name>
     local out rc
@@ -89,57 +75,19 @@ mk_case() { # <name> <version> <readme body>
     printf '%s' "$dir"
 }
 
-# The verdict is a function so BOTH its directions can be proven. The probe above
-# shows a helper raises the counter; nothing showed the counter reaching the exit
-# code. Measured on a copy: deleting the `exit 1` from a straight-line verdict
-# block left a run printing both `1 case(s) failed.` and `All cases passed.` — and
-# exiting 0. Two links in one chain; proving only the first leaves the second free
-# to break silently.
-verdict() {
-    if [ "$fails" -ne 0 ]; then
-        printf '\n%d case(s) failed.\n' "$fails"
-        return 1
-    fi
+# BOTH reporters, driven down their failing path. One call proves one helper —
+# measured on a sibling, where a probe covering only `assert_rejects` stayed green
+# while a broken `assert_accepts` let a failing case print and the run exit 0.
+# `$work/__bookkeeping_probe__` is deliberately not a directory: the gate answers
+# that with its usage exit, which is all the probe needs.
+probe_reporters() {
+    local probe="$work/__bookkeeping_probe__"
 
-    printf '\nAll cases passed.\n'
-}
-
-if ( fails=1; verdict ) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
-    exit 1
-fi
-
-if ! ( fails=0; verdict ) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a clean run does not exit 0\n' >&2
-    exit 1
-fi
-
-# The bookkeeping is proven before anything relies on it. Every assertion below
-# reports through a helper that both PRINTS and raises the counter the exit code
-# is built from — so if the increment is lost, each helper degrades into a print
-# statement: the run says FAILED on every line and still exits 0. Measured on the
-# sibling harness: dropping the increment left a drifted gate printing
-# `FAIL (harness)` with exit 0, the whole derived lockstep layer silently off.
-# Nothing else can catch it, because the guards it disables are the only things
-# that would have reported.
-#
-# The probe runs in a subshell, so it cannot touch the real counter, and it drives
-# the FAILING path of a real helper rather than a stand-in.
-if ! (
-    fails=0
-    probe="$work/__bookkeeping_probe__"
-
-    # BOTH reporters. One call proves one helper — measured on the sibling
-    # harness, where a probe covering only `assert_rejects` stayed green while a
-    # broken `assert_accepts` let a failing case print and the run exit 0.
     assert_accepts "$probe" 'probe'
     assert_rejects "$probe" 'probe' 'a substring the gate never prints'
+}
 
-    [ "$fails" -eq 2 ]
-) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a reporting helper does not raise the failure counter\n' >&2
-    exit 1
-fi
+harness_probe_reporters 2 probe_reporters
 
 # The canon: package.json and both documented pins agree.
 d="$(mk_case canon 1.7.0 'Install with
@@ -278,4 +226,4 @@ done
 d="$(mk_case near-miss 1.7.0 'npm install --save-dev github:magicsunday/coding-standard#1.7.1')"
 assert_rejects "$d" "a pin differing only in the patch segment" "MISMATCH"
 
-verdict || exit 1
+verdict

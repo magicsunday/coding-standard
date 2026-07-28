@@ -29,6 +29,8 @@ set -euo pipefail
 # therefore searched in CDPATH — which both redirects it and echoes the resolved
 # path, making ROOT a two-line value that opens nothing.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/tests/harness.sh"
+
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
@@ -37,7 +39,6 @@ if [ ! -x "$PHPSTAN" ]; then
     exit 2
 fi
 
-fails=0
 
 # The banned functions are DERIVED from the shipped config, never hand-kept: a
 # sixth ban added to disallowed-calls.neon must not be silently untested, and the
@@ -128,9 +129,4 @@ else
     done
 fi
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails"
-    exit 1
-fi
-
-printf '\nAll cases passed.\n'
+verdict

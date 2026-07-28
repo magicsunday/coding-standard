@@ -18,15 +18,13 @@ set -euo pipefail
 # therefore searched in CDPATH — which both redirects it and echoes the resolved
 # path, making ROOT a two-line value that opens nothing.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/tests/harness.sh"
+
 GATE="$ROOT/bin/check-consumer-config.php"
 FIXTURE="$ROOT/tests/consumer"
 
-fails=0
-
-# degraded <output>
-#
-# True when PHP emitted a diagnostic of its own, which every assertion below has
-# to treat as a failed run rather than as a verdict.
+# `degraded` comes from tests/harness.sh. Why this harness needs it, which the
+# shared comment cannot know:
 #
 # The exit-code tightening closed only half of this hole: a fatal is caught by the
 # exit code, but an E_WARNING is not — PHP prints it, carries on, and the gate goes
@@ -36,10 +34,6 @@ fails=0
 # expected exit 1 and substring. Three guards named in case labels are unprotected
 # that way. The repository's own bar is zero notices; a harness that certifies a
 # gate has no business accepting a run that did not meet it.
-degraded() {
-    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Fatal error|Parse error|Uncaught)' <<<"$1"
-}
-
 # assert_accepts <dir> <label>
 assert_accepts() {
     local dir="$1" label="$2" out rc
@@ -150,42 +144,6 @@ report_failure() { # <message>
 }
 
 
-# The verdict is a function so BOTH its directions can be proven. The probe above
-# shows a helper raises the counter; nothing showed the counter reaching the exit
-# code. Measured on a copy: deleting the `exit 1` from a straight-line verdict
-# block left a run printing both `1 case(s) failed.` and `All cases passed.` — and
-# exiting 0. Two links in one chain; proving only the first leaves the second free
-# to break silently.
-verdict() {
-    if [ "$fails" -ne 0 ]; then
-        printf '\n%d case(s) failed.\n' "$fails"
-        return 1
-    fi
-
-    printf '\nAll cases passed.\n'
-}
-
-if ( fails=1; verdict ) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
-    exit 1
-fi
-
-if ! ( fails=0; verdict ) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a clean run does not exit 0\n' >&2
-    exit 1
-fi
-
-# The bookkeeping is proven before anything relies on it. Every assertion below
-# reports through a helper that both PRINTS and increments the counter the exit
-# code is built from — so if the increment is lost, each helper degrades into a
-# print statement: the run says FAILED on every line and still exits 0. Measured
-# on this file: dropping the increment from report_failure left a drifted gate
-# printing `FAIL (harness)` with exit 0, i.e. the whole derived lockstep layer
-# silently switched off. Nothing else can catch that, because the guards it
-# disables are the only things that would have reported.
-#
-# Run in a subshell so the probe cannot touch the real counter.
-#
 # EVERY reporting helper, not one of them. A probe that drives a single helper
 # proves a single helper: measured, dropping the increment from `assert_accepts`
 # left a single-helper probe green while a genuinely failing case printed FAILED
@@ -194,24 +152,19 @@ fi
 #
 # The gate exits 2 on a directory that does not exist, which drives every helper
 # into a failing arm: not 0 (accepts), not 1 (rejects, reports_once), and a
-# substring it never prints (usage_error, which does see exit 2).
-if ! (
-    fails=0
-    # $work is created further down, so the probe uses a path that simply is not
-    # a directory — which is all it needs: the gate answers that with exit 2.
-    probe="$ROOT/__bookkeeping_probe__"
+# substring it never prints (usage_error, which does see exit 2). $work is created
+# further down, so the probe uses a path that simply is not a directory.
+probe_reporters() {
+    local probe="$ROOT/__bookkeeping_probe__"
 
     assert_accepts      "$probe" 'probe'
     assert_rejects      "$probe" 'probe' 'a substring the gate never prints'
     assert_reports_once "$probe" 'probe' 'nothing'
     assert_usage_error  "$probe" 'probe' 'a substring the gate never prints'
     report_failure 'probe'
+}
 
-    [ "$fails" -eq 5 ]
-) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: a reporting helper does not raise the failure counter\n' >&2
-    exit 1
-fi
+harness_probe_reporters 5 probe_reporters
 
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
@@ -1581,4 +1534,4 @@ assert_rejects "$d" ".jscpd.json omitting minLines entirely" "minLines"
 d="$(mk_case no-js)"
 assert_accepts "$d" "PHP-only repo without biome.json or tsconfig.json"
 
-verdict || exit 1
+verdict
