@@ -617,27 +617,40 @@ rm src/unchecked.ts
 # `["typescript"]` reports the clone and exits 1.
 #
 # The lockstep gate can only deny-list the six extension spellings that look
-# right; it cannot tell whether `typescript`, `jsx` and `tsx` — the three names
-# this change added — are names jscpd still recognises. Nothing else in the
-# repository runs jscpd, so a rename or a dropped format on the tool's side would
-# leave every consumer with a green JS/TS clone gate that detects nothing. That is
-# the exact "looks active, enforces nothing" failure this template was widened to
-# close, so it is pinned here rather than trusted.
+# right; it cannot tell whether the names the template writes are names jscpd
+# still recognises. Nothing else in the repository runs jscpd, so a rename or a
+# dropped format on the tool's side would leave every consumer with a green JS/TS
+# clone gate that detects nothing. That is the exact "looks active, enforces
+# nothing" failure this template was widened to close.
+#
+# The list is DERIVED from the template rather than hand-picked here, so a name
+# added there without a fixture cannot ship: driving only `typescript` left
+# `javascript`, `jsx` and `tsx` — the other three this change added — unproven,
+# and misspelling any of them stayed green through the whole suite.
 cp "$root/templates/jscpd.json" .jscpd.json
 
 # jscpd refuses a config carrying an unknown key, and the template's note lives in
 # `"//"` — the same trap the Biome base fell into once. It is legal here (jscpd
 # reads JSON5 and ignores it), but the copy a consumer makes is what the gate
-# checks, so the run below uses the template verbatim rather than a stripped copy.
-mkdir -p jscpd-fixture/src
+# checks, so the runs below use the template verbatim rather than a stripped copy.
+
+# The one file extension jscpd parses each format name from. `php` is skipped:
+# the PHP half is exercised by the Composer-side gates, and this smoke has no PHP.
+declare -A jscpd_extension=(
+    [javascript]=js
+    [typescript]=ts
+    [jsx]=jsx
+    [tsx]=tsx
+)
 
 # The two bodies are IDENTICAL and only the exported name differs. jscpd matches
 # token sequences, so renaming the parameters as well — the shape a hand-written
 # "near-identical" pair naturally takes — breaks the sequence and the fixture finds
-# nothing for a reason that has nothing to do with the format names.
+# nothing for a reason that has nothing to do with the format names. Typed
+# annotations would do the same on a .js/.jsx fixture, so the body carries none.
 jscpd_body() {
     cat <<TS
-export const $1 = (values: number[]): string => {
+export const $1 = (values) => {
     const total = values.reduce((carry, value) => carry + value, 0);
     const average = values.length === 0 ? 0 : total / values.length;
     const highest = values.length === 0 ? 0 : Math.max(...values);
@@ -651,18 +664,38 @@ export const $1 = (values: number[]): string => {
 TS
 }
 
-jscpd_body summarise > jscpd-fixture/src/one.ts
-jscpd_body describe > jscpd-fixture/src/two.ts
+jscpd_formats="$(ROOT="$root" node -e 'process.stdout.write(
+    require(process.env.ROOT + "/templates/jscpd.json").format.filter((f) => f !== "php").join("\n"))')" || true
 
-# minTokens/minLines come from the template; the fixture has to clear them, or a
-# clean run would prove the thresholds rather than the format names.
-if npx --no-install jscpd --config .jscpd.json --pattern "**/*.ts" jscpd-fixture/src > "$work/jscpd.log" 2>&1; then
-    fail "jscpd control — found no clone in two near-identical TypeScript functions; the \`typescript\` format name no longer analyses anything" "$work/jscpd.log"
-elif grep -qiE 'clone|duplicat' "$work/jscpd.log"; then
-    pass "jscpd — the shared template's TypeScript format name is still recognised and the clone is found"
-else
-    fail "jscpd control — the run failed, but not by reporting the clone" "$work/jscpd.log"
+if [ -z "$jscpd_formats" ]; then
+    fail "could not read the format list from templates/jscpd.json — the jscpd controls did not run"
+    exit 1
 fi
+
+while IFS= read -r format; do
+    [ -n "$format" ] || continue
+    extension="${jscpd_extension[$format]:-}"
+
+    if [ -z "$extension" ]; then
+        fail "templates/jscpd.json names the format \"$format\", which this smoke has no fixture extension for — add one rather than shipping it unproven"
+        continue
+    fi
+
+    rm -rf jscpd-fixture
+    mkdir -p jscpd-fixture/src
+    jscpd_body summarise > "jscpd-fixture/src/one.$extension"
+    jscpd_body describe > "jscpd-fixture/src/two.$extension"
+
+    # minTokens/minLines come from the template; the fixture has to clear them, or
+    # a clean run would prove the thresholds rather than the format names.
+    if npx --no-install jscpd --config .jscpd.json --pattern "**/*.$extension" jscpd-fixture/src > "$work/jscpd-$format.log" 2>&1; then
+        fail "jscpd control — no clone found in two identical .$extension files; the \"$format\" format name no longer analyses anything" "$work/jscpd-$format.log"
+    elif grep -qiE 'clone|duplicat' "$work/jscpd-$format.log"; then
+        pass "jscpd — the template's \"$format\" format name is recognised and the clone is found"
+    else
+        fail "jscpd control — the \"$format\" run failed, but not by reporting the clone" "$work/jscpd-$format.log"
+    fi
+done <<<"$jscpd_formats"
 
 rm -rf jscpd-fixture .jscpd.json
 
