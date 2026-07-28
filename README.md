@@ -450,7 +450,7 @@ from drifting from this package.
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene — Composer only; npm ignores `.gitattributes` and goes by `files` in `package.json` |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
-| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
+| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 

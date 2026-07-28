@@ -812,7 +812,10 @@ assert_rejects "$d" "biome.json dropping the rule floor through an overrides ent
 # Biome carries linter/formatter a THIRD time, per language — and there it
 # silences the shared standard for every file of that language while the
 # top-level keys still read as enabled. Verified against 2.5.5: with this config
-# a `==` comparison and a 2-space indent both pass.
+# a 2-space indent passes. (The `==`-comparison half of that observation belonged
+# to the linter case that used to sit here; the derived loop below owns that arm
+# now, and with the FORMATTER disabled the linter is still on, so `==` is still
+# reported.)
 d="$(mk_js_case biome-language-formatter-off)"
 cat > "$d/biome.json" <<'JSON'
 {
@@ -874,6 +877,9 @@ fi
 # here fails below rather than shipping unexercised.
 proven_languages=(javascript json css graphql grit html)
 
+# Verified against 2.5.5: with `javascript.linter.enabled: false` a `==`
+# comparison passes while the top-level `linter.enabled` still reads true — which
+# is why a check that only walked the document would report this config clean.
 for language in "${gate_languages[@]}"; do
     d="$(mk_js_case "biome-language-$language-linter-off")"
     printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    "%s": { "linter": { "enabled": false } }\n}\n' "$language" > "$d/biome.json"
