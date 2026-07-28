@@ -139,6 +139,15 @@ printf '{\n    "name": "@magicsunday/coding-standard"\n}\n' > "$d/package.json"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
 assert_rejects "$d" "package.json without a version" "no string \`version\`"
 
+# The neighbouring cause, which used to land in the same message: a package.json
+# JSON cannot read at all was reported as one carrying no `version` key, telling
+# the reader to add a key to a file that has no keys.
+d="$work/malformed-package-json"
+mkdir -p "$d"
+printf '{\n    "version":\n' > "$d/package.json"
+printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
+assert_rejects "$d" "a package.json that is not valid JSON is reported as unparseable, not as versionless" "package.json is not valid JSON"
+
 # An IO failure must report as one rather than as a content defect: without the
 # distinction, a missing file reads as "the README documents no pin".
 d="$work/missing-readme"

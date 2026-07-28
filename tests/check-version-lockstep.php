@@ -58,7 +58,17 @@ if ($packageJsonContents === false) {
 
 $packageJson = json_decode($packageJsonContents, true);
 
-if (!is_array($packageJson) || !is_string($packageJson['version'] ?? null)) {
+// Three causes, three reports. Collapsing "cannot be read", "does not parse" and
+// "parses but carries no version" into one message sends the reader to add a key
+// to a file JSON could not read in the first place — the same conflation the
+// sibling gate keeps apart on purpose, and for the same reason: the message is
+// the only instruction the reader gets.
+if (!is_array($packageJson)) {
+    fwrite(\STDERR, sprintf("%s/package.json is not valid JSON.\n", $root));
+    exit(1);
+}
+
+if (!is_string($packageJson['version'] ?? null)) {
     fwrite(\STDERR, "package.json has no string `version`.\n");
     exit(1);
 }
