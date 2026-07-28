@@ -252,10 +252,15 @@ assert_rejects "$d" ".editorconfig with indent_style = tab in [*]" "must set \`i
 # returns its settings, because JavaScript's `\s` matches U+FEFF. PHP's trim()
 # does not, so without the strip the key parses as "\u{FEFF}root" and a file
 # every editor obeys is reported as drift.
+# The comment block the template opens with is dropped, so the BOM ABUTS the key
+# the strip protects. With the template's header in place the BOM lands on a
+# comment line that both the section and the key regex discard, `root = true` on
+# line 3 is untouched, and the case passes with or without the strip — pinning
+# nothing. A consumer may legitimately write the file without a header.
 d="$(mk_case editorconfig-bom)"
 printf '\xEF\xBB\xBF' > "$d/.editorconfig"
-cat "$ROOT/templates/editorconfig" >> "$d/.editorconfig"
-assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM"
+grep -v '^#' "$ROOT/templates/editorconfig" >> "$d/.editorconfig"
+assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM directly before its first key"
 
 # The BOM decision is per tool, because the three disagree — each measured
 # against the real tool rather than assumed, and pinned here so the asymmetry
@@ -264,10 +269,14 @@ assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM"
 # phplint 9.7.2 reads a BOM'd config and runs normally, so the gate strips: the
 # `^extensions` anchor sits at offset 0 and the BOM would displace it, reporting
 # drift in a file the tool obeys.
+# Written with `extensions:` first rather than copying the template, for the same
+# reason as the .editorconfig case above: the template's six-line header puts
+# `extensions:` on line 15, where `/m` matches the anchor on its own line and the
+# BOM displaces nothing. YAML key order is free, so a consumer file that opens on
+# the key is legitimate — and it is the only shape that exercises the strip.
 d="$(mk_case phplint-bom)"
-printf '\xEF\xBB\xBF' > "$d/.phplint.yml"
-cat "$ROOT/templates/phplint.yml" >> "$d/.phplint.yml"
-assert_accepts "$d" ".phplint.yml saved with a UTF-8 BOM"
+printf '\xEF\xBB\xBFextensions:\n    - php\n\npath:\n    - ./src\n' > "$d/.phplint.yml"
+assert_accepts "$d" ".phplint.yml saved with a UTF-8 BOM directly before its first key"
 
 # deptrac answers its own BOM'd config with `no extension able to load
 # "<BOM>imports"` and dies, so there a BOM IS the defect and stripping it would
@@ -278,6 +287,22 @@ d="$(mk_case deptrac-bom)"
 printf '\xEF\xBB\xBF' > "$d/deptrac.yaml"
 cat "$ROOT/templates/deptrac.dist.yaml" >> "$d/deptrac.yaml"
 assert_rejects "$d" "deptrac.yaml saved with a UTF-8 BOM, which deptrac itself refuses to load" "deptrac.yaml: starts with a UTF-8 BOM"
+
+# And exactly one report: a consumer file that opens ON the `imports:` key has
+# that anchor displaced by the BOM too, so leaving the BOM in place for the checks
+# below would add a second, false "does not import the shared ruleset" for a file
+# that does import it.
+d="$(mk_case deptrac-bom-anchored)"
+printf '\xEF\xBB\xBFimports:\n    - vendor/magicsunday/coding-standard/deptrac/layers.yaml\n\ndeptrac:\n    paths:\n        - ./src\n' > "$d/deptrac.yaml"
+assert_reports_once "$d" "a BOM'd deptrac.yaml that opens on imports: fabricates no missing-import report" "deptrac.yaml"
+
+# jscpd refuses a BOM'd config outright (`expected value at line 1 column 1`), so
+# the gate names that cause instead of reporting a syntax error in a file whose
+# syntax is perfect — the conflation this branch resolved at three other reads.
+d="$(mk_case jscpd-bom)"
+printf '\xEF\xBB\xBF' > "$d/.jscpd.json"
+cat "$ROOT/templates/jscpd.json" >> "$d/.jscpd.json"
+assert_rejects "$d" ".jscpd.json saved with a UTF-8 BOM is reported as such, not as malformed" ".jscpd.json: starts with a UTF-8 BOM"
 
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"

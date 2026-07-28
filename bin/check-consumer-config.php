@@ -230,6 +230,14 @@ if (is_file($jscpdFile)) {
 
     if ($jscpdContents === false) {
         $fail($violations, '.jscpd.json', 'exists but cannot be read.');
+    } elseif (str_starts_with($jscpdContents, "\xEF\xBB\xBF")) {
+        // Named rather than folded into "not valid JSON", which is what a bare
+        // json_decode failure would report — and it is the cause the reader cannot
+        // see, because the file is syntactically perfect. jscpd 5.0.14 answers its
+        // own BOM'd config with `expected value at line 1 column 1` and carries on
+        // with no config at all, so this is a real defect and not a spelling to
+        // tolerate; the BOM is deliberately NOT stripped here for that reason.
+        $fail($violations, '.jscpd.json', 'starts with a UTF-8 BOM, which jscpd refuses to parse — it reports `expected value at line 1 column 1` and falls back to no config.');
     } elseif (!is_array($json)) {
         $fail($violations, '.jscpd.json', 'not valid JSON.');
     } else {
@@ -272,12 +280,10 @@ if (is_file($jscpdFile)) {
         // This is deliberately a deny-list of the extension spellings that look
         // right, not an allow-list of valid names: `jscpd --list` carries ~250
         // formats, and a copy of it here would drift from the tool and start
-        // rejecting configs the tool accepts. Each entry below was checked to be
-        // absent from that list, so every one of them scans nothing.
-        // Scoped to the formats the shipped template actually names, so the table
-        // is self-evidently complete: these are the spellings a consumer copying
-        // it can plausibly mistype, and each was checked against `jscpd --list`
-        // to be absent from it.
+        // rejecting configs the tool accepts. It is scoped to the formats the
+        // shipped template actually names — the spellings a consumer copying it
+        // can plausibly mistype — and each entry was checked against
+        // `jscpd --list` to be absent from it, so every one of them scans nothing.
         $extensionSpellings = [
             'js'  => 'javascript',
             'mjs' => 'javascript',
@@ -453,11 +459,22 @@ if (is_file($deptracFile)) {
         // would report OK for a ruleset that never loads. (The sibling `.phplint.yml`
         // read strips instead, because phplint 9.7.2 reads a BOM'd config and runs.)
         //
-        // Note that the anchors below would NOT catch it: the shipped template opens
-        // with a comment, so the BOM displaces nothing and `^imports` still matches
-        // on its own line.
-        if (str_starts_with($contents, "\xEF\xBB\xBF")) {
+        // The anchors below cannot stand in for it: the shipped template opens with
+        // a comment, so in the common case the BOM displaces nothing and `^imports`
+        // still matches on its own line — the file reads as correct and deptrac
+        // still refuses it.
+        $bomPrefixed = str_starts_with($contents, "\xEF\xBB\xBF");
+
+        if ($bomPrefixed) {
             $fail($violations, 'deptrac.yaml', 'starts with a UTF-8 BOM, which deptrac refuses to load — it reports the first key as unknown and the run dies.');
+
+            // Stripped for the checks BELOW, having been reported above. A consumer
+            // file that opens directly with `imports:` — the shipped template does
+            // not, but a hand-written one may — has that anchor displaced by the
+            // BOM, so leaving it in place would add a second report saying the
+            // shared ruleset is not imported for a file that imports it. One defect,
+            // one report.
+            $contents = substr($contents, 3);
         }
 
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);

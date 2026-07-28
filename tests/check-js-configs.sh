@@ -164,6 +164,17 @@ for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
         continue;
     }
 
+    // Only the caret form is evaluated. The comparison below reads the FIRST
+    // version and nothing else, so `>=2.5.0 <2.5.5` would be accepted on the
+    // strength of its floor while the pin 2.5.5 violates its ceiling. Rejecting
+    // the shape is honest; approximating a full semver range here is not, and a
+    // range this package cannot check has no business being declared by it.
+    if (!/^\^\d+\.\d+\.\d+$/.test(range)) {
+        console.error(`peerDependencies ${name} ${range} is not a plain caret range — this check evaluates ^X.Y.Z only, and would otherwise accept a range it cannot verify`);
+        failed = true;
+        continue;
+    }
+
     const wanted = segments(range);
     const pinned = segments(pin);
 
@@ -223,6 +234,29 @@ manifest_rejects "$(manifest_fixture peer-major-drift \
        "peerDependencies": { "@biomejs/biome": "^1.9.0" } }')" \
     "manifest control — a peer range naming another major than the pin is reported" \
     "is not satisfied by the pinned"
+
+manifest_rejects "$(manifest_fixture no-devengines \
+    '{ "devDependencies": { "@biomejs/biome": "2.5.5" } }')" \
+    "manifest control — a package.json with no devEngines floor is reported" \
+    "no parseable devEngines"
+
+# The floor-vs-pin half of the peer check, which no case reached: peer-major-drift
+# short-circuits on the major, peer-without-pin continues before it, and the real
+# manifest satisfies both. So dropping `below()` entirely kept every case green
+# and the numeric-comparison rationale above it enforced nothing.
+manifest_rejects "$(manifest_fixture peer-floor-above-pin \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.9.0" } }')" \
+    "manifest control — a peer floor above the pin, same major, is reported" \
+    "is not satisfied by the pinned"
+
+manifest_rejects "$(manifest_fixture peer-range-not-caret \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": ">=2.5.0 <2.5.5" } }')" \
+    "manifest control — a range shape this check cannot evaluate is reported, not assumed satisfied" \
+    "is not a plain caret range"
 
 manifest_rejects "$(manifest_fixture peer-without-pin \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
@@ -472,8 +506,34 @@ rm src/importer.ts
 #
 # The mapping is Biome's, so tsc is not run on these; the source extension is what
 # selects the row, and the import spells the mapped target.
+# READ from biome/base.json rather than listed here, for the reason the jscpd
+# control was just changed for: a hand list catches a row that disappears and
+# never one that appears. Adding `"js": "mjs"` to the table left the suite green
+# — no .js source exists anywhere in the smoke tree — while a consumer's .js
+# import would get a SAFE autofix pointing at a path that does not exist, which
+# is the harm this control's own comment names.
+mappings="$(ROOT="$root" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
+    .linter.rules.correctness.useImportExtensions.options.extensionMappings;
+process.stdout.write(Object.entries(m).map(([from, to]) => from + " " + to).join("\n"))')" || true
+
+if [ -z "$mappings" ]; then
+    fail "could not read extensionMappings from biome/base.json — the mapping controls did not run"
+    exit 1
+fi
+
+# `ts` is already covered by the .js import pair above, which additionally proves
+# the tsc direction; the rest need a source file in their own extension.
 while IFS=' ' read -r source_ext target_ext; do
     [ -n "$source_ext" ] || continue
+
+    case "$source_ext" in
+        ts) continue ;;
+        tsx|mts|cts) ;;
+        *)
+            fail "biome/base.json maps the .$source_ext extension, which this smoke has no fixture for — add one rather than shipping the row unproven"
+            continue
+            ;;
+    esac
 
     printf 'export const value = 1;\n' > "src/mod.$source_ext"
     printf 'import { value } from "./mod.%s";\n\nexport const doubled = (): number => value * 2;\n' \
@@ -486,11 +546,7 @@ while IFS=' ' read -r source_ext target_ext; do
     fi
 
     rm "src/mod.$source_ext" "src/use.$source_ext"
-done <<'ROWS'
-tsx js
-mts mjs
-cts cjs
-ROWS
+done <<<"$mappings"
 
 # The other half of the same option choice, and the one that made the blunt
 # spelling wrong for a SHARED base. `forceJsExtensions: true` settles the TS/tsc
