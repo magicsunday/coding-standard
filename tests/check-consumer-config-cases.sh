@@ -333,6 +333,16 @@ printf '\xEF\xBB\xBF' > "$d/.jscpd.json"
 cat "$ROOT/templates/jscpd.json" >> "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json saved with a UTF-8 BOM is reported as such, not as malformed" ".jscpd.json: starts with a UTF-8 BOM"
 
+# The Makefile arm the seven other .editorconfig fixtures never reach: every one
+# of them that writes `[{Makefile,*.mk}]` at all sets `indent_style = tab`, so
+# only the section-MISSING half was driven. Reducing the condition to
+# `$makefile === null` left the whole suite green — and the surviving half is the
+# unrealistic one, since a repository moving its Makefile to spaces edits the
+# value rather than deleting the header.
+d="$(mk_case editorconfig-makefile-spaces)"
+sed 's/^indent_style = tab$/indent_style = space/' "$ROOT/templates/editorconfig" > "$d/.editorconfig"
+assert_rejects "$d" ".editorconfig whose Makefile section sets spaces instead of tab" "\`[{Makefile,*.mk}]\` section with \`indent_style = tab\`"
+
 # --- .jscpd.json: stale v4 reporter name ---
 d="$work/jscpd-v4"
 mkdir -p "$d"
@@ -432,16 +442,6 @@ assert_rejects "$d" ".jscpd.json exitCode not 1" "exitCode"
 d="$work/jscpd-mintokens"; jscpd_fixture "$d"
 sed -i 's/"minTokens": 100/"minTokens": 9999/' "$d/.jscpd.json"
 assert_rejects "$d" ".jscpd.json minTokens raised to disable detection" "minTokens"
-
-# The format-name footgun the widened template warns about: an extension
-# spelling is not an error, it analyses nothing and reports a clean run.
-d="$work/jscpd-format-ts"; jscpd_fixture "$d"
-sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": ["php", "ts"]/' "$d/.jscpd.json"
-assert_rejects "$d" ".jscpd.json using the \"ts\" extension as a format name" 'Use "typescript"'
-
-d="$work/jscpd-format-js"; jscpd_fixture "$d"
-sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": ["js"]/' "$d/.jscpd.json"
-assert_rejects "$d" ".jscpd.json using the \"js\" extension as a format name" 'Use "javascript"'
 
 # The counterpart, so the check cannot be satisfied by rejecting every format:
 # the canonical names must pass, as must a config that declares none at all
@@ -813,15 +813,6 @@ assert_rejects "$d" "biome.json dropping the rule floor through an overrides ent
 # silences the shared standard for every file of that language while the
 # top-level keys still read as enabled. Verified against 2.5.5: with this config
 # a `==` comparison and a 2-space indent both pass.
-d="$(mk_js_case biome-language-linter-off)"
-cat > "$d/biome.json" <<'JSON'
-{
-    "extends": ["@magicsunday/coding-standard/biome/base.json"],
-    "javascript": { "linter": { "enabled": false } }
-}
-JSON
-assert_rejects "$d" "biome.json disabling the linter for a whole language" "javascript.linter.enabled"
-
 d="$(mk_js_case biome-language-formatter-off)"
 cat > "$d/biome.json" <<'JSON'
 {

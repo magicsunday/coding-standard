@@ -748,9 +748,14 @@ cp "$root/templates/jscpd.json" .jscpd.json
 # reads JSON5 and ignores it), but the copy a consumer makes is what the gate
 # checks, so the runs below use the template verbatim rather than a stripped copy.
 
-# The one file extension jscpd parses each format name from. `php` is skipped:
-# the PHP half is exercised by the Composer-side gates, and this smoke has no PHP.
+# The one file extension jscpd parses each format name from. `php` is IN here:
+# it was skipped on the reasoning that "the PHP half is exercised by the
+# Composer-side gates", which is not true — nothing in this repository runs jscpd
+# except this block, so `php` was the one format name excluded from both
+# directions of the bijection while being the one every consumer of a PHP
+# standard copies. jscpd tokenises PHP in Node, so covering it costs no runtime.
 declare -A jscpd_extension=(
+    [php]=php
     [javascript]=js
     [typescript]=ts
     [jsx]=jsx
@@ -762,7 +767,26 @@ declare -A jscpd_extension=(
 # "near-identical" pair naturally takes — breaks the sequence and the fixture finds
 # nothing for a reason that has nothing to do with the format names. Typed
 # annotations would do the same on a .js/.jsx fixture, so the body carries none.
-jscpd_body() {
+jscpd_body() { # <name> <extension>
+    if [ "$2" = "php" ]; then
+        cat <<PHP
+<?php
+
+function $1(array \$values): string {
+    \$total = array_sum(\$values);
+    \$average = count(\$values) === 0 ? 0 : \$total / count(\$values);
+    \$highest = count(\$values) === 0 ? 0 : max(\$values);
+    \$lowest = count(\$values) === 0 ? 0 : min(\$values);
+    \$spread = \$highest - \$lowest;
+    \$count = count(\$values);
+    \$label = \$count === 1 ? 'value' : 'values';
+
+    return sprintf('%d %s: total %d, average %d, spread %d', \$count, \$label, \$total, \$average, \$spread);
+}
+PHP
+        return
+    fi
+
     cat <<TS
 export const $1 = (values) => {
     const total = values.reduce((carry, value) => carry + value, 0);
@@ -779,7 +803,7 @@ TS
 }
 
 jscpd_formats="$(ROOT="$root" node -e 'process.stdout.write(
-    require(process.env.ROOT + "/templates/jscpd.json").format.filter((f) => f !== "php").join("\n"))')" || true
+    require(process.env.ROOT + "/templates/jscpd.json").format.join("\n"))')" || true
 
 if [ -z "$jscpd_formats" ]; then
     fail "could not read the format list from templates/jscpd.json — the jscpd controls did not run"
@@ -801,8 +825,8 @@ while IFS= read -r format; do
 
     rm -rf jscpd-fixture
     mkdir -p jscpd-fixture/src
-    jscpd_body summarise > "jscpd-fixture/src/one.$extension"
-    jscpd_body describe > "jscpd-fixture/src/two.$extension"
+    jscpd_body summarise "$extension" > "jscpd-fixture/src/one.$extension"
+    jscpd_body describe "$extension" > "jscpd-fixture/src/two.$extension"
 
     # minTokens/minLines come from the template; the fixture has to clear them, or
     # a clean run would prove the thresholds rather than the format names.
