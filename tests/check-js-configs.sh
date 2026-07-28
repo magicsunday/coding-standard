@@ -460,7 +460,37 @@ else
     fail "biome control — biome ci failed, but not on useImportExtensions" "$work/biome-import-bare.log"
 fi
 
+
 rm src/importer.ts
+
+# Every ROW of the mapping table, not just the `ts` one the pair above happens to
+# use. The table has four (ts/tsx -> js, mts -> mjs, cts -> cjs), and a row nobody
+# drives can be edited to the wrong target — `"mts": "js"` — without a single
+# assertion turning red, handing the consumer a SAFE autofix that rewrites an
+# `.mts` import to a path that does not exist. That is the exact breakage the
+# table replaced `forceJsExtensions` to avoid, reached through an untested row.
+#
+# The mapping is Biome's, so tsc is not run on these; the source extension is what
+# selects the row, and the import spells the mapped target.
+while IFS=' ' read -r source_ext target_ext; do
+    [ -n "$source_ext" ] || continue
+
+    printf 'export const value = 1;\n' > "src/mod.$source_ext"
+    printf 'import { value } from "./mod.%s";\n\nexport const doubled = (): number => value * 2;\n' \
+        "$target_ext" > "src/use.$source_ext"
+
+    if biome_ci "$work/biome-map-$source_ext.log"; then
+        pass "biome — the extensionMappings row .$source_ext -> .$target_ext is in force"
+    else
+        fail "biome — an import spelling .$target_ext from a .$source_ext source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
+    fi
+
+    rm "src/mod.$source_ext" "src/use.$source_ext"
+done <<'ROWS'
+tsx js
+mts mjs
+cts cjs
+ROWS
 
 # The other half of the same option choice, and the one that made the blunt
 # spelling wrong for a SHARED base. `forceJsExtensions: true` settles the TS/tsc
@@ -510,7 +540,12 @@ rm src/assets.ts src/theme.css src/palette.json src/imported.ts
 # 2.5.5. A pinned-version bump that changed either resolver would leave every
 # fixture case green while the gate rejected working consumer configs — this is
 # the only place both real tools run, so the asymmetry is pinned here.
-printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > tsconfig.json
+# Minimal only in the dimension under test. Dropping `noEmit` and `include` as
+# well would make tsc EMIT into the shared fixture tree and sweep every .ts under
+# $work rather than src/ — the restore below puts the config back but nothing
+# removes a stray `src/clean.js`, and the next assertion that reads the tree would
+# take tsc's own output for a fixture.
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base",\n    "compilerOptions": { "noEmit": true },\n    "include": ["src"]\n}\n' > tsconfig.json
 
 if run_tsc "$work/tsc-extensionless.log"; then
     pass "tsc — resolves the extensionless specifier, as the gate assumes"
