@@ -38,16 +38,17 @@
 /.php-cs-fixer.dist.php     export-ignore
 /.phplint.yml               export-ignore
 /AGENTS.md                  export-ignore
-# These three are safe to export-ignore ONLY in a repository that is not itself
-# consumed as a `github:` git dependency, or whose `prepare` script does not
-# build from them: npm runs `prepare` INSIDE the codeload archive, so a build
-# that needs its own tsconfig.json finds it already gone — the same failure as
-# the package.json case above, one step later. Drop them if in doubt.
-/biome.json                 export-ignore
-/biome.jsonc                export-ignore
+# COMMENTED OUT ON PURPOSE — uncomment only in a repository that is not itself
+# consumed as a `github:` git dependency, or whose `prepare` script does not build
+# from these files. npm runs `prepare` INSIDE the codeload archive, so a build that
+# needs its own tsconfig.json finds it already gone: the package.json failure above,
+# one step later and further from its cause. Shipping them enabled would put that
+# trap in every copy, so the safe state is the default and the exception is the edit.
+#/biome.json                export-ignore
+#/biome.jsonc               export-ignore
 /infection.json5            export-ignore
 /phpstan.neon               export-ignore
 /phpstan-scripts.neon       export-ignore
 /phpunit.xml.dist           export-ignore
 /rector.php                 export-ignore
-/tsconfig.json              export-ignore
+#/tsconfig.json             export-ignore
