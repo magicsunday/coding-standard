@@ -566,6 +566,19 @@ d="$(mk_js_case ts-unscoped)"
 printf '{\n    "extends": "magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
 assert_rejects "$d" "tsconfig.json extending the unscoped package name" "tsconfig/base.json"
 
+# Neither tool trims the specifier before resolving it: tsc answers a padded one
+# with `TS6053: File ' @magicsunday/…' not found`, and Biome already proves it
+# does no normalising by refusing the extensionless spelling above. So a padded
+# specifier names a module that does not exist, and the gate must report the link
+# as missing rather than accept a config the tools cannot load.
+d="$(mk_js_case ts-padded-specifier)"
+printf '{\n    "extends": " @magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
+assert_rejects "$d" "tsconfig.json whose specifier carries leading whitespace" "tsconfig/base.json"
+
+d="$(mk_js_case biome-padded-specifier)"
+printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json "]\n}\n' > "$d/biome.json"
+assert_rejects "$d" "biome.json whose specifier carries trailing whitespace" "biome/base.json"
+
 # A specifier that is not a string at all must report as a missing link rather
 # than fail the gate on a type error.
 d="$(mk_js_case biome-extends-not-a-string)"

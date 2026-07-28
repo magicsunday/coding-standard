@@ -577,6 +577,11 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  *   answers the equivalent with `Could not resolve … module not found`. Both
  *   checked against the packed tarball with tsc 7.0.2 and Biome 2.5.5.
  *
+ * Surrounding whitespace is NOT a latitude, for the same reason the two above are:
+ * neither tool trims the specifier before resolving it, so ` @magicsunday/…` names
+ * a module that does not exist and tsc answers it with `TS6053: File ' @magicsunday/…'
+ * not found`. Accepting it would report a link the consumer's own tools cannot follow.
+ *
  * The scope `@` is NOT optional. The npm package is `@magicsunday/coding-standard`,
  * and the unscoped spelling resolves for neither tool — Biome answers `module not
  * found` and tsc `TS6053: File … not found` — so accepting it would report a link
@@ -605,7 +610,7 @@ $extendsShared = static function (array $config, string $sharedStem, bool $suffi
     );
 
     foreach ($candidates as $candidate) {
-        if (is_string($candidate) && (preg_match($pattern, trim($candidate)) === 1)) {
+        if (is_string($candidate) && (preg_match($pattern, $candidate) === 1)) {
             return true;
         }
     }
