@@ -7,6 +7,12 @@
 # decides what ships (or `.npmignore`, if no `files` is given). A repo publishing
 # to both therefore needs BOTH lists — export-ignore here, `files` there — and
 # they have to be kept in step by hand.
+#
+# `/package.json` is export-ignored on the same footing as every other dev-only
+# config: a Composer consumer installs the PHP package and never reads it, and
+# export-ignore does not reach the npm side, so a repo publishing to both keeps
+# its npm artefact regardless. A repo whose Composer package genuinely needs its
+# package.json at runtime — none does today — drops the line and says why.
 /.build                     export-ignore
 # Export-ignoring /.github blinds OSSF Scorecard's file-based checks
 # (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not
@@ -23,8 +29,13 @@
 /.php-cs-fixer.dist.php     export-ignore
 /.phplint.yml               export-ignore
 /AGENTS.md                  export-ignore
+/biome.json                 export-ignore
+/biome.jsonc                export-ignore
 /infection.json5            export-ignore
 /phpstan.neon               export-ignore
 /phpstan-scripts.neon       export-ignore
+/package.json               export-ignore
+/package-lock.json          export-ignore
 /phpunit.xml.dist           export-ignore
 /rector.php                 export-ignore
+/tsconfig.json              export-ignore
