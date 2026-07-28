@@ -68,6 +68,31 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
     fi
 }
 
+# The verdict is a function so BOTH its directions can be proven. The probe above
+# shows a helper raises the counter; nothing showed the counter reaching the exit
+# code. Measured on a copy: deleting the `exit 1` from a straight-line verdict
+# block left a run printing both `1 case(s) failed.` and `All cases passed.` — and
+# exiting 0. Two links in one chain; proving only the first leaves the second free
+# to break silently.
+verdict() {
+    if [ "$fails" -ne 0 ]; then
+        printf '\n%d case(s) failed.\n' "$fails" >&2
+        return 1
+    fi
+
+    printf '\nAll cases passed.\n'
+}
+
+if ( fails=1; verdict ) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
+    exit 1
+fi
+
+if ! ( fails=0; verdict ) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: a clean run does not exit 0\n' >&2
+    exit 1
+fi
+
 # The bookkeeping is proven before anything relies on it. Every assertion below
 # reports through a helper that both PRINTS and raises the counter the exit code
 # is built from — so if the increment is lost, each helper degrades into a print
@@ -81,12 +106,20 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
 # the FAILING path of a real helper rather than a stand-in.
 if ! (
     fails=0
-    mkdir -p "$work/__bookkeeping_probe__"
-    printf '#!/usr/bin/env bash\nprintf "ok\\n"\n' > "$work/__bookkeeping_probe__/ok.sh"
-    assert_rejects "$work/__bookkeeping_probe__" 'probe' 'a substring the gate never prints'
-    [ "$fails" -eq 1 ]
+    probe="$work/__bookkeeping_probe__"
+
+    # BOTH reporters. One call proves one helper — measured, a probe covering
+    # only `assert_rejects` stayed green while a broken `assert_accepts` let a
+    # failing case print and the run exit 0.
+    #
+    # A directory that does not exist is the gate's usage verdict, exit 2: not 0
+    # (accepts), not 1 (rejects).
+    assert_accepts "$probe" 'probe'
+    assert_rejects "$probe" 'probe' 'a substring the gate never prints'
+
+    [ "$fails" -eq 2 ]
 ) >/dev/null 2>&1; then
-    printf 'FAILED  harness bookkeeping: %s does not raise the failure counter\n' 'assert_rejects' >&2
+    printf 'FAILED  harness bookkeeping: a reporting helper does not raise the failure counter\n' >&2
     exit 1
 fi
 
@@ -188,9 +221,4 @@ else
     fails=$((fails + 1))
 fi
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails" >&2
-    exit 1
-fi
-
-printf '\nAll cases passed.\n'
+verdict || exit 1

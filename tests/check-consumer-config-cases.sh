@@ -150,6 +150,31 @@ report_failure() { # <message>
 }
 
 
+# The verdict is a function so BOTH its directions can be proven. The probe above
+# shows a helper raises the counter; nothing showed the counter reaching the exit
+# code. Measured on a copy: deleting the `exit 1` from a straight-line verdict
+# block left a run printing both `1 case(s) failed.` and `All cases passed.` — and
+# exiting 0. Two links in one chain; proving only the first leaves the second free
+# to break silently.
+verdict() {
+    if [ "$fails" -ne 0 ]; then
+        printf '\n%d case(s) failed.\n' "$fails"
+        return 1
+    fi
+
+    printf '\nAll cases passed.\n'
+}
+
+if ( fails=1; verdict ) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
+    exit 1
+fi
+
+if ! ( fails=0; verdict ) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: a clean run does not exit 0\n' >&2
+    exit 1
+fi
+
 # The bookkeeping is proven before anything relies on it. Every assertion below
 # reports through a helper that both PRINTS and increments the counter the exit
 # code is built from — so if the increment is lost, each helper degrades into a
@@ -160,8 +185,31 @@ report_failure() { # <message>
 # disables are the only things that would have reported.
 #
 # Run in a subshell so the probe cannot touch the real counter.
-if ! ( fails=0; report_failure 'bookkeeping self-test' >/dev/null 2>&1; [ "$fails" -eq 1 ] ); then
-    printf 'FAILED  harness bookkeeping: %s does not raise the failure counter\n' 'report_failure' >&2
+#
+# EVERY reporting helper, not one of them. A probe that drives a single helper
+# proves a single helper: measured, dropping the increment from `assert_accepts`
+# left a single-helper probe green while a genuinely failing case printed FAILED
+# and the run exited 0 — the exact silent-off state the probe exists to rule out,
+# reached through the eleven sites it did not cover.
+#
+# The gate exits 2 on a directory that does not exist, which drives every helper
+# into a failing arm: not 0 (accepts), not 1 (rejects, reports_once), and a
+# substring it never prints (usage_error, which does see exit 2).
+if ! (
+    fails=0
+    # $work is created further down, so the probe uses a path that simply is not
+    # a directory — which is all it needs: the gate answers that with exit 2.
+    probe="$ROOT/__bookkeeping_probe__"
+
+    assert_accepts      "$probe" 'probe'
+    assert_rejects      "$probe" 'probe' 'a substring the gate never prints'
+    assert_reports_once "$probe" 'probe' 'nothing'
+    assert_usage_error  "$probe" 'probe' 'a substring the gate never prints'
+    report_failure 'probe'
+
+    [ "$fails" -eq 5 ]
+) >/dev/null 2>&1; then
+    printf 'FAILED  harness bookkeeping: a reporting helper does not raise the failure counter\n' >&2
     exit 1
 fi
 
@@ -1533,9 +1581,4 @@ assert_rejects "$d" ".jscpd.json omitting minLines entirely" "minLines"
 d="$(mk_case no-js)"
 assert_accepts "$d" "PHP-only repo without biome.json or tsconfig.json"
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails"
-    exit 1
-fi
-
-printf '\nAll cases passed.\n'
+verdict || exit 1
