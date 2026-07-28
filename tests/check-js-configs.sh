@@ -322,11 +322,21 @@ fi
 # losing `biome`/`tsconfig` — reported "could not list the tarball contents" and
 # pointed the reader at tar, while the guard below that names the real cause could
 # never run. Filtering is not an error condition; only `tar` failing is.
-listing=""
-listing="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | { grep -E '\.(json|md)$' || true; } | sort)" || {
+#
+# Captured unfiltered FIRST, then narrowed: the filtered form answers "is
+# everything packed also installed", where restricting to the file types this
+# harness can act on is correct. The declared-entry check below asks the opposite
+# question — "is every `files` entry represented" — and the filter is the wrong
+# corpus for it: an entry shipping only .d.ts or .js content is absent from the
+# narrowed listing and would be reported as missing from the tarball, a false red
+# naming the wrong cause. Latent while `files` holds only .json payloads.
+packed=""
+packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
     fail "could not list the tarball contents — nothing to verify"
     exit 1
 }
+
+listing="$(grep -E '\.(json|md)$' <<<"$packed" || true)"
 
 mapfile -t shipped <<<"$listing"
 
@@ -372,8 +382,8 @@ while IFS= read -r entry; do
     # spuriously absent at 1000. Latent today — `files` holds two entries — and it
     # fails towards a false red, but the shape is the one the other harnesses
     # already avoid.
-    if grep -qxF -- "$entry" <<<"$listing" \
-        || grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/" <<<"$listing"; then
+    if grep -qxF -- "$entry" <<<"$packed" \
+        || grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/" <<<"$packed"; then
         pass "declared and packed: $entry"
     else
         fail "declared in package.json \"files\" but absent from the tarball: $entry"
