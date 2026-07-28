@@ -2,11 +2,15 @@
 # the repo root and add repo-specific entries. Keeps the COMPOSER dist archive
 # lean by export-ignoring dev-only tooling, tests and CI config.
 #
-# This has no effect on an npm package: npm never reads .gitattributes, not even
-# for a `github:` git dependency. There, the `files` allow-list in package.json
-# decides what ships (or `.npmignore`, if no `files` is given). A repo publishing
-# to both therefore needs BOTH lists — export-ignore here, `files` there — and
-# they have to be kept in step by hand.
+# For an npm package published to the REGISTRY this has no effect: `npm pack` runs
+# on a checkout and goes by the `files` allow-list in package.json (or .npmignore,
+# if no `files` is given), never by .gitattributes. A repo publishing to both
+# therefore needs BOTH lists — export-ignore here, `files` there — kept in step by
+# hand.
+#
+# A `github:` GIT DEPENDENCY is the exception, and it is the one that bites: pacote
+# fetches GitHub's codeload archive, which HAS export-ignore applied. Everything
+# removed here is removed from what such a consumer receives.
 #
 # `/package.json` is deliberately NOT in the list below, and neither is
 # `/package-lock.json`. It looks like dev-only config a Composer consumer never
@@ -34,6 +38,11 @@
 /.php-cs-fixer.dist.php     export-ignore
 /.phplint.yml               export-ignore
 /AGENTS.md                  export-ignore
+# These three are safe to export-ignore ONLY in a repository that is not itself
+# consumed as a `github:` git dependency, or whose `prepare` script does not
+# build from them: npm runs `prepare` INSIDE the codeload archive, so a build
+# that needs its own tsconfig.json finds it already gone — the same failure as
+# the package.json case above, one step later. Drop them if in doubt.
 /biome.json                 export-ignore
 /biome.jsonc                export-ignore
 /infection.json5            export-ignore
