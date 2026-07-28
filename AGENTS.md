@@ -187,9 +187,11 @@ directory that matches how it is consumed, never at the root for convenience.
   fixture that MUST produce a finding, and only trust the config once that finding
   appears.
 - **A shipped config uses the tool's current spelling, and a gate over it covers
-  every spelling.** `linter.rules.recommended` still works, but Biome deprecated it
-  in 2.5 in favour of `preset` and announces removal for the next major — a shared
-  config on the old key hands that break to every consumer at once. Two consequences,
+  every spelling.** `linter.rules.recommended` still works, but Biome's configuration
+  reference marks it deprecated in favour of `preset` — a shared config left on a
+  deprecated key hands its eventual removal to every consumer at once. (Say only that:
+  no announcement of a removal *version* exists, and claiming one made the migration
+  read as urgent for a reason that could not be checked.) Two consequences,
   and the second is the one that gets missed: the deprecation surfaces only inside
   Biome's `biome migrate` advisory (which appears when `$schema` and CLI version
   differ), so a repo with a matching `$schema` never sees the notice; and while the

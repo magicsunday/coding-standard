@@ -501,10 +501,10 @@ $stripJsonc = static function (string $json): ?string {
     // repository's own biome.json/tsconfig.json, written by whoever runs the
     // gate, so it is a self-inflicted cost rather than an exposure. A size cap
     // would be a guard for an input nobody else controls.
-    $string = '"(?:\\\\.|[^"\\\\])*+"';
+    $stringLiteral = '"(?:\\\\.|[^"\\\\])*+"';
 
     $withoutComments = preg_replace(
-        '~' . $string . '(*SKIP)(*F)|//[^\n]*|/\*.*?\*/~s',
+        '~' . $stringLiteral . '(*SKIP)(*F)|//[^\n]*|/\*.*?\*/~s',
         ' ',
         $json
     );
@@ -518,7 +518,7 @@ $stripJsonc = static function (string $json): ?string {
     // reported as a comment-stripping failure rather than as the encoding
     // problem it is.
     return preg_replace(
-        '~' . $string . '(*SKIP)(*F)|,(?=\s*[}\]])~',
+        '~' . $stringLiteral . '(*SKIP)(*F)|,(?=\s*[}\]])~',
         '',
         $withoutComments
     );
