@@ -169,6 +169,15 @@ for junk in final _hotfix /x; do
     assert_rejects "$d" "a pin with the trailing characters '${junk}' is reported, not read as a bare version" "UNRECOGNISED"
 done
 
+# Only the ONE period a sentence ends on is prose. Stripping the whole run of
+# them reads `#1.7.0..` as the tag `1.7.0`, which certifies lockstep for a pin
+# that is written wrong — the same truncation the cases above exist to prevent,
+# arrived at from the side the sentence-end allowance opened. A git ref may not
+# end in a period at all, so what is left after the one strip is junk and is
+# reported as such.
+d="$(mk_case double-period 1.7.0 'The pin is github:magicsunday/coding-standard#1.7.0..')"
+assert_rejects "$d" "a pin followed by more than one period" "UNRECOGNISED"
+
 # The configuration the three cases above structurally cannot reach: a junk pin
 # BESIDE a well-formed one. Dropping an unrecognised pin instead of reporting it
 # is invisible there, because the vacuity guard only fires when no pin is left.

@@ -101,7 +101,12 @@ $shape = '~^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*$~D';
 $pins = [];
 
 foreach ($matches[1] ?? [] as [$raw, $offset]) {
-    $token = rtrim($raw, '.');
+    // Exactly ONE period, because exactly one is what a sentence ends on. Stripping
+    // the whole run would read `#1.7.0..` as the tag `1.7.0` and certify lockstep
+    // for a pin written wrong — the truncation this gate reports everywhere else,
+    // arrived at through the sentence-end allowance. What is left after one strip
+    // still may not end in a period, so the shape below reports it.
+    $token = str_ends_with($raw, '.') ? substr($raw, 0, -1) : $raw;
 
     // A documented `#<tag>` placeholder is not a pin and must not be compared as
     // one — nor does it count towards the vacuity guard, since a README carrying
