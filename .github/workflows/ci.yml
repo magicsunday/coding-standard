@@ -133,7 +133,7 @@ jobs:
               with:
                   persist-credentials: false
 
-            # Pinned to the `engines` floor rather than `lts/*`: a floating LTS
+            # Pinned to the `devEngines` floor rather than `lts/*`: a floating LTS
             # alias silently moves to the next major every October, which is the
             # same drift the tool version pins exist to prevent.
             - name: Set up Node.js

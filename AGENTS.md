@@ -7,7 +7,9 @@ adoption* (a repo wires the configs and its own `composer ci:test` stays green),
 by the fixture-driven gates under `tests/`, each of which drives the thing it certifies
 against inputs that must produce a finding — including `tests/check-js-configs.sh`,
 which runs the real Biome and `tsc` against the shared configs. A gate that cannot be
-shown to fail proves nothing, so no gate here is trusted without its failure path.
+shown to fail proves nothing, so a gate here is not trusted without its failure
+path — `ci:test:json` is the one that still lacks one, tracked in #41 rather than
+left implicit.
 
 ## Layout
 
@@ -21,14 +23,14 @@ shown to fail proves nothing, so no gate here is trusted without its failure pat
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config and a broken `package.json` probe stay unconditional), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`/`tsconfig.json` exists), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
 config; `templates/` holds **copy-and-adapt** files whose tools require the file at the
 consumer's repo root and therefore cannot be imported; the repository root holds only
-this package's **own** dev config, all of it `export-ignore`d. Put a new config in the
+this package's **own** dev config, all of it `export-ignore`d — except `/package.json`, which a `github:` consumer must receive (see the header of `templates/gitattributes`). Put a new config in the
 directory that matches how it is consumed, never at the root for convenience.
 
 ## How it is consumed
@@ -58,7 +60,7 @@ directory that matches how it is consumed, never at the root for convenience.
   would fail a consumer's install over a constraint the artifact never exercises. CI
   pins `node-version: 24` — do not put the floating `lts/*` back, it changes major on
   its own schedule. Dependabot's npm ecosystem reads
-  `devDependencies`, not `peerDependencies`, which is why the pins are the moving
+  `devDependencies`, not `peerDependencies` (verified 2026-07-28), which is why the pins are the moving
   part. The reasoning behind each of these — why the peers are optional, why the
   ranges are a policy rather than a compatibility promise, and what a consumer below
   them actually hits — is in the README under *The npm side is not the mirror image of
@@ -145,7 +147,8 @@ directory that matches how it is consumed, never at the root for convenience.
   declaring the gate is the definition — `composer.json` for the PHP gates,
   `package.json` for the JS one, since the `js` job runs without PHP. A workflow step
   that repeats the inner command instead is a second definition that drifts silently:
-  the composer entries are arrays, so a second element added to one of them would
+  a composer script can grow a second command — an array entry, or a string
+  promoted to one — and that command would
   never run in CI, which keeps passing the first command alone. It also decides where
   a gate is discoverable — the JS smoke had no manifest entry at all and was reachable
   only by reading the workflow, while the class of break it exists to catch

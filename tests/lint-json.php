@@ -23,6 +23,12 @@ $files = [
     'tsconfig/base.json',
     'templates/jscpd.json',
     'tests/consumer/composer.json',
+    // The canon fixture the JS/TS cases copy from. Not covered until this branch
+    // added it, and a hand-kept list is exactly where that goes unnoticed —
+    // tests/consumer/tsconfig.json stays out on purpose, it is JSONC by design
+    // and would fail a strict parse. Making this list discovery-based, and giving
+    // this gate the failure-path harness every sibling has, is #41.
+    'tests/consumer/biome.json',
 ];
 
 $failed = false;

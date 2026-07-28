@@ -63,13 +63,14 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
-`typescript 7.0.2`) and are what Dependabot tracks — `peerDependencies` are not parsed
-by Dependabot's npm ecosystem, so the pins are the moving part and the ranges are
+`typescript 7.0.2`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
+by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
-what the tools themselves demand (Biome asks for >= 14.21.3, TypeScript for
->= 16.20.0): those floors are years behind the maintained release lines, so meeting
+what the tools themselves demand — derive them rather than trusting these numbers:
+`node -p "require('@biomejs/biome/package.json').engines.node"` and the same for
+`typescript` (14.21.3 and 16.20.0 as of 2026-07-28): those floors are years behind the maintained release lines, so meeting
 them says nothing about a repository being current.
 
 `devEngines` rather than `engines`, because the two point in opposite directions.
@@ -79,7 +80,7 @@ The published artifact is `biome/` and `tsconfig/`, two directories of JSON with
 code that runs on Node, so it cannot care what the consumer's runtime is; exporting a
 floor from it would fail an install over a constraint the package never exercises.
 `devEngines` constrains this repository alone, which is where the floor is real. It
-is honoured by npm >= 11 and ignored by older versions, so it never enforces itself —
+is honoured by npm >= 11, which with `onFail: "error"` hard-fails the install, and ignored entirely by older versions — so it cannot be relied on, and
 `tests/check-js-configs.sh` fails outright on an older Node and additionally rejects a
 re-added `engines.node`, and the CI job pins `node-version: 24` rather than the
 floating `lts/*` alias, which would move up a major on its own every October.
@@ -92,7 +93,7 @@ The directory a file lives in states how it is meant to be consumed:
 |---|---|---|
 | `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
 | `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
-| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. The package lints itself with its own template. |
+| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
 
 Every include path below is written as `.build/vendor/…`, the house layout: the
 `magicsunday/*` repositories set `config.vendor-dir` to `.build/vendor` and
@@ -662,7 +663,7 @@ reported the file as perfectly valid JSON. That is what the JS smoke exists for.
 `tests/check-js-configs.sh` guards this — it packs the package as npm
 ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
 shared configs, with controls proving a `==` comparison and an unchecked array index
-are actually rejected. The `js` CI job runs it on every push.
+are actually rejected. The `js` CI job runs it on every pull request and on every push to `main`.
 
 ## License
 
