@@ -28,6 +28,13 @@ jobs:
               with:
                   php-version: ${{ matrix.php }}
                   tools: composer:v2
+                  # Explicit, the way the org's reusable php-quality.yml writes it.
+                  # This repository has neither PHPUnit nor Infection, so it is
+                  # always that workflow's "every other leg" case — and leaving the
+                  # input unset makes the driver state depend on the runner image
+                  # rather than on a decision. Measured cost of a loaded Xdebug:
+                  # the three PHP harnesses go 5.6 s to 9.5 s.
+                  coverage: none
 
             - name: Checkout repository
               uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

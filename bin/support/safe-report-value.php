@@ -10,7 +10,7 @@
 declare(strict_types=1);
 
 /**
- * Defines $safeReportValue for the gate entry scripts under bin/.
+ * Defines safeReportValue() for the gate entry scripts under bin/.
  *
  * Both gates run in the CONSUMER's CI over pull-request branch content, so every
  * value they read out of a repository file — a JSON key, an XML attribute value, a
@@ -21,7 +21,9 @@ declare(strict_types=1);
  * retired `set-output` and `save-state`):
  * https://docs.github.com/actions/reference/workflow-commands-for-github-actions
  * — as of 2026-08-15 the list is longer than any three examples, which is why the
- * guard rejects `^::` rather than a named set. Interpolated raw, such a value can split one violation line into
+ * harness assertion that pins this property rejects any `^::` rather than a named
+ * set. This function does not look at `::`; it removes the control characters that
+ * let a value reach column 0 in the first place. Interpolated raw, such a value can split one violation line into
  * several, forge annotations and a clean-run verdict, and — where the source format
  * permits ESC — hide preceding lines in a maintainer's terminal with `ESC[2K`.
  *
@@ -56,7 +58,8 @@ declare(strict_types=1);
  *
  * @return string
  */
-function safeReportValue(int|string $value): string {
+function safeReportValue(int|string $value): string
+{
     $clean = preg_replace('/[\x00-\x1F\x7F]/', '?', (string) $value) ?? '?';
 
     return strlen($clean) > 64 ? substr($clean, 0, 64) . '…' : $clean;

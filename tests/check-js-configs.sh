@@ -65,7 +65,7 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 # that FAILS makes the pipeline non-zero under pipefail, and a plain assignment
 # would abort the script one line before the guard that names the cause. A pack
 # that SUCCEEDS can still come back empty — npm writes the tarball name to stdout,
-# and `--silent` (used here once) silences that too, which `set -e` never catches;
+# and `--silent`, which stood here until 725e6cf, silenced that too — `set -e` never catches it;
 # the install would then be handed a directory and fail as a misleading
 # "check package.json files". `--loglevel=error` keeps npm's own diagnosis, which
 # is the only one either shape produces.
@@ -471,9 +471,12 @@ packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
 
 # There used to be a "packed but not installed" loop here, checking each tarball
 # entry against node_modules, and an empty-tarball guard beneath it. The guard went
-# the same way and for the same reason: `npm pack` includes package.json
-# unconditionally, so `$packed` cannot be empty after a successful pack — a second
-# unreachable guard, put in place while removing the first. It could not fail: `npm install` of that exact
+# the same way, for the same CLASS of reason — both were unreachable — but on a
+# different mechanism: `npm pack` ships package.json whatever `files` says, so
+# `$packed` cannot be empty after a successful pack. Re-derive with
+# `tar -tzf "$work/$tarball" | grep -c '^package/package.json'` -> 1, or see
+# https://docs.npmjs.com/cli/configuring-npm/package-json#files (observed
+# 2026-08-15). A second unreachable guard, put in place while removing the first. It could not fail: `npm install` of that exact
 # tarball extracts every entry it lists, and a file that stops shipping leaves the
 # listing at the same time, so the loop was asking whether a set contains itself.
 # What it looked like it proved is proved below (`files` against the tarball) and

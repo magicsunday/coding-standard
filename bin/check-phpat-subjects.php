@@ -51,7 +51,7 @@ declare(strict_types=1);
 // This is a global-namespace entry script, so built-in functions are called
 // unqualified (a `use function` import would be a no-op here).
 
-// $safeReportValue — shared with bin/check-consumer-config.php. A consumer's phpat
+// safeReportValue() — shared with bin/check-consumer-config.php. A consumer's phpat
 // subject expression reaches this gate's report, on the same trust boundary.
 require_once __DIR__ . '/support/safe-report-value.php';
 

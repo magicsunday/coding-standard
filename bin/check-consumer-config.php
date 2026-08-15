@@ -116,10 +116,9 @@ $fail = static function (array &$violations, string $file, string $detail): void
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
 
-// $safeReportValue — shared with bin/check-phpat-subjects.php, which needs the
+// safeReportValue() — shared with bin/check-phpat-subjects.php, which needs the
 // same guard on the same trust boundary. Required rather than duplicated.
 require_once __DIR__ . '/support/safe-report-value.php';
-
 
 /**
  * Reads a file, or returns false without letting PHP print its own warning first.
@@ -431,12 +430,19 @@ if (is_file($editorconfigFile)) {
         $current  = null;
 
         // `\r\n|[\r\n]`, not `\R`. In 8-bit non-UTF mode PCRE2 expands `\R` to
-        // an atomic group over CRLF, LF, VT, FF, CR and 0x85 — measured:
-        // `printf 'a\x0cb' | grep -cP 'a\Rb'`
-        // reports 1. Two of those six are wrong here: EditorConfig defines exactly CRLF,
-        // LF and CR, and `\x85` is a UTF-8 CONTINUATION byte (`ą` is C4 85, `Ņ` is
-        // C5 85), so such a character in a comment split mid-character and the tail
-        // fragment was re-parsed as a config line.
+        // an atomic group over CRLF, LF, VT, FF, CR and 0x85. THREE of those six are
+        // wrong here: EditorConfig defines exactly CRLF,
+        // LF and CR, so VT and FF split a line that is not one — and `\x85` is a UTF-8
+        // CONTINUATION byte (`ą` is C4 85, `Ņ` is C5 85), so such a character in a
+        // comment split mid-character and the tail fragment was re-parsed as a config
+        // line.
+        //
+        // Measured 2026-08-15, GNU grep 3.8, on the byte that matters rather than on
+        // the easy one — and the locale is the point, because PHP without `/u` runs
+        // the 8-bit mode:
+        //
+        //     printf 'a\x85b' | LC_ALL=C grep -cP 'a\Rb'   -> 1
+        //     printf 'a\x85b' |           grep -cP 'a\Rb'   -> 0   (UTF-8 locale)
         //
         // Not fixed with `/u`: `preg_split` then returns false on a file carrying
         // invalid UTF-8, the `?: []` collapses that to zero lines, and every

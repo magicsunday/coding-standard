@@ -43,6 +43,14 @@ harness_sourced_from="$PWD"
 # caller raise its declared number, which then licenses one real stray increment.
 # A fixed string matched one spelling; `fails=$((fails+1))`, `((fails++))`,
 # `((fails += 1))` and `let fails+=1` are all report sites and were all invisible.
+#
+# `-E` also removes a portability trap the first version walked into. Whether an
+# UNESCAPED `fails=$((fails + 1))` matches as a basic regular expression depends on
+# the implementation — GNU grep 3.8 treats `$`, `(`, `)` and `+` there as literals
+# and matches; ugrep 7.5.0 does not. An earlier comment recorded the second number
+# as if it were universal and used it to argue the guard could never fire, which is
+# not true of the grep CI runs. Re-derive rather than trust either:
+# `grep -cE "$harness_increment_pattern" tests/harness.sh`.
 harness_increment_pattern='^[^#]*(fails[[:space:]]*=[[:space:]]*\$\(\(|\(\([[:space:]]*fails[[:space:]]*(\+\+|\+=)|let[[:space:]]+fails)'
 
 # This file's own increments are outside every caller's bar, because the bar reads
@@ -68,8 +76,7 @@ fails=0
 # `CDPATH= cd --` on the result because mktemp honours a relative TMPDIR
 # verbatim, and callers use "$work/…" after their own cd — so it has to be
 # absolute up front. The order is mktemp, then trap, then canonicalise, and the
-# trap reads the RAW path rather than $work — the reason is in the body, and it is
-# the opposite of what this header said while the body already did it.
+# trap reads the RAW path rather than $work — why, in the body.
 harness_workdir() {
     work="$(mktemp -d)"
 
