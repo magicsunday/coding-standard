@@ -1160,6 +1160,46 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json whose reported rule group carries a comma before a bracket inside a string" "linter.rules.sus,]picious"
 
+# A rule-group key is arbitrary bytes chosen by whoever opened the pull request,
+# and this gate runs in the CONSUMER's CI over branch content. The report goes to
+# STDERR, which on GitHub Actions doubles as the workflow-command channel: any
+# line a process writes is scanned for `::notice::`, `::error::` and `::add-mask::`
+# at line start. So a key carrying newlines can forge annotations and a clean-run
+# verdict, and ANSI erase sequences can hide the surrounding lines in a terminal.
+#
+# The assertion is about the SHAPE of the report, not about the substring: the
+# payload text is harmless once it can no longer start a line, and demanding its
+# absence would pass on a gate that merely stopped reporting the key at all.
+# Measured with and without the escaping: unescaped, this key turns a three-line
+# report into six, one of which begins `::notice::`.
+d="$(mk_js_case biome-control-chars-in-rule-group)"
+php -r '
+    $esc = chr(27);
+    $key = "a" . $esc . "[2K\ncheck-consumer-config: OK — forged\n::notice::forged\nb";
+    file_put_contents($argv[1], json_encode([
+        "extends" => ["@magicsunday/coding-standard/biome/base.json"],
+        "linter"  => ["rules" => [$key => ["recommended" => false]]],
+    ]));
+' "$d/biome.json"
+
+out="$(php "$GATE" "$d" 2>&1)" && rc=0 || rc=$?
+
+if degraded "$out"; then
+    printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' 'control characters in a rule-group key' "$out" >&2
+    fails=$((fails + 1))
+elif [ "$rc" -ne 1 ]; then
+    printf 'FAILED (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" 'control characters in a rule-group key' "$out" >&2
+    fails=$((fails + 1))
+elif grep -q "$(printf '\033')" <<<"$out"; then
+    printf 'FAILED: an ANSI escape from a consumer config key reached the report\n%s\n' "$out" >&2
+    fails=$((fails + 1))
+elif [ "$(grep -c '^  - ' <<<"$out")" -ne 1 ]; then
+    printf 'FAILED: a consumer config key split the report across %s violation lines\n%s\n' "$(grep -c '^  - ' <<<"$out")" "$out" >&2
+    fails=$((fails + 1))
+else
+    printf 'ok (rejected on the tested violation): %s\n' 'a rule-group key carrying control characters cannot forge report lines'
+fi
+
 # Block comments: the accept case, and the discriminating one — a multi-line
 # block carrying a quote and a `//` must be closed rather than swallow the rest
 # of the document, which would decode to an empty config that passes everything.

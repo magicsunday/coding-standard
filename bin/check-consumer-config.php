@@ -67,6 +67,31 @@ $fail = static function (array &$violations, string $file, string $detail): void
 };
 
 /**
+ * Reduces a consumer-supplied config key to something safe to echo in a report.
+ *
+ * A decoded JSON key is arbitrary bytes, and this gate runs in the CONSUMER's CI
+ * over branch content — so the key comes from whoever opened the pull request. The
+ * report goes to STDERR, which on GitHub Actions is also the workflow-command
+ * channel: any line a process writes is scanned for `::notice::`, `::error::` and
+ * `::add-mask::`. An unescaped key can therefore forge annotations and, with ANSI
+ * erase sequences, hide the surrounding lines in a maintainer's terminal. The exit
+ * code still carries the real verdict, which is what keeps this a log-integrity
+ * problem rather than a bypass.
+ *
+ * Byte-wise on purpose, with no `/u`: a key carrying invalid UTF-8 must still be
+ * reported rather than replaced by an empty string.
+ *
+ * @param int|string $key The raw decoded key.
+ *
+ * @return string
+ */
+$safeKey = static function (int|string $key): string {
+    $clean = preg_replace('/[\x00-\x1F\x7F]/', '?', (string) $key) ?? '?';
+
+    return strlen($clean) > 64 ? substr($clean, 0, 64) . '…' : $clean;
+};
+
+/**
  * Reads a file, or returns false without letting PHP print its own warning first.
  *
  * `is_file()` passing does not mean the file can be READ — a mode-000 file, or one
@@ -829,7 +854,7 @@ if ($biomeFile !== null) {
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
                 if (is_array($override)) {
-                    $baseScopes[] = [sprintf('overrides[%s].', $index), $override];
+                    $baseScopes[] = [sprintf('overrides[%s].', $safeKey($index)), $override];
                 }
             }
         }
@@ -881,7 +906,7 @@ if ($biomeFile !== null) {
 
                 foreach ($topLevelRules as $group => $groupRules) {
                     if (is_array($groupRules)) {
-                        $ruleScopes[] = [sprintf('linter.rules.%s', $group), $groupRules];
+                        $ruleScopes[] = [sprintf('linter.rules.%s', $safeKey($group)), $groupRules];
                     }
                 }
             }
