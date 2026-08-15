@@ -1032,11 +1032,21 @@ assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the S
 # The ONE line carrying the array literal, not the block around it: a range
 # ending at `as $language` also swallows the loop body, whose `linter` and
 # `formatter` keys then read as language names.
-mapfile -t gate_languages < <(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[a-z]+'" | tr -d "'")
+gate_language_literal="$(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php")"
+mapfile -t gate_languages < <(grep -oE "'[a-z0-9_-]+'" <<<"$gate_language_literal" | tr -d "'")
 
 if [ "${#gate_languages[@]}" -eq 0 ]; then
     report_failure 'read no language names from the gate — the language lockstep did not run'
+fi
+
+# The extractor's own vocabulary must not silently bound what it sees. `[a-z]+`
+# would skip a name carrying a digit or a dash, and both direction checks below
+# would still pass on the shortened list — a row the gate gained, unexercised,
+# with the suite green. Counting the quoted literals against what came out closes
+# that: the two disagree exactly when a row exists that the pattern cannot read.
+if [ "$(grep -oc "'" <<<"$gate_language_literal")" != "" ] \
+    && [ "$(( $(grep -o "'" <<<"$gate_language_literal" | wc -l) / 2 ))" -ne "${#gate_languages[@]}" ]; then
+    report_failure 'the language list carries an entry this harness cannot parse — widen the extractor rather than leaving the row unexercised'
 fi
 
 # The languages this harness knows how to drive. A row the gate gains that is not
@@ -1751,11 +1761,20 @@ assert_rejects "$d" ".jscpd.json with a non-string format entry beside a bad one
 # is: a copy catches an entry the gate loses and never one it gains, so adding
 # `'jsonc' => 'json'` there would ship an unexercised message — and an unproven
 # canonical name the gate then tells consumers to use — with the suite green.
-mapfile -t gate_spellings < <(sed -n "/\$extensionSpellings = \[/,/\];/p" "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[a-z]+' *=> *'[a-z]+'" | tr -d "' " | sed 's/=>/:/')
+gate_spelling_block="$(sed -n "/\$extensionSpellings = \[/,/\];/p" "$ROOT/bin/check-consumer-config.php")"
+mapfile -t gate_spellings < <(grep -oE "'[a-z0-9_-]+' *=> *'[a-z0-9_-]+'" <<<"$gate_spelling_block" | tr -d "' " | sed 's/=>/:/')
 
 if [ "${#gate_spellings[@]}" -eq 0 ]; then
     report_failure 'read no extension spellings from the gate — the jscpd deny-list lockstep did not run'
+fi
+
+# Same guard as the language table, for the same reason: with `[a-z]+` an entry
+# such as `'es6' => 'javascript'` was invisible to the extractor, both direction
+# checks below passed on the shortened list, and no behavioural fixture was
+# generated for it. Counting `=>` in the block against what came out is
+# independent of whatever the pattern happens to spell.
+if [ "$(grep -c '=>' <<<"$gate_spelling_block")" -ne "${#gate_spellings[@]}" ]; then
+    report_failure "the spelling table carries $(grep -c '=>' <<<"$gate_spelling_block") entries but this harness parsed ${#gate_spellings[@]} — widen the extractor rather than leaving a row unexercised"
 fi
 
 proven_spellings=(js:javascript mjs:javascript cjs:javascript ts:typescript mts:typescript cts:typescript)
