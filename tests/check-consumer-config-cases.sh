@@ -145,6 +145,57 @@ report_failure() { # <message>
 }
 
 
+# assert_report_is_inert <dir> <label>
+#
+# The report-shape assertion for consumer-controlled bytes. It replaces a
+# per-case if/elif chain that reported through four raw increments outside every
+# probed helper — so dropping one of them turned the control into a print
+# statement at exit 0, the exact state harness.sh exists to rule out. It is a
+# helper so the probe below can drive it.
+#
+# What it asserts, and why not the obvious thing: NOT the absence of the payload
+# text. Once the bytes cannot start a line the text is inert, and demanding its
+# absence would also pass on a gate that quietly stopped reporting the value at
+# all. It asserts the two properties GitHub Actions and a terminal actually key
+# on — no line begins a workflow command, and no ESC survives — plus the line
+# count, because a value that splits the report is how a forged line gets to
+# column 0 in the first place.
+#
+# The earlier form counted lines matching `^  - ` instead. That is backwards: an
+# injected line does not carry that prefix, so the count stayed at 1 while a
+# literal `::notice::forged` sat at column 0. Measured — an escaping change that
+# kept ESC and dropped newlines passed it.
+assert_report_is_inert() { # <dir> <label>
+    local out rc lines reason=''
+    out="$(php "$GATE" "$1" 2>&1)" && rc=0 || rc=$?
+    lines="$(grep -c . <<<"$out")"
+
+    # One report site, not one per arm. With an increment behind each `elif`, the
+    # probe below could only ever reach whichever arm its fixture happens to take
+    # (the usage exit), leaving the other four free to lose theirs unnoticed —
+    # measured. Deciding the reason first and reporting once collapses that.
+    if degraded "$out"; then
+        reason='the gate ran degraded — PHP emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif grep -q "$(printf '\033')" <<<"$out"; then
+        reason='an ANSI escape from a consumer value reached the report'
+    elif grep -qE '^::[a-z-]+' <<<"$out"; then
+        reason='a consumer value forged a workflow command at line start'
+    elif [ "$lines" -gt 4 ]; then
+        reason="a consumer value split the report across $lines lines"
+    fi
+
+    if [ -n "$reason" ]; then
+        printf 'FAILED: %s: %s\n%s\n' "$reason" "$2" "$out" >&2
+        fails=$((fails + 1))
+
+        return
+    fi
+
+    printf 'ok (rejected, and the report stayed inert): %s\n' "$2"
+}
+
 # EVERY reporting helper, not one of them. A probe that drives a single helper
 # proves a single helper: measured, dropping the increment from `assert_accepts`
 # left a single-helper probe green while a genuinely failing case printed FAILED
@@ -158,14 +209,15 @@ report_failure() { # <message>
 probe_reporters() {
     local probe="$ROOT/__bookkeeping_probe__"
 
-    assert_accepts      "$probe" 'probe'
-    assert_rejects      "$probe" 'probe' 'a substring the gate never prints'
-    assert_reports_once "$probe" 'probe' 'nothing'
-    assert_usage_error  "$probe" 'probe' 'a substring the gate never prints'
+    assert_accepts         "$probe" 'probe'
+    assert_rejects         "$probe" 'probe' 'a substring the gate never prints'
+    assert_reports_once    "$probe" 'probe' 'nothing'
+    assert_usage_error     "$probe" 'probe' 'a substring the gate never prints'
+    assert_report_is_inert "$probe" 'probe'
     report_failure 'probe'
 }
 
-harness_probe_reporters 5 probe_reporters
+harness_probe_reporters 6 probe_reporters
 
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
@@ -1171,6 +1223,8 @@ assert_rejects "$d" "biome.json whose reported rule group carries a comma before
 # absence would pass on a gate that merely stopped reporting the key at all.
 # Measured with and without the escaping: unescaped, this key turns a three-line
 # report into six, one of which begins `::notice::`.
+# A rule-group KEY, the JSON-object half. The payload carries an ANSI erase, a
+# forged verdict line and a workflow command.
 d="$(mk_js_case biome-control-chars-in-rule-group)"
 php -r '
     $esc = chr(27);
@@ -1180,23 +1234,56 @@ php -r '
         "linter"  => ["rules" => [$key => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
+assert_report_is_inert "$d" 'a rule-group key carrying control characters'
+
+# The `overrides` half, which had no case at all. Every other overrides fixture
+# writes a JSON ARRAY, so the index is an int and the guard is a no-op on all of
+# them — dropping it there left the whole suite green. The gate reaches that site
+# through `is_array()`, which is true for a JSON OBJECT too, so a hostile string
+# key is reachable.
+d="$(mk_js_case biome-control-chars-in-overrides-key)"
+php -r '
+    $key = "x\n::error::forged\ny";
+    file_put_contents($argv[1], json_encode([
+        "extends"   => ["@magicsunday/coding-standard/biome/base.json"],
+        "overrides" => [$key => ["linter" => ["rules" => ["recommended" => false]]]],
+    ]));
+' "$d/biome.json"
+assert_report_is_inert "$d" 'an overrides key carrying a newline'
+
+# The phpunit.xml attribute VALUE, the site the round-11 guard did not reach.
+# XML attribute-value normalisation folds only LITERAL control characters to a
+# space; a character reference survives, so `&#10;` produces a real newline.
+# ESC is not expressible in XML 1.0 at all, which is why this payload carries no
+# escape sequence and the ANSI arm above cannot fire here.
+d="$(mk_case phpunit-control-chars-in-value)"
+sed -i 's/failOnRisky="true"/failOnRisky="false\&#10;::error::forged\&#10;  - phpunit.xml: OK"/' "$d/phpunit.xml"
+assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character reference'
+
+# The truncation arm, which nothing reached: the payloads above are well under
+# the bound, so the ternary took its else branch in every case and deleting the
+# cap entirely stayed green. A consumer otherwise controls the report's length —
+# measured on the phpunit path, 5000 bytes in produced 5224 bytes out.
+d="$(mk_js_case biome-overlong-rule-group)"
+php -r '
+    file_put_contents($argv[1], json_encode([
+        "extends" => ["@magicsunday/coding-standard/biome/base.json"],
+        "linter"  => ["rules" => [str_repeat("z", 400) => ["recommended" => false]]],
+    ]));
+' "$d/biome.json"
 
 out="$(php "$GATE" "$d" 2>&1)" && rc=0 || rc=$?
 
 if degraded "$out"; then
-    printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' 'control characters in a rule-group key' "$out" >&2
-    fails=$((fails + 1))
+    report_failure "the gate ran degraded on an overlong rule-group key: $out"
 elif [ "$rc" -ne 1 ]; then
-    printf 'FAILED (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" 'control characters in a rule-group key' "$out" >&2
-    fails=$((fails + 1))
-elif grep -q "$(printf '\033')" <<<"$out"; then
-    printf 'FAILED: an ANSI escape from a consumer config key reached the report\n%s\n' "$out" >&2
-    fails=$((fails + 1))
-elif [ "$(grep -c '^  - ' <<<"$out")" -ne 1 ]; then
-    printf 'FAILED: a consumer config key split the report across %s violation lines\n%s\n' "$(grep -c '^  - ' <<<"$out")" "$out" >&2
-    fails=$((fails + 1))
+    report_failure "expected the drift verdict on an overlong rule-group key, got exit $rc"
+elif grep -qF "$(printf 'z%.0s' $(seq 1 65))" <<<"$out"; then
+    report_failure "an overlong consumer key reached the report untruncated: $out"
+elif ! grep -qF '…' <<<"$out"; then
+    report_failure "an overlong consumer key was truncated without the marker that says so: $out"
 else
-    printf 'ok (rejected on the tested violation): %s\n' 'a rule-group key carrying control characters cannot forge report lines'
+    printf 'ok (rejected on the tested violation): %s\n' 'an overlong rule-group key is truncated with a marker'
 fi
 
 # Block comments: the accept case, and the discriminating one — a multi-line

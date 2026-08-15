@@ -443,4 +443,60 @@ d="$work/no-archtest"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 assert_accepts "$d" "no ArchitectureTest present"
 
+
+# The report-shape control for THIS binary. Its subject expression is read out of
+# the consumer's ArchitectureTest and interpolated into the report, on the same
+# trust boundary as the sibling gate — and here the source is a PHP file rather
+# than XML, so ESC is expressible and the ANSI half of the threat model applies
+# too. Asserts the properties GitHub Actions and a terminal key on, not the
+# absence of the payload text: once the bytes cannot start a line, the text is
+# inert, and demanding its absence would also pass on a gate that stopped
+# reporting the subject at all.
+d="$work/report-injection"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+
+# Built with printf rather than a second interpreter: the buildbox ships PHP, not
+# python3. A raw ESC and raw newlines inside a PHP single-quoted string are legal,
+# and the gate's own `[^)]*` / `[^\']+` captures do not exclude either.
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Nope\033[2K\n"
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf '::add-mask::secret\n'
+    printf "check-phpat-subjects: OK'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+out="$(php "$GATE" "$d" 2>&1)" && rc=0 || rc=$?
+reason=''
+
+if degraded "$out"; then
+    reason='the gate ran degraded — PHP emitted a diagnostic'
+elif [ "$rc" -ne 1 ]; then
+    reason="expected the drift verdict, got exit $rc"
+elif grep -q "$(printf '\033')" <<<"$out"; then
+    reason='an ANSI escape from a consumer subject reached the report'
+elif grep -qE '^::[a-z-]+' <<<"$out"; then
+    reason='a consumer subject forged a workflow command at line start'
+elif [ "$(grep -c . <<<"$out")" -gt 4 ]; then
+    reason="a consumer subject split the report across $(grep -c . <<<"$out") lines"
+fi
+
+if [ -n "$reason" ]; then
+    printf 'FAIL: %s\n%s\n' "$reason" "$out"
+    fails=$((fails + 1))
+else
+    printf 'ok (rejected, and the report stayed inert): %s\n' 'a subject expression carrying control characters'
+fi
+
 verdict
