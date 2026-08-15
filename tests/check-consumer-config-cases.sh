@@ -375,10 +375,11 @@ assert_accepts "$d" ".editorconfig saved with a UTF-8 BOM directly before its fi
 # `^extensions` anchor sits at offset 0 and the BOM would displace it, reporting
 # drift in a file the tool obeys.
 # Written with `extensions:` first rather than copying the template, for the same
-# reason as the .editorconfig case above: the template's six-line header puts
-# `extensions:` on line 15, where `/m` matches the anchor on its own line and the
-# BOM displaces nothing. YAML key order is free, so a consumer file that opens on
-# the key is legitimate — and it is the only shape that exercises the strip.
+# reason as the .editorconfig case above: the template opens with a comment header,
+# so its `extensions:` is not on the first line, `/m` matches the anchor on its own
+# line and the BOM displaces nothing. YAML key order is free, so a consumer file
+# that opens on the key is legitimate — and it is the only shape that exercises the
+# strip.
 d="$(mk_case phplint-bom)"
 printf '\xEF\xBB\xBFextensions:\n    - php\n\npath:\n    - ./src\n' > "$d/.phplint.yml"
 assert_accepts "$d" ".phplint.yml saved with a UTF-8 BOM directly before its first key"

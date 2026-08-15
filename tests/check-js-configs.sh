@@ -58,9 +58,11 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
 # --- pack and install exactly as a consumer receives the package -------------
 
-# `npm pack --silent` can exit 0 with empty stdout, so `set -e` does not catch
-# it; the install below would then be handed a directory rather than a tarball
-# and the failure would surface as a misleading "check package.json files".
+# `--loglevel=error` rather than `--silent`, so a pack failure still prints its
+# cause. Either way the substitution can come back EMPTY at exit 0 — npm writes
+# the tarball name to stdout, and silencing npm silences that too — which `set -e`
+# does not catch; the install below would then be handed a directory rather than a
+# tarball and fail as a misleading "check package.json files". Guarded anyway.
 tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)"
 
 if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
@@ -90,14 +92,12 @@ fi
 
 printf 'INFO     tools under test: %s\n' "$tools"
 
-# Enforce the devEngines floor rather than documenting it. The floor is declared
-# in `devEngines` rather than `engines` on purpose: `engines` is consumer-facing —
-# npm evaluates it on every install and prints EBADENGINE in the CONSUMER's log —
-# and this package publishes two JSON files with no code that runs on Node at all,
-# so it has no business constraining a consumer's runtime. `devEngines` constrains
-# only this repository, which is where the floor belongs. It also means npm no
-# longer checks anything on our behalf here, so this gate is now the only
-# enforcement rather than a belt to npm's braces.
+# Enforce the devEngines floor rather than documenting it. Why the floor lives in
+# `devEngines` and not `engines` is in the README, under "The npm side is not the
+# mirror image of the Composer side" — written out there once instead of a third
+# time here, since the copy that drifted first was one of these restatements. What
+# matters at this call site: npm checks nothing on our behalf for `devEngines`, so
+# this gate is the only enforcement rather than a belt to npm's braces.
 # Take the FIRST numeric group, not every digit in the string: stripping all
 # non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
 # above every real version, so the check would hard-fail on a runner that
@@ -897,10 +897,11 @@ rm src/unchecked.ts
 # and misspelling any of them stayed green through the whole suite.
 cp "$root/templates/jscpd.json" .jscpd.json
 
-# jscpd refuses a config carrying an unknown key, and the template's note lives in
-# `"//"` — the same trap the Biome base fell into once. It is legal here (jscpd
-# reads JSON5 and ignores it), but the copy a consumer makes is what the gate
-# checks, so the runs below use the template verbatim rather than a stripped copy.
+# BIOME is the tool that refuses a config carrying an unknown key — the trap its
+# shared base fell into once. jscpd does not: it reads JSON5 and ignores `"//"`,
+# which is why the template can carry its note there at all. The runs below use
+# the template verbatim rather than a stripped copy, because the copy a consumer
+# makes is what the gate checks.
 
 # The one file extension jscpd parses each format name from. `php` is IN here:
 # it was skipped on the reasoning that "the PHP half is exercised by the

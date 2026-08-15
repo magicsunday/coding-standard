@@ -80,7 +80,7 @@ The published artifact is `biome/` and `tsconfig/`, two directories of JSON with
 code that runs on Node, so it cannot care what the consumer's runtime is; exporting a
 floor from it would fail an install over a constraint the package never exercises.
 `devEngines` constrains this repository alone, which is where the floor is real. It
-is honoured by npm >= 11, which with `onFail: "error"` hard-fails the install, and ignored entirely by older versions — so it cannot be relied on, and
+is honoured by npm >= 10.9, which with `onFail: "error"` hard-fails the install, and ignored entirely by older versions — so it cannot be relied on, and (npm/cli PR 7766, shipped in v10.9.0 — re-derive with `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`)
 `tests/check-js-configs.sh` fails outright on an older Node and additionally rejects a
 re-added `engines.node`, and the CI job pins `node-version: 24` rather than the
 floating `lts/*` alias, which would move up a major on its own every October.
@@ -501,9 +501,12 @@ file's own terms rather than a missing link:
 - a `biome.json`/`biome.jsonc` or `tsconfig.json` that **cannot be opened** — no reader
   tolerance is in play there, the file simply is not readable, and that is true whoever
   wrote it;
-- a `package.json` that cannot be read or does not parse — that file *is* the adoption
-  probe, so treating a broken one as "has not adopted" would switch the whole JS/TS
-  contract off precisely when the repository's own tooling is in an unknown state.
+- a `package.json` that cannot be read or does not parse, **in a repository that has a
+  `biome.json` or `tsconfig.json` at all** — that file *is* the adoption probe, so
+  treating a broken one as "has not adopted" would switch the whole JS/TS contract off
+  precisely when the repository's own tooling is in an unknown state. A repository with
+  neither config is not probed for the JS/TS contract in the first place, so nothing is
+  reported there.
 
 A JSON(C) **parse** failure of a Biome or TypeScript config, by contrast, is gated on
 adoption: this reader is not Biome's, it can reject a file the real tool accepts, and
