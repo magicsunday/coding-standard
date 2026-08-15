@@ -62,6 +62,53 @@ $violations = [];
  *
  * @param list<string> $violations
  */
+/**
+ * Isolates the indented block that follows a top-level YAML key.
+ *
+ * A full YAML parse is avoided to keep the gate dependency-free, so the block is
+ * matched: every line that belongs to `<key>:` up to the next top-level key. Three
+ * line shapes belong to it, and all three are legal YAML that a real parser
+ * accepts — an indented entry, a blank line, and a comment or list item written at
+ * column 0. Requiring `[ \t]+` on every line truncated the capture at the first of
+ * the other two, so a consumer whose file DID carry the required entry after a
+ * blank line was told it did not.
+ *
+ * The input is normalised to end with a newline first. Every alternative consumes
+ * one, which is what keeps the repeat from matching empty — but it also means a
+ * file with no final newline would silently lose its last line, which is how the
+ * first version of this fix traded one false reject for another.
+ *
+ * Shared by the `.phplint.yml` and `deptrac.yaml` checks: one defect on two paths
+ * was fixed twice before this existed.
+ *
+ * Measured on php 8.5, asking whether the shared import is found in the captured
+ * block. The last two rows are the boundary, and they are the reason the column-0
+ * list-item alternative is safe — a top-level key stops the scan before it:
+ *
+ *     plain                          before: found      now: found
+ *     no trailing final newline      before: NOT found  now: found
+ *     entry after a blank line       before: NOT found  now: found
+ *     entry after a column-0 comment before: NOT found  now: found
+ *     column-0 block sequence        before: NOT found  now: found
+ *     entry under a LATER key        before: NOT found  now: NOT found
+ *     column-0 entry under a later   before: NOT found  now: NOT found
+ *
+ * @param string $contents The file contents, line endings already normalised.
+ * @param string $key      The top-level key whose block to isolate.
+ *
+ * @return string The block, or an empty string when the key is absent.
+ */
+$yamlBlock = static function (string $contents, string $key): string {
+    $normalised = str_ends_with($contents, "\n") ? $contents : $contents . "\n";
+
+    $pattern = sprintf(
+        '/^%s\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n|-[^\n]*\n)*)/m',
+        preg_quote($key, '/')
+    );
+
+    return preg_match($pattern, $normalised, $matches) === 1 ? $matches[1] : '';
+};
+
 $fail = static function (array &$violations, string $file, string $detail): void {
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
@@ -325,7 +372,8 @@ $phplintFile = $repoRoot . '/.phplint.yml';
 if (is_file($phplintFile)) {
     // Normalise line endings first: the block-isolation regex uses `\n`, so a CRLF
     // file would leave a trailing `\r` on each list item and false-fail the `- php`
-    // match (the .editorconfig parser normalises the same way via preg_split('/\R/')).
+    // match. The .editorconfig parser splits on the same three terminators, by
+    // regex rather than str_replace because it needs the lines anyway.
     $contents = $readFile($phplintFile);
 
     if ($contents === false) {
@@ -342,15 +390,9 @@ if (is_file($phplintFile)) {
         $contents = $stripBom($contents);
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
-        // A full YAML parse is avoided to keep the gate dependency-free; instead
-        // the `extensions:` block is isolated (its indented list items, up to the
-        // next top-level key) and `php` is required INSIDE that block — a `- php`
-        // sitting under some other list must not satisfy the check.
-        $extensionsBlock = '';
-
-        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $matches) === 1) {
-            $extensionsBlock = $matches[1];
-        }
+        // Block-scoped, so a `- php` sitting under some other list (a `paths:`
+        // entry naming a php directory, say) does not satisfy the check.
+        $extensionsBlock = $yamlBlock($contents, 'extensions');
 
         if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
             $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
@@ -385,7 +427,20 @@ if (is_file($editorconfigFile)) {
         $sections = [];
         $current  = null;
 
-        foreach (preg_split('/\R/', $contents) ?: [] as $line) {
+        // `\r\n|[\r\n]`, not `\R`. In 8-bit non-UTF mode PCRE2 expands `\R` to
+        // an atomic group over CRLF, LF, VT, FF, CR and 0x85 — measured:
+        // `printf 'a\x0cb' | grep -cP 'a\Rb'`
+        // reports 1. Two of those six are wrong here: EditorConfig defines exactly CRLF,
+        // LF and CR, and `\x85` is a UTF-8 CONTINUATION byte (`ą` is C4 85, `Ņ` is
+        // C5 85), so such a character in a comment split mid-character and the tail
+        // fragment was re-parsed as a config line.
+        //
+        // Not fixed with `/u`: `preg_split` then returns false on a file carrying
+        // invalid UTF-8, the `?: []` collapses that to zero lines, and every
+        // assertion below fires — three false violations on a file every editor
+        // reads. The two sibling blocks normalise with str_replace for the same
+        // reason.
+        foreach (preg_split('/\r\n|[\r\n]/', $contents) ?: [] as $line) {
             $trimmed = trim($line);
 
             if (($trimmed === '') || ($trimmed[0] === '#') || ($trimmed[0] === ';')) {
@@ -490,30 +545,10 @@ if (is_file($deptracFile)) {
 
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
-        // Isolate the TOP-LEVEL `imports:` block (its indented items, up to the next
-        // top-level key) and require the shared file INSIDE it — the same block-scoping
-        // the `.phplint.yml` check uses. A path sitting under some other list (e.g.
-        // `deptrac.exclude_files`) must not satisfy the check: Deptrac only loads the
-        // ruleset from `imports`.
-        $importsBlock = '';
-
-        // The block alternation admits a blank line and a column-0 comment, both
-        // of which are legal inside a YAML block sequence. Requiring every
-        // continuation line to start with `[ \t]+` truncated the capture at the
-        // first of them, so a deptrac.yaml that DOES import the shared ruleset was
-        // reported as missing it — a false REJECT, the class this gate's header
-        // rules out. Measured on php 8.5, looking for the shared import in the
-        // captured block:
-        //
-        //     plain            old: found     new: found
-        //     blank line       old: NOT found new: found
-        //     column-0 comment old: NOT found new: found
-        //
-        // Each alternative consumes a newline, so the repeat cannot match empty.
-        // The same shape guards `extensions:` above.
-        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $matches) === 1) {
-            $importsBlock = $matches[1];
-        }
+        // Block-scoped for a load-bearing reason: Deptrac reads the ruleset from
+        // `imports` and nowhere else, so the same path under `deptrac.exclude_files`
+        // imports nothing while looking like it does.
+        $importsBlock = $yamlBlock($contents, 'imports');
 
         // Accept the shared import in any equivalent YAML shape: an optional path
         // prefix that ENDS at a segment boundary (`vendor/` or `.build/vendor/` — so a

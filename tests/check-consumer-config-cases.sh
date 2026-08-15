@@ -343,38 +343,41 @@ deptrac:
 YML
 assert_accepts "$d" "deptrac.yaml importing the shared ruleset"
 
-# The same file, with the shared import behind a blank line and behind a
-# column-0 comment. Both are legal inside a YAML block sequence, and the block
-# scan used to stop at either — so a consumer who DOES import the shared ruleset
-# was told it must. A false reject, which is the direction this gate's header
-# rules out and the direction no case measured.
-for shape in blank-line hash-comment; do
-    d="$work/deptrac-ok-$shape"
-    mkdir -p "$d"
-    cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+# Every line shape the block scan must admit, in one fixture each. All are legal
+# YAML that Deptrac's and phplint's own parser accepts, and the scan used to stop
+# at the first of them — so a consumer who DID carry the required entry was told
+# it must. A false reject, the direction this gate's header rules out.
+#
+# The last shape is the one that regressed while being fixed: the first version of
+# the widening required a newline in every alternative, which silently dropped the
+# final line of a file that has none. Both fixtures therefore put the SOUGHT entry
+# on that last line — with the block first and the sought entry mid-file, dropping
+# the final line costs nothing and the case cannot see the regression. Measured:
+# it stayed green until the fixtures were reordered.
+d="$work/deptrac-ok-shapes"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'deptrac:\n    paths:\n        - src\nimports:\n# why the shared ruleset comes last\n    - some/other.yaml\n\n- .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml' > "$d/deptrac.yaml"
+assert_accepts "$d" "deptrac.yaml carrying the shared import after a comment, a blank line, at column 0 and with no final newline"
 
-    if [ "$shape" = 'blank-line' ]; then
-        printf 'imports:\n    - some/other.yaml\n\n    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\ndeptrac:\n    paths:\n        - src\n' > "$d/deptrac.yaml"
-    else
-        printf 'imports:\n    - some/other.yaml\n# why the shared ruleset comes last\n    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\ndeptrac:\n    paths:\n        - src\n' > "$d/deptrac.yaml"
-    fi
+d="$(mk_case phplint-ok-shapes)"
+printf 'paths:\n    - ./src\nextensions:\n# only PHP\n\n    - php' > "$d/.phplint.yml"
+assert_accepts "$d" ".phplint.yml listing php after a comment and a blank line, with no final newline"
 
-    assert_accepts "$d" "deptrac.yaml importing the shared ruleset after a $shape"
-done
+# The BOUNDARY, which nothing pinned. Measured: replacing both block bodies with
+# `((?:[^\n]*\n)*)` — read to end of file — left every case green, because the
+# existing wrong-key fixtures have no block to run past. These two put the sought
+# entry under a LATER top-level key, so a scan that does not stop must accept them
+# and a correct one must not.
+d="$work/deptrac-shared-under-later-key"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'imports:\n    - some/other.yaml\ndeptrac:\n    paths:\n        - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\n' > "$d/deptrac.yaml"
+assert_rejects "$d" "deptrac.yaml whose shared path sits under a later top-level key, not in imports" "must import the shared"
 
-# The same two shapes for the .phplint.yml `extensions:` block, which carries the
-# identical pattern and therefore the identical defect.
-for shape in blank-line hash-comment; do
-    d="$(mk_case "phplint-ok-$shape")"
-
-    if [ "$shape" = 'blank-line' ]; then
-        printf 'extensions:\n\n    - php\npaths:\n    - ./src\n' > "$d/.phplint.yml"
-    else
-        printf 'extensions:\n# only PHP\n    - php\npaths:\n    - ./src\n' > "$d/.phplint.yml"
-    fi
-
-    assert_accepts "$d" ".phplint.yml listing php after a $shape"
-done
+d="$(mk_case phplint-php-under-later-key)"
+printf 'extensions:\n    - phtml\npaths:\n    - php\n' > "$d/.phplint.yml"
+assert_rejects "$d" ".phplint.yml whose \`php\` sits under a later top-level key, not in extensions" "must list"
 
 # --- deptrac.yaml: shared path present but under the WRONG key (not imports) ---
 d="$work/deptrac-wrong-key"
