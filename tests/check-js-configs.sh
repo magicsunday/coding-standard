@@ -61,12 +61,15 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
 # --- pack and install exactly as a consumer receives the package -------------
 
-# `--loglevel=error` rather than `--silent`, so a pack failure still prints its
-# cause. Either way the substitution can come back EMPTY at exit 0 — npm writes
-# the tarball name to stdout, and silencing npm silences that too — which `set -e`
-# does not catch; the install below would then be handed a directory rather than a
-# tarball and fail as a misleading "check package.json files". Guarded anyway.
-tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)"
+# Two failure shapes, and `|| true` is what lets the guard below see both. A pack
+# that FAILS makes the pipeline non-zero under pipefail, and a plain assignment
+# would abort the script one line before the guard that names the cause. A pack
+# that SUCCEEDS can still come back empty — npm writes the tarball name to stdout,
+# and `--silent` (used here once) silences that too, which `set -e` never catches;
+# the install would then be handed a directory and fail as a misleading
+# "check package.json files". `--loglevel=error` keeps npm's own diagnosis, which
+# is the only one either shape produces.
+tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
 
 if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
     fail "npm pack produced no tarball — cannot run the smoke"
@@ -453,30 +456,24 @@ fi
 # over the `files` entries has to reproduce glob expansion and the default-ignore
 # list (`*.orig`, `.DS_Store`, …) to stay in step; reading what npm actually
 # packed agrees with it by construction.
-# The `grep` filter is neutralised with `|| true`, or it decides the diagnostic:
-# under `set -o pipefail` a no-match exit 1 fails the whole pipeline, so a tarball
-# carrying no config at all — the regression this block exists to catch, `files`
-# losing `biome`/`tsconfig` — reported "could not list the tarball contents" and
-# pointed the reader at tar, while the guard below that names the real cause could
-# never run. Filtering is not an error condition; only `tar` failing is.
+# No filter in this pipe, and that is load-bearing: `sed -n …p` exits 0 when it
+# prints nothing, so an empty listing still reaches the checks below. A `grep` here
+# would not — under `set -o pipefail` its no-match exit 1 fails the whole pipeline,
+# and the tarball-carrying-no-config case would report "could not list the tarball
+# contents", pointing the reader at tar. One was here once; do not re-add one
+# without `|| true`.
 #
-# Unfiltered. An earlier form narrowed this to `.json`/`.md` and fed the narrowed
-# copy to the declared-entry check below, where it is the wrong corpus: a `files`
-# entry shipping only `.d.ts` or `.js` content would be absent from it and get
-# reported as missing from the tarball, a false red naming the wrong cause.
 packed=""
 packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
     fail "could not list the tarball contents — nothing to verify"
     exit 1
 }
 
-if [ -z "$packed" ]; then
-    fail "the npm tarball carries no files at all — check package.json \"files\""
-    exit 1
-fi
-
 # There used to be a "packed but not installed" loop here, checking each tarball
-# entry against node_modules. It could not fail: `npm install` of that exact
+# entry against node_modules, and an empty-tarball guard beneath it. The guard went
+# the same way and for the same reason: `npm pack` includes package.json
+# unconditionally, so `$packed` cannot be empty after a successful pack — a second
+# unreachable guard, put in place while removing the first. It could not fail: `npm install` of that exact
 # tarball extracts every entry it lists, and a file that stops shipping leaves the
 # listing at the same time, so the loop was asking whether a set contains itself.
 # What it looked like it proved is proved below (`files` against the tarball) and
@@ -485,8 +482,8 @@ fi
 # here-string always feeds `mapfile` one line, so the array is never empty.
 
 # The tarball is the artefact, but `files` is the declaration: every entry of it
-# must be represented, or a directory silently stops shipping while the loop above
-# stays green on whatever else is in there.
+# must be represented, or a directory silently stops shipping and the tarball
+# listing alone has nothing to say about it.
 #
 # Captured first: a non-zero command inside a `for` word-list does NOT trip
 # `set -e`, so a `files` that is missing, misspelled or not an array would skip

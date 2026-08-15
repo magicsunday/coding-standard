@@ -971,21 +971,29 @@ assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the S
 # The ONE line carrying the array literal, not the block around it: a range
 # ending at `as $language` also swallows the loop body, whose `linter` and
 # `formatter` keys then read as language names.
-gate_language_literal="$(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php")"
-mapfile -t gate_languages < <(grep -oE "'[a-z0-9_-]+'" <<<"$gate_language_literal" | tr -d "'")
+# `|| true`: a plain assignment aborts the whole suite under `set -e` when grep
+# finds nothing — which is exactly the drift this lockstep exists for (a reordered
+# or renamed list). The guard written for that case sits one line below and could
+# never run; the ~790 lines of cases after it never ran either, and the exit was
+# grep's 1, indistinguishable in the log from "cases failed".
+gate_language_literal="$(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php")" || true
+mapfile -t gate_languages < <(grep -oE "['\"][a-z0-9_-]+['\"]" <<<"$gate_language_literal" | tr -d "'\"")
 
 if [ "${#gate_languages[@]}" -eq 0 ]; then
     report_failure 'read no language names from the gate — the language lockstep did not run'
 fi
 
-# The extractor's own vocabulary must not silently bound what it sees. `[a-z]+`
-# would skip a name carrying a digit or a dash, and both direction checks below
-# would still pass on the shortened list — a row the gate gained, unexercised,
-# with the suite green. Counting the quoted literals against what came out closes
-# that: the two disagree exactly when a row exists that the pattern cannot read.
-if [ "$(grep -oc "'" <<<"$gate_language_literal")" != "" ] \
-    && [ "$(( $(grep -o "'" <<<"$gate_language_literal" | wc -l) / 2 ))" -ne "${#gate_languages[@]}" ]; then
-    report_failure 'the language list carries an entry this harness cannot parse — widen the extractor rather than leaving the row unexercised'
+# The extractor's own vocabulary must not silently bound what it sees, and the
+# guard that checks this must not be bounded by it either. Counting quote
+# CHARACTERS was — measured, a row written `"vue"` with double quotes left both
+# the extracted count and the quote count unchanged, so the guard stayed silent
+# and the new language shipped unexercised. Commas are the structural anchor: one
+# fewer than the number of entries, whatever an entry is spelled like. The sibling
+# guard below anchors on `=>` for the same reason and did not share the blind spot.
+language_commas="$(grep -o ',' <<<"$gate_language_literal" | wc -l)"
+
+if [ "$((language_commas + 1))" -ne "${#gate_languages[@]}" ]; then
+    report_failure "the language list holds $((language_commas + 1)) entries but this harness parsed ${#gate_languages[@]} — widen the extractor rather than leaving a row unexercised"
 fi
 
 # The languages this harness knows how to drive. A row the gate gains that is not
@@ -1246,6 +1254,9 @@ assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character 
 # the bound, so the ternary took its else branch in every case and deleting the
 # cap entirely stayed green. A consumer otherwise controls the report's length —
 # measured on the phpunit path, 5000 bytes in produced 5224 bytes out.
+# The truncation arm. One helper call rather than an open-coded degraded/exit
+# chain: an untruncated report carries 400 `z` and no marker, so the expected
+# substring — 64 `z` followed by the marker — is absent either way it breaks.
 d="$(mk_js_case biome-overlong-rule-group)"
 php -r '
     file_put_contents($argv[1], json_encode([
@@ -1253,20 +1264,8 @@ php -r '
         "linter"  => ["rules" => [str_repeat("z", 400) => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
-
-out="$(php "$GATE" "$d" 2>&1)" && rc=0 || rc=$?
-
-if degraded "$out"; then
-    report_failure "the gate ran degraded on an overlong rule-group key: $out"
-elif [ "$rc" -ne 1 ]; then
-    report_failure "expected the drift verdict on an overlong rule-group key, got exit $rc"
-elif grep -qF "$(printf 'z%.0s' $(seq 1 65))" <<<"$out"; then
-    report_failure "an overlong consumer key reached the report untruncated: $out"
-elif ! grep -qF '…' <<<"$out"; then
-    report_failure "an overlong consumer key was truncated without the marker that says so: $out"
-else
-    printf 'ok (rejected on the tested violation): %s\n' 'an overlong rule-group key is truncated with a marker'
-fi
+assert_rejects "$d" "an overlong rule-group key is truncated with a marker" \
+    "linter.rules.$(printf 'z%.0s' $(seq 1 64))…"
 
 # Block comments: the accept case, and the discriminating one — a multi-line
 # block carrying a quote and a `//` must be closed rather than swallow the rest
