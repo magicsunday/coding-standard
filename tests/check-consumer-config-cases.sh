@@ -280,12 +280,11 @@ for flag in "${gate_root_flags[@]}"; do
     fi
 done
 
-root_flags=("${required_root_flags[@]}")
 
 # Both failure shapes per flag, because the gate treats them as one requirement
 # ("present AND true") and a check for only one of them would not notice the
 # other arm being dropped.
-for flag in "${root_flags[@]}"; do
+for flag in "${required_root_flags[@]}"; do
     d="$(mk_case "phpunit-$flag-false")"
     sed -i "s/$flag=\"true\"/$flag=\"false\"/" "$d/phpunit.xml"
     assert_rejects "$d" "phpunit.xml with $flag set to false" "$flag"
@@ -298,7 +297,7 @@ done
 # The other direction: the canon fixture must actually carry every required flag,
 # or the `sed` above is a no-op and each case passes on an unmodified copy that
 # was already failing for some other reason.
-for flag in "${root_flags[@]}"; do
+for flag in "${required_root_flags[@]}"; do
     if ! grep -qF "$flag=\"true\"" "$FIXTURE/phpunit.xml"; then
         report_failure "the canon phpunit.xml does not set $flag=\"true\", so its cases modify nothing"
     fi

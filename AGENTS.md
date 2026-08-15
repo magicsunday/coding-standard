@@ -118,11 +118,20 @@ directory that matches how it is consumed, never at the root for convenience.
   unreachable. Re-derive which they are rather than trusting a list here:
 
   ```
-  for r in $(gh repo list magicsunday --limit 100 --no-archived --jq '.[].name' --json name); do
-      gh api "repos/magicsunday/$r/contents/biome.json"    >/dev/null 2>&1 || continue
-      gh api "repos/magicsunday/$r/contents/composer.json" >/dev/null 2>&1 || echo "$r"
+  for r in $(gh repo list magicsunday --limit 100 --no-archived --json name --jq '.[].name'); do
+      for f in biome.json biome.jsonc tsconfig.json; do
+          gh api "repos/magicsunday/$r/contents/$f" >/dev/null 2>&1 || continue
+          gh api "repos/magicsunday/$r/contents/composer.json" >/dev/null 2>&1 || echo "$r"
+          break
+      done
   done
   ```
+
+  All three spellings, because the gate covers all three and a `biome.json`-only
+  probe halves the answer — it prints two repositories where the widened loop
+  prints four. Note the probe cannot tell a 404 from a rate limit or a network
+  failure; a repository appearing here after an unexplained `gh` error is worth
+  re-running before acting on.
 
   Do not read a green run as "every consumer's JS config is checked"; a node-side
   entry point for those repositories is #32.

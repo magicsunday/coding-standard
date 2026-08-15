@@ -521,8 +521,11 @@ places and they combine: the document, every `overrides` entry, and a per-langua
 inside either of those, so `javascript.linter.enabled: false` silences the shared
 standard for every JS/TS file while the top-level key still reads `true` — the
 strict flags are not overridden back to `false` underneath it
-(`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
-`noImplicitOverride`, `forceConsistentCasingInFileNames`, `isolatedModules`),
+(the nine options `strict` switches on as a group — TypeScript treats a specific one
+written back as an override of the umbrella, so pinning only `strict` pins nothing —
+plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`,
+`forceConsistentCasingInFileNames` and `isolatedModules`, which the shared base sets
+itself; `$pinnedFlags` in `bin/check-consumer-config.php` is the list),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
 config, so that one key makes a file that is valid JSON completely unloadable — and
 the recommended rule floor is still on. That last one is checked everywhere Biome

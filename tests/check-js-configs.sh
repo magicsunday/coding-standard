@@ -96,8 +96,12 @@ printf 'INFO     tools under test: %s\n' "$tools"
 # `devEngines` and not `engines` is in the README, under "The npm side is not the
 # mirror image of the Composer side" — written out there once instead of a third
 # time here, since the copy that drifted first was one of these restatements. What
-# matters at this call site: npm checks nothing on our behalf for `devEngines`, so
-# this gate is the only enforcement rather than a belt to npm's braces.
+# matters at this call site: npm's own check cannot be RELIED on — older npm
+# ignores `devEngines` entirely, and the `js` job never runs an install at the
+# repository root at all (checkout, setup-node, `npm run ci:test:js`) — so this
+# gate is the enforcement CI actually has. Not "npm checks nothing": on npm >= 10.9
+# a root install does hard-fail on `onFail: "error"`, which is why the README says
+# so and this comment must not say the opposite.
 # Take the FIRST numeric group, not every digit in the string: stripping all
 # non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
 # above every real version, so the check would hard-fail on a runner that
@@ -316,13 +320,13 @@ manifest_rejects "$(manifest_fixture peer-major-drift \
     "manifest control — a peer range naming another major than the pin is reported" \
     "is not satisfied by the pinned"
 
-# The only ACCEPT case among the manifest controls, and the one that reaches the
-# numeric comparison at all. Every rejection above short-circuits before it —
-# peer-major-drift on the major, peer-without-pin on the missing pin — so the
-# whole `false` return of below() rested on this repository's own single-digit
-# pins, and replacing its body with a string compare of the joined form changed
-# no verdict anywhere. A pin whose minor is past nine is exactly what a string
-# compare gets wrong: "2.10.0" sorts below "2.9.0".
+# The only ACCEPT case among the manifest controls, and the only one that
+# DISCRIMINATES a numeric `below()` from a string compare of the joined form.
+# `peer-floor-above-pin` further down reaches `below()` too — same major, so the
+# short-circuit does not fire — but it rejects under either implementation, so it
+# cannot tell them apart. This one can: a pin whose minor is past nine is exactly
+# what a string compare gets wrong, since "2.10.0" sorts below "2.9.0". Without it,
+# replacing below()'s body with a string compare changed no verdict anywhere.
 manifest_accepts() { # <dir> <label>
     local out
     if out="$(manifest_check "$1" 2>&1)"; then

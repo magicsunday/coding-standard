@@ -37,7 +37,7 @@ foreach ($files as $file) {
     $path = $root . '/' . $file;
 
     if (!is_file($path)) {
-        fwrite(STDERR, sprintf("MISSING  %s\n", $file));
+        fwrite(\STDERR, sprintf("MISSING  %s\n", $file));
         $failed = true;
 
         continue;
@@ -46,16 +46,16 @@ foreach ($files as $file) {
     $contents = file_get_contents($path);
 
     if ($contents === false) {
-        fwrite(STDERR, sprintf("UNREADABLE  %s\n", $file));
+        fwrite(\STDERR, sprintf("UNREADABLE  %s\n", $file));
         $failed = true;
 
         continue;
     }
 
     try {
-        json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+        json_decode($contents, true, 512, \JSON_THROW_ON_ERROR);
     } catch (JsonException $exception) {
-        fwrite(STDERR, sprintf("INVALID  %s — %s\n", $file, $exception->getMessage()));
+        fwrite(\STDERR, sprintf("INVALID  %s — %s\n", $file, $exception->getMessage()));
         $failed = true;
 
         continue;

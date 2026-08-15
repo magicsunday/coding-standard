@@ -348,8 +348,8 @@ if (is_file($phplintFile)) {
         // sitting under some other list must not satisfy the check.
         $extensionsBlock = '';
 
-        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $m) === 1) {
-            $extensionsBlock = $m[1];
+        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $matches) === 1) {
+            $extensionsBlock = $matches[1];
         }
 
         if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
@@ -392,22 +392,22 @@ if (is_file($editorconfigFile)) {
                 continue;
             }
 
-            if (preg_match('/^\[(.+)\]$/', $trimmed, $m) === 1) {
-                $current            = $m[1];
+            if (preg_match('/^\[(.+)\]$/', $trimmed, $matches) === 1) {
+                $current            = $matches[1];
                 $sections[$current] = $sections[$current] ?? [];
 
                 continue;
             }
 
-            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $m) === 1) {
+            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $matches) === 1) {
                 // mb_ with an explicit encoding, not the byte-wise pair: this
                 // package's own phpstan/disallowed-calls.neon bans strtolower()
                 // for consumers, and a gate that ships a ban has no business
                 // being the exception to it. EditorConfig keys are ASCII by
                 // grammar, so the two agree on every real input — which is why it
                 // survived here unnoticed, not a reason to keep it.
-                $key   = mb_strtolower(trim($m[1]), 'UTF-8');
-                $value = mb_strtolower(trim($m[2]), 'UTF-8');
+                $key   = mb_strtolower(trim($matches[1]), 'UTF-8');
+                $value = mb_strtolower(trim($matches[2]), 'UTF-8');
 
                 if ($current === null) {
                     $preamble[$key] = $value;
@@ -511,8 +511,8 @@ if (is_file($deptracFile)) {
         //
         // Each alternative consumes a newline, so the repeat cannot match empty.
         // The same shape guards `extensions:` above.
-        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $m) === 1) {
-            $importsBlock = $m[1];
+        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $matches) === 1) {
+            $importsBlock = $matches[1];
         }
 
         // Accept the shared import in any equivalent YAML shape: an optional path
@@ -639,7 +639,7 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  *   report a shared link that is not the shared config.
  * - The `.json` suffix is optional for tsconfig and required for Biome, because
  *   that is what the tools do: `tsc` resolves
- *   `@magicsunday/coding-standard/tsconfig/base` to the same file, while Biome
+ *   resolves `@magicsunday/coding-standard/tsconfig/base` to the same file, while Biome
  *   answers the equivalent with `Could not resolve … module not found`. Both
  *   checked against the packed tarball with tsc 7.0.2 and Biome 2.5.5.
  *
@@ -955,19 +955,29 @@ if ($adopted && is_file($tsconfigFile)) {
         // a consumer turning skipLibCheck off is stricter, not looser — so they
         // are deliberately left free, as are module/target/lib/jsx and paths.
         //
-        // The nine after `strict` are the family `strict` switches on as a group,
-        // and each may be written back individually — TypeScript treats the
-        // specific option as an override of the umbrella, so pinning only `strict`
-        // pins nothing. Measured with the tsc this package proves against (7.0.2):
+        // Two groups. The nine after `strict` are the family `strict` switches on
+        // as a group; the five after those — noUncheckedIndexedAccess through
+        // isolatedModules — are not implied by `strict` at all, they are what
+        // tsconfig/base.json sets explicitly.
+        //
+        // The family matters because each member may be written back
+        // individually: TypeScript treats the specific option as an override of
+        // the umbrella, so pinning only `strict` pins nothing. Measured with the
+        // tsc this package proves against (7.0.2):
         //
         //     printf 'export function len(s: string|null): number { return s.length; }' > src/index.ts
         //     # {"strict":true}                            -> error TS18047: 's' is possibly 'null'
         //     # {"strict":true,"strictNullChecks":false}   -> exit 0
         //
-        // The membership list is derived the same way rather than copied from the
-        // handbook: each name below is rejected by tsc as an unknown option if it
-        // ever goes away, and `notARealOption` was run through the same probe to
-        // prove the probe discriminates.
+        // MEMBERSHIP is taken from TypeScript's documentation of `strict`, not
+        // derived. An earlier version of this comment claimed otherwise, on the
+        // strength of a probe that only asked whether tsc accepts each name as a
+        // compiler option — which the five non-members above pass just as well, so
+        // that probe cannot produce a counterexample and proves nothing about
+        // membership. Falsifying it needs the shape three lines up, per flag: a
+        // snippet the option governs, compiled under `{"strict":true}` and under
+        // `{"strict":true,"<flag>":false}`, with the diagnostic required to
+        // disappear.
         $pinnedFlags = [
             'strict',
             'alwaysStrict',
