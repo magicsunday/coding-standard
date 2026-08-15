@@ -453,35 +453,29 @@ fi
 # pointed the reader at tar, while the guard below that names the real cause could
 # never run. Filtering is not an error condition; only `tar` failing is.
 #
-# Captured unfiltered FIRST, then narrowed: the filtered form answers "is
-# everything packed also installed", where restricting to the file types this
-# harness can act on is correct. The declared-entry check below asks the opposite
-# question — "is every `files` entry represented" — and the filter is the wrong
-# corpus for it: an entry shipping only .d.ts or .js content is absent from the
-# narrowed listing and would be reported as missing from the tarball, a false red
-# naming the wrong cause. Latent while `files` holds only .json payloads.
+# Unfiltered. An earlier form narrowed this to `.json`/`.md` and fed the narrowed
+# copy to the declared-entry check below, where it is the wrong corpus: a `files`
+# entry shipping only `.d.ts` or `.js` content would be absent from it and get
+# reported as missing from the tarball, a false red naming the wrong cause.
 packed=""
 packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
     fail "could not list the tarball contents — nothing to verify"
     exit 1
 }
 
-listing="$(grep -E '\.(json|md)$' <<<"$packed" || true)"
-
-mapfile -t shipped <<<"$listing"
-
-if [ "${#shipped[@]}" -eq 0 ] || [ -z "${shipped[0]}" ]; then
-    fail "the npm tarball carries no config files at all — check package.json \"files\""
+if [ -z "$packed" ]; then
+    fail "the npm tarball carries no files at all — check package.json \"files\""
     exit 1
 fi
 
-for config in "${shipped[@]}"; do
-    if [ -f "node_modules/@magicsunday/coding-standard/$config" ]; then
-        pass "packed: $config"
-    else
-        fail "packed: $config — in the tarball but not installed"
-    fi
-done
+# There used to be a "packed but not installed" loop here, checking each tarball
+# entry against node_modules. It could not fail: `npm install` of that exact
+# tarball extracts every entry it lists, and a file that stops shipping leaves the
+# listing at the same time, so the loop was asking whether a set contains itself.
+# What it looked like it proved is proved below (`files` against the tarball) and
+# by the Biome and tsc runs further down, which load the installed configs for
+# real. Its `${#shipped[@]} -eq 0` guard was unreachable for a second reason: a
+# here-string always feeds `mapfile` one line, so the array is never empty.
 
 # The tarball is the artefact, but `files` is the declaration: every entry of it
 # must be represented, or a directory silently stops shipping while the loop above
