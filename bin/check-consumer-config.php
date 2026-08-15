@@ -348,7 +348,7 @@ if (is_file($phplintFile)) {
         // sitting under some other list must not satisfy the check.
         $extensionsBlock = '';
 
-        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+        if (preg_match('/^extensions\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $m) === 1) {
             $extensionsBlock = $m[1];
         }
 
@@ -497,7 +497,21 @@ if (is_file($deptracFile)) {
         // ruleset from `imports`.
         $importsBlock = '';
 
-        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m', $contents, $m) === 1) {
+        // The block alternation admits a blank line and a column-0 comment, both
+        // of which are legal inside a YAML block sequence. Requiring every
+        // continuation line to start with `[ \t]+` truncated the capture at the
+        // first of them, so a deptrac.yaml that DOES import the shared ruleset was
+        // reported as missing it — a false REJECT, the class this gate's header
+        // rules out. Measured on php 8.5, looking for the shared import in the
+        // captured block:
+        //
+        //     plain            old: found     new: found
+        //     blank line       old: NOT found new: found
+        //     column-0 comment old: NOT found new: found
+        //
+        // Each alternative consumes a newline, so the repeat cannot match empty.
+        // The same shape guards `extensions:` above.
+        if (preg_match('/^imports\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n)*)/m', $contents, $m) === 1) {
             $importsBlock = $m[1];
         }
 

@@ -344,6 +344,39 @@ deptrac:
 YML
 assert_accepts "$d" "deptrac.yaml importing the shared ruleset"
 
+# The same file, with the shared import behind a blank line and behind a
+# column-0 comment. Both are legal inside a YAML block sequence, and the block
+# scan used to stop at either — so a consumer who DOES import the shared ruleset
+# was told it must. A false reject, which is the direction this gate's header
+# rules out and the direction no case measured.
+for shape in blank-line hash-comment; do
+    d="$work/deptrac-ok-$shape"
+    mkdir -p "$d"
+    cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+
+    if [ "$shape" = 'blank-line' ]; then
+        printf 'imports:\n    - some/other.yaml\n\n    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\ndeptrac:\n    paths:\n        - src\n' > "$d/deptrac.yaml"
+    else
+        printf 'imports:\n    - some/other.yaml\n# why the shared ruleset comes last\n    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\ndeptrac:\n    paths:\n        - src\n' > "$d/deptrac.yaml"
+    fi
+
+    assert_accepts "$d" "deptrac.yaml importing the shared ruleset after a $shape"
+done
+
+# The same two shapes for the .phplint.yml `extensions:` block, which carries the
+# identical pattern and therefore the identical defect.
+for shape in blank-line hash-comment; do
+    d="$(mk_case "phplint-ok-$shape")"
+
+    if [ "$shape" = 'blank-line' ]; then
+        printf 'extensions:\n\n    - php\npaths:\n    - ./src\n' > "$d/.phplint.yml"
+    else
+        printf 'extensions:\n# only PHP\n    - php\npaths:\n    - ./src\n' > "$d/.phplint.yml"
+    fi
+
+    assert_accepts "$d" ".phplint.yml listing php after a $shape"
+done
+
 # --- deptrac.yaml: shared path present but under the WRONG key (not imports) ---
 d="$work/deptrac-wrong-key"
 mkdir -p "$d"
