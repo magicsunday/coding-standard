@@ -42,8 +42,9 @@ assert_rejects() {
     local dir="$1" label="$2" expected="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    # Exactly 1, the gate's own verdict — not merely "not zero". This gate exits
-    # 0 or 1 and nothing else, so any other status is a fatal or a missing `php`.
+    # Exactly 1, the gate's own drift verdict — not merely "not zero". 2 is the
+    # could-not-run exit and has `assert_usage_error`; anything else is a fatal or
+    # a missing `php`.
     # Both used to satisfy every case here while the siblings had already been
     # tightened, which is the drift that made the shared harness worth having.
     if degraded "$out"; then

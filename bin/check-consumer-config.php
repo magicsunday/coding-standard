@@ -673,7 +673,7 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  *   tools INSTEAD of the installed package, so accepting them makes the gate
  *   report a shared link that is not the shared config.
  * - The `.json` suffix is optional for tsconfig and required for Biome, because
- *   that is what the tools do: `tsc` resolves
+ *   that is what the tools do: `tsc`
  *   resolves `@magicsunday/coding-standard/tsconfig/base` to the same file, while Biome
  *   answers the equivalent with `Could not resolve … module not found`. Both
  *   checked against the packed tarball with tsc 7.0.2 and Biome 2.5.5.

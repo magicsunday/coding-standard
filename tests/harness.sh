@@ -42,9 +42,9 @@ fails=0
 #
 # `CDPATH= cd --` on the result because mktemp honours a relative TMPDIR
 # verbatim, and callers use "$work/…" after their own cd — so it has to be
-# absolute up front. The mktemp-then-canonicalise-then-trap order matters: an
-# unset $work can never reach the `rm -rf`, because the trap is armed last and
-# `set -e` aborts on a failing mktemp before it.
+# absolute up front. The order is mktemp, then trap, then canonicalise, and the
+# trap reads the RAW path rather than $work — the reason is in the body, and it is
+# the opposite of what this header said while the body already did it.
 harness_workdir() {
     work="$(mktemp -d)"
 

@@ -16,8 +16,12 @@ declare(strict_types=1);
  * value they read out of a repository file — a JSON key, an XML attribute value, a
  * phpat subject expression — comes from whoever opened the PR. Their reports go to
  * STDERR, which on GitHub Actions doubles as the workflow-command channel: any line
- * a process writes is scanned for `::notice::`, `::error::` and `::add-mask::` at
- * line start. Interpolated raw, such a value can split one violation line into
+ * a process writes is scanned for a command at line start. Source, since this is
+ * the premise the whole file rests on and the runner has changed it before (it
+ * retired `set-output` and `save-state`):
+ * https://docs.github.com/actions/reference/workflow-commands-for-github-actions
+ * — as of 2026-08-15 the list is longer than any three examples, which is why the
+ * guard rejects `^::` rather than a named set. Interpolated raw, such a value can split one violation line into
  * several, forge annotations and a clean-run verdict, and — where the source format
  * permits ESC — hide preceding lines in a maintainer's terminal with `ESC[2K`.
  *

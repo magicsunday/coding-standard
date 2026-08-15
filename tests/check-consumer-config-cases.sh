@@ -1202,19 +1202,12 @@ JSON
 assert_rejects "$d" "biome.json whose reported rule group carries a comma before a bracket inside a string" "linter.rules.sus,]picious"
 
 # A rule-group key is arbitrary bytes chosen by whoever opened the pull request,
-# and this gate runs in the CONSUMER's CI over branch content. The report goes to
-# STDERR, which on GitHub Actions doubles as the workflow-command channel: any
-# line a process writes is scanned for `::notice::`, `::error::` and `::add-mask::`
-# at line start. So a key carrying newlines can forge annotations and a clean-run
-# verdict, and ANSI erase sequences can hide the surrounding lines in a terminal.
+# and this gate runs in the CONSUMER's CI over branch content. Why that reaches a
+# workflow command, and the source for it, are in bin/support/safe-report-value.php
+# — stated once, where the guard lives.
 #
-# The assertion is about the SHAPE of the report, not about the substring: the
-# payload text is harmless once it can no longer start a line, and demanding its
-# absence would pass on a gate that merely stopped reporting the key at all.
-# Measured with and without the escaping: unescaped, this key turns a three-line
-# report into six, one of which begins `::notice::`.
-# A rule-group KEY, the JSON-object half. The payload carries an ANSI erase, a
-# forged verdict line and a workflow command.
+# Measured here: unescaped, this key turns a three-line report into six, one of
+# which begins `::notice::`.
 d="$(mk_js_case biome-control-chars-in-rule-group)"
 php -r '
     $esc = chr(27);
@@ -1419,8 +1412,9 @@ ergonomics=(esModuleInterop resolveJsonModule skipLibCheck)
 # cannot generate their cases, and the "pinned but not shipped by the base" check
 # would report every one of them as stale. Held here independently of the gate's
 # own list so the two must agree in both directions rather than one copying the
-# other. Membership was derived from the pinned tsc, not from the handbook; the
-# derivation and its discriminating control are in the gate's comment.
+# other. Membership is taken from TypeScript's documentation of `strict`, not
+# derived — an earlier claim to the contrary was retracted in the gate, whose
+# comment names the per-flag compile that could falsify it.
 strict_family=(
     alwaysStrict
     noImplicitAny

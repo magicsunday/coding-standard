@@ -46,9 +46,9 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
     local out rc
     out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
 
-    # Exactly 1, the gate's own verdict — not merely "not zero". This gate exits
-    # 0 or 1 and nothing else, so any other status is a fatal or a missing `php`,
-    # and both used to satisfy every case here: the report is written per pin
+    # Exactly 1, the gate's own drift verdict — not merely "not zero". 2 is the
+    # could-not-run exit and has `assert_usage_error`; anything else is a fatal or
+    # a missing `php`. Both used to satisfy every case here: the report is written per pin
     # inside the loop, so a crash AFTER the first diagnostic printed the asserted
     # substring and then died, and the case said ok. The sibling harness was
     # tightened for exactly this; the tightening did not reach here, so the two
