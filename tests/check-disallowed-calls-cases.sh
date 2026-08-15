@@ -31,6 +31,24 @@ set -euo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 
+# report_failure <message>
+#
+# The one reporting helper this file has. Its six report sites used to print and
+# increment inline, which left the counter unprovable: `harness_probe_reporters`
+# drives a HELPER, and there was none to drive. Four reviewers reported the same
+# thing, and the commit that introduced tests/harness.sh claimed both stragglers
+# were "closed by the move" — only the verdict half was.
+report_failure() {
+    printf 'FAIL: %s\n' "$1"
+    fails=$((fails + 1))
+}
+
+probe_reporters() {
+    report_failure 'probe'
+}
+
+harness_probe_reporters 1 probe_reporters
+
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
@@ -63,9 +81,7 @@ control_out="$(cd "$CONSUMER" && "$PHPSTAN" analyse case-folding \
     && control_rc=0 || control_rc=$?
 
 if [ "$control_rc" -ne 0 ]; then
-    printf 'FAIL (control): base.neon alone reports on the case-folding fixture, so a\n'
-    printf '  report in the positive run would not prove disallowed-calls.neon fired.\n%s\n' "$control_out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'control: base.neon alone reports on the case-folding fixture, so a\n  report in the positive run would not prove disallowed-calls.neon fired.\n%s' "$control_out")"
 else
     printf 'ok (control): base.neon alone is clean on the case-folding fixture\n'
 fi
@@ -76,15 +92,13 @@ out="$(cd "$CONSUMER" && "$PHPSTAN" analyse \
     && rc=0 || rc=$?
 
 if [ "$rc" -eq 0 ]; then
-    printf 'FAIL: the case-folding config reported nothing — it loads but does not fire.\n%s\n' "$out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'the case-folding config reported nothing — it loads but does not fire.\n%s' "$out")"
 else
     for fn in "${BANNED[@]}"; do
         if grep -qF "Calling ${fn}() is forbidden" <<<"$out"; then
             printf 'ok (reported): %s()\n' "$fn"
         else
-            printf 'FAIL: %s() is not reported by the case-folding config.\n' "$fn"
-            fails=$((fails + 1))
+            report_failure "$(printf '%s() is not reported by the case-folding config.' "$fn")"
         fi
     done
 
@@ -98,9 +112,8 @@ else
     if [ "$reported" -eq "${#BANNED[@]}" ]; then
         printf 'ok (count): %d report(s) for %d ban(s)\n' "$reported" "${#BANNED[@]}"
     else
-        printf 'FAIL: %d report(s) for %d ban(s) — the fixture and the config have drifted.\n%s\n' \
-            "$reported" "${#BANNED[@]}" "$out"
-        fails=$((fails + 1))
+        report_failure "$(printf '%d report(s) for %d ban(s) — the fixture and the config have drifted.\n%s' \
+            "$reported" "${#BANNED[@]}" "$out")"
     fi
 fi
 
@@ -115,16 +128,13 @@ strict_out="$(cd "$CONSUMER" && "$PHPSTAN" analyse \
     && strict_rc=0 || strict_rc=$?
 
 if [ "$strict_rc" -eq 0 ]; then
-    printf 'FAIL (wiring): the strict tier reported nothing on the case-folding fixture,\n'
-    printf '  so the documented automatic inclusion does not hold.\n%s\n' "$strict_out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'wiring: the strict tier reported nothing on the case-folding fixture,\n  so the documented automatic inclusion does not hold.\n%s' "$strict_out")"
 else
     for fn in "${BANNED[@]}"; do
         if grep -qF "Calling ${fn}() is forbidden" <<<"$strict_out"; then
             printf 'ok (wiring): %s() is reported through strict.neon\n' "$fn"
         else
-            printf 'FAIL (wiring): %s() is not reported through strict.neon.\n%s\n' "$fn" "$strict_out"
-            fails=$((fails + 1))
+            report_failure "$(printf 'wiring: %s() is not reported through strict.neon.\n%s' "$fn" "$strict_out")"
         fi
     done
 fi

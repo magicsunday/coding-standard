@@ -19,6 +19,7 @@ set -euo pipefail
 # path, making ROOT a two-line value that opens nothing.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
+harness_workdir
 
 GATE="$ROOT/bin/check-consumer-config.php"
 FIXTURE="$ROOT/tests/consumer"
@@ -168,9 +169,6 @@ harness_probe_reporters 5 probe_reporters
 
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 # --- phpunit.xml drift classes ---
 mk_case() {
