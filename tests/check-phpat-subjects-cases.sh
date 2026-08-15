@@ -427,6 +427,24 @@ d="$work/no-archtest"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 assert_accepts "$d" "no ArchitectureTest present"
 
+# A PHP identifier may legally carry bytes above 0x7F. With `\w+` and no `/u` the
+# head pattern stopped at the first such byte, so a #[TestRule] method named this
+# way was skipped in silence — in a gate whose docblock says it fails CLOSED. All
+# three widened patterns could be reverted and the suite stayed green until these
+# two cases existed.
+d="$work/rule-name-non-ascii"
+write_class "$d" 'Model/Node.php' 'Vendor\Mod\Model' 'final class' Node
+write_archtest "$d" "$(printf '    #[TestRule]\n    public function pr\xc3\xbcfeSchichten(): Rule\n    {\n        return PHPat::rule()\n            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))\n            ->shouldNot()->dependOn()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->because(%s);\n    }\n' "'\\Nope'" "'\\Model\\Node'" "'Injected.'")"
+assert_rejects "$d" "a #[TestRule] method named with a non-ASCII identifier is analysed, not skipped" "matches no class"
+
+# The bounding twin. The subject search stops at the NEXT `function` declaration;
+# with `\w+` a helper whose name carries such a byte is not a bound, so the search
+# leaks into it and adopts its selector — the case flips from reject to accept.
+d="$work/helper-name-non-ascii"
+write_class "$d" 'Model/Node.php' 'Vendor\Mod\Model' 'final class' Node
+write_archtest "$d" "$(printf '    #[TestRule]\n    public function malformed(): Rule\n    {\n        return PHPat::rule()\n    }\n\n    private function h\xc3\xa4lfer(): Rule\n    {\n        return PHPat::rule()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->shouldNot()->dependOn()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->because(%s);\n    }\n' "'\\Model\\Node'" "'\\Model\\Node'" "'Helper.'")"
+assert_rejects "$d" "a malformed rule does not adopt a non-ASCII-named helper's selector" "could not identify a subject selector"
+
 
 # The report-shape control for THIS binary. Its subject expression is read out of
 # the consumer's ArchitectureTest and interpolated into the report, on the same

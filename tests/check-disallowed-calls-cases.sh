@@ -68,8 +68,22 @@ CONFIG="$ROOT/phpstan/disallowed-calls.neon"
 # Comment lines are stripped first — the file documents an `allowIn` override in a
 # commented example, which would otherwise be parsed as a sixth, duplicate ban.
 mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
-    | grep -oE "function: '[a-z_]+\(\)'" \
-    | sed -E "s/function: '([a-z_]+)\(\)'/\1/")
+    | grep -oE "function: '[a-z0-9_]+\(\)'" \
+    | sed -E "s/function: '([a-z0-9_]+)\(\)'/\1/")
+
+# The extractor's own vocabulary must not bound what it sees. `[a-z_]+` skipped
+# every ban carrying a digit — `md5()`, `crc32()`, `base64_decode()` — which then
+# got no per-function assertion, and the cardinality check below compares against
+# the same truncated list, so it could not notice either. Counting the declared
+# bans structurally is what discriminates; the sibling extractors got this in an
+# earlier round and this one was missed.
+declared_bans="$(grep -vE '^[[:space:]]*#' "$CONFIG" | grep -c "function: '" || true)"
+
+if [ "$declared_bans" -ne "${#BANNED[@]}" ]; then
+    printf 'FAIL: the config declares %s ban(s) but this harness parsed %s — widen the extractor rather than leaving a ban unexercised.\n' \
+        "$declared_bans" "${#BANNED[@]}"
+    exit 2
+fi
 
 if [ "${#BANNED[@]}" -eq 0 ]; then
     printf 'FAIL: no banned functions parsed out of %s — the extraction broke.\n' "$CONFIG"

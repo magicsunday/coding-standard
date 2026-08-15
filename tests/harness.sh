@@ -44,26 +44,26 @@ harness_sourced_from="$PWD"
 # A fixed string matched one spelling; `fails=$((fails+1))`, `((fails++))`,
 # `((fails += 1))` and `let fails+=1` are all report sites and were all invisible.
 #
-# `-E` also removes a portability trap the first version walked into. Whether an
-# UNESCAPED `fails=$((fails + 1))` matches as a basic regular expression depends on
-# the implementation — GNU grep 3.8 treats `$`, `(`, `)` and `+` there as literals
-# and matches; ugrep 7.5.0 does not. An earlier comment recorded the second number
-# as if it were universal and used it to argue the guard could never fire, which is
-# not true of the grep CI runs. Re-derive rather than trust either:
-# `grep -cE "$harness_increment_pattern" tests/harness.sh`.
-harness_increment_pattern='^[^#]*(fails[[:space:]]*=[[:space:]]*\$\(\(|\(\([[:space:]]*fails[[:space:]]*(\+\+|\+=)|let[[:space:]]+fails)'
+# `-E` also removes a portability trap the first version walked into: whether an
+# UNESCAPED `fails=$((fails + 1))` matches as a BASIC regular expression differs
+# between implementations. Observed 2026-08-15, and this is the probe that
+# discriminates — the count command below cannot, it returns the same number under
+# both:
+#
+#     printf 'fails=$((fails + 1))\n' > /tmp/p
+#     grep -c 'fails=$((fails + 1))' /tmp/p     # GNU grep 3.8 -> 1, ugrep 7.5.0 -> 0
+#
+# An earlier comment recorded the ugrep answer as if it were universal and argued
+# from it that the guard could never fire — untrue of the grep CI runs.
+#
+# Comment lines are filtered out by the caller, not by an anchor in this pattern.
+# `^[^#]*` was tried and undercounts: `[^#]*` cannot step over a `#`, so any code
+# line carrying `$#`, `${#arr[@]}` or a `#` in a string before the increment stops
+# matching — measured, four real increment lines counted as one. An UNDERCOUNT
+# leaves `found` at the declared value and the guard passes, which is the silent
+# direction.
+harness_increment_pattern='fails[[:space:]]*=[[:space:]]*\$\(\(|\(\([[:space:]]*(\+\+)?fails[[:space:]]*(\+\+|\+=)?|let[[:space:]]+"?fails'
 
-# This file's own increments are outside every caller's bar, because the bar reads
-# ${BASH_SOURCE[1]}. Asserted here, or the hole reopens with the next shared helper.
-harness_assert_own_increments() {
-    local found rc=0
-    found="$(grep -cE "$harness_increment_pattern" -- "${BASH_SOURCE[0]}")" || rc=$?
-
-    if [ "$rc" -gt 1 ] || [ "$found" -ne "$1" ]; then
-        printf 'FAILED  harness bookkeeping: harness.sh carries %s raw increment(s), expected %s\n' "${found:-?}" "$1" >&2
-        exit 1
-    fi
-}
 
 # Every assertion below reports through a helper that both PRINTS and raises this
 # counter. The exit code is built from it and from nothing else.
@@ -233,6 +233,22 @@ harness_probe_reporters() {
     fi
 }
 
+# harness_settle <reason> <label> <output> <ok-note>
+#
+# The report tail both shared assertions grew once they were converted to the
+# decide-then-report-once shape. One increment site for the whole file, which is
+# also what makes the caller-side bar meaningful: harness.sh's own count is now 1.
+harness_settle() {
+    if [ -n "$1" ]; then
+        printf 'FAILED (%s): %s\n%s\n' "$1" "$2" "$3" >&2
+        fails=$((fails + 1))
+
+        return
+    fi
+
+    printf 'ok (%s): %s\n' "$4" "$2"
+}
+
 # harness_usage_error <gate> <dir> <label> <substring>
 #
 # The could-not-run verdict, exit 2. Kept apart from the drift verdict because a
@@ -259,14 +275,7 @@ harness_usage_error() {
         reason="refused, but not for the tested reason; expected to find: $expected"
     fi
 
-    if [ -n "$reason" ]; then
-        printf 'FAILED (%s): %s\n%s\n' "$reason" "$label" "$out" >&2
-        fails=$((fails + 1))
-
-        return
-    fi
-
-    printf 'ok (refused to run, as expected): %s\n' "$label"
+    harness_settle "$reason" "$label" "$out" 'refused to run, as expected'
 }
 
 # harness_report_is_inert <gate> <dir> <label>
@@ -302,14 +311,7 @@ harness_report_is_inert() {
         reason="a consumer value split the report across $lines lines"
     fi
 
-    if [ -n "$reason" ]; then
-        printf 'FAILED: %s: %s\n%s\n' "$reason" "$label" "$out" >&2
-        fails=$((fails + 1))
-
-        return
-    fi
-
-    printf 'ok (rejected, and the report stayed inert): %s\n' "$label"
+    harness_settle "$reason" "$label" "$out" 'rejected, and the report stayed inert'
 }
 
 # harness_assert_no_stray_increments <expected-count>
@@ -338,12 +340,18 @@ harness_assert_no_stray_increments() {
     # `[ "" -ne 1 ]` errors out and reads as FALSE inside the `if` — the guard passed.
     # Measured: a caller that had cd'd reached the end with three stray increments and
     # exit 0. It is the guard against false greens, so it must not be one.
-    found="$(grep -cE "$harness_increment_pattern" -- "$file")" || rc=$?
-
-    if [ "$rc" -gt 1 ]; then
+    # Readability up front, because the count below runs through a pipe and pipefail
+    # would fold "cannot read" back into "no match" — the fail-open shape this guard
+    # already had once.
+    if [ ! -r "$file" ]; then
         printf 'FAILED  harness bookkeeping: cannot read %s to count its increments\n' "$file" >&2
         exit 1
     fi
+
+    # Occurrences, not lines: two increments on one line are two report sites and
+    # `grep -c` calls them one. Full-line comments are filtered here rather than
+    # anchored away in the pattern.
+    found="$(grep -vE '^[[:space:]]*#' -- "$file" | grep -coE "$harness_increment_pattern")" || rc=$?
 
     if [ "$found" -ne "$1" ]; then
         printf 'FAILED  harness bookkeeping: %s carries %s raw increment(s), expected %s — route a new report site through a probed helper, or raise the number here on purpose\n' \
@@ -352,4 +360,9 @@ harness_assert_no_stray_increments() {
     fi
 }
 
-harness_assert_own_increments 2
+# This file's own increments, through the same helper the callers use. Called from
+# the top level of the file that DEFINES it, `${BASH_SOURCE[1]}` resolves to this
+# file — verified — so a second, near-identical function for the purpose was one
+# copy too many, and the copy had drifted: only the caller-facing one separated
+# "cannot read" from "wrong count".
+harness_assert_no_stray_increments 1
