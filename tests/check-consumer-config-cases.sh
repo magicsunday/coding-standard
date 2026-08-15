@@ -181,13 +181,82 @@ mk_case() {
     printf '%s' "$dir"
 }
 
-d="$(mk_case cov-off)"
-sed -i 's/requireCoverageMetadata="true"/requireCoverageMetadata="false"/' "$d/phpunit.xml"
-assert_rejects "$d" "requireCoverageMetadata disabled" "requireCoverageMetadata"
+# The strict attributes the gate requires on phpunit.xml's root element. Held here
+# INDEPENDENTLY of the gate's own list, and the cases below are generated from this
+# copy — not from the gate's.
+#
+# The distinction is the whole point, and getting it wrong was measured twice on
+# this branch. Generating the cases from `$requiredRootFlags` looks like the
+# derive-from-the-source fix the jscpd and extensionMappings tables got, but it is
+# the opposite: delete a flag from the gate and no case is generated for it, so the
+# suite stays green on a gate that stopped checking. Verified — dropping seven of
+# the nine left the run at exit 0 with 164 cases still passing. Two lists that must
+# agree is the shape that discriminates; one list read twice is not.
+#
+# Two of the nine had a hand-written case before this and the other seven had none,
+# which is how the gate's oldest and largest table came to be its least proven one.
+required_root_flags=(
+    requireCoverageMetadata
+    beStrictAboutCoverageMetadata
+    beStrictAboutOutputDuringTests
+    failOnRisky
+    failOnWarning
+    failOnNotice
+    failOnDeprecation
+    failOnPhpunitDeprecation
+    failOnPhpunitNotice
+)
 
-d="$(mk_case notice-gone)"
-sed -i '/failOnNotice="true"/d' "$d/phpunit.xml"
-assert_rejects "$d" "failOnNotice removed" "failOnNotice"
+mapfile -t gate_root_flags < <(
+    sed -n '/\$requiredRootFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
+        | grep -oE "'[A-Za-z]+'" \
+        | tr -d "'"
+)
+
+if [ "${#gate_root_flags[@]}" -eq 0 ]; then
+    report_failure 'read no $requiredRootFlags entries from bin/check-consumer-config.php'
+fi
+
+# Both directions, so neither list can quietly outlive the other.
+for flag in "${required_root_flags[@]}"; do
+    if ! contains "$flag" "${gate_root_flags[@]}"; then
+        report_failure "the gate no longer requires the strict phpunit.xml attribute $flag"
+    fi
+done
+
+for flag in "${gate_root_flags[@]}"; do
+    if ! contains "$flag" "${required_root_flags[@]}"; then
+        report_failure "the gate requires the phpunit.xml attribute $flag, which these cases do not drive"
+    fi
+done
+
+root_flags=("${required_root_flags[@]}")
+
+# Both failure shapes per flag, because the gate treats them as one requirement
+# ("present AND true") and a check for only one of them would not notice the
+# other arm being dropped.
+for flag in "${root_flags[@]}"; do
+    d="$(mk_case "phpunit-$flag-false")"
+    sed -i "s/$flag=\"true\"/$flag=\"false\"/" "$d/phpunit.xml"
+    assert_rejects "$d" "phpunit.xml with $flag set to false" "$flag"
+
+    d="$(mk_case "phpunit-$flag-gone")"
+    sed -i "/$flag=\"true\"/d" "$d/phpunit.xml"
+    assert_rejects "$d" "phpunit.xml with $flag removed" "$flag"
+done
+
+# The other direction: the canon fixture must actually carry every required flag,
+# or the `sed` above is a no-op and each case passes on an unmodified copy that
+# was already failing for some other reason.
+for flag in "${root_flags[@]}"; do
+    if ! grep -qF "$flag=\"true\"" "$FIXTURE/phpunit.xml"; then
+        report_failure "the canon phpunit.xml does not set $flag=\"true\", so its cases modify nothing"
+    fi
+done
+
+d="$(mk_case source-loose)"
+sed -i 's/restrictNotices="true"/restrictNotices="false"/' "$d/phpunit.xml"
+assert_rejects "$d" "<source> restrictNotices disabled" "restrictNotices"
 
 # --- .phplint.yml: `- php` present but OUTSIDE the extensions block ---
 d="$work/phplint-wrong-block"
