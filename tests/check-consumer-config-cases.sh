@@ -316,6 +316,23 @@ d="$(mk_case phplint-php-under-later-key)"
 printf 'extensions:\n    - phtml\npaths:\n    - php\n' > "$d/.phplint.yml"
 assert_rejects "$d" ".phplint.yml whose \`php\` sits under a later top-level key, not in extensions" "must list"
 
+# The two shapes the column-0 alternative used to swallow, both FALSE ACCEPTS. A
+# dash without whitespace after it is not a block sequence entry: `-foreign:` is a
+# top-level key, and `---` starts a new document. Before the alternative required
+# that whitespace, the scan ran past both and found the sought entry beyond them.
+d="$work/deptrac-dash-key"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'imports:\n-foreign:\n    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\n' > "$d/deptrac.yaml"
+assert_rejects "$d" "deptrac.yaml whose shared import sits under a dash-prefixed key, not in imports" "must import the shared"
+
+d="$work/deptrac-next-document"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'imports:\n---\n- .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\n' > "$d/deptrac.yaml"
+assert_rejects "$d" "deptrac.yaml whose shared import sits in the next YAML document" "must import the shared"
+
+
 # --- deptrac.yaml: shared path present but under the WRONG key (not imports) ---
 d="$work/deptrac-wrong-key"
 mkdir -p "$d"
@@ -1256,6 +1273,32 @@ assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character 
 # The truncation arm. One helper call rather than an open-coded degraded/exit
 # chain: an untruncated report carries 400 `z` and no marker, so the expected
 # substring — 64 `z` followed by the marker — is absent either way it breaks.
+# The size cap, both sides of the bound. 131072 is read and checked; one byte more
+# is reported as itself rather than scanned — the pass is quadratic on an
+# unterminated string literal, and the input is pull-request content.
+d="$(mk_js_case biome-at-the-size-cap)"
+php -r '
+    $body = json_encode(["extends" => ["@magicsunday/coding-standard/biome/base.json"]]);
+    $pad  = 131072 - strlen($body) - 11;
+    file_put_contents($argv[1], substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}");
+' "$d/biome.json"
+assert_rejects "$d" "a biome.json exactly at the size cap is still read and checked" '`"//"` key'
+
+d="$(mk_js_case biome-past-the-size-cap)"
+php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
+assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 128 KiB this gate reads"
+
+# The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;
+# removing `\x7F` from the class left every one of them green.
+d="$(mk_js_case biome-del-in-rule-group)"
+php -r '
+    file_put_contents($argv[1], json_encode([
+        "extends" => ["@magicsunday/coding-standard/biome/base.json"],
+        "linter"  => ["rules" => ["a" . chr(127) . "b" => ["recommended" => false]]],
+    ]));
+' "$d/biome.json"
+assert_rejects "$d" "a DEL byte in a rule-group key is scrubbed" "linter.rules.a?b"
+
 d="$(mk_js_case biome-overlong-rule-group)"
 php -r '
     file_put_contents($argv[1], json_encode([
