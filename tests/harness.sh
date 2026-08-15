@@ -35,6 +35,28 @@ HARNESS_SH_LOADED=1
 # Every work directory this run created, in creation order. See harness_workdir.
 declare -a harness_workdir_raw=()
 
+# Where this file was sourced from, so a caller that cd's can still be located.
+harness_sourced_from="$PWD"
+
+# Every spelling of "increment the counter" that a new report site might use, and
+# code only — a `#` line mentioning the idiom is prose, and counting it would make a
+# caller raise its declared number, which then licenses one real stray increment.
+# A fixed string matched one spelling; `fails=$((fails+1))`, `((fails++))`,
+# `((fails += 1))` and `let fails+=1` are all report sites and were all invisible.
+harness_increment_pattern='^[^#]*(fails[[:space:]]*=[[:space:]]*\$\(\(|\(\([[:space:]]*fails[[:space:]]*(\+\+|\+=)|let[[:space:]]+fails)'
+
+# This file's own increments are outside every caller's bar, because the bar reads
+# ${BASH_SOURCE[1]}. Asserted here, or the hole reopens with the next shared helper.
+harness_assert_own_increments() {
+    local found rc=0
+    found="$(grep -cE "$harness_increment_pattern" -- "${BASH_SOURCE[0]}")" || rc=$?
+
+    if [ "$rc" -gt 1 ] || [ "$found" -ne "$1" ]; then
+        printf 'FAILED  harness bookkeeping: harness.sh carries %s raw increment(s), expected %s\n' "${found:-?}" "$1" >&2
+        exit 1
+    fi
+}
+
 # Every assertion below reports through a helper that both PRINTS and raises this
 # counter. The exit code is built from it and from nothing else.
 fails=0
@@ -213,21 +235,31 @@ harness_probe_reporters() {
 # exists to stop exactly that, and the three had already drifted apart on stdout
 # vs stderr, `FAIL` vs `FAILED`, and branch order.
 harness_usage_error() {
-    local gate="$1" dir="$2" label="$3" expected="$4" out rc
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc reason=''
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
+    # One report site, for the reason harness_report_is_inert states below and this
+    # function did not follow: with an increment behind each arm, the reporter probe
+    # only ever reaches the arm its own fixture takes. Measured — the probe drives a
+    # path that is not a directory, which lands in the substring arm, so deleting the
+    # increment from the exit-code arm left a real gate regression printing FAILED and
+    # the run exiting 0.
     if degraded "$out"; then
-        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out" >&2
-        fails=$((fails + 1))
+        reason='the gate ran degraded — PHP emitted a diagnostic'
     elif [ "$rc" -ne 2 ]; then
-        printf 'FAILED (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$label" "$out" >&2
-        fails=$((fails + 1))
+        reason="expected the usage exit, got exit $rc"
     elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAILED (refused, but not for the tested reason): %s\nexpected to find: %s\n%s\n' "$label" "$expected" "$out" >&2
-        fails=$((fails + 1))
-    else
-        printf 'ok (refused to run, as expected): %s\n' "$label"
+        reason="refused, but not for the tested reason; expected to find: $expected"
     fi
+
+    if [ -n "$reason" ]; then
+        printf 'FAILED (%s): %s\n%s\n' "$reason" "$label" "$out" >&2
+        fails=$((fails + 1))
+
+        return
+    fi
+
+    printf 'ok (refused to run, as expected): %s\n' "$label"
 }
 
 # harness_report_is_inert <gate> <dir> <label>
@@ -286,12 +318,25 @@ harness_report_is_inert() {
 # increment fails here instead of shipping unprobed. Raising the number is a
 # deliberate edit next to the call, not something a new case does by accident.
 harness_assert_no_stray_increments() {
-    local file="${BASH_SOURCE[1]}" found
-    # -F, not a basic regular expression: `grep -c 'fails=$((fails + 1))'` returns 0
-    # against a file that plainly carries the line, so the first version of this
-    # guard could never fire — a guard that guards nothing, which is the class it
-    # was written against. Measured on tests/harness.sh: `-c` gives 0, `-cF` gives 7.
-    found="$(grep -cF 'fails=$((fails + 1))' "$file" || true)"
+    local file="${BASH_SOURCE[1]}" found rc=0
+
+    # Absolute, captured against the cwd this file was SOURCED in. `${BASH_SOURCE[1]}`
+    # is whatever path the caller was invoked with — CI runs `bash tests/<name>.sh`,
+    # i.e. relative — and a caller that `cd`s before reaching here (check-js-configs.sh
+    # does) would hand grep a path that no longer resolves.
+    [ "${file#/}" != "$file" ] || file="$harness_sourced_from/$file"
+
+    # grep exits 1 for "no match" (a legitimate zero) and 2 for "cannot read". Folding
+    # both into `|| true` made an unreadable file produce an empty `found`, whose
+    # `[ "" -ne 1 ]` errors out and reads as FALSE inside the `if` — the guard passed.
+    # Measured: a caller that had cd'd reached the end with three stray increments and
+    # exit 0. It is the guard against false greens, so it must not be one.
+    found="$(grep -cE "$harness_increment_pattern" -- "$file")" || rc=$?
+
+    if [ "$rc" -gt 1 ]; then
+        printf 'FAILED  harness bookkeeping: cannot read %s to count its increments\n' "$file" >&2
+        exit 1
+    fi
 
     if [ "$found" -ne "$1" ]; then
         printf 'FAILED  harness bookkeeping: %s carries %s raw increment(s), expected %s — route a new report site through a probed helper, or raise the number here on purpose\n' \
@@ -299,3 +344,5 @@ harness_assert_no_stray_increments() {
         exit 1
     fi
 }
+
+harness_assert_own_increments 2

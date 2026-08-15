@@ -979,21 +979,27 @@ assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the S
 gate_language_literal="$(grep -oE "foreach \(\['javascript'[^]]*\]" "$ROOT/bin/check-consumer-config.php")" || true
 mapfile -t gate_languages < <(grep -oE "['\"][a-z0-9_-]+['\"]" <<<"$gate_language_literal" | tr -d "'\"")
 
+# Folded into one if/else, because the count needs a literal to count in. Written
+# as two statements, `language_commas="$(grep -o ',' … | wc -l)"` runs on the empty
+# string, grep exits 1, pipefail hands that to a plain assignment and `set -e` kills
+# the run — 14 lines after the `|| true` added for exactly that. The old form was
+# safe by accident: both substitutions sat inside `[ … ]` in an `if` condition,
+# where `set -e` does not apply, and the rewrite moved them out.
+#
+# The mutation that missed it asserted exit 1, which an abort also produces. Assert
+# that the run REACHES `verdict`.
 if [ "${#gate_languages[@]}" -eq 0 ]; then
     report_failure 'read no language names from the gate — the language lockstep did not run'
-fi
+else
+    # Commas are the structural anchor: one fewer than the entries, whatever an
+    # entry is spelled like. Counting quote CHARACTERS was bounded by the very
+    # vocabulary this guard un-bounds — measured, a row written `"vue"` left both
+    # counts unchanged.
+    language_commas="$(grep -o ',' <<<"$gate_language_literal" | wc -l)" || true
 
-# The extractor's own vocabulary must not silently bound what it sees, and the
-# guard that checks this must not be bounded by it either. Counting quote
-# CHARACTERS was — measured, a row written `"vue"` with double quotes left both
-# the extracted count and the quote count unchanged, so the guard stayed silent
-# and the new language shipped unexercised. Commas are the structural anchor: one
-# fewer than the number of entries, whatever an entry is spelled like. The sibling
-# guard below anchors on `=>` for the same reason and did not share the blind spot.
-language_commas="$(grep -o ',' <<<"$gate_language_literal" | wc -l)"
-
-if [ "$((language_commas + 1))" -ne "${#gate_languages[@]}" ]; then
-    report_failure "the language list holds $((language_commas + 1)) entries but this harness parsed ${#gate_languages[@]} — widen the extractor rather than leaving a row unexercised"
+    if [ "$((language_commas + 1))" -ne "${#gate_languages[@]}" ]; then
+        report_failure "the language list holds $((language_commas + 1)) entries but this harness parsed ${#gate_languages[@]} — widen the extractor rather than leaving a row unexercised"
+    fi
 fi
 
 # The languages this harness knows how to drive. A row the gate gains that is not

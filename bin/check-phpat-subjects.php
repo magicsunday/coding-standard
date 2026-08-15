@@ -195,7 +195,13 @@ $violations = [];
 
 // Each rule method: `#[TestRule] … public function <name>(): Rule { … }`. Capture the
 // name and the body up to the matching close so the subject can be read from it.
-preg_match_all('/#\[TestRule\][^;{]*?public\s+function\s+(\w+)\s*\([^)]*\)\s*:\s*Rule\s*\{/', $source, $methodHeads, \PREG_OFFSET_CAPTURE);
+// `[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*`, not `\w+`. A PHP identifier may legally
+// carry bytes above 0x7F — `public function prüfeSchichten(): Rule` is valid — and
+// `\w` without `/u` stops at ASCII, so such a #[TestRule] method matched nothing and
+// was skipped in silence. This file's own header says it fails CLOSED; a subject it
+// never sees is the one way it did not. `/u` is not the fix here: it would make the
+// pattern reject a source file carrying invalid UTF-8 outright.
+preg_match_all('/#\[TestRule\][^;{]*?public\s+function\s+([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)\s*\([^)]*\)\s*:\s*Rule\s*\{/', $source, $methodHeads, \PREG_OFFSET_CAPTURE);
 
 if (count($methodHeads[0]) === 0) {
     $violations[] = 'no #[TestRule] methods found — the ArchitectureTest defines no rules.';
@@ -205,7 +211,7 @@ if (count($methodHeads[0]) === 0) {
 // search is bounded by the NEXT method — not the next #[TestRule] — and a malformed rule
 // missing a `->should(...)` cannot scan through a following helper method and adopt its
 // `->classes(Selector::...)` as the subject (which would break the fail-closed contract).
-preg_match_all('/\bfunction\s+\w+\s*\(/', $source, $methodDecls, \PREG_OFFSET_CAPTURE);
+preg_match_all('/\bfunction\s+[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*\s*\(/', $source, $methodDecls, \PREG_OFFSET_CAPTURE);
 $methodOffsets = array_column($methodDecls[0], 1);
 
 foreach ($methodHeads[1] as $index => $nameMatch) {

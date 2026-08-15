@@ -58,18 +58,16 @@ if (!is_dir($repoRoot)) {
 $violations = [];
 
 /**
- * Records a drift for the final report.
- *
- * @param list<string> $violations
- */
-/**
  * Isolates the indented block that follows a top-level YAML key.
  *
  * A full YAML parse is avoided to keep the gate dependency-free, so the block is
  * matched: every line that belongs to `<key>:` up to the next top-level key. Three
  * line shapes belong to it, and all three are legal YAML that a real parser
  * accepts — an indented entry, a blank line, and a comment or list item written at
- * column 0. Requiring `[ \t]+` on every line truncated the capture at the first of
+ * column 0. The list-item alternative requires whitespace after the dash, which is
+ * what a block sequence entry has: without that it also swallowed `---` (a document
+ * separator, so the scan ran into the next document) and a top-level key whose name
+ * begins with a dash, such as `-foreign:` — both FALSE ACCEPTS, the worse direction. Requiring `[ \t]+` on every line truncated the capture at the first of
  * the other two, so a consumer whose file DID carry the required entry after a
  * blank line was told it did not.
  *
@@ -102,13 +100,18 @@ $yamlBlock = static function (string $contents, string $key): string {
     $normalised = str_ends_with($contents, "\n") ? $contents : $contents . "\n";
 
     $pattern = sprintf(
-        '/^%s\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n|-[^\n]*\n)*)/m',
+        '/^%s\s*:[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*(?:#[^\n]*)?\n|-(?:[ \t][^\n]*)?\n)*)/m',
         preg_quote($key, '/')
     );
 
     return preg_match($pattern, $normalised, $matches) === 1 ? $matches[1] : '';
 };
 
+/**
+ * Records a drift for the final report.
+ *
+ * @param list<string> $violations
+ */
 $fail = static function (array &$violations, string $file, string $detail): void {
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
@@ -598,10 +601,25 @@ if (is_file($deptracFile)) {
 $stripJsonc = static function (string $json): ?string {
     // The string branch matches a COMPLETE literal, so an unterminated one costs
     // a scan to EOF from every quote in the document — quadratic on a file that
-    // is nothing but `\"` repeated. Deliberately not guarded: the input is the
-    // repository's own biome.json/tsconfig.json, written by whoever runs the
-    // gate, so it is a self-inflicted cost rather than an exposure. A size cap
-    // would be a guard for an input nobody else controls.
+    // is nothing but `\"` repeated.
+    //
+    // This IS attacker-reachable, and an earlier version of this comment said the
+    // opposite: it called the input "the repository's own biome.json, written by
+    // whoever runs the gate". The trust model is the one stated in
+    // bin/support/safe-report-value.php — these gates run in the CONSUMER's CI over
+    // pull-request branch content. Nor does `pcre.backtrack_limit` bound it: the
+    // possessive `*+` means each failed attempt is one linear non-backtracking
+    // scan, so there is no backtracking for the limit to catch.
+    //
+    // Measured on php 8.5 through the shipped binary, biome.json only:
+    //
+    //     500 KB of `\"`      34.6 s
+    //     1 MB of `\"`       259   s   (4 m 20 s end-to-end)
+    //     valid 1 MB JSON      0.003 s
+    //
+    // The cap in $loadJsonc is what bounds it. Kept here rather than rewriting the
+    // regex: the quadratic shape is inherent to "scan to EOF from every quote",
+    // and a size limit is both smaller and easier to reason about.
     $stringLiteral = '"(?:\\\\.|[^"\\\\])*+"';
 
     $withoutComments = preg_replace(
@@ -628,20 +646,33 @@ $stripJsonc = static function (string $json): ?string {
 /**
  * Loads a JSONC config.
  *
- * Three outcomes, kept apart because they send the reader to different places:
- * the decoded config, `null` when it does not parse, and `false` when it could
- * not be read at all. Collapsing the last two reports a permissions problem as a
- * syntax error, which is the wrong file to go and fix.
+ * Four outcomes, kept apart because they send the reader to different places:
+ * the decoded config, `null` when it does not parse, `false` when it could not be
+ * read at all, and the byte size as an int when the file is past the size this
+ * gate reads. Collapsing any two of them reports one problem as another, which is
+ * the wrong file to go and fix.
  *
  * @param string $path Path to the config file.
  *
- * @return array<array-key, mixed>|false|null
+ * @return array<array-key, mixed>|false|int|null
  */
-$loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|null|false {
+$loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|int|null|false {
     $contents = $readFile($path);
 
     if ($contents === false) {
         return false;
+    }
+
+    // 128 KiB. See $stripJsonc: an unterminated string literal makes the comment
+    // pass quadratic, and the input is pull-request content in the consumer's CI.
+    // Worst case under this bound is ~1.9 s per pass; above it a real shared-config
+    // stub does not exist — the ones this package ships are a few hundred bytes.
+    // Returned as its own state rather than `false`, which means "cannot be read"
+    // and would send the reader looking at file permissions.
+    $size = strlen($contents);
+
+    if ($size > 131072) {
+        return $size;
     }
 
     // Null here means the PCRE engine failed rather than the document being
@@ -851,6 +882,10 @@ if ($biomeFile !== null) {
         // Unreadable is unconditional: no reader tolerance is in play, the file
         // simply cannot be opened, and that is true whoever wrote it.
         $fail($violations, $label, 'exists but cannot be read.');
+    } elseif (is_int($biomeJson)) {
+        // Also unconditional, and for the same reason: the file is past the size
+        // this gate reads, which is true whoever wrote it.
+        $fail($violations, $label, sprintf('is %d bytes — larger than the 128 KiB this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $biomeJson));
     } elseif ($adopted) {
         // A PARSE failure is gated on adoption, unlike the `"//"` key and unlike
         // an unreadable file, because this reader is not Biome's: it can reject a
@@ -973,6 +1008,10 @@ $tsconfigJson = is_file($tsconfigFile) ? $loadJsonc($tsconfigFile) : null;
 // in — the asymmetry is a bug in the reporting, not a difference between the files.
 if (is_file($tsconfigFile) && ($tsconfigJson === false)) {
     $fail($violations, 'tsconfig.json', 'exists but cannot be read.');
+}
+
+if (is_int($tsconfigJson)) {
+    $fail($violations, 'tsconfig.json', sprintf('is %d bytes — larger than the 128 KiB this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $tsconfigJson));
 }
 
 if ($adopted && is_file($tsconfigFile)) {
