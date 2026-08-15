@@ -161,11 +161,35 @@ const below = (left, right) => {
 
 let failed = false;
 
-for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+// The one derived list in this harness with no non-empty anchor, which the
+// siblings all carry (`mappings`, `jscpd_formats`, `declared`, `tools`,
+// `packed`). Remove the peerDependencies block and the loop runs zero times,
+// `failed` stays false, and the line at the end reports that the ranges agree
+// having compared nothing.
+const peers = Object.entries(pkg.peerDependencies ?? {});
+
+if (peers.length === 0) {
+    console.error("package.json declares no peerDependencies — the range/pin lockstep checked nothing");
+    failed = true;
+}
+
+for (const [name, range] of peers) {
     const pin = pkg.devDependencies?.[name];
 
     if (pin === undefined) {
         console.error(`peerDependencies declares ${name}, but no devDependencies pin proves it`);
+        failed = true;
+        continue;
+    }
+
+    // `segments()` strips everything before the first digit, so it reads `^2.5.5`
+    // and `2.5.5` alike — the comparison below would then approve a devDependency
+    // that is itself a range, and the smoke would install whatever that range
+    // resolves to while reporting the pin as proven. The whole premise of this
+    // block is "the version the smoke actually exercises", so the pin has to be
+    // one version.
+    if (!/^\d+\.\d+\.\d+$/.test(pin)) {
+        console.error(`devDependencies ${name} ${pin} is not an exact version — the smoke can only prove the version it installs`);
         failed = true;
         continue;
     }
@@ -211,6 +235,16 @@ try {
 }
 
 const biomePin = pkg.devDependencies?.["@biomejs/biome"];
+
+// A missing or unparseable version in the URL is a finding, not a skip. The
+// previous form only compared when both sides were present, so deleting the
+// `$schema` key — or an editor rewriting it to `…/schemas/latest/schema.json`
+// — turned the check off silently while the block still printed that the pins
+// agree. Verified with node: all three shapes yield null.
+if (schemaVersion === null) {
+    console.error("biome/base.json carries no $schema pinning an X.Y.Z Biome version");
+    failed = true;
+}
 
 if ((schemaVersion !== null) && (biomePin !== undefined) && (schemaVersion !== biomePin)) {
     console.error(`biome/base.json pins $schema at ${schemaVersion}, but the devDependency proving it is ${biomePin}`);
@@ -357,6 +391,44 @@ rm -f "$schema_absent/biome/base.json"
 manifest_rejects "$schema_absent" \
     "manifest control — an unreadable base config is reported, not skipped" \
     "could not be read for its"
+
+# Present but carrying no X.Y.Z — the arm one step past `schema-absent`, and the
+# one the previous form left open: it compared only when both sides parsed, so a
+# `$schema` an editor rewrote to `…/schemas/latest/schema.json` turned the check
+# off in silence while the block still reported that the pins agree.
+schema_unversioned="$(manifest_fixture schema-unversioned \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
+printf '{"$schema": "https://biomejs.dev/schemas/latest/schema.json"}\n' > "$schema_unversioned/biome/base.json"
+
+manifest_rejects "$schema_unversioned" \
+    "manifest control — a \$schema naming no X.Y.Z version is reported, not skipped" \
+    "carries no \$schema pinning"
+
+# Zero peer ranges must not read as "every peer range agrees". Every other derived
+# list in this harness carries this anchor; this loop was the gap.
+manifest_rejects "$(manifest_fixture peers-absent \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" } }')" \
+    "manifest control — a manifest declaring no peerDependencies is reported" \
+    "declares no peerDependencies"
+
+# A devDependency that is itself a range. `segments()` strips everything before
+# the first digit, so `^2.5.5` and `2.5.5` compare identically — the range would
+# be approved as the pin the smoke proves, while npm installs whatever it
+# resolves to. The fixture writes its own base config, because manifest_fixture
+# derives the $schema from the pin and `schemas/^2.5.5/` would trip the check
+# above instead of this one.
+range_as_pin="$(manifest_fixture range-as-pin \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "^2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
+printf '{"$schema": "https://biomejs.dev/schemas/2.5.5/schema.json"}\n' > "$range_as_pin/biome/base.json"
+
+manifest_rejects "$range_as_pin" \
+    "manifest control — a devDependency range standing in for a pin is reported" \
+    "is not an exact version"
 
 rm -rf "$manifest_fixtures"
 
