@@ -22,8 +22,11 @@
 # all — so dropping one `fails=$((fails + 1))` in either left every case
 # printing FAILED at exit 0. One definition cannot drift from itself.
 
-# Guard against a second source: re-running the probes is harmless, but re-arming
-# the EXIT trap would delete the work directory of whichever caller sourced first.
+# Guard against a second source. Not because of the trap — sourcing arms none, the
+# `trap … EXIT` lives inside harness_workdir and a second source only redefines the
+# function. The damage is `fails=0` below: it discards every failure recorded so
+# far, so a run that had earned exit 1 exits 0. Measured with the guard removed:
+# `fails=7`, source again, `fails=0`.
 if [ -n "${HARNESS_SH_LOADED:-}" ]; then
     return 0
 fi
@@ -44,8 +47,23 @@ fails=0
 # `set -e` aborts on a failing mktemp before it.
 harness_workdir() {
     work="$(mktemp -d)"
+
+    # The trap holds the RAW mktemp path in its own variable, and is armed before
+    # the canonicalisation. Two reasons, and the second is why `trap … "$work"`
+    # alone does not do:
+    #
+    #   - `cd` can fail (a race, a removal, a permission change) and `set -e` then
+    #     aborts with the directory already created. Reproduced.
+    #   - on that path the substitution has ALREADY overwritten `$work` with the
+    #     empty string, so a trap reading `$work` would `rm -rf ""` and leave the
+    #     directory behind — the leak, with a trap that looks like it covers it.
+    #
+    # Not `local`: an EXIT trap fires after the function has returned, where a
+    # local is out of scope.
+    harness_workdir_raw="$work"
+    trap 'rm -rf "$harness_workdir_raw"' EXIT
+
     work="$(CDPATH= cd -- "$work" && pwd)"
-    trap 'rm -rf "$work"' EXIT
 }
 
 # degraded <output>
@@ -60,26 +78,34 @@ degraded() {
 
 # verdict
 #
-# The run's single exit point. Call it BARE — `verdict`, never `verdict || exit 1`
-# — and that is the whole of the contract. A `||` is what breaks it: it marks the
-# left-hand side as tested, which suppresses `set -e` for it, so the earlier
-# `verdict || exit 1` could be edited to `verdict || true` and a run with failures
-# would exit 0 while both probes below stayed green. The defect sat one hop past
-# its own control.
+# The run's single exit point. **The `exit` below is the enforcement — do not turn
+# it into `return`.** That is the opposite of what two earlier versions of this
+# comment claimed, both of which measured only the bare call, which is the one
+# form where the two spellings agree. The full matrix, under `set -euo pipefail`
+# with `fails=3`:
 #
-# `exit` vs `return` inside the function is NOT the distinguishing part, contrary
-# to what an earlier version of this comment claimed. Measured under `set -euo
-# pipefail`, with a bare call and with a line following it, both forms end the
-# script at 1:
+#     call form                exit 1   return 1
+#     verdict                     1        1
+#     verdict || true             1        0     <-- the hole
+#     if verdict; then :; fi      1        0     <-- the hole
+#     ( verdict )                 1        1
+#     verdict | cat               1        1
+#     x=$(verdict)                1        1
 #
-#     for form in exit return; do
-#         printf 'v(){ [ "$f" -ne 0 ] && { %s 1; }; :; }\nf=1\nv\nprintf x\n' "$form" > /tmp/c.sh
-#         bash -c 'set -euo pipefail; . /tmp/c.sh' >/dev/null 2>&1; echo "$form -> $?"
+#     for lib in exit return; do
+#         printf 'fails=0\nverdict(){ [ "$fails" -ne 0 ] && { %s 1; }; :; }\n' "$lib" > /tmp/v.sh
+#         bash -c 'set -euo pipefail; . /tmp/v.sh; fails=3; verdict || true' >/dev/null 2>&1
+#         echo "$lib -> $?"
 #     done
 #
-# `exit` is kept because it states the intent at the point of no return; the
-# probes below prove the function discriminates, and the bare call is what carries
-# that into the script's status.
+# With `exit`, no calling context can neutralise the verdict: `||` marks its left
+# side as tested and suppresses `set -e`, but `exit` leaves the shell rather than
+# the function, so there is nothing left to suppress. With `return`, that same
+# `||` is exactly the hole — and `return` is the idiomatic choice for a sourced
+# library, which is why this needs saying rather than assuming.
+#
+# Callers still use the bare form. It reads as the verdict it is, and it keeps the
+# behaviour identical should this ever become a `return`.
 verdict() {
     if [ "$fails" -ne 0 ]; then
         printf '\n%d case(s) failed.\n' "$fails" >&2
@@ -118,6 +144,16 @@ fi
 # stops calling fails the probe instead of quietly lowering the bar.
 harness_probe_reporters() {
     local expected="$1" driver="$2"
+
+    # The driver is checked BEFORE it is called, because the count is otherwise the
+    # probe's only discriminator: a misspelled or missing driver raises nothing and
+    # is reported as a broken reporting helper — the diagnosis defect this harness
+    # family rejects everywhere else ("rejected, but not for the tested reason").
+    # It fails closed either way; the cost is the reader's next hour.
+    if ! declare -F -- "$driver" >/dev/null; then
+        printf 'FAILED  harness bookkeeping: the probe driver `%s` is not a defined function\n' "$driver" >&2
+        exit 1
+    fi
 
     if ! (
         fails=0
