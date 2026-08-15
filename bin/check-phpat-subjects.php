@@ -156,7 +156,7 @@ foreach ($directory as $file) {
     // in any order) — `final readonly class` is the standard value-object form, so the
     // modifier run must be matched loosely or such a class is missed and its rule is
     // wrongly reported vacuous.
-    if (preg_match('/^((?:(?:final|abstract|readonly)\s+)*)(class|trait|interface|enum)\s+(\w+)/m', $code, $tm) === 1) {
+    if (preg_match('/^((?:(?:final|abstract|readonly)\s+)*)(class|trait|interface|enum)\s+([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)/m', $code, $tm) === 1) {
         $modifiers = $tm[1];
         $kind      = $tm[2];
         $name      = $tm[3];

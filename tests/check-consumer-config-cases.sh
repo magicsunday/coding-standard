@@ -1299,14 +1299,32 @@ assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character 
 d="$(mk_js_case biome-at-the-size-cap)"
 php -r '
     $body = json_encode(["extends" => ["@magicsunday/coding-standard/biome/base.json"]]);
-    $pad  = 131072 - strlen($body) - 11;
-    file_put_contents($argv[1], substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}");
+    $pad  = 131072 - strlen($body) - 8;
+    $out  = substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}";
+
+    // Self-checking: the builder nets +8, and an earlier `- 11` landed three bytes
+    // short — which is exactly the margin that lets `>` survive a mutation to `>=`,
+    // in the case named for that bound.
+    if (strlen($out) !== 131072) {
+        fwrite(STDERR, sprintf("fixture is %d bytes, not the cap\n", strlen($out)));
+        exit(1);
+    }
+
+    file_put_contents($argv[1], $out);
 ' "$d/biome.json"
 assert_rejects "$d" "a biome.json exactly at the size cap is still read and checked" '`"//"` key'
 
 d="$(mk_js_case biome-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
-assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 128 KiB this gate reads"
+assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate reads"
+
+# The tsconfig arm is a separate code path with its own sprintf. Delete the whole
+# `is_int($tsconfigJson)` block and the suite stayed green while the gate printed
+# OK for a tsconfig.json it never read — an int is neither null nor an array, so
+# no later arm catches it.
+d="$(mk_js_case ts-past-the-size-cap)"
+php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
+assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate reads"
 
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;
 # removing `\x7F` from the class left every one of them green.

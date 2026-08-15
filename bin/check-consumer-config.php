@@ -47,6 +47,12 @@ declare(strict_types=1);
 // This is a global-namespace entry script, so built-in functions are called
 // unqualified (a `use function` import would be a no-op here).
 
+// The largest JSONC config this gate will read. Written once: the number, the
+// two report messages and the comment on $stripJsonc were four hand-kept copies.
+// 128 KiB against a measured 2.2 KB for the biggest config this package ships and
+// 5.6 KB for the largest found anywhere on the author's machine — ~23x headroom.
+const MAX_JSONC_BYTES = 131072;
+
 $repoRoot = $argv[1] ?? '.';
 
 if (!is_dir($repoRoot)) {
@@ -135,11 +141,18 @@ require_once __DIR__ . '/support/safe-report-value.php';
  *
  * @return string|false
  */
-$readFile = static function (string $path): string|false {
+$readFile = static function (string $path, ?int $maxBytes = null): string|false {
     set_error_handler(static fn (): bool => true);
 
     try {
-        return file_get_contents($path);
+        // The cap is applied by the READ, not measured after it. Checking
+        // `strlen()` afterwards leaves file_get_contents to materialise the whole
+        // file first, so a 300 MB config ends in `Allowed memory size exhausted`
+        // — exit 255, no gate diagnostic — which is the outcome this function's
+        // scoped handler exists to prevent, reached by the one path the cap was
+        // supposed to close. Appended and defaulted, so the six callers that want
+        // no bound are unchanged.
+        return file_get_contents($path, false, null, 0, $maxBytes ?? \PHP_INT_MAX);
     } finally {
         restore_error_handler();
     }
@@ -692,7 +705,9 @@ $stripJsonc = static function (string $json): ?string {
  * @return array<array-key, mixed>|false|int|null
  */
 $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|int|null|false {
-    $contents = $readFile($path);
+    // One byte past the cap is read, so `> MAX_JSONC_BYTES` can tell "at the
+    // bound" from "past it" without a second stat.
+    $contents = $readFile($path, MAX_JSONC_BYTES + 1);
 
     if ($contents === false) {
         return false;
@@ -704,10 +719,8 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
     // stub does not exist — the ones this package ships are a few hundred bytes.
     // Returned as its own state rather than `false`, which means "cannot be read"
     // and would send the reader looking at file permissions.
-    $size = strlen($contents);
-
-    if ($size > 131072) {
-        return $size;
+    if (strlen($contents) > MAX_JSONC_BYTES) {
+        return strlen($contents);
     }
 
     // Null here means the PCRE engine failed rather than the document being
@@ -920,7 +933,7 @@ if ($biomeFile !== null) {
     } elseif (is_int($biomeJson)) {
         // Also unconditional, and for the same reason: the file is past the size
         // this gate reads, which is true whoever wrote it.
-        $fail($violations, $label, sprintf('is %d bytes — larger than the 128 KiB this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $biomeJson));
+        $fail($violations, $label, sprintf('is %d bytes — larger than the %d bytes this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $biomeJson, MAX_JSONC_BYTES));
     } elseif ($adopted) {
         // A PARSE failure is gated on adoption, unlike the `"//"` key and unlike
         // an unreadable file, because this reader is not Biome's: it can reject a
@@ -1046,7 +1059,7 @@ if (is_file($tsconfigFile) && ($tsconfigJson === false)) {
 }
 
 if (is_int($tsconfigJson)) {
-    $fail($violations, 'tsconfig.json', sprintf('is %d bytes — larger than the 128 KiB this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $tsconfigJson));
+    $fail($violations, 'tsconfig.json', sprintf('is %d bytes — larger than the %d bytes this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $tsconfigJson, MAX_JSONC_BYTES));
 }
 
 if ($adopted && is_file($tsconfigFile)) {
