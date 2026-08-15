@@ -67,6 +67,31 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
     fi
 }
 
+# assert_usage_error <dir> <name> <substring the report must carry>
+#
+# The gate has three exit codes, not two: 2 means it could not run — an unreadable
+# or unparseable package.json, no version, an unreadable README. Asserting those
+# through `assert_rejects` would accept a setup failure as a caught mismatch, and
+# the two must not share a helper for the same reason they do not in the sibling
+# harnesses.
+assert_usage_error() { # <dir> <name> <substring>
+    local out rc
+    out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
+
+    if degraded "$out"; then
+        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 2 ]; then
+        printf 'FAILED (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$2" "$out" >&2
+        fails=$((fails + 1))
+    elif grep -qF "$3" <<<"$out"; then
+        printf 'ok (refused to run, as expected): %s\n' "$2"
+    else
+        printf 'FAILED (refused, but not for the tested reason): %s\nexpected to find: %s\n%s\n' "$2" "$3" "$out" >&2
+        fails=$((fails + 1))
+    fi
+}
+
 mk_case() { # <name> <version> <readme body>
     local dir="$work/$1"
     mkdir -p "$dir"
@@ -83,11 +108,12 @@ mk_case() { # <name> <version> <readme body>
 probe_reporters() {
     local probe="$work/__bookkeeping_probe__"
 
-    assert_accepts "$probe" 'probe'
-    assert_rejects "$probe" 'probe' 'a substring the gate never prints'
+    assert_accepts     "$probe" 'probe'
+    assert_rejects     "$probe" 'probe' 'a substring the gate never prints'
+    assert_usage_error "$probe" 'probe' 'a substring the gate never prints'
 }
 
-harness_probe_reporters 2 probe_reporters
+harness_probe_reporters 3 probe_reporters
 
 # The canon: package.json and both documented pins agree.
 d="$(mk_case canon 1.7.0 'Install with
@@ -137,7 +163,7 @@ d="$work/no-version"
 mkdir -p "$d"
 printf '{\n    "name": "@magicsunday/coding-standard"\n}\n' > "$d/package.json"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
-assert_rejects "$d" "package.json without a version" "no string \`version\`"
+assert_usage_error "$d" "package.json without a version" "no string \`version\`"
 
 # The neighbouring cause, which used to land in the same message: a package.json
 # JSON cannot read at all was reported as one carrying no `version` key, telling
@@ -146,19 +172,19 @@ d="$work/malformed-package-json"
 mkdir -p "$d"
 printf '{\n    "version":\n' > "$d/package.json"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
-assert_rejects "$d" "a package.json that is not valid JSON is reported as unparseable, not as versionless" "package.json is not valid JSON"
+assert_usage_error "$d" "a package.json that is not valid JSON is reported as unparseable, not as versionless" "package.json is not valid JSON"
 
 # An IO failure must report as one rather than as a content defect: without the
 # distinction, a missing file reads as "the README documents no pin".
 d="$work/missing-readme"
 mkdir -p "$d"
 printf '{\n    "version": "1.7.0"\n}\n' > "$d/package.json"
-assert_rejects "$d" "a missing README reports as unreadable, not as a content defect" "/README.md."
+assert_usage_error "$d" "a missing README reports as unreadable, not as a content defect" "/README.md."
 
 d="$work/missing-package-json"
 mkdir -p "$d"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
-assert_rejects "$d" "a missing package.json reports as unreadable" "/package.json."
+assert_usage_error "$d" "a missing package.json reports as unreadable" "/package.json."
 
 # The inline forms this repository's own prose uses. `\S` swallowed the trailing
 # backtick and the closing paren, so a correct README reported a mismatch

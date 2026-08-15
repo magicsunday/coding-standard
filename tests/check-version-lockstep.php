@@ -49,11 +49,20 @@ $read = static function (string $path): string|false {
     }
 };
 
+// Exit codes, held the same way the two shipped gates hold them: 0 is a pass, 1 is
+// the drift verdict, 2 says the gate could not run at all — an unreadable or
+// unparseable package.json, a package.json with no version, an unreadable README.
+// Conflating the two let a setup failure count as a caught mismatch, and the case
+// harness could not tell them apart either; its own comment described a "usage
+// exit" this gate did not have.
+//
+// "README documents no pin" stays at 1 on purpose: the file is readable and
+// well-formed, and losing the documented pin IS the drift this gate reports.
 $packageJsonContents = $read($root . '/package.json');
 
 if ($packageJsonContents === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
-    exit(1);
+    exit(2);
 }
 
 $packageJson = json_decode($packageJsonContents, true);
@@ -65,12 +74,12 @@ $packageJson = json_decode($packageJsonContents, true);
 // the only instruction the reader gets.
 if (!is_array($packageJson)) {
     fwrite(\STDERR, sprintf("%s/package.json is not valid JSON.\n", $root));
-    exit(1);
+    exit(2);
 }
 
 if (!is_string($packageJson['version'] ?? null)) {
     fwrite(\STDERR, "package.json has no string `version`.\n");
-    exit(1);
+    exit(2);
 }
 
 $version = $packageJson['version'];
@@ -78,7 +87,7 @@ $readme  = $read($root . '/README.md');
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));
-    exit(1);
+    exit(2);
 }
 
 // Every documented OCCURRENCE, matched permissively on purpose.
