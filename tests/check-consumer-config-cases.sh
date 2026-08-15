@@ -101,28 +101,6 @@ assert_reports_once() {
     fi
 }
 
-# assert_usage_error <dir> <label> <expected substring>
-#
-# Exit 2 is the gate's usage verdict, deliberately distinct from the drift code —
-# so it cannot go through assert_rejects, which now requires exactly 1.
-assert_usage_error() {
-    local dir="$1" label="$2" expected="$3" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 2 ]; then
-        printf 'FAIL (expected the usage verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
-        fails=$((fails + 1))
-    elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAIL (exit 2, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (usage error on the tested condition): %s\n' "$label"
-    fi
-}
-
 # Membership asked the same way in every direction, so the three set relations
 # below read as one property rather than three spellings of it.
 contains() { # <needle> <haystack…>
@@ -144,57 +122,10 @@ report_failure() { # <message>
     fails=$((fails + 1))
 }
 
-
-# assert_report_is_inert <dir> <label>
-#
-# The report-shape assertion for consumer-controlled bytes. It replaces a
-# per-case if/elif chain that reported through four raw increments outside every
-# probed helper — so dropping one of them turned the control into a print
-# statement at exit 0, the exact state harness.sh exists to rule out. It is a
-# helper so the probe below can drive it.
-#
-# What it asserts, and why not the obvious thing: NOT the absence of the payload
-# text. Once the bytes cannot start a line the text is inert, and demanding its
-# absence would also pass on a gate that quietly stopped reporting the value at
-# all. It asserts the two properties GitHub Actions and a terminal actually key
-# on — no line begins a workflow command, and no ESC survives — plus the line
-# count, because a value that splits the report is how a forged line gets to
-# column 0 in the first place.
-#
-# The earlier form counted lines matching `^  - ` instead. That is backwards: an
-# injected line does not carry that prefix, so the count stayed at 1 while a
-# literal `::notice::forged` sat at column 0. Measured — an escaping change that
-# kept ESC and dropped newlines passed it.
-assert_report_is_inert() { # <dir> <label>
-    local out rc lines reason=''
-    out="$(php "$GATE" "$1" 2>&1)" && rc=0 || rc=$?
-    lines="$(grep -c . <<<"$out")"
-
-    # One report site, not one per arm. With an increment behind each `elif`, the
-    # probe below could only ever reach whichever arm its fixture happens to take
-    # (the usage exit), leaving the other four free to lose theirs unnoticed —
-    # measured. Deciding the reason first and reporting once collapses that.
-    if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
-    elif [ "$rc" -ne 1 ]; then
-        reason="expected the drift verdict, got exit $rc"
-    elif grep -q "$(printf '\033')" <<<"$out"; then
-        reason='an ANSI escape from a consumer value reached the report'
-    elif grep -qE '^::[a-z-]+' <<<"$out"; then
-        reason='a consumer value forged a workflow command at line start'
-    elif [ "$lines" -gt 4 ]; then
-        reason="a consumer value split the report across $lines lines"
-    fi
-
-    if [ -n "$reason" ]; then
-        printf 'FAILED: %s: %s\n%s\n' "$reason" "$2" "$out" >&2
-        fails=$((fails + 1))
-
-        return
-    fi
-
-    printf 'ok (rejected, and the report stayed inert): %s\n' "$2"
-}
+# Thin wrappers over the shared definitions, so the call sites below stay short
+# and the bodies live in one place. These ARE the probed helpers.
+assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
+assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
 # EVERY reporting helper, not one of them. A probe that drives a single helper
 # proves a single helper: measured, dropping the increment from `assert_accepts`
@@ -218,6 +149,12 @@ probe_reporters() {
 }
 
 harness_probe_reporters 6 probe_reporters
+
+# Every increment must sit inside a helper the probe above drives. A report site
+# written inline is the defect that recurred in two consecutive rounds, in a
+# different harness each time, found by a reviewer rather than by a control — so
+# the bar is derived here instead of remembered.
+harness_assert_no_stray_increments 9
 
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"

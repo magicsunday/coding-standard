@@ -73,8 +73,40 @@ harness_workdir() {
 # exited with, so no assertion may read it as one: a crash that prints the
 # asserted substring on its way down would otherwise report `ok`.
 degraded() {
-    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Fatal error|Parse error|Uncaught)' <<<"$1"
+    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)' <<<"$1"
 }
+
+# Both directions, by construction, because nothing else exercises this. No fixture
+# makes a gate emit a PHP diagnostic — the read paths install a scoped error handler
+# — so the pattern is asserted at every assertion helper and was proven at none.
+# Measured: replacing the alternation with German words left three harnesses green.
+#
+# `Recoverable fatal error` is listed separately above: it does not match the
+# `Fatal error` alternative, because the anchor requires the line to START there.
+for harness_degraded_probe in \
+    'PHP Fatal error:  Uncaught Error: x' \
+    'PHP Recoverable fatal error:  Argument 1 passed to f()' \
+    'Warning: Undefined array key 0 in /x on line 1' \
+    'Deprecated: Implicit conversion in /x on line 1'
+do
+    if ! degraded "$harness_degraded_probe"; then
+        printf 'FAILED  harness bookkeeping: degraded() does not recognise `%s`\n' "$harness_degraded_probe" >&2
+        exit 1
+    fi
+done
+
+for harness_degraded_probe in \
+    'ok (accepted): a case label' \
+    'check-consumer-config: OK — every present template copy matches the stable canon.' \
+    '  - phpunit.xml: missing — the strict PHPUnit config is required.'
+do
+    if degraded "$harness_degraded_probe"; then
+        printf 'FAILED  harness bookkeeping: degraded() misreads `%s` as a diagnostic\n' "$harness_degraded_probe" >&2
+        exit 1
+    fi
+done
+
+unset harness_degraded_probe
 
 # verdict
 #
@@ -161,6 +193,102 @@ harness_probe_reporters() {
         [ "$fails" -eq "$expected" ]
     ) >/dev/null 2>&1; then
         printf 'FAILED  harness bookkeeping: a reporting helper does not raise the failure counter\n' >&2
+        exit 1
+    fi
+}
+
+# harness_usage_error <gate> <dir> <label> <substring>
+#
+# The could-not-run verdict, exit 2. Kept apart from the drift verdict because a
+# helper that accepts "any non-zero" lets a setup failure count as a caught
+# violation — which is what tightening the phpat harness first surfaced. Three
+# harnesses had grown their own copy of this within two rounds of the file that
+# exists to stop exactly that, and the three had already drifted apart on stdout
+# vs stderr, `FAIL` vs `FAILED`, and branch order.
+harness_usage_error() {
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc
+    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    if degraded "$out"; then
+        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out" >&2
+        fails=$((fails + 1))
+    elif [ "$rc" -ne 2 ]; then
+        printf 'FAILED (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$label" "$out" >&2
+        fails=$((fails + 1))
+    elif ! grep -qF "$expected" <<<"$out"; then
+        printf 'FAILED (refused, but not for the tested reason): %s\nexpected to find: %s\n%s\n' "$label" "$expected" "$out" >&2
+        fails=$((fails + 1))
+    else
+        printf 'ok (refused to run, as expected): %s\n' "$label"
+    fi
+}
+
+# harness_report_is_inert <gate> <dir> <label>
+#
+# The report-shape assertion for consumer-controlled bytes, shared by the two
+# gates that echo them. It asserts what GitHub Actions and a terminal key on — no
+# line begins a workflow command, no ESC survives — and the line count, since
+# splitting the report is how a forged line reaches column 0.
+#
+# NOT the absence of the payload text: once the bytes cannot start a line the text
+# is inert, and demanding its absence would also pass on a gate that quietly
+# stopped reporting the value at all. An earlier version counted `^  - ` prefixed
+# lines, which is backwards — an injected line does not carry that prefix, so the
+# count stayed at 1 while a literal `::notice::forged` sat at column 0.
+#
+# One report site, not one per arm: with an increment behind each `elif` the probe
+# only ever reaches the arm its own fixture takes, leaving the others free to lose
+# theirs. Measured.
+harness_report_is_inert() {
+    local gate="$1" dir="$2" label="$3" out rc lines reason=''
+    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+    lines="$(grep -c . <<<"$out" || true)"
+
+    if degraded "$out"; then
+        reason='the gate ran degraded — PHP emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif grep -q "$(printf '\033')" <<<"$out"; then
+        reason='an ANSI escape from a consumer value reached the report'
+    elif grep -qE '^::[a-z-]+' <<<"$out"; then
+        reason='a consumer value forged a workflow command at line start'
+    elif [ "$lines" -gt 4 ]; then
+        reason="a consumer value split the report across $lines lines"
+    fi
+
+    if [ -n "$reason" ]; then
+        printf 'FAILED: %s: %s\n%s\n' "$reason" "$label" "$out" >&2
+        fails=$((fails + 1))
+
+        return
+    fi
+
+    printf 'ok (rejected, and the report stayed inert): %s\n' "$label"
+}
+
+# harness_assert_no_stray_increments <expected-count>
+#
+# Counts the raw `fails=$((fails + 1))` sites in the CALLING file and requires the
+# number to be the one declared there. Every increment must sit inside a helper the
+# reporter probe drives; a new report site written inline is the recurring defect
+# this whole file exists against, and it recurred in two consecutive rounds despite
+# that — once per round, in a different harness each time, each found by a reviewer
+# rather than by a control.
+#
+# Deriving the bar rather than hand-maintaining a probe count means a new inline
+# increment fails here instead of shipping unprobed. Raising the number is a
+# deliberate edit next to the call, not something a new case does by accident.
+harness_assert_no_stray_increments() {
+    local file="${BASH_SOURCE[1]}" found
+    # -F, not a basic regular expression: `grep -c 'fails=$((fails + 1))'` returns 0
+    # against a file that plainly carries the line, so the first version of this
+    # guard could never fire — a guard that guards nothing, which is the class it
+    # was written against. Measured on tests/harness.sh: `-c` gives 0, `-cF` gives 7.
+    found="$(grep -cF 'fails=$((fails + 1))' "$file" || true)"
+
+    if [ "$found" -ne "$1" ]; then
+        printf 'FAILED  harness bookkeeping: %s carries %s raw increment(s), expected %s — route a new report site through a probed helper, or raise the number here on purpose\n' \
+            "$file" "$found" "$1" >&2
         exit 1
     fi
 }

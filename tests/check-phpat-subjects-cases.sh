@@ -60,30 +60,9 @@ assert_rejects() {
     fi
 }
 
-# assert_usage_error <dir> <label> <expected substring>
-#
-# This gate has THREE exit codes, not two: 0 is a pass, 1 is the drift verdict,
-# and 2 says the gate could not run — no src/ directory, an unreadable root. The
-# two must not share a helper: `assert_rejects` accepting "any non-zero" was what
-# let a setup failure count as a caught violation, and tightening it to the
-# verdict exit is what surfaced this case.
-assert_usage_error() {
-    local dir="$1" label="$2" expected="$3" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 2 ]; then
-        printf 'FAIL (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
-        fails=$((fails + 1))
-    elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAIL (refused, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (refused to run, as expected): %s\n' "$label"
-    fi
-}
+# Thin wrappers over the shared definitions. These ARE the probed helpers.
+assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
+assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
 # Both reporters, driven down their failing path. A path that is not a directory
 # is all it takes: the gate answers that with a non-verdict exit, so `accepts`
@@ -91,12 +70,19 @@ assert_usage_error() {
 probe_reporters() {
     local probe="$ROOT/__bookkeeping_probe__"
 
-    assert_accepts     "$probe" 'probe'
-    assert_rejects     "$probe" 'probe' 'a substring the gate never prints'
-    assert_usage_error "$probe" 'probe' 'a substring the gate never prints'
+    assert_accepts         "$probe" 'probe'
+    assert_rejects         "$probe" 'probe' 'a substring the gate never prints'
+    assert_usage_error     "$probe" 'probe' 'a substring the gate never prints'
+    assert_report_is_inert "$probe" 'probe'
 }
 
-harness_probe_reporters 3 probe_reporters
+harness_probe_reporters 4 probe_reporters
+
+# Every increment must sit inside a helper the probe above drives. A report site
+# written inline is the defect that recurred in two consecutive rounds, in a
+# different harness each time, found by a reviewer rather than by a control — so
+# the bar is derived here instead of remembered.
+harness_assert_no_stray_increments 5
 
 # write_class <dir> <relpath-under-src> <namespace> <kind> <name>
 write_class() {
@@ -477,26 +463,57 @@ mkdir -p "$d/tests/Architecture"
     printf '    }\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 
-out="$(php "$GATE" "$d" 2>&1)" && rc=0 || rc=$?
-reason=''
+assert_report_is_inert "$d" 'a classname subject carrying control characters'
 
-if degraded "$out"; then
-    reason='the gate ran degraded — PHP emitted a diagnostic'
-elif [ "$rc" -ne 1 ]; then
-    reason="expected the drift verdict, got exit $rc"
-elif grep -q "$(printf '\033')" <<<"$out"; then
-    reason='an ANSI escape from a consumer subject reached the report'
-elif grep -qE '^::[a-z-]+' <<<"$out"; then
-    reason='a consumer subject forged a workflow command at line start'
-elif [ "$(grep -c . <<<"$out")" -gt 4 ]; then
-    reason="a consumer subject split the report across $(grep -c . <<<"$out") lines"
-fi
+# The other two consumer-controlled report sites. Measured: dropping the guard at
+# either of them left the whole suite green while only the classname site was
+# pinned — so the claim "every report site a consumer controls" held for the code
+# and not for the proof.
+d="$work/report-injection-namespace"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::inNamespace('Vendor\\Mod\\Nope\033[2K\n"
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf "check-phpat-subjects: OK'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
 
-if [ -n "$reason" ]; then
-    printf 'FAIL: %s\n%s\n' "$reason" "$out"
-    fails=$((fails + 1))
-else
-    printf 'ok (rejected, and the report stayed inert): %s\n' 'a subject expression carrying control characters'
-fi
+assert_report_is_inert "$d" 'an inNamespace subject carrying control characters'
+
+# The fail-closed arm: an argument the gate cannot resolve is echoed back verbatim,
+# and a concatenation is exactly what reaches it.
+d="$work/report-injection-argument"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf '            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . "\033[2K\n'
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf 'check-phpat-subjects: OK"))\n'
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'an unresolvable argument carrying control characters'
 
 verdict

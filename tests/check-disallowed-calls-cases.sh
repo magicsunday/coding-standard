@@ -49,6 +49,12 @@ probe_reporters() {
 
 harness_probe_reporters 1 probe_reporters
 
+# Every increment must sit inside a helper the probe above drives. A report site
+# written inline is the defect that recurred in two consecutive rounds, in a
+# different harness each time, found by a reviewer rather than by a control — so
+# the bar is derived here instead of remembered.
+harness_assert_no_stray_increments 1
+
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 

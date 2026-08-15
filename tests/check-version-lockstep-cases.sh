@@ -67,31 +67,6 @@ assert_rejects() { # <dir> <name> <substring the report must carry>
     fi
 }
 
-# assert_usage_error <dir> <name> <substring the report must carry>
-#
-# The gate has three exit codes, not two: 2 means it could not run — an unreadable
-# or unparseable package.json, no version, an unreadable README. Asserting those
-# through `assert_rejects` would accept a setup failure as a caught mismatch, and
-# the two must not share a helper for the same reason they do not in the sibling
-# harnesses.
-assert_usage_error() { # <dir> <name> <substring>
-    local out rc
-    out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
-
-    if degraded "$out"; then
-        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 2 ]; then
-        printf 'FAILED (expected the usage exit, got exit %s): %s\n%s\n' "$rc" "$2" "$out" >&2
-        fails=$((fails + 1))
-    elif grep -qF "$3" <<<"$out"; then
-        printf 'ok (refused to run, as expected): %s\n' "$2"
-    else
-        printf 'FAILED (refused, but not for the tested reason): %s\nexpected to find: %s\n%s\n' "$2" "$3" "$out" >&2
-        fails=$((fails + 1))
-    fi
-}
-
 mk_case() { # <name> <version> <readme body>
     local dir="$work/$1"
     mkdir -p "$dir"
@@ -99,6 +74,9 @@ mk_case() { # <name> <version> <readme body>
     printf '%s\n' "$3" > "$dir/README.md"
     printf '%s' "$dir"
 }
+
+# Thin wrapper over the shared definition. This IS the probed helper.
+assert_usage_error() { harness_usage_error "$gate" "$@"; }
 
 # BOTH reporters, driven down their failing path. One call proves one helper —
 # measured on a sibling, where a probe covering only `assert_rejects` stayed green
@@ -114,6 +92,12 @@ probe_reporters() {
 }
 
 harness_probe_reporters 3 probe_reporters
+
+# Every increment must sit inside a helper the probe above drives. A report site
+# written inline is the defect that recurred in two consecutive rounds, in a
+# different harness each time, found by a reviewer rather than by a control — so
+# the bar is derived here instead of remembered.
+harness_assert_no_stray_increments 5
 
 # The canon: package.json and both documented pins agree.
 d="$(mk_case canon 1.7.0 'Install with

@@ -51,6 +51,9 @@ probe_reporters() {
 
 harness_probe_reporters 1 probe_reporters
 
+# See the sibling harnesses: the bar is derived, not remembered.
+harness_assert_no_stray_increments 1
+
 # One definition per tool. A control only proves anything if it runs the exact
 # invocation the green run does, and a copy-paste only promises that.
 biome_ci() { npx --no-install biome ci --error-on-warnings --colors=off . >"$1" 2>&1; }
