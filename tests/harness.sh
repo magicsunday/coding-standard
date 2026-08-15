@@ -32,6 +32,9 @@ if [ -n "${HARNESS_SH_LOADED:-}" ]; then
 fi
 HARNESS_SH_LOADED=1
 
+# Every work directory this run created, in creation order. See harness_workdir.
+declare -a harness_workdir_raw=()
+
 # Every assertion below reports through a helper that both PRINTS and raises this
 # counter. The exit code is built from it and from nothing else.
 fails=0
@@ -59,9 +62,13 @@ harness_workdir() {
     #     directory behind — the leak, with a trap that looks like it covers it.
     #
     # Not `local`: an EXIT trap fires after the function has returned, where a
-    # local is out of scope.
-    harness_workdir_raw="$work"
-    trap 'rm -rf "$harness_workdir_raw"' EXIT
+    # local is out of scope. An ARRAY, and the trap re-armed over all of it,
+    # because bash replaces an EXIT trap rather than chaining it — a second call
+    # in one shell would otherwise install a trap that removes only the second
+    # path and leak the first. Measured. No caller does that today; every harness
+    # is its own process and calls this once.
+    harness_workdir_raw+=("$work")
+    trap 'rm -rf -- "${harness_workdir_raw[@]}"' EXIT
 
     work="$(CDPATH= cd -- "$work" && pwd)"
 }

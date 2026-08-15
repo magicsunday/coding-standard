@@ -28,9 +28,11 @@ declare(strict_types=1);
  * The exit code still carries the real verdict, which is what keeps this log
  * integrity rather than a gate bypass.
  *
- * Shared rather than duplicated because two shipped binaries need it. It is a plain
- * `require` of a closure rather than a class: both entry scripts run in the global
- * namespace by design, and the package autoloads no runtime code.
+ * A global function rather than a closure in a variable: it is then resolvable by
+ * PHPStan and by an IDE across the `require` boundary, which matters concretely
+ * while #47 is open and nothing analyses `bin/` beyond a syntax check. A namespaced
+ * class was weighed and rejected — both entry scripts run in the global namespace
+ * by design, and the package autoloads no runtime code.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -54,8 +56,8 @@ declare(strict_types=1);
  *
  * @return string
  */
-$safeReportValue = static function (int|string $value): string {
+function safeReportValue(int|string $value): string {
     $clean = preg_replace('/[\x00-\x1F\x7F]/', '?', (string) $value) ?? '?';
 
     return strlen($clean) > 64 ? substr($clean, 0, 64) . '…' : $clean;
-};
+}

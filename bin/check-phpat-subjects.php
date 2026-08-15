@@ -53,7 +53,7 @@ declare(strict_types=1);
 
 // $safeReportValue — shared with bin/check-consumer-config.php. A consumer's phpat
 // subject expression reaches this gate's report, on the same trust boundary.
-require __DIR__ . '/support/safe-report-value.php';
+require_once __DIR__ . '/support/safe-report-value.php';
 
 $repoRoot = $argv[1] ?? '.';
 
@@ -262,14 +262,14 @@ foreach ($methodHeads[1] as $index => $nameMatch) {
     }
 
     if ($resolved === null) {
-        $violations[] = sprintf('%s: could not resolve the %s() argument `%s` (fail-closed).', $ruleName, $selector, $safeReportValue($argument));
+        $violations[] = sprintf('%s: could not resolve the %s() argument `%s` (fail-closed).', $ruleName, $selector, safeReportValue($argument));
 
         continue;
     }
 
     if ($selector === 'inNamespace') {
         if (!$namespaceHasClass($inventory, $resolved)) {
-            $violations[] = sprintf('%s: subject inNamespace(%s) matches no class — a vacuous rule (a trait-only or empty namespace enforces nothing).', $ruleName, $safeReportValue($resolved));
+            $violations[] = sprintf('%s: subject inNamespace(%s) matches no class — a vacuous rule (a trait-only or empty namespace enforces nothing).', $ruleName, safeReportValue($resolved));
         }
 
         continue;
@@ -279,7 +279,7 @@ foreach ($methodHeads[1] as $index => $nameMatch) {
         $kind = $inventory[$resolved] ?? null;
 
         if (($kind !== 'class') && ($kind !== 'abstract-class')) {
-            $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', $ruleName, $safeReportValue($resolved));
+            $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', $ruleName, safeReportValue($resolved));
         }
 
         continue;

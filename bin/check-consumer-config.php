@@ -115,7 +115,7 @@ $fail = static function (array &$violations, string $file, string $detail): void
 
 // $safeReportValue — shared with bin/check-phpat-subjects.php, which needs the
 // same guard on the same trust boundary. Required rather than duplicated.
-require __DIR__ . '/support/safe-report-value.php';
+require_once __DIR__ . '/support/safe-report-value.php';
 
 
 /**
@@ -219,7 +219,7 @@ if ($phpunitFile === null) {
             }
 
             if ((string) $value !== 'true') {
-                $fail($violations, 'phpunit.xml', sprintf('strict flag `%s` must be "true", is "%s".', $flag, $safeReportValue((string) $value)));
+                $fail($violations, 'phpunit.xml', sprintf('strict flag `%s` must be "true", is "%s".', $flag, safeReportValue((string) $value)));
             }
         }
 
@@ -889,7 +889,7 @@ if ($biomeFile !== null) {
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
                 if (is_array($override)) {
-                    $baseScopes[] = [sprintf('overrides[%s].', $safeReportValue($index)), $override];
+                    $baseScopes[] = [sprintf('overrides[%s].', safeReportValue($index)), $override];
                 }
             }
         }
@@ -941,7 +941,7 @@ if ($biomeFile !== null) {
 
                 foreach ($topLevelRules as $group => $groupRules) {
                     if (is_array($groupRules)) {
-                        $ruleScopes[] = [sprintf('linter.rules.%s', $safeReportValue($group)), $groupRules];
+                        $ruleScopes[] = [sprintf('linter.rules.%s', safeReportValue($group)), $groupRules];
                     }
                 }
             }
