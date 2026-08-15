@@ -463,15 +463,44 @@ if (is_file($editorconfigFile)) {
                 continue;
             }
 
-            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $matches) === 1) {
+            // `explode`, not `/^([^=]+?)\s*=\s*(.*)$/`. That pattern was quadratic on
+            // consumer-controlled bytes, which is the same trust boundary
+            // bin/support/safe-report-value.php describes — and unlike the JSONC
+            // scan it had no size cap at all. `[^=]+?` is lazy and its class
+            // INCLUDES whitespace, so it and the following `\s*` overlap: on a line
+            // whose first `=` sits behind a whitespace run, the engine expands one
+            // byte at a time and `\s*` re-consumes and backtracks the whole run at
+            // every position. Θ(W²), and `pcre.backtrack_limit` never fires —
+            // `preg_match` returns 1 with `No error` at every size below.
+            //
+            // Measured end-to-end through this binary on php 8.5, `.editorconfig`
+            // holding one line of `a` + W spaces + `x=y`:
+            //
+            //      64 KiB     3.04 s        ->  0.10 s
+            //     256 KiB    34.56 s        ->  0.11 s
+            //       1 MiB   380.85 s        ->  0.10 s   (flat)
+            //
+            // A size cap would bound this to ~10 s; splitting at the first `=`
+            // removes the shape instead, and is shorter than the regex it replaces.
+            $pair = explode('=', $trimmed, 2);
+
+            if ((count($pair) === 2) && (trim($pair[0]) !== '')) {
+                // The charlist is spelled out because PHP's default omits `\x0C`
+                // while PCRE's `\s` includes it — so the regex this replaces DID
+                // strip a form feed around a key or value and `trim()` alone would
+                // not. Measured over a 17-line corpus of real and hostile lines,
+                // that is the one shape where the two disagree, and stripping it is
+                // the answer the EditorConfig spec gives ("trim whitespace around
+                // the key and the value").
+                //
                 // mb_ with an explicit encoding, not the byte-wise pair: this
                 // package's own phpstan/disallowed-calls.neon bans strtolower()
                 // for consumers, and a gate that ships a ban has no business
                 // being the exception to it. EditorConfig keys are ASCII by
                 // grammar, so the two agree on every real input — which is why it
                 // survived here unnoticed, not a reason to keep it.
-                $key   = mb_strtolower(trim($matches[1]), 'UTF-8');
-                $value = mb_strtolower(trim($matches[2]), 'UTF-8');
+                $key   = mb_strtolower(trim($pair[0], " \t\n\r\0\x0B\x0C"), 'UTF-8');
+                $value = mb_strtolower(trim($pair[1], " \t\n\r\0\x0B\x0C"), 'UTF-8');
 
                 if ($current === null) {
                     $preamble[$key] = $value;

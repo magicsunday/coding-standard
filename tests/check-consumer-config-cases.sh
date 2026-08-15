@@ -253,6 +253,29 @@ extensions:
 YML
 assert_rejects "$d" ".phplint.yml with php under path, not extensions" "\`extensions:\` block"
 
+# A .editorconfig whose first `=` sits behind a long whitespace run. The pattern
+# this replaced was Θ(W²) — measured end-to-end at 34.56 s for a 256 KiB run, and
+# 380 s for 1 MiB, on a file with no size cap. Without a TIME assertion the case
+# cannot fail on the defect: the verdict is identical either way, only the wait
+# changes. Five seconds is two orders of magnitude above the fixed form (~0.1 s)
+# and two below the shape it guards against.
+d="$(mk_case editorconfig-whitespace-run)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "root = true\n[*]\nindent_style = space\nindent_size = 4\n[{Makefile,*.mk}]\nindent_style = tab\na"
+        . str_repeat(" ", 262144) . "x=y\n"
+    );
+' "$d/.editorconfig"
+
+editorconfig_started="$(date +%s)"
+assert_accepts "$d" ".editorconfig carrying a 256 KiB whitespace run before its first \`=\`"
+editorconfig_elapsed="$(( $(date +%s) - editorconfig_started ))"
+
+if [ "$editorconfig_elapsed" -gt 5 ]; then
+    report_failure "the .editorconfig parse took ${editorconfig_elapsed}s on a 256 KiB whitespace run — the quadratic shape is back"
+fi
+
 # --- deptrac.yaml: present but dropping the shared import (silent arch-drop) ---
 d="$work/deptrac-no-import"
 mkdir -p "$d"
