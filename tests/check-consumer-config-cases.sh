@@ -1286,13 +1286,6 @@ d="$(mk_case phpunit-control-chars-in-value)"
 sed -i 's/failOnRisky="true"/failOnRisky="false\&#10;::error::forged\&#10;  - phpunit.xml: OK"/' "$d/phpunit.xml"
 assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character reference'
 
-# The truncation arm, which nothing reached: the payloads above are well under
-# the bound, so the ternary took its else branch in every case and deleting the
-# cap entirely stayed green. A consumer otherwise controls the report's length —
-# measured on the phpunit path, 5000 bytes in produced 5224 bytes out.
-# The truncation arm. One helper call rather than an open-coded degraded/exit
-# chain: an untruncated report carries 400 `z` and no marker, so the expected
-# substring — 64 `z` followed by the marker — is absent either way it breaks.
 # The size cap, both sides of the bound. 131072 is read and checked; one byte more
 # is reported as itself rather than scanned — the pass is quadratic on an
 # unterminated string literal, and the input is pull-request content.
@@ -1337,6 +1330,12 @@ php -r '
 ' "$d/biome.json"
 assert_rejects "$d" "a DEL byte in a rule-group key is scrubbed" "linter.rules.a?b"
 
+# The truncation arm, which nothing reached: the payloads above are well under the
+# bound, so the ternary took its else branch in every case and deleting the cap
+# entirely stayed green. A consumer otherwise controls the report's length —
+# measured on the phpunit path, 5000 bytes in produced 5224 bytes out. One helper
+# call rather than an open-coded chain: an untruncated report carries 400 `z` and
+# no marker, so the expected substring is absent either way it breaks.
 d="$(mk_js_case biome-overlong-rule-group)"
 php -r '
     file_put_contents($argv[1], json_encode([

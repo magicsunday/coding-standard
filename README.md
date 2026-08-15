@@ -493,7 +493,7 @@ existed would red every repository that ships a `biome.json` today — on the ve
 that first delivers the check, for a link they never claimed to have. Align first,
 enforce second, exactly as the template gate itself was staged.
 
-Three reports do **not** wait for adoption, each because it names a defect on the
+Four reports do **not** wait for adoption, each because it names a defect on the
 file's own terms rather than a missing link:
 
 - a `"//"` key in the Biome config — it makes the file unloadable for Biome whether or
@@ -504,7 +504,10 @@ file's own terms rather than a missing link:
 - a `package.json` that cannot be read or does not parse, **in a repository that has a
   `biome.json` or `tsconfig.json` at all** — that file *is* the adoption probe, so
   treating a broken one as "has not adopted" would switch the whole JS/TS contract off
-  precisely when the repository's own tooling is in an unknown state. A repository with
+  precisely when the repository's own tooling is in an unknown state;
+- a `biome.json`/`biome.jsonc` or `tsconfig.json` past the size this gate reads — the
+  file is not scanned at all, so nothing downstream of it was checked, and that is
+  true whoever wrote it. A repository with
   neither config is not probed for the JS/TS contract in the first place, so nothing is
   reported there.
 

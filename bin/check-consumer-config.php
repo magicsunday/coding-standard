@@ -70,10 +70,13 @@ $violations = [];
  * matched: every line that belongs to `<key>:` up to the next top-level key. Three
  * line shapes belong to it, and all three are legal YAML that a real parser
  * accepts — an indented entry, a blank line, and a comment or list item written at
- * column 0. The list-item alternative requires whitespace after the dash, which is
- * what a block sequence entry has: without that it also swallowed `---` (a document
- * separator, so the scan ran into the next document) and a top-level key whose name
- * begins with a dash, such as `-foreign:` — both FALSE ACCEPTS, the worse direction. Requiring `[ \t]+` on every line truncated the capture at the first of
+ * column 0. The list-item alternative requires whitespace after the dash OR the end
+ * of the line — what a block sequence entry has, including an empty one. Without
+ * that it also swallowed `---` (a document separator, so the scan ran into the next
+ * document) and a top-level key whose name begins with a dash, such as `-foreign:`
+ * — both FALSE ACCEPTS, the worse direction. Enforcing the shorter rule and dropping
+ * the `?` would break the capture at a bare `-` line, which is the truncation class
+ * two paragraphs up. Requiring `[ \t]+` on every line truncated the capture at the first of
  * the other two, so a consumer whose file DID carry the required entry after a
  * blank line was told it did not.
  *
@@ -715,8 +718,12 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
 
     // 128 KiB. See $stripJsonc: an unterminated string literal makes the comment
     // pass quadratic, and the input is pull-request content in the consumer's CI.
-    // Worst case under this bound is ~1.9 s per pass; above it a real shared-config
-    // stub does not exist — the ones this package ships are a few hundred bytes.
+    // Above it a real shared-config stub does not exist: measured, the largest
+    // `biome.json`/`tsconfig.json` anywhere on the author's machine is 5649 bytes
+    // and the ones this package ships are 2203 and 626 — roughly 23x headroom. The
+    // worst case UNDER the bound is not restated here; an earlier version put a
+    // number on it that neither carried a derivation nor squared with the 34 s the
+    // mutation of the neighbouring case measures at 140005 bytes.
     // Returned as its own state rather than `false`, which means "cannot be read"
     // and would send the reader looking at file permissions.
     if (strlen($contents) > MAX_JSONC_BYTES) {

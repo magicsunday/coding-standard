@@ -485,6 +485,11 @@ assert_report_is_inert "$d" 'a classname subject carrying control characters'
 # either of them left the whole suite green while only the classname site was
 # pinned — so the claim "every report site a consumer controls" held for the code
 # and not for the proof.
+#
+# `$ruleName` and `$selector` stay unwrapped on purpose and are NOT covered here:
+# both come from a `(\w+)` capture, so they cannot carry a newline, an ESC or a
+# leading `::`. What they can carry is length — that is a log-volume question, not
+# an injection one, and the injection property is what these cases pin.
 d="$work/report-injection-namespace"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
 mkdir -p "$d/tests/Architecture"
