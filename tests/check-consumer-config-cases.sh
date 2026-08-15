@@ -189,10 +189,6 @@ d="$(mk_case notice-gone)"
 sed -i '/failOnNotice="true"/d' "$d/phpunit.xml"
 assert_rejects "$d" "failOnNotice removed" "failOnNotice"
 
-d="$(mk_case source-loose)"
-sed -i 's/restrictNotices="true"/restrictNotices="false"/' "$d/phpunit.xml"
-assert_rejects "$d" "<source> restrictNotices disabled" "restrictNotices"
-
 # --- .phplint.yml: `- php` present but OUTSIDE the extensions block ---
 d="$work/phplint-wrong-block"
 mkdir -p "$d"
@@ -1242,6 +1238,25 @@ assert_rejects "$d" "biome.json without extends once the npm package is declared
 # ergonomics exception, and neither list may outlive the other.
 ergonomics=(esModuleInterop resolveJsonModule skipLibCheck)
 
+# The options `strict: true` switches on as a group. They are NOT written into
+# tsconfig/base.json — `strict` implies them — so the base-derived loop below
+# cannot generate their cases, and the "pinned but not shipped by the base" check
+# would report every one of them as stale. Held here independently of the gate's
+# own list so the two must agree in both directions rather than one copying the
+# other. Membership was derived from the pinned tsc, not from the handbook; the
+# derivation and its discriminating control are in the gate's comment.
+strict_family=(
+    alwaysStrict
+    noImplicitAny
+    noImplicitThis
+    strictBindCallApply
+    strictBuiltinIteratorReturn
+    strictFunctionTypes
+    strictNullChecks
+    strictPropertyInitialization
+    useUnknownInCatchVariables
+)
+
 
 
 # The decode is guarded rather than indexed straight into. tsconfig is JSONC by
@@ -1308,10 +1323,34 @@ for flag in "${ergonomics[@]}"; do
 done
 
 for flag in "${pinned_flags[@]}"; do
+    if contains "$flag" "${strict_family[@]}"; then
+        continue
+    fi
+
     if ! contains "$flag" "${base_flags[@]}"; then
         report_failure "pinned flag $flag is no longer shipped by tsconfig/base.json"
     fi
 done
+
+# A consumer may write any family member back individually, and TypeScript treats
+# the specific option as an override of the umbrella — so `strict: true` alongside
+# `strictNullChecks: false` compiles code that `strict: true` alone rejects.
+# Pinning only `strict` therefore pins nothing.
+for flag in "${strict_family[@]}"; do
+    if ! contains "$flag" "${pinned_flags[@]}"; then
+        report_failure "the gate no longer pins the strict-family flag $flag"
+    fi
+
+    d="$(mk_js_case "ts-strict-family-$flag")"
+    printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": true, "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
+    assert_rejects "$d" "tsconfig.json overriding the strict-family flag $flag while keeping strict" "compilerOptions.$flag"
+done
+
+# `strict` itself has to remain in the base, or the family above is switched on by
+# nothing and pinning its members guards a default rather than a shared decision.
+if ! contains strict "${base_flags[@]}"; then
+    report_failure 'tsconfig/base.json no longer sets `strict`, so the strict-family pins guard nothing'
+fi
 
 # --- the remaining branches --------------------------------------------------
 

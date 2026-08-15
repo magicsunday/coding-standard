@@ -929,8 +929,31 @@ if ($adopted && is_file($tsconfigFile)) {
         // `resolveJsonModule` and `skipLibCheck` are ergonomics, not strictness —
         // a consumer turning skipLibCheck off is stricter, not looser — so they
         // are deliberately left free, as are module/target/lib/jsx and paths.
+        //
+        // The nine after `strict` are the family `strict` switches on as a group,
+        // and each may be written back individually — TypeScript treats the
+        // specific option as an override of the umbrella, so pinning only `strict`
+        // pins nothing. Measured with the tsc this package proves against (7.0.2):
+        //
+        //     printf 'export function len(s: string|null): number { return s.length; }' > src/index.ts
+        //     # {"strict":true}                            -> error TS18047: 's' is possibly 'null'
+        //     # {"strict":true,"strictNullChecks":false}   -> exit 0
+        //
+        // The membership list is derived the same way rather than copied from the
+        // handbook: each name below is rejected by tsc as an unknown option if it
+        // ever goes away, and `notARealOption` was run through the same probe to
+        // prove the probe discriminates.
         $pinnedFlags = [
             'strict',
+            'alwaysStrict',
+            'noImplicitAny',
+            'noImplicitThis',
+            'strictBindCallApply',
+            'strictBuiltinIteratorReturn',
+            'strictFunctionTypes',
+            'strictNullChecks',
+            'strictPropertyInitialization',
+            'useUnknownInCatchVariables',
             'noUncheckedIndexedAccess',
             'exactOptionalPropertyTypes',
             'noImplicitOverride',
