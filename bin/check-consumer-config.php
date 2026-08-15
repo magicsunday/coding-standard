@@ -420,8 +420,14 @@ if (is_file($editorconfigFile)) {
             }
 
             if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $trimmed, $m) === 1) {
-                $key   = strtolower(trim($m[1]));
-                $value = strtolower(trim($m[2]));
+                // mb_ with an explicit encoding, not the byte-wise pair: this
+                // package's own phpstan/disallowed-calls.neon bans strtolower()
+                // for consumers, and a gate that ships a ban has no business
+                // being the exception to it. EditorConfig keys are ASCII by
+                // grammar, so the two agree on every real input — which is why it
+                // survived here unnoticed, not a reason to keep it.
+                $key   = mb_strtolower(trim($m[1]), 'UTF-8');
+                $value = mb_strtolower(trim($m[2]), 'UTF-8');
 
                 if ($current === null) {
                     $preamble[$key] = $value;
