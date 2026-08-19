@@ -306,12 +306,13 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$COMPOSED_ARG_RULE"
 assert_rejects "$d" "composed self::NAMESPACE_ROOT . self::CONST fails closed" "could not resolve"
 
-# --- REJECT: a rule the head pattern cannot parse, beside one it can ---
-# The emptiness guard asks whether the RECOGNISED set is empty, which is a different
-# question from whether every rule was recognised. With a conventional rule present,
-# a second rule spelled with a qualified return type used to be skipped in silence and
-# the gate exited 0 — the one way a gate whose header says it fails CLOSED does not.
-# Its subject is vacuous, so an accept here means the gate never looked at it.
+# --- REJECT: three attribute and return-type spellings the text scan could not see ---
+# Each of these made the gate exit 0 on a rule it had never looked at. The subjects are
+# deliberately vacuous, so an accept means the rule was skipped rather than analysed.
+#
+# `qualifiedReturn` is GH-50's case: the old head pattern spelled the return type as the
+# bare `Rule`. The token walk reads the attribute, not the signature, so the rule is now
+# ANALYSED — the report names its vacuous subject rather than a parse failure.
 d="$work/unrecognised-rule-head"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$MODEL_RULE
@@ -323,11 +324,97 @@ write_archtest "$d" "$MODEL_RULE
             ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
             ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
-            ->because('Unrecognised head.');
+            ->because('Qualified return type.');
     }"
-assert_rejects "$d" "a #[TestRule] the head pattern cannot parse is reported, not skipped" \
-    "attribute(s) found but only"
+assert_rejects "$d" "a #[TestRule] with a qualified return type is analysed, not skipped" \
+    "qualifiedReturn: subject classname"
 
+d="$work/attribute-with-parens"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[TestRule()]
+    public function parenthesised(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Attribute written with parentheses.');
+    }"
+assert_rejects "$d" "a #[TestRule()] written with parentheses is analysed" \
+    "parenthesised: subject classname"
+
+# The spelling a consumer without the `use` writes.
+d="$work/attribute-fully-qualified"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[\\PHPat\\Test\\Attributes\\TestRule]
+    public function fullyQualified(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Fully qualified attribute.');
+    }"
+assert_rejects "$d" "a fully qualified #[TestRule] attribute is analysed" \
+    "fullyQualified: subject classname"
+
+# --- REJECT: a #[TestRule] that attaches to no method ---
+# Written on a property, it reads a subject from nothing. The walk must not carry it
+# forward onto the next method either — that would make an ordinary helper a rule and
+# hide the misplaced attribute. Both directions are in this one case: the count reports
+# the orphan, and modelIsALeaf keeps working beside it.
+d="$work/attribute-on-a-property"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    private string \$notAMethod = 'x';
+
+    public function helper(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Not a rule.');
+    }"
+assert_rejects "$d" "a #[TestRule] on a property is reported, not carried onto the next method" \
+    "attribute(s) found but only 0 resolved"
+
+# The accepting twin: an ordinary attribute beside the rules must not be counted.
+# Totalling every attribute rather than the TestRule ones reds this.
+d="$work/other-attribute-present"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\CoversNothing]
+    public function notARule(): void
+    {
+    }
+
+$MODEL_RULE
+
+$CONFIG_RULE"
+assert_accepts "$d" "an ordinary attribute beside the rules is not counted as one"
+
+# --- REJECT: a rule that only LOOKS like one, inside a heredoc ---
+# The text scan counted it, so an ArchitectureTest with zero real rules reported OK.
+# Tokens see one string, so the emptiness guard fires instead.
+d="$work/heredoc-rule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    public function notARule(): string
+    {
+        return <<<'CODE'
+    #[TestRule]
+    public function looksReal(): Rule
+    {
+        return PHPat::rule()->classes(Selector::inNamespace('Vendor\\Mod'));
+    }
+CODE;
+    }"
+assert_rejects "$d" "a rule inside a heredoc is not counted as one" \
+    "no #[TestRule] methods found"
 # --- REJECT: a class named only inside a heredoc is not in the inventory ---
 # The inventory used to be a line-anchored regex over comment-stripped text, which
 # cannot tell a declaration from a string that looks like one. A `class Node` inside

@@ -354,69 +354,170 @@ $namespaceHasClass = static function (array $inventory, string $namespace): bool
 
 // --- Extract each #[TestRule] method's subject selector ---
 
-// Each rule method: `#[TestRule] … public function <name>(): Rule { … }`. Capture the
-// name and the body up to the matching close so the subject can be read from it.
-// `[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*`, not `\w+`. A PHP identifier may legally
-// carry bytes above 0x7F — `public function prüfeSchichten(): Rule` is valid — and
-// `\w` without `/u` stops at ASCII, so such a #[TestRule] method matched nothing and
-// was skipped in silence. This file's own header says it fails CLOSED; a subject it
-// never sees is the one way it did not. `/u` is not the fix here: it would make the
-// pattern reject a source file carrying invalid UTF-8 outright.
-preg_match_all('/#\[TestRule\][^;{]*?public\s+function\s+(' . PHP_IDENTIFIER . ')\s*\([^)]*\)\s*:\s*Rule\s*\{/', $source, $methodHeads, \PREG_OFFSET_CAPTURE);
+// Each rule method, found by walking TOKENS rather than by matching text.
+//
+// The text form could not see three legitimate spellings at once, and every one of
+// them made this gate exit 0 on rules it had not looked at — in a file whose header
+// says it fails CLOSED:
+//
+//   - the attribute written `#[TestRule()]` or fully qualified as
+//     `#[\PHPat\Test\Attributes\TestRule]`, which a consumer without the `use`
+//     writes;
+//   - a return type spelled `\PHPat\Test\Builder\Rule` or through an alias;
+//   - a convincing-looking rule inside a heredoc or a string, which the text scan
+//     counted as real. Measured: an ArchitectureTest with ZERO real rules and one in
+//     a heredoc printed OK.
+//
+// A cardinality guard over the same text could not close it either, because it
+// inherited the same blind spot: it counted the literal `#[TestRule]` and nothing
+// else.
+//
+// The walk is the same tokeniser the class inventory uses. For each attribute group
+// whose LAST name segment is `TestRule`, it takes the next `function`, its name, and
+// the body between the matching braces. Brace counting over tokens is what bounds the
+// body — a `{` inside a string or a heredoc is one token, not a delimiter — so a
+// malformed rule cannot run past its own method and adopt a following helper's
+// selector.
+$ruleMethods  = [];
+$ruleTokens   = token_get_all($source);
+$ruleCount    = count($ruleTokens);
+$sawTestRule  = false;
+$attributeSum = 0;
 
-if (count($methodHeads[0]) === 0) {
+for ($index = 0; $index < $ruleCount; ++$index) {
+    $token = $ruleTokens[$index];
+
+    if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
+        // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
+        // until the bracket closes. Only the last segment is compared, so the
+        // qualified and imported spellings answer the same.
+        $depth = 1;
+
+        for ($ahead = $index + 1; ($ahead < $ruleCount) && ($depth > 0); ++$ahead) {
+            $inner = $ruleTokens[$ahead];
+
+            if (!is_array($inner)) {
+                if ($inner === '[') {
+                    ++$depth;
+                } elseif ($inner === ']') {
+                    --$depth;
+                }
+
+                continue;
+            }
+
+            if (($inner[0] === \T_STRING) || ($inner[0] === \T_NAME_QUALIFIED) || ($inner[0] === \T_NAME_FULLY_QUALIFIED)) {
+                $segments = explode('\\', $inner[1]);
+
+                if (end($segments) === 'TestRule') {
+                    $sawTestRule = true;
+                    ++$attributeSum;
+                }
+            }
+        }
+
+        continue;
+    }
+
+    // A TestRule attribute attaches to the declaration that FOLLOWS it. Any other
+    // declaration keyword ends its reach, so an attribute written on a property or a
+    // class cannot be carried forward onto the next method — which would make that
+    // method a rule it is not, and hide the misplaced attribute from the count below.
+    if (is_array($token)
+        && (($token[0] === \T_CLASS)
+            || ($token[0] === \T_TRAIT)
+            || ($token[0] === \T_INTERFACE)
+            || ($token[0] === \T_ENUM)
+            || ($token[0] === \T_CONST)
+            || ($token[0] === \T_VARIABLE))
+    ) {
+        $sawTestRule = false;
+
+        continue;
+    }
+
+    if (!is_array($token) || ($token[0] !== \T_FUNCTION)) {
+        continue;
+    }
+
+    $name = null;
+
+    for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
+        $next = $ruleTokens[$ahead];
+
+        if (is_array($next) && ($next[0] === \T_WHITESPACE)) {
+            continue;
+        }
+
+        if (is_array($next) && ($next[0] === \T_STRING)) {
+            $name = $next[1];
+        }
+
+        break;
+    }
+
+    if (($name === null) || !$sawTestRule) {
+        $sawTestRule = false;
+
+        continue;
+    }
+
+    $sawTestRule = false;
+
+    // The body, by brace depth. An abstract or interface method ends on `;` before a
+    // `{` is ever seen and carries no subject to read.
+    $body  = '';
+    $depth = 0;
+
+    for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
+        $inner = $ruleTokens[$ahead];
+        $text  = is_array($inner) ? $inner[1] : $inner;
+
+        if (($depth === 0) && ($text === ';')) {
+            break;
+        }
+
+        if ($text === '{') {
+            ++$depth;
+
+            if ($depth === 1) {
+                continue;
+            }
+        } elseif ($text === '}') {
+            --$depth;
+
+            if ($depth === 0) {
+                break;
+            }
+        }
+
+        if ($depth > 0) {
+            $body .= $text;
+        }
+    }
+
+    $ruleMethods[] = [$name, $body];
+}
+
+if (count($ruleMethods) === 0) {
     $violations[] = 'no #[TestRule] methods found — the ArchitectureTest defines no rules.';
 }
 
-// The emptiness check above only fires when the RECOGNISED set is empty, which is
-// not the same question as whether every rule was recognised. The head pattern
-// spells the return type as the bare `Rule`, so a method returning `\PHPat\Test\Rule`
-// or an aliased spelling is not seen — and with one conventional rule beside it the
-// gate exits 0 having never looked at the other. That is the one way a gate whose
-// header says it fails CLOSED does not.
-//
-// Counting the attribute is independent of every spelling of the method it sits on,
-// so this closes the class rather than the two spellings already known (GH-50).
-$attributeCount = preg_match_all('/#\[TestRule\]/', $source);
-
-if (($attributeCount !== false) && ($attributeCount > count($methodHeads[0]))) {
+// The emptiness check above asks whether the RECOGNISED set is empty, which is not
+// the same question as whether every TestRule attribute was recognised. One written on
+// a property or a class attaches to no method, so the walk cannot read a subject from
+// it — and the count says so rather than passing over it. Only TestRule attributes are
+// counted: totalling every attribute would red an ArchitectureTest carrying an ordinary
+// `#[CoversNothing]` beside its rules.
+if ($attributeSum > count($ruleMethods)) {
     $violations[] = sprintf(
-        '%d #[TestRule] attribute(s) found but only %d rule method(s) recognised — a rule this gate cannot parse is a rule it cannot check. The head it matches is `public function <name>(…): Rule {`.',
-        $attributeCount,
-        count($methodHeads[0])
+        '%d #[TestRule] attribute(s) found but only %d resolved to a method — an attribute this gate cannot attach to a method is a rule it cannot check.',
+        $attributeSum,
+        count($ruleMethods)
     );
 }
 
-// The offset of every method declaration (rule or plain helper), so each rule's subject
-// search is bounded by the NEXT method — not the next #[TestRule] — and a malformed rule
-// missing a `->should(...)` cannot scan through a following helper method and adopt its
-// `->classes(Selector::...)` as the subject (which would break the fail-closed contract).
-preg_match_all('/\bfunction\s+' . PHP_IDENTIFIER . '\s*\(/', $source, $methodDecls, \PREG_OFFSET_CAPTURE);
-$methodOffsets = array_column($methodDecls[0], 1);
-
-// Both lists are in ascending source order and `$bodyStart` only moves forward, so
-// the search for the next declaration resumes where the previous rule left off. It
-// used to restart at index 0 per rule — quadratic by inspection, over an input this
-// gate reads unbounded and that is pull-request content in the CONSUMER's CI.
-//
-// The cursor never rewinds, so the search is linear by inspection. Kept for the
-// complexity class, not for a measured speedup: the figure that motivated it did
-// not reproduce, and the review that established that is what this commit's
-// message records.
-$methodCursor = 0;
-
-foreach ($methodHeads[1] as $index => $nameMatch) {
-    $ruleName  = $nameMatch[0];
-    $bodyStart = $methodHeads[0][$index][1] + strlen($methodHeads[0][$index][0]);
-
-    // Bound the search to THIS method: from its head up to the next method declaration
-    // of any kind (or EOF for the last one).
-    while (($methodCursor < count($methodOffsets)) && ($methodOffsets[$methodCursor] < $bodyStart)) {
-        ++$methodCursor;
-    }
-
-    $bodyEnd    = $methodOffsets[$methodCursor] ?? strlen($source);
-    $methodBody = substr($source, $bodyStart, $bodyEnd - $bodyStart);
+foreach ($ruleMethods as [$ruleName, $methodBody]) {
 
     // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) after
     // PHPat::rule(). Slice up to the first ->should/->shouldNot within the method.
