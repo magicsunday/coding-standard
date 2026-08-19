@@ -170,6 +170,14 @@ if (preg_match('/const\s+string\s+NAMESPACE_ROOT\s*=\s*\'([^\']+)\'/', $source, 
 }
 
 // --- Build the class inventory of src/ (FQCN => kind) ---
+//
+// Declared HERE, not after the loop: the loop below appends to it, and a later
+// `$violations = []` silently discarded every one of those reports. Measured — a
+// `src/` file past the size cap left the gate printing OK and exiting 0, with the
+// file absent from the inventory and nothing saying so.
+/** @var list<string> $violations */
+$violations = [];
+
 /** @var array<string, string> $inventory */
 $inventory = [];
 
@@ -345,8 +353,6 @@ $namespaceHasClass = static function (array $inventory, string $namespace): bool
 };
 
 // --- Extract each #[TestRule] method's subject selector ---
-/** @var list<string> $violations */
-$violations = [];
 
 // Each rule method: `#[TestRule] … public function <name>(): Rule { … }`. Capture the
 // name and the body up to the matching close so the subject can be read from it.

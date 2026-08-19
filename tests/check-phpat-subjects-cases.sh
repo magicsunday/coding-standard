@@ -379,6 +379,35 @@ write_archtest "$d" "$MODEL_RULE
 $CONFIG_RULE"
 assert_accepts "$d" "a second declaration in the same file is inventoried"
 
+# --- REJECT: a src/ file past the size cap says so ---
+# The arm existed and could not report: it appends to $violations inside the inventory
+# loop, and a later `$violations = []` discarded every one of those entries. Measured
+# before the fix — this fixture printed `OK` and exited 0, with the oversized file
+# silently absent from the inventory. Revert the declaration's position and it does
+# again.
+d="$work/src-past-the-size-cap"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/src/Model"
+php -r '
+    file_put_contents($argv[1], "<?php\n\ndeclare(strict_types=1);\n\nnamespace Vendor\\Mod\\Model;\n\n// " . str_repeat("x", 262145) . "\nfinal class Node\n{\n}\n");
+' "$d/src/Model/Node.php"
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "a src/ file past the size cap is reported, not silently skipped" \
+    "larger than the 262144 bytes this gate reads"
+
+# --- REJECT (exit 2): an ArchitectureTest past the size cap ---
+# The gate's only exit-1 path that carries no violation list, and nothing drove it.
+d="$work/archtest-past-the-size-cap"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+php -r '
+    file_put_contents($argv[1], "<?php\n\n// " . str_repeat("x", 262145) . "\n");
+' "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "an ArchitectureTest past the size cap is reported as oversized" \
+    "unreadable or larger than the 262144 bytes this gate reads"
+
 # --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
 d="$work/no-testrule"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
