@@ -82,6 +82,38 @@ report_failure() { harness_fail "$1"; }
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
+# assert_reports_once is this file's own helper rather than a wrapper, so its arms are
+# not covered by harness.sh's probe — and it became load-bearing when the six oversize
+# cases were written against it. Measured before this: replacing its whole body with
+# `pass "$2"` left the entire suite green.
+#
+# `php` is shadowed the way harness.sh shadows it, so each arm is reached without a
+# gate that produces it. Three calls, three increments; delete an arm and one is lost.
+probe_reports_once() {
+    php() { printf '%s\n' "$reports_once_fake"; return "$reports_once_rc"; }
+
+    # The degraded fixture satisfies every arm BELOW it — exit 1, exactly one
+    # `- phpunit.xml:` line — so only the degraded arm can decide. Without that it
+    # violates the count arm too, and deleting the degraded arm falls through to a
+    # different failure that increments all the same: the count stays 3 and the probe
+    # passes on an arm that no longer decides. Measured, and the same shape the two
+    # degraded arms in harness.sh were wrong about.
+    reports_once_fake="$(printf 'PHP Warning:  the gate emitted a diagnostic\n  - phpunit.xml: one')"
+    reports_once_rc=1
+    assert_reports_once /nonexistent 'probe: reports_once, the gate ran degraded' 'phpunit.xml'
+
+    reports_once_fake='  - phpunit.xml: one'
+    reports_once_rc=2
+    assert_reports_once /nonexistent 'probe: reports_once, not the drift verdict' 'phpunit.xml'
+
+    reports_once_fake="$(printf '  - phpunit.xml: one\n  - phpunit.xml: two')"
+    reports_once_rc=1
+    assert_reports_once /nonexistent 'probe: reports_once, reported twice' 'phpunit.xml'
+}
+
+harness_probe_reporters 3 probe_reports_once \
+    'assert_reports_once has an arm that no longer decides'
+
 # Every helper above is a one-line wrapper whose increment lives in harness.sh and
 # is probed there. What this file must still prove is that it grew no report site
 # of its own — see harness_assert_no_stray_increments.
@@ -487,18 +519,31 @@ cp "$ROOT/templates/jscpd.json" "$d/.jscpd.json"
 cp "$ROOT/templates/phplint.yml" "$d/.phplint.yml"
 assert_accepts "$d" "full canonical template set, phpunit included, as templates/ ships it"
 
-# The line splitter, which the comment above it justifies with three specific bytes
-# and no fixture carried any of them. `\R` matches VT, FF and U+0085 as line breaks;
-# U+0085 is the CONTINUATION byte of a two-byte UTF-8 character, so splitting on it
-# cut a character in half and re-parsed the tail as a config line. Revert the splitter
-# to `/\R/` and this case flips to a reject.
-d="$work/editorconfig-vertical-whitespace"
+# The line splitter, which the comment above it justifies with three specific bytes and
+# which nothing drove. `\R` matches VT, FF and U+0085 as line breaks; U+0085 is the
+# CONTINUATION byte of a two-byte UTF-8 character, so splitting on it cuts a character
+# in half and re-parses the tail as a config line.
+#
+# The FIRST attempt at this case did not discriminate, and the reason is worth keeping:
+# a poisoned comment alone changes nothing, because neither fragment carries an `=` and
+# no key is written either way. The tail has to parse as a key that CHANGES a verdict,
+# and it has to sit AFTER the real settings — the map is last-write-wins, so a poisoned
+# line before them is simply overwritten. Both bytes therefore need their own tail.
+d="$work/editorconfig-continuation-byte"
 mkdir -p "$d"
 cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
 php -r '
-    file_put_contents($argv[1], "root = true\n[*]\n# a comment carrying \xc4\x85 and a form feed \x0c here\nindent_style = space\nindent_size = 4\n[{Makefile,*.mk}]\nindent_style = tab\n");
+    file_put_contents($argv[1], "root = true\n[*]\nindent_style = space\nindent_size = 4\n# note \xc4\x85 indent_style = tab\n[{Makefile,*.mk}]\nindent_style = tab\n");
 ' "$d/.editorconfig"
-assert_accepts "$d" ".editorconfig whose comment carries a form feed and a U+0085 continuation byte"
+assert_accepts "$d" ".editorconfig whose comment carries a U+0085 continuation byte before a settings-shaped tail"
+
+d="$work/editorconfig-form-feed"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+php -r '
+    file_put_contents($argv[1], "root = true\n[*]\nindent_style = space\nindent_size = 4\n# a form feed \x0c indent_size = 2\n[{Makefile,*.mk}]\nindent_style = tab\n");
+' "$d/.editorconfig"
+assert_accepts "$d" ".editorconfig whose comment carries a form feed before a settings-shaped tail"
 
 # Case folding, and the explicit trim charlist beside it. Every other fixture writes
 # lowercase keys separated by plain spaces, so replacing mb_strtolower() with the

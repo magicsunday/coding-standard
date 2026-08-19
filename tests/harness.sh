@@ -121,11 +121,19 @@ degraded() {
 #
 # `Recoverable fatal error` is listed separately above: it does not match the
 # `Fatal error` alternative, because the anchor requires the line to START there.
+# One line per alternative, not a sample of them. Four of the seven stood here and the
+# comment claimed both directions "by construction"; dropping `Notice|` from the
+# pattern left every suite green. `Recoverable fatal error` needs its own line because
+# it does not match the `Fatal error` alternative — the anchor requires the line to
+# START there.
 for harness_degraded_probe in \
     'PHP Fatal error:  Uncaught Error: x' \
     'PHP Recoverable fatal error:  Argument 1 passed to f()' \
+    'PHP Parse error:  syntax error, unexpected token ";"' \
     'Warning: Undefined array key 0 in /x on line 1' \
-    'Deprecated: Implicit conversion in /x on line 1'
+    'Notice: Only variables should be passed by reference in /x on line 1' \
+    'Deprecated: Implicit conversion in /x on line 1' \
+    'Uncaught TypeError: f(): Argument #1 must be of type string'
 do
     if ! degraded "$harness_degraded_probe"; then
         printf 'FAILED  harness bookkeeping: degraded() does not recognise `%s`\n' "$harness_degraded_probe" >&2
@@ -408,8 +416,14 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
 # must-carry arm of harness_rejects left all four suites green.
 #
 # `php` is shadowed by a function whose output and exit code the driver sets, so
-# an arm is reached without a gate that produces it. The count is the
-# discriminator: delete any arm and one increment goes missing.
+# an arm is reached without a gate that produces it. The count is the discriminator:
+# delete any arm and one increment goes missing.
+#
+# Each degraded arm's must-carry is a substring the degraded FIXTURE prints. That is
+# load-bearing and was wrong once: with a must-carry the fixture does not contain, the
+# case violates the must-carry arm too, so deleting the degraded arm falls through and
+# still increments — the count stays 10 and the probe passes on an arm that no longer
+# decides. Measured, in both directions.
 harness_probe_assert_shapes() {
     php() { printf '%s\n' "$harness_fake_report"; return "$harness_fake_rc"; }
 
@@ -423,7 +437,7 @@ harness_probe_assert_shapes() {
 
     harness_fake_report='PHP Warning:  the gate emitted a diagnostic'
     harness_fake_rc=1
-    harness_rejects php /nonexistent 'probe: rejects, the gate ran degraded' 'x'
+    harness_rejects php /nonexistent 'probe: rejects, the gate ran degraded' 'diagnostic'
 
     harness_fake_report='  - x: refused to run'
     harness_fake_rc=2
@@ -436,7 +450,7 @@ harness_probe_assert_shapes() {
 
     harness_fake_report='PHP Warning:  the gate emitted a diagnostic'
     harness_fake_rc=2
-    harness_usage_error php /nonexistent 'probe: usage, the gate ran degraded' 'x'
+    harness_usage_error php /nonexistent 'probe: usage, the gate ran degraded' 'diagnostic'
 
     harness_fake_report='  - x: a drift verdict'
     harness_fake_rc=1
@@ -452,7 +466,8 @@ harness_probe_reporters 10 harness_probe_assert_shapes \
     'a shared assertion has an arm that no longer decides'
 
 harness_probe_inert_shapes() {
-    php() { printf '%s\n' "$harness_fake_report"; return 1; }
+    php() { printf '%s\n' "$harness_fake_report"; return "$harness_fake_rc"; }
+    harness_fake_rc=1
 
     harness_fake_report="  - x: $(printf '\033')[2K forged"
     harness_report_is_inert php /nonexistent 'probe: an ESC reached the report'
@@ -471,9 +486,18 @@ harness_probe_inert_shapes() {
 
     harness_fake_report='  - x: nothing wrong here'
     harness_report_is_inert php /nonexistent 'probe: an empty must-carry' ''
+
+    # The exit-code arm, which the six above cannot reach: they all stub `return 1`,
+    # and every real fixture rejects with 1. Without this, a gate that started
+    # ACCEPTING a poisoned fixture would be reported as "rejected, and the report
+    # stayed inert".
+    harness_fake_rc=0
+    harness_fake_report='  - x: nothing wrong here'
+    harness_report_is_inert php /nonexistent 'probe: the gate did not reject at all'
+    harness_fake_rc=1
 }
 
-harness_probe_reporters 6 harness_probe_inert_shapes \
+harness_probe_reporters 7 harness_probe_inert_shapes \
     'harness_report_is_inert has an arm that no longer decides'
 
 # harness_assert_no_stray_increments <expected-count>
