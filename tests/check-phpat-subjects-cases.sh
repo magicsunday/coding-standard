@@ -398,6 +398,111 @@ $MODEL_RULE
 $CONFIG_RULE"
 assert_accepts "$d" "an ordinary attribute beside the rules is not counted as one"
 
+# --- The brace counter: only DELIMITER tokens bound a body ---
+# `"$x{"` lexes the brace as T_ENCAPSED_AND_WHITESPACE whose text is exactly `{`.
+# Counting that made a vacuous rule's body run past its own method into the helper
+# below, whose subject is live — one added character turned a fail-closed reject into
+# `OK`. This is the repo's own malformed-with-helper shape plus that character.
+d="$work/brace-in-interpolated-string"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    public function vacuous(): Rule
+    {
+        \$x    = 'note';
+        \$note = \"prefix \$x{\";
+
+        return \$this->build(\$note);
+    }
+
+    public function build(string \$note): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Model\\Node'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because(\$note);
+    }"
+assert_rejects "$d" "an interpolated brace does not extend a body into the next method" \
+    "could not identify a subject selector"
+
+# The mirror direction, which is a false RED on correct code: the stray `}` cut the
+# body short and a live rule was reported unparseable.
+d="$work/closing-brace-in-string"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        \$what = 'x';
+        \$note = \"a \$what}\";
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because(\$note);
+    }"
+assert_accepts "$d" "a closing brace inside a string does not cut a body short"
+
+# The two interpolation openers, whose CLOSING brace is an ordinary CHAR token. Count
+# only CHAR tokens and that `}` decrements against nothing, cutting the body.
+d="$work/curly-interpolation"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        \$what = 'x';
+        \$note = \"a {\$what} and \${what}\";
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because(\$note);
+    }"
+assert_accepts "$d" "both interpolation openers keep the brace depth balanced"
+
+# --- The attribute scan must not re-walk its own group ---
+# A `::class` argument in a FOLLOWING attribute lexes as T_CLASS. Re-walking the group
+# let it hit the declaration barrier and clear the flag `#[TestRule]` had just set, so
+# a live rule was reported as absent.
+d="$work/attribute-with-class-argument"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    #[\\PHPUnit\\Framework\\Attributes\\CoversClass(\\Vendor\\Mod\\Configuration::class)]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a ::class argument in a neighbouring attribute does not hide the rule"
+
+# The same distinction the other way: a TestRule name used as a VALUE is not a rule,
+# and counting it produced a false red with a diagnostic pointing at the wrong file.
+d="$work/testrule-as-an-argument"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\UsesClass(TestRule::class)]
+    public function notARule(): void
+    {
+    }
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a TestRule name used as an attribute argument is not counted as a rule"
+
 # --- REJECT: a rule that only LOOKS like one, inside a heredoc ---
 # The text scan counted it, so an ArchitectureTest with zero real rules reported OK.
 # Tokens see one string, so the emptiness guard fires instead.

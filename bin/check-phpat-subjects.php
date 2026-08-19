@@ -65,15 +65,6 @@ require_once __DIR__ . '/support/safe-report-value.php';
  */
 const MAX_SOURCE_BYTES = 262144;
 
-/**
- * A PHP identifier, as the language defines it: ASCII letters and underscore, plus
- * every byte from \x80 up, which is how PHP admits non-ASCII names without the
- * pattern needing `/u` (and `/u` would make it reject a file carrying invalid UTF-8
- * outright). Written once because it was spelled inline at each site, and the last
- * defect here was one class narrower than the other two.
- */
-const PHP_IDENTIFIER = '[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*';
-
 $repoRoot = $argv[1] ?? '.';
 
 if (!is_dir($repoRoot)) {
@@ -107,11 +98,12 @@ if (!is_dir($srcDir)) {
 }
 
 /**
- * Strips comments and doc-comments from the ArchitectureTest source, so the text-based
- * rule scan below never treats a commented-out `#[TestRule]` example (the canonical
- * template ships one) as real. Whitespace is preserved so line-anchored patterns still
- * behave. The class inventory does not use this — it walks tokens, which need no
- * stripping.
+ * Strips comments and doc-comments from the ArchitectureTest source.
+ *
+ * Only the NAMESPACE_ROOT regex below still needs this; the rule scan and the class
+ * inventory walk tokens, and `token_get_all` emits no T_ATTRIBUTE for a commented-out
+ * example anyway (measured on 8.5). Whitespace is preserved so the line-anchored
+ * pattern still behaves.
  *
  * @param string $code The raw PHP source.
  *
@@ -389,9 +381,10 @@ for ($index = 0; $index < $ruleCount; ++$index) {
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
         // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
-        // until the bracket closes. Only the last segment is compared, so the
-        // qualified and imported spellings answer the same.
-        $depth = 1;
+        // until the bracket closes. Only the last `\`-separated segment is compared, so
+        // the qualified and imported spellings answer the same.
+        $depth      = 1;
+        $expectName = true;
 
         for ($ahead = $index + 1; ($ahead < $ruleCount) && ($depth > 0); ++$ahead) {
             $inner = $ruleTokens[$ahead];
@@ -401,12 +394,33 @@ for ($index = 0; $index < $ruleCount; ++$index) {
                     ++$depth;
                 } elseif ($inner === ']') {
                     --$depth;
+                } elseif (($inner === ',') && ($depth === 1)) {
+                    // `#[A, TestRule]` is one group holding two attributes, so a name
+                    // is expected again after the comma.
+                    $expectName = true;
+                } elseif ($inner === '(') {
+                    // From here to the matching `)` everything is an ARGUMENT, and a
+                    // name there denotes nothing: `#[UsesClass(TestRule::class)]` is
+                    // not a rule. Only the token in NAME position counts.
+                    $expectName = false;
                 }
 
                 continue;
             }
 
-            if (($inner[0] === \T_STRING) || ($inner[0] === \T_NAME_QUALIFIED) || ($inner[0] === \T_NAME_FULLY_QUALIFIED)) {
+            if ($inner[0] === \T_WHITESPACE) {
+                continue;
+            }
+
+            // T_NAME_RELATIVE (`namespace\TestRule`) is deliberately absent. It
+            // denotes TestRule relative to the CURRENT namespace, i.e. a class in the
+            // consumer's own test namespace — not phpat's attribute — so matching it
+            // would be a false positive rather than the missing spelling it looks like.
+            $isName = ($inner[0] === \T_STRING)
+                || ($inner[0] === \T_NAME_QUALIFIED)
+                || ($inner[0] === \T_NAME_FULLY_QUALIFIED);
+
+            if ($expectName && $isName) {
                 $segments = explode('\\', $inner[1]);
 
                 if (end($segments) === 'TestRule') {
@@ -414,7 +428,17 @@ for ($index = 0; $index < $ruleCount; ++$index) {
                     ++$attributeSum;
                 }
             }
+
+            $expectName = false;
         }
+
+        // Resume AFTER the closing `]`. Without this the outer loop re-walks the
+        // group's own tokens and re-classifies them — a `Foo::class` argument reads as
+        // T_CLASS and hits the declaration barrier below, clearing the flag the
+        // `#[TestRule]` beside it just set. Measured: `#[TestRule]` followed by
+        // `#[CoversClass(Node::class)]` reported `no #[TestRule] methods found` for a
+        // live rule.
+        $index = $ahead - 1;
 
         continue;
     }
@@ -464,8 +488,24 @@ for ($index = 0; $index < $ruleCount; ++$index) {
 
     $sawTestRule = false;
 
-    // The body, by brace depth. An abstract or interface method ends on `;` before a
-    // `{` is ever seen and carries no subject to read.
+    // The body, by brace depth over DELIMITER tokens only.
+    //
+    // A real delimiter is always a single-character CHAR token. Reading `$inner[1]` of
+    // an array token as well was wrong in both directions, measured on the shipped
+    // binary: `"$a{"` lexes the brace as T_ENCAPSED_AND_WHITESPACE whose text is
+    // exactly `{`, so one added character inside a string made a vacuous rule's body
+    // run past its own method and adopt the following helper's live subject — the gate
+    // printed OK. The mirror, `"a $what}"`, cut a correct body short and reported a
+    // live rule as unparseable.
+    //
+    // The two interpolation openers are the exception and must still count, because
+    // their CLOSING brace is an ordinary CHAR token: `{$a}` opens with T_CURLY_OPEN
+    // and `${a}` with T_DOLLAR_OPEN_CURLY_BRACES, both carrying text that is not a
+    // bare `{`. Counting only CHAR tokens without them leaves the `}` decrementing
+    // against nothing.
+    //
+    // An abstract or interface method ends on a CHAR `;` before any `{` and carries no
+    // subject to read.
     $body  = '';
     $depth = 0;
 
@@ -473,17 +513,19 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         $inner = $ruleTokens[$ahead];
         $text  = is_array($inner) ? $inner[1] : $inner;
 
-        if (($depth === 0) && ($text === ';')) {
+        if (is_array($inner)) {
+            if (($inner[0] === \T_CURLY_OPEN) || ($inner[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) {
+                ++$depth;
+            }
+        } elseif (($depth === 0) && ($inner === ';')) {
             break;
-        }
-
-        if ($text === '{') {
+        } elseif ($inner === '{') {
             ++$depth;
 
             if ($depth === 1) {
                 continue;
             }
-        } elseif ($text === '}') {
+        } elseif ($inner === '}') {
             --$depth;
 
             if ($depth === 0) {
@@ -588,7 +630,7 @@ if (count($violations) === 0) {
     exit(0);
 }
 
-fwrite(\STDERR, sprintf("check-phpat-subjects: %d vacuous or unparseable rule subject(s):\n", count($violations)));
+fwrite(\STDERR, sprintf("check-phpat-subjects: %d problem(s) — vacuous or unparseable rule subjects, or files this gate could not read:\n", count($violations)));
 
 foreach ($violations as $violation) {
     fwrite(\STDERR, sprintf("  - %s\n", $violation));
