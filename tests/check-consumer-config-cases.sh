@@ -251,6 +251,17 @@ cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
 printf 'deptrac:\n    paths:\n        - src\nimports:\n# why the shared ruleset comes last\n    - some/other.yaml\n\n- .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml' > "$d/deptrac.yaml"
 assert_accepts "$d" "deptrac.yaml carrying the shared import after a comment, a blank line, at column 0 and with no final newline"
 
+# The quote atoms used to be independently optional, so an opening `'` and a
+# closing `"` satisfied the pattern — a scalar YAML itself cannot parse, certified
+# as a correct import. The backreference makes the pair a pair; an unquoted entry
+# still matches, because an empty capture back-references the empty string.
+d="$work/deptrac-mismatched-quotes"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+printf 'deptrac:\n    paths:\n        - src\nimports:\n    - %s.build/vendor/magicsunday/coding-standard/deptrac/layers.yaml%s\n' "'" '"' > "$d/deptrac.yaml"
+assert_rejects "$d" "deptrac.yaml whose shared import opens on one quote and closes on the other" \
+    "must import the shared"
+
 d="$(mk_case phplint-ok-shapes)"
 printf 'paths:\n    - ./src\nextensions:\n# only PHP\n\n    - php' > "$d/.phplint.yml"
 assert_accepts "$d" ".phplint.yml listing php after a comment and a blank line, with no final newline"
@@ -817,6 +828,58 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "biome.json with the formatter disabled" "\`formatter.enabled\` must not be false"
 
+# The third section Biome lets a consumer switch off wholesale. Verified against
+# the pinned schema that `assist.enabled` exists at the root, in an `overrides`
+# entry and in each per-language block, so it belongs in the same walk as the
+# other two rather than in a check of its own:
+#
+#     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json
+d="$(mk_js_case biome-assist-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "assist": { "enabled": false }
+}
+JSON
+assert_rejects "$d" "biome.json with assist disabled" "\`assist.enabled\` must not be false"
+
+# The same toggle one scope down, so the walk is pinned rather than the root read.
+d="$(mk_js_case biome-assist-off-in-override)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["src/**"], "javascript": { "assist": { "enabled": false } } }
+    ]
+}
+JSON
+assert_rejects "$d" "biome.json disabling assist inside an override's language block" \
+    "overrides[0].javascript.assist.enabled"
+
+# The disable route that leaves every `enabled` flag true: narrowed to nothing,
+# Biome checks zero files and exits 0, so every other control here passes on a
+# config that enforces nothing. Only the shape that can ONLY mean "check nothing"
+# is reported — the canon narrows too, and narrowing is legitimate.
+d="$(mk_js_case biome-includes-nothing)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "files": { "includes": ["!**/vendor/**", "!**/node_modules/**"] }
+}
+JSON
+assert_rejects "$d" "biome.json narrowed to no positive include" "carries no positive pattern"
+
+# The accepting twin, so the arm above cannot be satisfied by rejecting every
+# `files.includes`. This is the canonical shape a consumer writes.
+d="$(mk_js_case biome-includes-narrowed)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "files": { "includes": ["src/**", "!**/vendor/**"] }
+}
+JSON
+assert_accepts "$d" "biome.json narrowed to a real path set"
+
 # `preset: "none"` is the modern spelling of `recommended: false` — Biome
 # deprecated the boolean in 2.5 — and silences exactly the same rules. Checking
 # only the deprecated spelling would leave the current one unguarded.
@@ -1256,6 +1319,25 @@ d="$(mk_js_case ts-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
 assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
+# The plain-text bound, on the file this gate declares REQUIRED. Measured before
+# the cap reached these readers: a 196 MB phpunit.xml at memory_limit=128M ended in
+# `Allowed memory size exhausted`, exit 255, with no gate diagnostic — the outcome
+# $readFile's scoped handler exists to prevent, reached by the one path the cap did
+# not cover. It has to be a $fail rather than a note, because a required config the
+# gate could not read is not a config it may pass over.
+d="$(mk_case phpunit-past-the-size-cap)"
+php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/phpunit.xml"
+assert_rejects "$d" "a phpunit.xml past the size cap is reported as oversized, not read" \
+    "larger than the 1048576 bytes this gate checks"
+
+# A second reader on the same bound, because the six that gained it are six separate
+# call sites rather than one shared arm — the defect was that five of them passed no
+# bound at all, and one case cannot pin the other five.
+d="$(mk_case editorconfig-past-the-size-cap)"
+php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/.editorconfig"
+assert_rejects "$d" "an .editorconfig past the size cap is reported as oversized, not read" \
+    "larger than the 1048576 bytes this gate checks"
+
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;
 # removing `\x7F` from the class left every one of them green.
 d="$(mk_js_case biome-del-in-rule-group)"
@@ -1406,6 +1488,16 @@ assert_rejects "$d" "a BOM-prefixed package.json is still read for the dependenc
 # The exception that proves the gate is not simply switched off: a `"//"` key
 # makes the config unloadable for Biome whether or not it extends anything, so
 # that one check stays unconditional.
+# The oversize verdict is UNCONDITIONAL — a file this gate cannot read in full is a
+# defect whoever wrote it, so it is not gated on adoption the way a parse failure is.
+# Every other unconditional arm has an unadopted twin and these two did not: both
+# size-cap cases above adopt, so `elseif ($adopted && is_int($biomeJson))` stayed
+# green.
+d="$(mk_unadopted_case biome-oversize-unadopted)"
+php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
+assert_rejects "$d" "an oversized biome.json is reported in a repository that never adopted the package" \
+    "larger than the 131072 bytes this gate checks"
+
 d="$(mk_unadopted_case js-unadopted-note-key)"
 cat > "$d/biome.json" <<'JSON'
 {

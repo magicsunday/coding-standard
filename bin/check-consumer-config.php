@@ -47,11 +47,32 @@ declare(strict_types=1);
 // This is a global-namespace entry script, so built-in functions are called
 // unqualified (a `use function` import would be a no-op here).
 
-// The largest JSONC config this gate will read. Written once: the number, the
-// two report messages and the comment on $stripJsonc were four hand-kept copies.
-// 128 KiB against a measured 2.2 KB for the biggest config this package ships and
-// 5.6 KB for the largest found anywhere on the author's machine — ~23x headroom.
+/**
+ * The largest JSONC config this gate will read, in bytes.
+ *
+ * Written once: the number, the two report messages and the comment on $stripJsonc
+ * were four hand-kept copies. 128 KiB against a measured 2.2 KB for the biggest
+ * config this package ships and 5.6 KB for the largest found anywhere on the
+ * author's machine — ~23x headroom.
+ */
 const MAX_JSONC_BYTES = 131072;
+
+/**
+ * The largest plain-text config this gate will read, in bytes.
+ *
+ * Separate from MAX_JSONC_BYTES because it bounds a different cost: the JSONC cap
+ * also bounds a string-aware scan, while these files are read and parsed linearly.
+ * The bound exists for memory alone — measured, a 196 MB `.editorconfig` at
+ * memory_limit=128M ends in `Allowed memory size exhausted`, exit 255, with no gate
+ * diagnostic at all. That is the outcome $readFile's scoped handler exists to
+ * prevent, and it was reachable at every call site that passed no bound.
+ *
+ * 1 MiB rather than the JSONC bound: `.editorconfig` and `phpunit.xml` are read
+ * whole by tools that impose no limit of their own, and this harness already drives
+ * a legitimate 256 KiB `.editorconfig` fixture past the whitespace-run arm. Four
+ * times that leaves the bound where only a file no consumer wrote by hand meets it.
+ */
+const MAX_TEXT_BYTES = 1048576;
 
 $repoRoot = $argv[1] ?? '.';
 
@@ -103,9 +124,10 @@ $violations = [];
  * @param string $contents The file contents, line endings already normalised.
  * @param string $key      The top-level key whose block to isolate.
  *
- * @return string The block, or an empty string when the key is absent.
+ * @return string|null The block, an empty string when the key is absent, or null when
+ *                     the scan itself failed.
  */
-$yamlBlock = static function (string $contents, string $key): string {
+$yamlBlock = static function (string $contents, string $key): ?string {
     $normalised = str_ends_with($contents, "\n") ? $contents : $contents . "\n";
 
     $pattern = sprintf(
@@ -113,21 +135,45 @@ $yamlBlock = static function (string $contents, string $key): string {
         preg_quote($key, '/')
     );
 
-    return preg_match($pattern, $normalised, $matches) === 1 ? $matches[1] : '';
+    $matched = preg_match($pattern, $normalised, $matches);
+
+    // A PCRE failure returns 0, not false, which the caller cannot tell from "the
+    // key is not there" — and both callers then report a drift the file does not
+    // have. Measured: this pattern exhausts the JIT stack at roughly 8000 block
+    // lines, so a large but perfectly ordinary `.phplint.yml` was reported as
+    // missing its `extensions:` block. The size cap at the read bounds it; this
+    // arm makes the remaining case say what happened.
+    if (($matched === false) || (preg_last_error() !== \PREG_NO_ERROR)) {
+        return null;
+    }
+
+    return $matched === 1 ? $matches[1] : '';
 };
 
 /**
  * Records a drift for the final report.
  *
- * @param list<string> $violations
+ * @param list<string> $violations The accumulated report, appended to in place.
+ * @param string       $file       The config file the drift was found in.
+ * @param string       $detail     What is wrong with it, as the report will read.
+ *
+ * @return void
  */
 $fail = static function (array &$violations, string $file, string $detail): void {
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
 
-// safeReportValue() — shared with bin/check-phpat-subjects.php, which needs the
-// same guard on the same trust boundary. Required rather than duplicated.
+// safeReportValue() — shared, see its header for the boundary and the requirers.
+// Required rather than duplicated.
 require_once __DIR__ . '/support/safe-report-value.php';
+
+// The oversize verdict, held once — the wording was edited at each reader separately
+// before this binding existed. Takes the bound as an argument, because the JSONC and
+// plain-text readers do not share one.
+$tooLargeDetail = static fn (int $bound): string => sprintf(
+    'is larger than the %d bytes this gate checks, so it was not read in full. A shared-config stub is a few hundred bytes.',
+    $bound
+);
 
 /**
  * Reads a file, or returns false without letting PHP print its own warning first.
@@ -140,7 +186,8 @@ require_once __DIR__ . '/support/safe-report-value.php';
  * through a scoped handler, the same shape this file already uses for
  * simplexml_load_file, rather than the banned `@` prefix.
  *
- * @param string $path Path to the file to read.
+ * @param string   $path     Path to the file to read.
+ * @param int|null $maxBytes The most bytes to read, or null to read the whole file.
  *
  * @return string|false
  */
@@ -153,8 +200,8 @@ $readFile = static function (string $path, ?int $maxBytes = null): string|false 
         // file first, so a 300 MB config ends in `Allowed memory size exhausted`
         // — exit 255, no gate diagnostic — which is the outcome this function's
         // scoped handler exists to prevent, reached by the one path the cap was
-        // supposed to close. Appended and defaulted, so the six callers that want
-        // no bound are unchanged.
+        // supposed to close. Appended and defaulted, so a caller that passes no
+        // bound is unchanged.
         return file_get_contents($path, false, null, 0, $maxBytes ?? \PHP_INT_MAX);
     } finally {
         restore_error_handler();
@@ -194,7 +241,17 @@ if ($phpunitFile === null) {
     // for a malformed one, so without this a permissions problem is reported as a
     // syntax error — on the one file this gate declares REQUIRED, which is the
     // worst place to send the reader to the wrong fix.
-    $phpunitContents = $readFile($phpunitFile);
+    $phpunitContents = $readFile($phpunitFile, MAX_TEXT_BYTES + 1);
+
+    // The one file this gate declares REQUIRED, so an oversize one is a $fail rather
+    // than a note: the gate must not go quiet on the config it exists to check. An
+    // empty string rather than false, so the arms below report the drift they find in
+    // it instead of naming the wrong cause a second time.
+    if (is_string($phpunitContents) && (strlen($phpunitContents) > MAX_TEXT_BYTES)) {
+        $fail($violations, 'phpunit.xml', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $phpunitContents = '';
+    }
 
     // A malformed file makes simplexml emit an E_WARNING per libxml error and
     // return false; capture those warnings through a scoped handler rather than
@@ -295,7 +352,15 @@ if ($phpunitFile === null) {
 $jscpdFile = $repoRoot . '/.jscpd.json';
 
 if (is_file($jscpdFile)) {
-    $jscpdContents = $readFile($jscpdFile);
+    $jscpdContents = $readFile($jscpdFile, MAX_TEXT_BYTES + 1);
+
+    // Reported once, and as itself: an empty string rather than false, so the
+    // unreadable arm below does not name the wrong cause a second time.
+    if (is_string($jscpdContents) && (strlen($jscpdContents) > MAX_TEXT_BYTES)) {
+        $fail($violations, '.jscpd.json', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $jscpdContents = '';
+    }
     $json          = ($jscpdContents === false) ? null : json_decode($jscpdContents, true);
 
     if ($jscpdContents === false) {
@@ -392,7 +457,15 @@ if (is_file($phplintFile)) {
     // file would leave a trailing `\r` on each list item and false-fail the `- php`
     // match. The .editorconfig parser splits on the same three terminators, by
     // regex rather than str_replace because it needs the lines anyway.
-    $contents = $readFile($phplintFile);
+    $contents = $readFile($phplintFile, MAX_TEXT_BYTES + 1);
+
+    // Reported once, and as itself: an empty string rather than false, so the
+    // unreadable arm below does not name the wrong cause a second time.
+    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+        $fail($violations, '.phplint.yml', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $contents = '';
+    }
 
     if ($contents === false) {
         $fail($violations, '.phplint.yml', 'exists but cannot be read.');
@@ -412,7 +485,9 @@ if (is_file($phplintFile)) {
         // entry naming a php directory, say) does not satisfy the check.
         $extensionsBlock = $yamlBlock($contents, 'extensions');
 
-        if (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
+        if ($extensionsBlock === null) {
+            $fail($violations, '.phplint.yml', sprintf('the `extensions:` block could not be scanned (%s), so this gate cannot answer for it.', preg_last_error_msg()));
+        } elseif (($extensionsBlock === '') || (preg_match('/^[ \t]*-[ \t]*php[ \t]*$/m', $extensionsBlock) !== 1)) {
             $fail($violations, '.phplint.yml', 'the `extensions:` block must list `- php`.');
         }
     }
@@ -422,7 +497,15 @@ if (is_file($phplintFile)) {
 $editorconfigFile = $repoRoot . '/.editorconfig';
 
 if (is_file($editorconfigFile)) {
-    $contents = $readFile($editorconfigFile);
+    $contents = $readFile($editorconfigFile, MAX_TEXT_BYTES + 1);
+
+    // Reported once, and as itself: an empty string rather than false, so the
+    // unreadable arm below does not name the wrong cause a second time.
+    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+        $fail($violations, '.editorconfig', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $contents = '';
+    }
 
     if ($contents === false) {
         $fail($violations, '.editorconfig', 'exists but cannot be read.');
@@ -566,7 +649,15 @@ if (is_file($editorconfigFile)) {
 $deptracFile = $repoRoot . '/deptrac.yaml';
 
 if (is_file($deptracFile)) {
-    $contents = $readFile($deptracFile);
+    $contents = $readFile($deptracFile, MAX_TEXT_BYTES + 1);
+
+    // Reported once, and as itself: an empty string rather than false, so the
+    // unreadable arm below does not name the wrong cause a second time.
+    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+        $fail($violations, 'deptrac.yaml', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $contents = '';
+    }
 
     if ($contents === false) {
         $fail($violations, 'deptrac.yaml', 'exists but cannot be read.');
@@ -609,9 +700,15 @@ if (is_file($deptracFile)) {
         // near-miss `notmagicsunday/…` copy is rejected), an optionally quoted scalar,
         // and an optional trailing inline comment. The `~` delimiter keeps the literal
         // `#` of a YAML comment unescaped.
-        $importPattern = '~^[ \t]*-[ \t]*[\'"]?(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml[\'"]?[ \t]*(?:#.*)?$~m';
+        // The quote is captured and back-referenced, not written as two independent
+        // optional atoms: those accept `- 'vendor/…/layers.yaml"`, a scalar YAML
+        // itself cannot parse. An empty capture back-references the empty string, so
+        // the unquoted form still matches.
+        $importPattern = '~^[ \t]*-[ \t]*([\'"]?)(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml\1[ \t]*(?:#.*)?$~m';
 
-        if (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
+        if ($importsBlock === null) {
+            $fail($violations, 'deptrac.yaml', sprintf('the `imports:` block could not be scanned (%s), so this gate cannot answer for it.', preg_last_error_msg()));
+        } elseif (($importsBlock === '') || (preg_match($importPattern, $importsBlock) !== 1)) {
             $fail($violations, 'deptrac.yaml', 'must import the shared `magicsunday/coding-standard/deptrac/layers.yaml` ruleset under the top-level `imports:` key.');
         }
     }
@@ -699,7 +796,8 @@ $stripJsonc = static function (string $json): ?string {
  *
  * Four outcomes, kept apart because they send the reader to different places:
  * the decoded config, `null` when it does not parse, `false` when it could not be
- * read at all, and the byte size as an int when the file is past the size this
+ * read at all, and `MAX_JSONC_BYTES + 1` as an int — a sentinel, not the file's
+ * size, since the read stops at the cap — when the file is past the size this
  * gate reads. Collapsing any two of them reports one problem as another, which is
  * the wrong file to go and fix.
  *
@@ -871,14 +969,22 @@ $hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
  *
  * @return bool
  */
-$npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $fail, $readFile, $stripBom): bool {
+$npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $fail, $readFile, $stripBom, $tooLargeDetail): bool {
     $packageJsonFile = $repoRoot . '/package.json';
 
     if (!is_file($packageJsonFile)) {
         return false;
     }
 
-    $contents = $readFile($packageJsonFile);
+    $contents = $readFile($packageJsonFile, MAX_TEXT_BYTES + 1);
+
+    // Reported once, and as itself: an empty string rather than false, so the
+    // unreadable arm below does not name the wrong cause a second time.
+    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+        $fail($violations, 'package.json', $tooLargeDetail(MAX_TEXT_BYTES));
+
+        $contents = '';
+    }
 
     if ($contents === false) {
         $fail($violations, 'package.json', 'exists but cannot be read, so the JS/TS contract cannot be checked.');
@@ -940,7 +1046,7 @@ if ($biomeFile !== null) {
     } elseif (is_int($biomeJson)) {
         // Also unconditional, and for the same reason: the file is past the size
         // this gate reads, which is true whoever wrote it.
-        $fail($violations, $label, sprintf('is %d bytes — larger than the %d bytes this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $biomeJson, MAX_JSONC_BYTES));
+        $fail($violations, $label, $tooLargeDetail(MAX_JSONC_BYTES));
     } elseif ($adopted) {
         // A PARSE failure is gated on adoption, unlike the `"//"` key and unlike
         // an unreadable file, because this reader is not Biome's: it can reject a
@@ -998,8 +1104,39 @@ if ($biomeFile !== null) {
             }
         }
 
+        // `files.includes` is the disable route that leaves every `enabled` flag
+        // true: a consumer whose sources moved out from under a narrowing pattern
+        // gets `biome ci` checking zero files at exit 0, and every check above
+        // passes. It cannot simply be banned — the canonical config in this very
+        // package narrows — so only the shape that can ONLY mean "check nothing"
+        // is reported: a list with no positive pattern in it. A `!`-prefixed entry
+        // is an exclusion; a list of nothing but exclusions includes nothing.
+        //
+        // `files` exists at the document root and in each `overrides` entry (an
+        // override's own key is `includes`), but the wholesale case is the root:
+        // an override that matches nothing narrows that override, not the run.
+        $rootIncludes = $biomeJson['files']['includes'] ?? null;
+
+        if (is_array($rootIncludes)) {
+            $positive = array_filter(
+                $rootIncludes,
+                static fn (mixed $pattern): bool => is_string($pattern) && !str_starts_with($pattern, '!')
+            );
+
+            if (count($positive) === 0) {
+                $fail($violations, $label, '`files.includes` carries no positive pattern, so Biome checks nothing and every other setting here is decorative.');
+            }
+        }
+
         foreach ($scopes as [$prefix, $scope]) {
-            foreach (['linter', 'formatter'] as $toggle) {
+            // `assist` is the third section Biome lets a consumer switch off
+            // wholesale, alongside the linter and the formatter, and it was the one
+            // this walk did not read. Re-derive the set rather than trusting this
+            // list — the root object of the version this package pins:
+            //
+            //     npx @biomejs/biome@2.5.5 --help
+            //     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json
+            foreach (['linter', 'formatter', 'assist'] as $toggle) {
                 if (($scope[$toggle]['enabled'] ?? null) === false) {
                     $fail($violations, $label, sprintf('`%s%s.enabled` must not be false — that disables the shared standard wholesale.', $prefix, $toggle));
                 }
@@ -1066,7 +1203,7 @@ if (is_file($tsconfigFile) && ($tsconfigJson === false)) {
 }
 
 if (is_int($tsconfigJson)) {
-    $fail($violations, 'tsconfig.json', sprintf('is %d bytes — larger than the %d bytes this gate reads, so it was not checked. A shared-config stub is a few hundred bytes.', $tsconfigJson, MAX_JSONC_BYTES));
+    $fail($violations, 'tsconfig.json', $tooLargeDetail(MAX_JSONC_BYTES));
 }
 
 if ($adopted && is_file($tsconfigFile)) {

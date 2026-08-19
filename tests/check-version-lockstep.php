@@ -29,21 +29,42 @@ declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__);
 
+// safeReportValue() — the same guard the shipped gates under bin/ use, for the same
+// reason: this gate also runs over pull-request branch content (package.json's
+// `version`, and every README pin). Its findings go to STDERR and its summary to
+// STDOUT, and the runner scans both for workflow commands. Reproduced before it was wrapped: a
+// `version` holding a real newline put a forged `::error::` at column 0, and a pin
+// carrying a raw ESC reached the report intact.
+require_once __DIR__ . '/../bin/support/safe-report-value.php';
+
+/**
+ * The largest file this gate reads, in bytes.
+ *
+ * This repository's own README is under 40 KB and its package.json under 2 KB, and
+ * the gate runs over pull-request content. Re-derive before raising it:
+ * `wc -c README.md package.json`.
+ */
+const MAX_LOCKSTEP_BYTES = 1048576;
+
 /**
  * Reads a file, or returns false without letting PHP print its own warning first.
  *
  * A scoped handler rather than the `@` prefix: the sibling gate does it this way
  * for the same reason, and `@` would also swallow an error worth seeing.
  *
- * @param string $path Path to the file to read.
+ * @param string   $path     Path to the file to read.
+ * @param int|null  $maxBytes The most bytes to read, or null for no bound.
  *
- * @return string|false
+ * @return string|false The contents, or false when the file could not be read.
  */
-$read = static function (string $path): string|false {
+$read = static function (string $path, ?int $maxBytes = null): string|false {
     set_error_handler(static fn (): bool => true);
 
     try {
-        return file_get_contents($path);
+        // Bounded at the READ, the way the shipped gates bound theirs: measuring
+        // strlen() afterwards lets file_get_contents materialise the whole file
+        // first, which is the OOM the scoped handler above cannot catch.
+        return file_get_contents($path, false, null, 0, $maxBytes ?? \PHP_INT_MAX);
     } finally {
         restore_error_handler();
     }
@@ -58,7 +79,7 @@ $read = static function (string $path): string|false {
 //
 // "README documents no pin" stays at 1 on purpose: the file is readable and
 // well-formed, and losing the documented pin IS the drift this gate reports.
-$packageJsonContents = $read($root . '/package.json');
+$packageJsonContents = $read($root . '/package.json', MAX_LOCKSTEP_BYTES);
 
 if ($packageJsonContents === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
@@ -83,7 +104,7 @@ if (!is_string($packageJson['version'] ?? null)) {
 }
 
 $version = $packageJson['version'];
-$readme  = $read($root . '/README.md');
+$readme  = $read($root . '/README.md', MAX_LOCKSTEP_BYTES);
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));
@@ -115,8 +136,20 @@ preg_match_all(
 // `#1.2.3-beta.1+build.5` is taken whole instead of truncated at the prerelease.
 // A git ref may not END in a period (git check-ref-format), so a trailing one is
 // always prose and is stripped before the comparison.
-$shape = '~^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)*$~D';
+// `[.-]` was `-`-ambiguous: a `-` could open a new group through the outer `[-+]`
+// or continue the current one, so `1(-a)^N!` has 2^N parses and the trailing `!`
+// forces all of them. Measured on php 8.5 — at N=20 preg_match returns FALSE with
+// `Backtrack limit exhausted`, and the `=== 1` comparison below reads that as "not
+// a version tag", making the verdict depend on `pcre.backtrack_limit`.
+//
+// Dropping `-` from the inner class removes the ambiguity without narrowing the
+// language: the OUTER group repeats, so `1.0.0-alpha-1` still matches, as two
+// groups rather than one. Verified identical over `1.8.0`, `1.2.3-beta.1+build.5`,
+// `1.0.0-alpha-1`, `1`, `1.0`, `2.0.0+build.5`, `1.8.0_hotfix`, `1.7.0..`,
+// `v1.8.0`, `1.8.0-`, `1.8.0.`, `''`, `'1.8.0 '` and `"1.8.0\n"`.
+$shape = '~^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)*$~D';
 
+/** @var list<array{0: string, 1: int, 2: bool}> $pins */
 $pins = [];
 
 foreach ($matches[1] ?? [] as [$raw, $offset]) {
@@ -150,20 +183,20 @@ foreach ($pins as [$pin, $offset, $wellFormed]) {
     $line = substr_count(substr($readme, 0, $offset), "\n") + 1;
 
     if (!$wellFormed) {
-        fwrite(\STDERR, sprintf("UNRECOGNISED  README.md:%d pins #%s, which is not a version tag\n", $line, $pin));
+        fwrite(\STDERR, sprintf("UNRECOGNISED  README.md:%d pins #%s, which is not a version tag\n", $line, safeReportValue($pin)));
         $failed = true;
 
         continue;
     }
 
     if ($pin !== $version) {
-        fwrite(\STDERR, sprintf("MISMATCH  README.md:%d pins #%s, package.json says %s\n", $line, $pin, $version));
+        fwrite(\STDERR, sprintf("MISMATCH  README.md:%d pins #%s, package.json says %s\n", $line, safeReportValue($pin), safeReportValue($version)));
         $failed = true;
 
         continue;
     }
 
-    printf("OK        README.md:%d pins #%s\n", $line, $pin);
+    printf("OK        README.md:%d pins #%s\n", $line, safeReportValue($pin));
 }
 
 if ($failed) {
@@ -171,5 +204,5 @@ if ($failed) {
     exit(1);
 }
 
-printf("check-version-lockstep: OK — %d README pin(s) match package.json %s.\n", count($pins), $version);
+printf("check-version-lockstep: OK — %d README pin(s) match package.json %s.\n", count($pins), safeReportValue($version));
 exit(0);

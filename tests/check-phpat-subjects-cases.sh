@@ -306,6 +306,79 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$COMPOSED_ARG_RULE"
 assert_rejects "$d" "composed self::NAMESPACE_ROOT . self::CONST fails closed" "could not resolve"
 
+# --- REJECT: a rule the head pattern cannot parse, beside one it can ---
+# The emptiness guard asks whether the RECOGNISED set is empty, which is a different
+# question from whether every rule was recognised. With a conventional rule present,
+# a second rule spelled with a qualified return type used to be skipped in silence and
+# the gate exited 0 — the one way a gate whose header says it fails CLOSED does not.
+# Its subject is vacuous, so an accept here means the gate never looked at it.
+d="$work/unrecognised-rule-head"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[TestRule]
+    public function qualifiedReturn(): \\PHPat\\Test\\Builder\\Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Unrecognised head.');
+    }"
+assert_rejects "$d" "a #[TestRule] the head pattern cannot parse is reported, not skipped" \
+    "attribute(s) found but only"
+
+# --- REJECT: a class named only inside a heredoc is not in the inventory ---
+# The inventory used to be a line-anchored regex over comment-stripped text, which
+# cannot tell a declaration from a string that looks like one. A `class Node` inside
+# a heredoc registered a class that does not exist, so a vacuous subject naming it was
+# certified live. Tokens answer this by construction; without them the case ACCEPTS.
+d="$work/heredoc-class"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/src/Model"
+cat > "$d/src/Model/template.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod\Model;
+
+return <<<'CODE'
+final class Node
+{
+}
+CODE;
+PHP
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "a class named inside a heredoc is not inventoried" "matches no class"
+
+# --- ACCEPT: two declarations in one file are both inventoried ---
+# The inventory took the FIRST match per file, so a second class was invisible and any
+# subject naming it was reported vacuous. Both subjects here live in one file.
+d="$work/two-classes-one-file"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+cat > "$d/src/Pair.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod;
+
+final class Other
+{
+}
+
+final class Configuration
+{
+}
+PHP
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_accepts "$d" "a second declaration in the same file is inventoried"
+
 # --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
 d="$work/no-testrule"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
