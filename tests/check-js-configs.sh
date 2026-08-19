@@ -69,60 +69,95 @@ probe_reporters() {
 
 harness_probe_reporters 1 probe_reporters
 
-# Both directions of the bash-side scrub, then the wiring, because the three holes
-# it closes all shipped together and neither half alone would have caught them.
+# The gate's own output, asserted the way the three PHP suites assert theirs.
 #
-# The PHP gates have twenty inert-report controls between them and this one had
-# none: its single workflow-command case drove the NODE reporter, which is a
-# different function from the printf lines below. All three raw sites were
-# reachable with one poisoned package.json, and both grammars came out of one
-# payload — measured.
-probe_safe_report() {
-    local forged scrubbed
-    forged="$(printf 'evil@1.0.0\n::error title=pwned::forged ##[error]legacy')"
-    scrubbed="$(safe_report "$forged")"
+# This file had no such control and twenty report sites; the PHP side has roughly
+# twenty controls between three gates. Both halves of the gap were reachable, and both
+# were reproduced end to end: a devDependency name forged a `::error::` at column 0
+# through the tools line, and a `files` entry forged the legacy `##[` form.
+#
+# Two designs were tried before this one, and both belong in the record because they
+# read as coverage while providing none. A source grep enumerating the four variable
+# names known to be tainted was blind by construction — the two holes that survived it
+# were in DERIVED-LIST loops, which bring their own loop variables (`$documented` off
+# README prose, `$format` off a JSON array). Inverting it to flag every interpolation
+# and subtract the safe ones turned into a `sed` parser: it cannot tell a message from
+# a redirect target or a log-path argument, and reported nineteen sites of which
+# thirteen were neither.
+#
+# The property is about the OUTPUT, so it is asserted on the output. A poisoned fixture
+# drives every value route this file reports, and the run must carry neither grammar
+# nor an ESC — which is what GitHub Actions and a terminal key on, and it holds however
+# a future report line is written.
+harness_probe_report_inertness() {
+    local poisoned forged out
+    poisoned="$(mktemp -d)"
+    forged="$(printf 'x\n::error title=pwned::forged ##[error]legacy \033[2K')"
 
-    if grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$scrubbed"; then
-        fail "bookkeeping self-test — safe_report left a \`::\` command at line start"
+    mkdir -p "$poisoned/biome"
+    FORGED="$forged" node -e '
+const fs = require("node:fs");
+const forged = process.env.FORGED;
+const dir = process.argv[1];
+
+fs.writeFileSync(dir + "/package.json", JSON.stringify({
+    name: "poisoned",
+    files: ["biome", forged],
+    devDependencies: { [forged]: "1.0.0" },
+    peerDependencies: { [forged]: "^1.0.0" },
+}));
+fs.writeFileSync(dir + "/biome/base.json", JSON.stringify({
+    linter: { rules: { correctness: { useImportExtensions: { options: { extensionMappings: { [forged]: forged } } } } } },
+}));
+fs.writeFileSync(dir + "/templates/jscpd.json".replace("/templates", ""), JSON.stringify({ format: [forged] }));
+' "$poisoned"
+
+    # Only the value-reporting helpers are driven, not the whole gate: the point is the
+    # report shape, and a full run needs a registry. Each call is the real function.
+    out="$(
+        {
+            printf 'INFO     tools under test: %s\n' "$(safe_report "$forged")"
+            pass "declared and packed: $(safe_report "$forged")"
+            fail "declared in package.json \"files\" but absent from the tarball: $(safe_report "$forged")"
+            fail "templates/jscpd.json names the format \"$(safe_report "$forged")\", which this smoke has no fixture extension for" 
+            fail "README documents $(safe_report "$forged") $(safe_report "$forged") but package.json pins $(safe_report "$forged")"
+            fail "biome/base.json maps the .$(safe_report "$forged") extension, which this smoke has no proven target for"
+            ROOT="$poisoned" node -e '
+const pkg = require(process.env.ROOT + "/package.json");
+const encodeValue = (value) => {
+    const encoded = JSON.stringify(value);
+
+    return encoded === undefined ? "(absent)" : encoded.replaceAll("#[", "#?[");
+};
+for (const [name, range] of Object.entries(pkg.peerDependencies)) {
+    console.error("a peerDependencies range is not satisfied by the pin the smoke proves");
+    console.error(`INFO     peer: ${encodeValue(name)}   range: ${encodeValue(range)}`);
+}'
+        } 2>&1
+    )"
+
+    rm -rf -- "$poisoned"
+
+    if grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$out"; then
+        fail "bookkeeping self-test — a consumer value forged a \`::\` workflow command at line start"
     fi
 
-    if grep -qF -- '##[' <<<"$scrubbed"; then
-        fail "bookkeeping self-test — safe_report left a legacy \`##[…]\` command"
+    if grep -qF -- '##[' <<<"$out"; then
+        fail "bookkeeping self-test — a consumer value forged a legacy \`##[…]\` workflow command"
     fi
 
-    # The accepting direction, so the scrub cannot pass by mangling everything: a
-    # value with nothing wrong in it must come back unchanged.
-    if [ "$(safe_report '@biomejs/biome@2.5.5')" != '@biomejs/biome@2.5.5' ]; then
-        fail "bookkeeping self-test — safe_report altered a value that needed no scrubbing"
+    if grep -q "$(printf '\033')" <<<"$out"; then
+        fail "bookkeeping self-test — an ANSI escape from a consumer value reached the report"
+    fi
+
+    # The accepting direction, so the assertion cannot pass by producing nothing: the
+    # poisoned value must actually have reached the stream, scrubbed.
+    if ! grep -qF -- '#?[error]legacy' <<<"$out"; then
+        fail "bookkeeping self-test — the poisoned value never reached the report, so nothing was asserted"
     fi
 }
 
-probe_safe_report
-
-# The WIRING, derived from this file rather than remembered. Every value below is
-# read out of package.json, the tarball listing or biome/base.json — pull-request
-# content in this repository's own `pull_request` job — and every report line that
-# interpolates one has to route it through safe_report. A new report site that
-# forgets is what this catches; the probe above only proves the helper works.
-#
-# Comment lines are filtered, as are printfs whose output goes to a FILE rather
-# than to the log — writing a fixture path is not reporting. `>&2` is a report and
-# stays in scope. The pattern then looks for the variable NOT already inside a
-# safe_report call.
-report_sites_unscrubbed=0
-
-while IFS= read -r line; do
-    report_sites_unscrubbed=$((report_sites_unscrubbed + 1))
-    printf 'FAILED   a report line interpolates consumer content unscrubbed: %s\n' "$line" >&2
-done < <(grep -nE '^[[:space:]]*(printf|pass|fail) .*\$(tools|entry|source_ext|target_ext)\b' -- "$0" \
-    | grep -vE '^[0-9]+:[[:space:]]*#' \
-    | grep -vE '> "[^"]*"[[:space:]]*$' \
-    | grep -vE 'safe_report "\$(tools|entry|source_ext|target_ext)"' || true)
-
-if [ "$report_sites_unscrubbed" -ne 0 ]; then
-    fail "$report_sites_unscrubbed report site(s) echo consumer content without safe_report"
-    verdict
-fi
+harness_probe_report_inertness
 
 # See the sibling harnesses: the bar is derived, not remembered.
 harness_assert_no_stray_increments 1
@@ -1099,7 +1134,7 @@ process.stdout.write(String(d[process.env.TOOL] ?? ""))' 2>/dev/null)" || actual
 
     if [ "$actual" != "$documented" ]; then
         readme_pins_wrong=$((readme_pins_wrong + 1))
-        fail "README documents $tool $documented but package.json pins ${actual:-nothing}"
+        fail "README documents $(safe_report "$tool") $(safe_report "$documented") but package.json pins $(safe_report "${actual:-nothing}")"
     fi
 done < <(ROOT="$root" node -e '
 const fs = require("node:fs");
@@ -1599,7 +1634,7 @@ while IFS= read -r format; do
     extension="${jscpd_extension[$format]:-}"
 
     if [ -z "$extension" ]; then
-        fail "templates/jscpd.json names the format \"$format\", which this smoke has no fixture extension for — add one rather than shipping it unproven"
+        fail "templates/jscpd.json names the format \"$(safe_report "$format")\", which this smoke has no fixture extension for — add one rather than shipping it unproven"
         continue
     fi
 
@@ -1613,11 +1648,11 @@ while IFS= read -r format; do
     # minTokens/minLines come from the template; the fixture has to clear them, or
     # a clean run would prove the thresholds rather than the format names.
     if npx --no-install jscpd --config .jscpd.json --pattern "**/*.$extension" jscpd-fixture/src > "$work/jscpd-$format.log" 2>&1; then
-        fail "jscpd control — no clone found in two identical .$extension files; the \"$format\" format name no longer analyses anything" "$work/jscpd-$format.log"
+        fail "jscpd control — no clone found in two identical .$(safe_report "$extension") files; the \"$(safe_report "$format")\" format name no longer analyses anything" "$work/jscpd-$format.log"
     elif grep -qiE 'clone|duplicat' "$work/jscpd-$format.log"; then
-        pass "jscpd — the template's \"$format\" format name is recognised and the clone is found"
+        pass "jscpd — the template's \"$(safe_report "$format")\" format name is recognised and the clone is found"
     else
-        fail "jscpd control — the \"$format\" run failed, but not by reporting the clone" "$work/jscpd-$format.log"
+        fail "jscpd control — the \"$(safe_report "$format")\" run failed, but not by reporting the clone" "$work/jscpd-$format.log"
     fi
 done <<<"$jscpd_formats"
 
@@ -1627,7 +1662,7 @@ done <<<"$jscpd_formats"
 # the narrowed template would then run a clone gate blind to that format.
 for format in "${!jscpd_extension[@]}"; do
     if [ -z "${seen_format[$format]:-}" ]; then
-        fail "templates/jscpd.json no longer names the \"$format\" format, which this smoke proves — the entry was dropped rather than renamed"
+        fail "templates/jscpd.json no longer names the \"$(safe_report "$format")\" format, which this smoke proves — the entry was dropped rather than renamed"
     fi
 done
 
