@@ -1022,6 +1022,90 @@ while IFS= read -r entry; do
     fi
 done <<<"$declared"
 
+# The delivery this smoke does NOT pack. `npm pack` reads the working tree; the
+# only documented install path is `github:magicsunday/coding-standard#<tag>`, which
+# pacote fetches from GitHub's codeload archive with `.gitattributes` export-ignore
+# already applied. So `files` and the export-ignore list are two hand-kept allow-lists
+# over one delivery and only one was exercised — and this repository has already made
+# the mistake once: commit 1a2291e reverted a `/package.json export-ignore` that broke
+# every consumer's install, found by hand rather than by a gate.
+#
+# `git check-attr` runs git's own attribute resolution rather than grepping the file,
+# so it answers for whatever pattern happens to match, and it reads THIS repository's
+# .gitattributes — the copy that bit, not the template.
+#
+# bin/support/safe-report-value.php is in the list for the Composer side of the same
+# question: both shipped gates `require_once` it, and nothing else asserts it survives
+# into the dist archive.
+# The list is DERIVED from `files` — the same allow-list the tarball check above
+# reads — plus package.json itself and the Composer side's shared helper, neither of
+# which `files` covers. A hand-kept list here would drift from `files` the moment an
+# entry is added, which is the drift this pair of allow-lists is about.
+#
+# Each entry is expanded into its ANCESTOR CHAIN, because that is how .gitattributes
+# matches and how `git archive` prunes: `/bin/support export-ignore` sets the
+# attribute on the directory and leaves `bin/support/safe-report-value.php`
+# unspecified, while the archive drops the whole subtree. Asking about the leaf alone
+# answers a question nobody asked — measured, that spelling passed the first version
+# of this control.
+exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php \
+    | awk 'NF { n = split($0, part, "/"); path = ""; for (i = 1; i <= n; i++) { path = (i == 1 ? part[i] : path "/" part[i]); print path } }' \
+    | sort -u)"
+
+while IFS= read -r exported; do
+    [ -n "$exported" ] || continue
+    attr="$(git -C "$root" check-attr export-ignore -- "$exported" 2>/dev/null)" || attr=''
+
+    if [ -z "$attr" ]; then
+        fail "cannot resolve export-ignore for $(safe_report "$exported") — git could not answer, so this control did not run"
+    elif [ "$attr" != "$exported: export-ignore: unspecified" ]; then
+        fail "$(safe_report "$exported") is export-ignored, so a github: install and the Composer dist archive both lose it: $(safe_report "$attr")"
+    else
+        pass "reaches a consumer through the git archive: $(safe_report "$exported")"
+    fi
+done <<<"$exported_paths"
+
+# The fourth hand-kept copy of the tool versions, and after this branch the only one
+# nothing reads: the $schema URL is derived below, the peer ranges are checked against
+# the pins above, and these sit in README prose. npm Dependabot bumps here are
+# auto-merged, so the prose drifts silently on the one path that is not reviewed.
+readme_pins_wrong=0
+
+while IFS='|' read -r tool documented; do
+    [ -n "$tool" ] || continue
+    actual="$(ROOT="$root" TOOL="$tool" node -e 'const d = require(process.env.ROOT + "/package.json").devDependencies;
+process.stdout.write(String(d[process.env.TOOL] ?? ""))' 2>/dev/null)" || actual=''
+
+    if [ "$actual" != "$documented" ]; then
+        readme_pins_wrong=$((readme_pins_wrong + 1))
+        fail "README documents $tool $documented but package.json pins ${actual:-nothing}"
+    fi
+done < <(ROOT="$root" node -e '
+const fs = require("node:fs");
+const readme = fs.readFileSync(process.env.ROOT + "/README.md", "utf8");
+const tools = ["@biomejs/biome", "typescript", "jscpd"];
+
+for (const tool of tools) {
+    const found = readme.match(new RegExp("`" + tool.replace("/", "\\/") + " ([0-9][^`]*)`"));
+
+    if (found !== null) {
+        process.stdout.write(tool + "|" + found[1] + "\n");
+    }
+}' 2>/dev/null || true)
+
+# The anchor every other derived list in this harness carries: with the prose
+# reworded, the loop above would run zero times and report agreement having compared
+# nothing.
+if [ "$(ROOT="$root" node -e '
+const fs = require("node:fs");
+const readme = fs.readFileSync(process.env.ROOT + "/README.md", "utf8");
+process.stdout.write(String(["@biomejs/biome", "typescript", "jscpd"]
+    .filter((t) => new RegExp("`" + t.replace("/", "\\/") + " [0-9]").test(readme)).length));' 2>/dev/null)" != "3" ]; then
+    fail "README no longer documents all three tool versions in the shape this control reads — reword the control, not only the prose"
+elif [ "$readme_pins_wrong" -eq 0 ]; then
+    pass "README tool versions match the devDependencies pins"
+fi
+
 # --- a consumer extending both shared configs --------------------------------
 
 mkdir -p src
@@ -1246,11 +1330,31 @@ while IFS=' ' read -r source_ext target_ext; do
         "$want" > "src/use.$source_ext"
 
     if biome_ci "$work/biome-map-$source_ext.log"; then
-        pass "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is in force"
+        pass "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is accepted"
     else
         fail "biome — an import spelling .$want from a .$(safe_report "$source_ext") source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
     fi
 
+    # The accepting run above is satisfied by "Biome said nothing", which is also
+    # what a Biome that does not analyse this extension at all says. That is the
+    # difference between the row being IN FORCE and merely not objected to, and only
+    # the negative direction can tell them apart: the same source importing a
+    # spelling the row does NOT map must be reported, by useImportExtensions
+    # specifically. Without this, the hand table catches a changed target and the
+    # completeness loop catches a dropped row, but neither catches Biome ceasing to
+    # honour the option for that extension.
+    printf 'import { value } from "./mod";\n\nexport const tripled = (): number => value * 3;\n' \
+        > "src/bare.$source_ext"
+
+    if biome_ci "$work/biome-map-neg-$source_ext.log"; then
+        fail "biome — an extensionless import from a .$(safe_report "$source_ext") source was accepted, so useImportExtensions is not in force for that extension"
+    elif grep -q 'lint/correctness/useImportExtensions' "$work/biome-map-neg-$source_ext.log"; then
+        pass "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is in force"
+    else
+        fail "biome — biome ci failed on a .$(safe_report "$source_ext") source, but not on useImportExtensions" "$work/biome-map-neg-$source_ext.log"
+    fi
+
+    rm "src/bare.$source_ext"
     rm "src/mod.$source_ext" "src/use.$source_ext"
 done <<<"$mappings"
 

@@ -135,6 +135,19 @@ if [ "${#gate_root_flags[@]}" -eq 0 ]; then
     report_failure 'read no $requiredRootFlags entries from bin/check-consumer-config.php'
 fi
 
+# The structural bar, independent of the extractor's own vocabulary. `'[A-Za-z]+'`
+# cannot see a flag carrying a digit or an underscore, and BOTH direction checks
+# below iterate over what it extracted — so such a flag generates no case and
+# nothing reddens. Counting the quoted entries in the same sed range answers a
+# question the name pattern cannot. Occurrences, not lines: two entries on one
+# physical line read as one under `grep -c`, which is the silent direction.
+gate_root_flags_declared="$(sed -n '/\$requiredRootFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
+    | grep -oE "'[^']*'" | wc -l)"
+
+if [ "$gate_root_flags_declared" -ne "${#gate_root_flags[@]}" ]; then
+    report_failure "the \$requiredRootFlags block declares $gate_root_flags_declared entries but this harness parsed ${#gate_root_flags[@]} — widen the extractor rather than leaving one unexercised"
+fi
+
 # Both directions, so neither list can quietly outlive the other.
 for flag in "${required_root_flags[@]}"; do
     if ! contains "$flag" "${gate_root_flags[@]}"; then
@@ -461,13 +474,44 @@ JSON
 assert_rejects "$d" ".jscpd.json with minLines raised to disable detection" "minLines"
 
 # --- POSITIVE: the full canonical template set as a consumer would carry it ---
+# The phpunit copy comes from templates/, not from the fixture. It is the file a
+# consumer actually copies and it carries this gate's largest table — and it was the
+# one shipped template no gate run ever saw. The nine-flag bijection above ties the
+# harness list to the GATE's list; nothing tied either to the template, so all three
+# agreeing was a coincidence renewed by hand.
 d="$work/canon-full"
 mkdir -p "$d"
-cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+cp "$ROOT/templates/phpunit.xml.dist" "$d/phpunit.xml.dist"
 cp "$ROOT/templates/editorconfig" "$d/.editorconfig"
 cp "$ROOT/templates/jscpd.json" "$d/.jscpd.json"
 cp "$ROOT/templates/phplint.yml" "$d/.phplint.yml"
-assert_accepts "$d" "full canonical template set"
+assert_accepts "$d" "full canonical template set, phpunit included, as templates/ ships it"
+
+# The line splitter, which the comment above it justifies with three specific bytes
+# and no fixture carried any of them. `\R` matches VT, FF and U+0085 as line breaks;
+# U+0085 is the CONTINUATION byte of a two-byte UTF-8 character, so splitting on it
+# cut a character in half and re-parsed the tail as a config line. Revert the splitter
+# to `/\R/` and this case flips to a reject.
+d="$work/editorconfig-vertical-whitespace"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+php -r '
+    file_put_contents($argv[1], "root = true\n[*]\n# a comment carrying \xc4\x85 and a form feed \x0c here\nindent_style = space\nindent_size = 4\n[{Makefile,*.mk}]\nindent_style = tab\n");
+' "$d/.editorconfig"
+assert_accepts "$d" ".editorconfig whose comment carries a form feed and a U+0085 continuation byte"
+
+# Case folding, and the explicit trim charlist beside it. Every other fixture writes
+# lowercase keys separated by plain spaces, so replacing mb_strtolower() with the
+# identity — and the charlist with trim()'s default — left the suite green, while
+# composer.json carries ext-mbstring for that call. The form feed is the one byte the
+# two charlists disagree on.
+d="$work/editorconfig-uppercase-keys"
+mkdir -p "$d"
+cp "$FIXTURE/phpunit.xml" "$d/phpunit.xml"
+php -r '
+    file_put_contents($argv[1], "ROOT = TRUE\n[*]\n\x0cIndent_Style\x0c = Space\nINDENT_SIZE = 4\n[{Makefile,*.mk}]\nIndent_Style = Tab\n");
+' "$d/.editorconfig"
+assert_accepts "$d" ".editorconfig written with uppercase keys and values, and form feeds around a key"
 
 # --- .editorconfig: root = true moved below a section header (invalid position) ---
 d="$work/editorconfig-root-in-section"
@@ -1589,6 +1633,19 @@ if [ "${#pinned_flags[@]}" -eq 0 ]; then
     report_failure 'read no $pinnedFlags entries from bin/check-consumer-config.php'
 fi
 
+# The structural bar, independent of the extractor's own vocabulary. `'[A-Za-z]+'`
+# cannot see a flag carrying a digit or an underscore, and BOTH direction checks
+# below iterate over what it extracted — so such a flag generates no case and
+# nothing reddens. Counting the quoted entries in the same sed range answers a
+# question the name pattern cannot. Occurrences, not lines: two entries on one
+# physical line read as one under `grep -c`, which is the silent direction.
+pinned_flags_declared="$(sed -n '/\$pinnedFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
+    | grep -oE "'[^']*'" | wc -l)"
+
+if [ "$pinned_flags_declared" -ne "${#pinned_flags[@]}" ]; then
+    report_failure "the \$pinnedFlags block declares $pinned_flags_declared entries but this harness parsed ${#pinned_flags[@]} — widen the extractor rather than leaving one unexercised"
+fi
+
 for flag in "${base_flags[@]}"; do
     d="$(mk_js_case "ts-flag-$flag")"
     printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
@@ -1780,6 +1837,35 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects "$d" "a non-object overrides entry does not hide the next one" "overrides[1].linter.enabled"
 
+# A mis-typed per-language block must not stop the walk reporting what else it
+# finds. Stated as what it pins, not as what it looks like it pins: removing the
+# `is_array($languageScope)` guard above the push does NOT change this verdict,
+# because the `?? null` on the read below already absorbs a string subscript. The
+# guard is belt-and-braces there; what this case does discriminate is that the walk
+# survives the shape at all and still names the real drift.
+d="$(mk_js_case biome-language-not-an-object)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "javascript": "off",
+    "linter": { "enabled": false }
+}
+JSON
+assert_rejects "$d" "biome.json whose per-language block is a string, not an object" \
+    "\`linter.enabled\` must not be false"
+
+# Which spelling wins when both exist. Every other `.jsonc` case removes the `.json`
+# first, so the discovery ORDER was never driven: the gate reads biome.json and stops.
+# The `.jsonc` here carries a defect the report would name if it were the file read.
+d="$(mk_js_case biome-both-spellings)"
+cat > "$d/biome.jsonc" <<'JSONC'
+{
+    // this file must not be the one the gate reads
+    "linter": { "enabled": false }
+}
+JSONC
+assert_accepts "$d" "biome.json is read in preference to a biome.jsonc beside it"
+
 d="$(mk_js_case biome-rules-not-an-object)"
 cat > "$d/biome.json" <<'JSON'
 {
@@ -1820,8 +1906,14 @@ fi
 # checks below passed on the shortened list, and no behavioural fixture was
 # generated for it. Counting `=>` in the block against what came out is
 # independent of whatever the pattern happens to spell.
-if [ "$(grep -c '=>' <<<"$gate_spelling_block")" -ne "${#gate_spellings[@]}" ]; then
-    report_failure "the spelling table carries $(grep -c '=>' <<<"$gate_spelling_block") entries but this harness parsed ${#gate_spellings[@]} — widen the extractor rather than leaving a row unexercised"
+# Occurrences, not lines. `grep -c` counts selected LINES while the extractor above
+# fills its array from `grep -oE`, i.e. matches — so two table entries written on one
+# physical line read as 1 == 1 and the second ships unexercised. That is the silent
+# direction, and it is the same choice harness.sh records for its own counter.
+gate_spelling_declared="$(grep -oE '=>' <<<"$gate_spelling_block" | wc -l)"
+
+if [ "$gate_spelling_declared" -ne "${#gate_spellings[@]}" ]; then
+    report_failure "the spelling table carries $gate_spelling_declared entries but this harness parsed ${#gate_spellings[@]} — widen the extractor rather than leaving a row unexercised"
 fi
 
 proven_spellings=(js:javascript mjs:javascript cjs:javascript ts:typescript mts:typescript cts:typescript)

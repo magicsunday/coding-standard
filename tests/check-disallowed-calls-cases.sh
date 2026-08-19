@@ -63,7 +63,10 @@ mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
 # the same truncated list, so it could not notice either. Counting the declared
 # bans structurally is what discriminates; the sibling extractors got this in an
 # earlier round and this one was missed.
-declared_bans="$(grep -vE '^[[:space:]]*#' "$CONFIG" | grep -c "function: '" || true)"
+# Occurrences, not lines: BANNED is filled from `grep -oE`, so two `function: '…'`
+# entries on one neon line would read as 1 == 1 and the second would ship
+# unexercised.
+declared_bans="$(grep -vE '^[[:space:]]*#' "$CONFIG" | grep -oF "function: '" | wc -l || true)"
 
 if [ "$declared_bans" -ne "${#BANNED[@]}" ]; then
     printf 'FAIL: the config declares %s ban(s) but this harness parsed %s — widen the extractor rather than leaving a ban unexercised.\n' \
