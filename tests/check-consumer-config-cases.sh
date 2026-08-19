@@ -1363,24 +1363,40 @@ d="$(mk_js_case ts-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
 assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
-# The plain-text bound, on the file this gate declares REQUIRED. Measured before
-# the cap reached these readers: a 196 MB phpunit.xml at memory_limit=128M ended in
-# `Allowed memory size exhausted`, exit 255, with no gate diagnostic — the outcome
-# $readFile's scoped handler exists to prevent, reached by the one path the cap did
-# not cover. It has to be a $fail rather than a note, because a required config the
-# gate could not read is not a config it may pass over.
-d="$(mk_case phpunit-past-the-size-cap)"
-php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/phpunit.xml"
-assert_rejects "$d" "a phpunit.xml past the size cap is reported as oversized, not read" \
-    "larger than the 1048576 bytes this gate checks"
+# The plain-text bound. Measured before the cap reached these readers: a 196 MB
+# .editorconfig at memory_limit=128M ended in `Allowed memory size exhausted`, exit
+# 255, with no gate diagnostic — the outcome $readFile's scoped handler exists to
+# prevent, reached by every site that passed no bound.
+# Every plain-text reader on that bound, not a sample: they were six separate call
+# sites before $readBounded, and two cases could not pin the other four.
+#
+# assert_reports_once, not assert_rejects, and that is the point. A substring
+# assertion passes while the gate ALSO fabricates causes: measured before the fix,
+# the phpunit fixture produced two violations and the .editorconfig one four, the
+# extras naming things the files plainly carry (`not well-formed XML`, `must set
+# root = true`). Requiring exactly one report per file is what caught it, and it is
+# what the structurally identical unreadable path was already pinned with.
+for oversize_file in phpunit.xml .jscpd.json .phplint.yml .editorconfig deptrac.yaml; do
+    d="$(mk_case "oversize-${oversize_file#.}")"
+    php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/$oversize_file"
+    assert_reports_once "$d" "an oversized $oversize_file is reported once, as itself" "$oversize_file"
+done
 
-# A second reader on the same bound, because the six that gained it are six separate
-# call sites rather than one shared arm — the defect was that five of them passed no
-# bound at all, and one case cannot pin the other five.
-d="$(mk_case editorconfig-past-the-size-cap)"
-php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/.editorconfig"
-assert_rejects "$d" "an .editorconfig past the size cap is reported as oversized, not read" \
-    "larger than the 1048576 bytes this gate checks"
+# The npm probe's own oversize arm, which is the one place this bound can turn a
+# report into a SILENCE rather than a wrong cause: $npmDependencyDeclared answers
+# whether the repository adopted the package, and an oversize manifest used to make
+# it answer "no" — switching the whole adoption-gated JS/TS contract off on the
+# strength of a file the gate could not read. The biome.json here carries a defect
+# the gate must still name.
+d="$(mk_case package-json-past-the-size-cap)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "linter": { "enabled": false }
+}
+JSON
+php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/package.json"
+assert_reports_once "$d" "an oversized package.json is reported once and does not silence the JS/TS contract" \
+    "package.json"
 
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;
 # removing `\x7F` from the class left every one of them green.

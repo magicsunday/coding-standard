@@ -205,6 +205,38 @@ $readFile = static function (string $path, ?int $maxBytes = null): string|false 
 };
 
 /**
+ * Reads a plain-text config under MAX_TEXT_BYTES, reporting an oversize file itself.
+ *
+ * Three outcomes, and the caller must keep them apart: a string is the contents,
+ * `false` means the file could not be read, and `null` means it was read past the
+ * bound and has ALREADY been reported.
+ *
+ * Null rather than an empty string, which is what six copies of this block used to
+ * substitute. Measured: with `''` the content arms ran on the truncated read and
+ * fabricated causes — five oversize configs produced twelve violations, of which
+ * seven named things the files plainly carry (`not well-formed XML`, `must list
+ * `- php``, three `.editorconfig` section arms). Reporting once and skipping the rest
+ * is what the comment on those copies already claimed.
+ *
+ * @param list<string> $violations The accumulated report, appended to in place.
+ * @param string       $path       The file to read.
+ * @param string       $label      How the file is named in the report.
+ *
+ * @return string|false|null The contents, false when unreadable, null when oversize.
+ */
+$readBounded = static function (array &$violations, string $path, string $label) use ($readFile, $fail, $tooLargeDetail): string|false|null {
+    $contents = $readFile($path, MAX_TEXT_BYTES + 1);
+
+    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+        $fail($violations, $label, $tooLargeDetail(MAX_TEXT_BYTES));
+
+        return null;
+    }
+
+    return $contents;
+};
+
+/**
  * Strips a leading UTF-8 BOM.
  *
  * npm, Node, Biome and tsc all read a BOM-prefixed config and honour it, while
@@ -237,17 +269,7 @@ if ($phpunitFile === null) {
     // for a malformed one, so without this a permissions problem is reported as a
     // syntax error — on the one file this gate declares REQUIRED, which is the
     // worst place to send the reader to the wrong fix.
-    $phpunitContents = $readFile($phpunitFile, MAX_TEXT_BYTES + 1);
-
-    // The one file this gate declares REQUIRED, so an oversize one is a $fail rather
-    // than a note: the gate must not go quiet on the config it exists to check. An
-    // empty string rather than false, so the arms below report the drift they find in
-    // it instead of naming the wrong cause a second time.
-    if (is_string($phpunitContents) && (strlen($phpunitContents) > MAX_TEXT_BYTES)) {
-        $fail($violations, 'phpunit.xml', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $phpunitContents = '';
-    }
+    $phpunitContents = $readBounded($violations, $phpunitFile, 'phpunit.xml');
 
     // A malformed file makes simplexml emit an E_WARNING per libxml error and
     // return false; capture those warnings through a scoped handler rather than
@@ -255,12 +277,16 @@ if ($phpunitFile === null) {
     set_error_handler(static fn (): bool => true);
 
     try {
-        $xml = ($phpunitContents === false) ? false : simplexml_load_string($phpunitContents);
+        $xml = is_string($phpunitContents) ? simplexml_load_string($phpunitContents) : false;
     } finally {
         restore_error_handler();
     }
 
-    if ($phpunitContents === false) {
+    if ($phpunitContents === null) {
+        // Reported as oversize by $readBounded. This is the file the gate declares
+        // REQUIRED, so the report is a violation either way — but `not well-formed
+        // XML` on a truncated read names a cause the file does not have.
+    } elseif ($phpunitContents === false) {
         $fail($violations, 'phpunit.xml', 'exists but cannot be read.');
     } elseif ($xml === false) {
         $fail($violations, 'phpunit.xml', 'not well-formed XML.');
@@ -348,18 +374,13 @@ if ($phpunitFile === null) {
 $jscpdFile = $repoRoot . '/.jscpd.json';
 
 if (is_file($jscpdFile)) {
-    $jscpdContents = $readFile($jscpdFile, MAX_TEXT_BYTES + 1);
+    $jscpdContents = $readBounded($violations, $jscpdFile, '.jscpd.json');
+    $json = is_string($jscpdContents) ? json_decode($jscpdContents, true) : null;
 
-    // Reported once, and as itself: an empty string rather than false, so the
-    // unreadable arm below does not name the wrong cause a second time.
-    if (is_string($jscpdContents) && (strlen($jscpdContents) > MAX_TEXT_BYTES)) {
-        $fail($violations, '.jscpd.json', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $jscpdContents = '';
-    }
-    $json          = ($jscpdContents === false) ? null : json_decode($jscpdContents, true);
-
-    if ($jscpdContents === false) {
+    if ($jscpdContents === null) {
+        // Reported as oversize by $readBounded; the arms below would run on a
+        // truncated read and name causes the file does not have.
+    } elseif ($jscpdContents === false) {
         $fail($violations, '.jscpd.json', 'exists but cannot be read.');
     } elseif (str_starts_with($jscpdContents, "\xEF\xBB\xBF")) {
         // Named rather than folded into "not valid JSON", which is what a bare
@@ -453,17 +474,12 @@ if (is_file($phplintFile)) {
     // file would leave a trailing `\r` on each list item and false-fail the `- php`
     // match. The .editorconfig parser splits on the same three terminators, by
     // regex rather than str_replace because it needs the lines anyway.
-    $contents = $readFile($phplintFile, MAX_TEXT_BYTES + 1);
+    $contents = $readBounded($violations, $phplintFile, '.phplint.yml');
 
-    // Reported once, and as itself: an empty string rather than false, so the
-    // unreadable arm below does not name the wrong cause a second time.
-    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
-        $fail($violations, '.phplint.yml', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $contents = '';
-    }
-
-    if ($contents === false) {
+    if ($contents === null) {
+        // Reported as oversize by $readBounded; the arms below would run on a
+        // truncated read and name causes the file does not have.
+    } elseif ($contents === false) {
         $fail($violations, '.phplint.yml', 'exists but cannot be read.');
     } else {
         // The BOM is stripped here and NOT at the jscpd or deptrac read, because
@@ -498,17 +514,12 @@ if (is_file($phplintFile)) {
 $editorconfigFile = $repoRoot . '/.editorconfig';
 
 if (is_file($editorconfigFile)) {
-    $contents = $readFile($editorconfigFile, MAX_TEXT_BYTES + 1);
+    $contents = $readBounded($violations, $editorconfigFile, '.editorconfig');
 
-    // Reported once, and as itself: an empty string rather than false, so the
-    // unreadable arm below does not name the wrong cause a second time.
-    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
-        $fail($violations, '.editorconfig', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $contents = '';
-    }
-
-    if ($contents === false) {
+    if ($contents === null) {
+        // Reported as oversize by $readBounded; the arms below would run on a
+        // truncated read and name causes the file does not have.
+    } elseif ($contents === false) {
         $fail($violations, '.editorconfig', 'exists but cannot be read.');
     } else {
         // Editors honour a BOM'd .editorconfig — editorconfig-core-js reads one
@@ -650,17 +661,12 @@ if (is_file($editorconfigFile)) {
 $deptracFile = $repoRoot . '/deptrac.yaml';
 
 if (is_file($deptracFile)) {
-    $contents = $readFile($deptracFile, MAX_TEXT_BYTES + 1);
+    $contents = $readBounded($violations, $deptracFile, 'deptrac.yaml');
 
-    // Reported once, and as itself: an empty string rather than false, so the
-    // unreadable arm below does not name the wrong cause a second time.
-    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
-        $fail($violations, 'deptrac.yaml', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $contents = '';
-    }
-
-    if ($contents === false) {
+    if ($contents === null) {
+        // Reported as oversize by $readBounded; the arms below would run on a
+        // truncated read and name causes the file does not have.
+    } elseif ($contents === false) {
         $fail($violations, 'deptrac.yaml', 'exists but cannot be read.');
     } else {
         // A BOM is reported rather than stripped, because deptrac refuses the file
@@ -975,21 +981,21 @@ $hasNoteKey = static function (array $node) use (&$hasNoteKey): bool {
  *
  * @return bool
  */
-$npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $fail, $readFile, $stripBom, $tooLargeDetail): bool {
+$npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $fail, $readBounded, $stripBom): bool {
     $packageJsonFile = $repoRoot . '/package.json';
 
     if (!is_file($packageJsonFile)) {
         return false;
     }
 
-    $contents = $readFile($packageJsonFile, MAX_TEXT_BYTES + 1);
+    $contents = $readBounded($violations, $packageJsonFile, 'package.json');
 
-    // Reported once, and as itself: an empty string rather than false, so the
-    // unreadable arm below does not name the wrong cause a second time.
-    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
-        $fail($violations, 'package.json', $tooLargeDetail(MAX_TEXT_BYTES));
-
-        $contents = '';
+    if ($contents === null) {
+        // Reported as oversize by $readBounded. Returning false here would switch the
+        // whole adoption-gated JS/TS contract off on the strength of a manifest the
+        // gate could not read — the fail-open js-package-json-unreadable exists
+        // against, reached by the other of the two paths into this arm.
+        return false;
     }
 
     if ($contents === false) {
