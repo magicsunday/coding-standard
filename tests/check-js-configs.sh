@@ -344,12 +344,13 @@ for (const [name, range] of peers) {
     const wanted = segments(range);
     const pinned = segments(pin);
 
-    // `^0.x` does not mean what `^1.x` means: below 1.0.0 npm treats the MINOR as
-    // the compatibility boundary, so `^0.2.0` is `>=0.2.0 <0.3.0` and the pin 0.3.0
-    // does not satisfy it. Comparing the major alone accepted it. No peer here is
-    // below 1.0.0 today, which is exactly why the arm has its own fixture: nothing
-    // in the current manifest would ever exercise it.
-    const boundary = wanted[0] === 0 ? 2 : 1;
+    // The npm rule is "no change to the LEFTMOST NON-ZERO element", which is three
+    // cases and not two: `^1.2.3` pins the major, `^0.2.3` the minor, `^0.0.3` the
+    // patch (`>=0.0.3 <0.0.4`). An all-zero range pins all three. A first version of
+    // this took `wanted[0] === 0 ? 2 : 1` and accepted 0.0.9 for `^0.0.3`.
+    // No peer here is below 1.0.0, which is why both zero-major arms have their own
+    // fixtures: nothing in the current manifest would ever reach them.
+    const boundary = wanted.findIndex((part) => part !== 0) + 1 || 3;
     const sameLine = wanted.slice(0, boundary).every((part, at) => part === pinned[at]);
 
     if (!sameLine || below(pinned, wanted)) {
@@ -650,6 +651,22 @@ manifest_rejects "$(manifest_fixture peer-zero-major-minor-drift \
        "peerDependencies": { "@biomejs/biome": "^0.2.0" } }')" \
     "manifest control — a 0.x pin past the caret minor is reported" \
     "$peer_drift_sentence"
+
+# The THIRD caret case, where major and minor are both zero and the PATCH is the
+# boundary: `^0.0.3` is `>=0.0.3 <0.0.4`. A first version of the fix took the minor
+# as the boundary for every zero-major range and accepted 0.0.9 here.
+manifest_rejects "$(manifest_fixture peer-zero-minor-patch-drift \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "0.0.9" },
+       "peerDependencies": { "@biomejs/biome": "^0.0.3" } }')" \
+    "manifest control — a 0.0.x pin past the caret patch is reported" \
+    "$peer_drift_sentence"
+
+manifest_accepts "$(manifest_fixture peer-zero-minor-exact \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "0.0.3" },
+       "peerDependencies": { "@biomejs/biome": "^0.0.3" } }')" \
+    "manifest control — a 0.0.x pin at the caret patch is accepted"
 
 # The accepting twin, so the arm above cannot pass by rejecting every 0.x range.
 manifest_accepts "$(manifest_fixture peer-zero-major-in-range \

@@ -53,18 +53,18 @@ const MAX_LOCKSTEP_BYTES = 1048576;
  * for the same reason, and `@` would also swallow an error worth seeing.
  *
  * @param string   $path     Path to the file to read.
- * @param int|null  $maxBytes The most bytes to read, or null for no bound.
+ * @param int      $maxBytes The most bytes to read.
  *
  * @return string|false The contents, or false when the file could not be read.
  */
-$read = static function (string $path, ?int $maxBytes = null): string|false {
+$read = static function (string $path, int $maxBytes): string|false {
     set_error_handler(static fn (): bool => true);
 
     try {
         // Bounded at the READ, the way the shipped gates bound theirs: measuring
         // strlen() afterwards lets file_get_contents materialise the whole file
         // first, which is the OOM the scoped handler above cannot catch.
-        return file_get_contents($path, false, null, 0, $maxBytes ?? \PHP_INT_MAX);
+        return file_get_contents($path, false, null, 0, $maxBytes);
     } finally {
         restore_error_handler();
     }
@@ -79,7 +79,17 @@ $read = static function (string $path, ?int $maxBytes = null): string|false {
 //
 // "README documents no pin" stays at 1 on purpose: the file is readable and
 // well-formed, and losing the documented pin IS the drift this gate reports.
-$packageJsonContents = $read($root . '/package.json', MAX_LOCKSTEP_BYTES);
+$packageJsonContents = $read($root . '/package.json', MAX_LOCKSTEP_BYTES + 1);
+
+// One byte PAST the cap, then compare — reading exactly the cap truncates in silence,
+// which is the failure this bound exists to prevent rather than a smaller version of
+// it. Measured before the `+ 1`: a README carrying a matching pin in line 1 and a
+// stale one past the bound reported one matching pin and exited 0.
+if (is_string($packageJsonContents) && (strlen($packageJsonContents) > MAX_LOCKSTEP_BYTES)) {
+    fwrite(\STDERR, sprintf("%s/package.json is larger than the %d bytes this gate reads.\n", $root, MAX_LOCKSTEP_BYTES));
+
+    exit(2);
+}
 
 if ($packageJsonContents === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
@@ -104,7 +114,13 @@ if (!is_string($packageJson['version'] ?? null)) {
 }
 
 $version = $packageJson['version'];
-$readme  = $read($root . '/README.md', MAX_LOCKSTEP_BYTES);
+$readme  = $read($root . '/README.md', MAX_LOCKSTEP_BYTES + 1);
+
+if (is_string($readme) && (strlen($readme) > MAX_LOCKSTEP_BYTES)) {
+    fwrite(\STDERR, sprintf("%s/README.md is larger than the %d bytes this gate reads, so a pin past that bound would go unchecked.\n", $root, MAX_LOCKSTEP_BYTES));
+
+    exit(2);
+}
 
 if ($readme === false) {
     fwrite(\STDERR, sprintf("Cannot read %s/README.md.\n", $root));

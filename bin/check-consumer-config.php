@@ -705,7 +705,12 @@ if (is_file($deptracFile)) {
         // optional atoms: those accept `- 'vendor/…/layers.yaml"`, a scalar YAML
         // itself cannot parse. An empty capture back-references the empty string, so
         // the unquoted form still matches.
-        $importPattern = '~^[ \t]*-[ \t]*([\'"]?)(?:\S*/)?magicsunday/coding-standard/deptrac/layers\.yaml\1[ \t]*(?:#.*)?$~m';
+        //
+        // The prefix class excludes quotes for the same reason. With `\S*/` the
+        // back-reference was asymmetric: an unbalanced OPENING quote was swallowed by
+        // the prefix while group 1 matched empty, so `- "vendor/…/layers.yaml` (no
+        // closing quote) was accepted while its single-quote mirror was not.
+        $importPattern = '~^[ \t]*-[ \t]*([\'"]?)(?:[^\s\'"]*/)?magicsunday/coding-standard/deptrac/layers\.yaml\1[ \t]*(?:#.*)?$~m';
 
         if ($importsBlock === null) {
             $fail($violations, 'deptrac.yaml', sprintf('the `imports:` block could not be scanned (%s), so this gate cannot answer for it.', preg_last_error_msg()));
