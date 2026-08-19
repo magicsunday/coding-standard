@@ -158,13 +158,19 @@ unset harness_degraded_probe
 
 # verdict
 #
-# The run's single exit point. **Do not turn the `exit` below into `return`.** All
-# five callers end on a bare `verdict`, where the two spellings agree — so nothing
-# in this file detects the difference, and the probe below would stay green. It
-# appears the moment a caller writes `verdict || true` or wraps it in an `if`: `||`
-# suppresses `set -e` for its left side, and a `return` then leaves the shell alive
-# at exit 0. `exit` has nothing left to suppress. `return` is the idiomatic choice
-# for a sourced library, which is why this needs saying rather than assuming.
+# The run's single exit point. **Do not turn the `exit` below into `return`.**
+#
+# Callers may call `verdict` anywhere, not only as their last line — re-derive with
+# `grep -n '^[[:space:]]*verdict' tests/*.sh`, which finds one inside an `if` body in
+# check-js-configs.sh, 1500 lines before the end, whose whole purpose is to abort
+# before the smoke packs anything. With `return` that call returns from the function
+# and the script packs, installs and runs on. The tail verdict would still exit 1, so
+# the failure is not lost — the early abort is.
+#
+# The same hole in the other direction: `||` suppresses `set -e` for its left side, so
+# a caller writing `verdict || true` would continue at exit 0. `exit` has nothing left
+# to suppress. `return` is the idiomatic choice for a sourced library, which is why
+# this needs saying rather than assuming.
 verdict() {
     if [ "$fails" -ne 0 ]; then
         printf '\n%d case(s) failed.\n' "$fails" >&2
@@ -398,17 +404,6 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
     harness_settle "$reason" "$label" "$out" 'rejected, and the report stayed inert'
 }
 
-# The shape arms above cannot be reached from the fixtures. With the scrub intact no
-# fixture's report matches any of them — the `::` arm needs the sequence at column 0
-# after leading blanks, and a scrubbed value never puts it there — so deleting any
-# one of them leaves all three suites green. Measured. They are driven here instead,
-# one crafted report per grammar. Three arguments, not four, so the count below
-# stays one increment per arm rather than two.
-#
-# `php` is shadowed rather than a stub gate written to disk: harness_probe_reporters
-# runs its driver in a subshell, so the override cannot escape, and this needs no
-# fixture tree, no interpreter and no cleanup. It covers the degraded arm too, which
-# is otherwise probed as a pattern and not as wiring.
 # Every arm of the three shared assertions, driven once. Per-caller copies of this
 # were what the shared helpers replaced; what the callers could NOT prove is that
 # each arm still decides, because no fixture makes a gate reject for the wrong
@@ -465,6 +460,17 @@ harness_probe_assert_shapes() {
 harness_probe_reporters 10 harness_probe_assert_shapes \
     'a shared assertion has an arm that no longer decides'
 
+# The shape arms above cannot be reached from the fixtures. With the scrub intact no
+# fixture's report matches any of them — the `::` arm needs the sequence at column 0
+# after leading blanks, and a scrubbed value never puts it there — so deleting any
+# one of them leaves all three suites green. Measured. They are driven here instead,
+# one crafted report per grammar. The shape calls pass three arguments so the count
+# stays one increment per arm; the two that drive the must-carry arms pass four.
+#
+# `php` is shadowed rather than a stub gate written to disk: harness_probe_reporters
+# runs its driver in a subshell, so the override cannot escape, and this needs no
+# fixture tree, no interpreter and no cleanup. It covers the degraded arm too, which
+# is otherwise probed as a pattern and not as wiring.
 harness_probe_inert_shapes() {
     php() { printf '%s\n' "$harness_fake_report"; return "$harness_fake_rc"; }
     harness_fake_rc=1

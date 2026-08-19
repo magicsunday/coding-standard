@@ -25,15 +25,15 @@ here.
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`, `biome.jsonc` or `tsconfig.json` exists), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`biome.jsonc`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`, `biome.jsonc` or `tsconfig.json` exists), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
-| `bin/support/safe-report-value.php` | `require`d by the PHP gates that echo a value read out of a repository file (`grep -rln safe-report-value.php bin tests`); the node gate carries its own `encodeValue()`, which cannot require a PHP file | scrubs C0/DEL and breaks the legacy `##[` workflow-command prefix on any such value, and caps it at 64 bytes — the `bin/` gates run in the consumer's CI over pull-request content and this repository's own gate over its own, and the runner scans both STDERR and STDOUT for workflow commands; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json but must stay inside the dist archive |
+| `bin/support/safe-report-value.php` | `require`d by the PHP gates that echo a value read out of a repository file (`grep -rln "^require_once .*safe-report-value" bin tests` — anchored on the statement, since the bare path also matches files that only mention it); the node gate carries its own `encodeValue()`, which cannot require a PHP file | scrubs C0/DEL and breaks the legacy `##[` workflow-command prefix on any such value, and caps it at 64 bytes — the `bin/` gates run in the consumer's CI over pull-request content and this repository's own gate over its own, and the runner scans both STDERR and STDOUT for workflow commands; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json but must stay inside the dist archive |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
 config; `templates/` holds **copy-and-adapt** files whose tools require the file at the
 consumer's repo root and therefore cannot be imported; the repository root holds only
-this package's **own** dev config, all of it `export-ignore`d — except `/package.json`, which a `github:` consumer must receive (see the header of `templates/gitattributes`). Put a new config in the
+this package's **own** dev config, all of it `export-ignore`d — except `/package.json` and `/package-lock.json`, which a `github:` consumer must receive (see the header of `templates/gitattributes`). Put a new config in the
 directory that matches how it is consumed, never at the root for convenience.
 
 ## How it is consumed
@@ -58,8 +58,14 @@ directory that matches how it is consumed, never at the root for convenience.
   ranges never span a major CI does not exercise — read them rather than trusting a
   copy here (`jq -r '.peerDependencies' package.json`), and note that
   `tests/check-js-configs.sh` asserts each against the exact pin it installs; moving one
-  means bumping the exact root `devDependencies` pin first, letting
-  `tests/check-js-configs.sh` vet it, and only then widening the range. The Node floor
+  means bumping the pin and the range in the SAME edit, then letting
+  `tests/check-js-configs.sh` vet both — the gate is a lockstep check BETWEEN the two
+  fields, so it cannot vet one of them alone. Bumping the pin first and widening
+  afterwards was written here and reds the gate on exactly the case this bullet sets
+  up: verified, pin `3.0.0` against a still-`^2.5.0` range exits 1 with `a
+  peerDependencies range is not satisfied by the pin the smoke proves`. An agent
+  following that order reads the red as "the new version fails the smoke" and reverts
+  a good bump. The Node floor
   is **node >= 24**, declared in `devEngines` and NOT in `engines` — `engines` is
   consumer-facing and this package ships no code that runs on Node, so a floor there
   would fail a consumer's install over a constraint the artifact never exercises. CI
@@ -122,8 +128,12 @@ directory that matches how it is consumed, never at the root for convenience.
   PHP side too. The pure-JS repositories have no `composer.json` and are therefore
   unreachable. Re-derive which they are rather than trusting a list here:
 
+  Save it and run it; do not paste it into an interactive shell, since both guards
+  `exit`:
+
   ```
-  repos="$(gh repo list magicsunday --limit 100 --no-archived --json name --jq '.[].name')" \
+  #!/usr/bin/env bash
+  repos="$(gh repo list magicsunday --limit 1000 --no-archived --json name --jq '.[].name')" \
       || { echo 'gh failed — RESULT UNKNOWN, not clean' >&2; exit 1; }
   [ -n "$repos" ] || { echo 'no repositories listed — RESULT UNKNOWN' >&2; exit 1; }
 
@@ -147,13 +157,16 @@ directory that matches how it is consumed, never at the root for convenience.
   probe halves the answer. The per-file probe below has the same blind spot in the
   small: `|| continue` treats a 403 or a rate limit exactly like a 404, so a
   throttled repository drops out of the answer without a word. A repository
-  appearing here after an unexplained `gh` error is worth
+  appearing here after an unexplained `gh` error is worth — though note the probes
+  write to `/dev/null 2>&1`, so no such error is visible; let the composer.json
+  probe's stderr through if you need to see one, since its `|| echo` turns a 403 into
+  a FALSE POSITIVE rather than a silent drop. A repository
   re-running before acting on.
 
   Do not read a green run as "every consumer's JS config is checked"; a node-side
   entry point for those repositories is #32.
 - **A gate over a shared link keys on ADOPTION, never on the file being present.**
-  The JS/TS half of the lockstep gate asserts that `biome.json`/`tsconfig.json` extend
+  The JS/TS half of the lockstep gate asserts that `biome.json`, `biome.jsonc` and `tsconfig.json` extend
   the shared configs — but only once the repository declares the npm dependency. Keyed
   on the file instead, it reds every consumer that ships a `biome.json` and has not
   adopted, on the update that first delivers the gate; verified against the four real
@@ -189,12 +202,28 @@ directory that matches how it is consumed, never at the root for convenience.
   reproducible: run `composer ci:test:<name>` and `npm run ci:test:js`, not the script
   paths, which is how CI runs them.
 
-  The stated exceptions, all in `ci.yml` because they cannot be a single command:
-  `composer validate --strict`, and the three consumer-smoke steps
-  (`phpstan`, `php-cs-fixer`, `rector`), which run under
-  `working-directory: tests/consumer`. Enumerating both manifests therefore does NOT
-  give full local coverage — a sweep that assumes it will report the smoke as run when
-  it was not.
+  The exceptions, by step name rather than by a criterion that selects the wrong set
+  (`grep -c 'working-directory: tests/consumer' .github/workflows/ci.yml` answers 4,
+  because the fixture's own install carries it too):
+
+  | step | why it is not a manifest script |
+  |---|---|
+  | *Validate composer.json* | runs BEFORE `composer install` and against a manifest that may not parse, so a script in that manifest cannot be its home |
+  | *Consumer smoke - install the package as a consumer would* | a `composer install` bootstrapping the fixture; the thing a script would live in does not exist yet |
+  | *Consumer smoke - phpstan / php-cs-fixer / rector* | run under `working-directory: tests/consumer`, whose manifest declares no `scripts` block |
+
+  The root `composer install` at the top of the build job is the same shape as the
+  second row. Enumerating both manifests therefore does NOT give full local coverage.
+  Reproduce the excluded class directly:
+
+  ```
+  composer install --working-dir=tests/consumer
+  cd tests/consumer && .build/bin/phpstan analyse && .build/bin/php-cs-fixer check && .build/bin/rector process --dry-run
+  ```
+
+  Declaring those three as `ci:test:*` scripts in `tests/consumer/composer.json` and
+  having `ci.yml` call them would remove the exception rather than document it — the
+  better fix, and not this branch's scope.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
   manifest, never a root `require --dev`.** The case that forced the rule is
@@ -270,13 +299,16 @@ PHP consumer smoke. **That job publishes the status context `JS/TS configs` — 
 spaces around the slash, and no matrix suffix — and it must be registered in the
 branch's `required_status_checks`.** Read the setting rather than trusting this
 sentence about it:
-`gh api repos/magicsunday/coding-standard/branches/main/protection --jq '.required_status_checks.contexts[]?'`.
-Register the context AFTER the job has reported once on the default branch: the
-other order leaves every open PR permanently `BLOCKED` with all checks green,
-waiting on a context no workflow on `main` can emit. A branch-protection setting is invisible in git,
-so it is recorded here: without it the smoke cannot block a merge, and the npm
-Dependabot group auto-merges patch and minor bumps of the very tools it smokes, so a
-Biome release lands with the gate red and unread. Adding a matrix dimension to that
+`gh api repos/magicsunday/coding-standard/branches/main/protection --jq '.required_status_checks'`.
+
+Nothing enforces an order here — the API accepts any context string, registered or
+reported or not, and this one is registered although the job has never run on `main`.
+What decides whether a PR is stuck is its OWN head: protection evaluates the checks on
+the head SHA, and a `pull_request` run takes its workflow files from that PR's merge
+ref. So the PR that introduces the job reports the context and merges; every PR
+branched before it does not, and sits BLOCKED with all visible checks green. Merging
+the job does NOT release them, because no `pull_request` event fires when the base
+moves — each needs a rebase or a synchronise first. Adding a matrix dimension to that
 job later would rewrite the context and desync the setting silently, the same way a
 `Build (8.x)` leg does. Community
 health files (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`) are inherited

@@ -490,11 +490,12 @@ if (is_file($phplintFile)) {
         // jscpd 5.0.14 answers its own BOM'd config with `expected value at line
         // 1 column 1`, and deptrac with `no extension able to load "<BOM>imports"`,
         // so for those two a BOM IS the defect and stripping it would hide one. The
-        // deptrac observation is the one of the three carrying no version, because
-        // none was recorded — re-derive it against the installed one rather than
-        // putting a number here that was never measured:
+        // deptrac half is the one of the three whose version is recorded elsewhere in
+        // this file rather than here; both statements are about the same run. A probe
+        // that can CONTRADICT the behaviour, which `composer show` cannot:
         //
-        //     composer show deptrac/deptrac | head -2
+        //     printf '\xEF\xBB\xBFimports: []\n' > /tmp/d.yaml \
+        //         && .build/bin/deptrac analyse --config-file=/tmp/d.yaml; echo "exit $?"
         $contents = $stripBom($contents);
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 
@@ -1146,8 +1147,11 @@ if ($biomeFile !== null) {
             // this walk did not read. Re-derive the set rather than trusting this
             // list — the root object of the version this package pins:
             //
-            //     npx @biomejs/biome@2.5.5 --help
             //     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json
+            //
+            // The CLI's `--help` was recorded here too and answers nothing: it prints
+            // the command list, in which none of `assist`, `linter`, `formatter` or
+            // `enabled` occurs.
             foreach (['linter', 'formatter', 'assist'] as $toggle) {
                 if (($scope[$toggle]['enabled'] ?? null) === false) {
                     $fail($violations, $label, sprintf('`%s%s.enabled` must not be false — that disables the shared standard wholesale.', $prefix, $toggle));

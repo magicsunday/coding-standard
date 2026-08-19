@@ -57,10 +57,13 @@ mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
     | grep -oE "function: '[a-z0-9_]+\(\)'" \
     | sed -E "s/function: '([a-z0-9_]+)\(\)'/\1/")
 
-# The extractor's own vocabulary must not bound what it sees. `[a-z_]+` cannot see a
-# ban carrying a digit or a dash, such a ban would get no per-function assertion, and
-# a cardinality check compared against the same truncated list could not notice
-# either. Conditional on purpose: the five bans this config declares today all match
+# The extractor's own vocabulary must not bound what it sees. `[a-z0-9_]+` cannot see
+# an uppercase letter, a `\` or a `::` — a class-method ban such as
+# `Nette\Utils\Strings::upper()`, which spaze/phpstan-disallowed-calls supports. Such
+# a ban would get no per-function assertion, and a cardinality check compared against
+# the same truncated list could not notice either. (Digits and dashes are NOT the gap:
+# the class already admits digits, and no PHP function name carries a dash.)
+# Conditional on purpose: the five bans this config declares today all match
 # it — re-derive with the same comment filter the extractor uses, since the config
 # ships a commented example that a bare grep counts as a sixth:
 #

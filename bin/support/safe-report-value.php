@@ -12,7 +12,10 @@ declare(strict_types=1);
 /**
  * Defines safeReportValue() for the PHP gates that echo a value read out of a
  * repository file. Re-derive which those are rather than trusting a list here:
- * `grep -rln safe-report-value.php bin tests`. The node gate (tests/check-js-configs.sh)
+ * `grep -rln "^require_once .*safe-report-value" bin tests`. Anchored, and naming
+ * the statement rather than the path: the bare path returns seven files, four of
+ * which only mention it in prose, two of which are shell and cannot require a PHP
+ * file at all — including this one, whose own docblock carries the pattern. The node gate (tests/check-js-configs.sh)
  * is on the same trust boundary and cannot require this file; it carries its own
  * encodeValue() for the same reason.
  *
@@ -58,17 +61,22 @@ declare(strict_types=1);
  *
  * The 64-byte cap bounds a report the consumer would otherwise control the length
  * of — measured on the phpunit path, a 5000-byte attribute produced a 5224-byte
- * report. `substr` can split a multi-byte character at the boundary, emitting one
+ * report.
+ *
  * `mb_strcut`, not `substr`: it budgets in BYTES too, so the bound above still holds,
- * and it does not split a multi-byte character at the boundary. Measured on php 8.5
- * over the inputs this function must survive — a `ue`/`euro`/emoji straddling byte 64
- * comes out one to three bytes shorter and VALID where `substr` returns 64 invalid
- * bytes, while a lone lead byte and a run of `\xff` come out byte-identical to
- * `substr`, with no throw and no warning. Re-derive:
+ * and it does not split a multi-byte character at the boundary. The byte budget is
+ * the load-bearing half, so the recipe prints the LENGTH as well as the validity — a
+ * character-budgeting cut would answer 65 here and the two validity checks alone
+ * could not tell it apart:
  *
  *     php -r '$v = str_repeat("a", 63) . "\u{00fc}";
- *         var_dump(mb_check_encoding(substr($v, 0, 64), "UTF-8"),
- *                  mb_check_encoding(mb_strcut($v, 0, 64, "UTF-8"), "UTF-8"));'
+ *         var_dump(strlen(mb_strcut($v, 0, 64, "UTF-8")),
+ *                  mb_check_encoding(mb_strcut($v, 0, 64, "UTF-8"), "UTF-8"),
+ *                  mb_check_encoding(substr($v, 0, 64), "UTF-8"));'
+ *
+ * 63 / true / false today. On the invalid UTF-8 this function must survive the two
+ * agree byte for byte, with no throw and no warning — measured over a lone lead byte
+ * and a run of 0xff.
  *
  * @param int|string $value The raw value read out of a consumer file.
  *

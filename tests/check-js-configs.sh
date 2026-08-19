@@ -1121,10 +1121,11 @@ while IFS= read -r exported; do
     fi
 done <<<"$exported_paths"
 
-# The fourth hand-kept copy of the tool versions, and after this branch the only one
-# nothing reads: the $schema URL is derived below, the peer ranges are checked against
-# the pins above, and these sit in README prose. npm Dependabot bumps here are
-# auto-merged, so the prose drifts silently on the one path that is not reviewed.
+# The fourth hand-kept copy of the tool versions, and until this control the only one
+# nothing read: the $schema URL is tied to the pin roughly 700 lines above, the peer
+# ranges are checked against the pins above, and these sit in README prose. npm
+# Dependabot bumps here are auto-merged, so the prose drifts silently on the one path
+# that is not reviewed.
 readme_pins_wrong=0
 
 while IFS='|' read -r tool documented; do
