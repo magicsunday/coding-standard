@@ -27,46 +27,6 @@ gate="$root/tests/check-version-lockstep.php"
 # under `set -o pipefail` a `php … | grep` would report the deliberately failing
 # run as a harness error.
 
-assert_accepts() { # <dir> <name>
-    local out rc
-    out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
-
-    if degraded "$out"; then
-        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
-        fails=$((fails + 1))
-    elif [ "$rc" -eq 0 ]; then
-        printf 'ok (accepted): %s\n' "$2"
-    else
-        printf 'FAILED (should have been accepted): %s\n%s\n' "$2" "$out" >&2
-        fails=$((fails + 1))
-    fi
-}
-
-assert_rejects() { # <dir> <name> <substring the report must carry>
-    local out rc
-    out="$(php "$gate" "$1" 2>&1)" && rc=0 || rc=$?
-
-    # Exactly 1, the gate's own drift verdict — not merely "not zero". 2 is the
-    # could-not-run exit and has `assert_usage_error`; anything else is a fatal or
-    # a missing `php`. Both used to satisfy every case here: the report is written per pin
-    # inside the loop, so a crash AFTER the first diagnostic printed the asserted
-    # substring and then died, and the case said ok. The sibling harness was
-    # tightened for exactly this; the tightening did not reach here, so the two
-    # copies enforced different contracts under the same helper name.
-    if degraded "$out"; then
-        printf 'FAILED (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$2" "$out" >&2
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 1 ]; then
-        printf 'FAILED (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$2" "$out" >&2
-        fails=$((fails + 1))
-    elif grep -qF "$3" <<<"$out"; then
-        printf 'ok (rejected on the tested violation): %s\n' "$2"
-    else
-        printf 'FAILED (rejected for the wrong reason): %s\nexpected to find: %s\n%s\n' "$2" "$3" "$out" >&2
-        fails=$((fails + 1))
-    fi
-}
-
 mk_case() { # <name> <version> <readme body>
     local dir="$work/$1"
     mkdir -p "$dir"
@@ -75,26 +35,29 @@ mk_case() { # <name> <version> <readme body>
     printf '%s' "$dir"
 }
 
-# Thin wrapper over the shared definition. This IS the probed helper.
-assert_usage_error() { harness_usage_error "$gate" "$@"; }
+# Thin wrappers over the shared definitions in tests/harness.sh.
+assert_accepts()         { harness_accepts         "$gate" "$@"; }
+assert_rejects()         { harness_rejects         "$gate" "$@"; }
+assert_usage_error()     { harness_usage_error     "$gate" "$@"; }
+assert_report_is_inert() { harness_report_is_inert "$gate" "$@"; }
 
-# BOTH reporters, driven down their failing path. One call proves one helper —
-# measured on a sibling, where a probe covering only `assert_rejects` stayed green
-# while a broken `assert_accepts` let a failing case print and the run exit 0.
-# `$work/__bookkeeping_probe__` is deliberately not a directory: the gate answers
-# that with its usage exit, which is all the probe needs.
-probe_reporters() {
-    local probe="$work/__bookkeeping_probe__"
-
-    assert_accepts     "$probe" 'probe'
-    assert_rejects     "$probe" 'probe' 'a substring the gate never prints'
-    assert_usage_error "$probe" 'probe' 'a substring the gate never prints'
+# The must-carry (fourth) argument of assert_report_is_inert, driven rather than
+# asserted. The driver reports legitimately and is handed a scrubbed payload the
+# report does NOT carry, so the arm raises the counter exactly once; delete the arm
+# and the count drops to zero.
+probe_inert_must_carry() {
+    local d
+    d="$(mk_case probe-inert-must-carry '1.7.0\n::error::forged' \
+        'github:magicsunday/coding-standard#1.7.0')"
+    assert_report_is_inert "$d" 'bookkeeping self-test — the must-carry argument' \
+        'a scrubbed payload this report never prints'
 }
 
-harness_probe_reporters 3 probe_reporters
+harness_probe_reporters 1 probe_inert_must_carry \
+    'harness_report_is_inert ignores its must-carry argument'
 
 # The bar is derived, not remembered — see harness_assert_no_stray_increments.
-harness_assert_no_stray_increments 5
+harness_assert_no_stray_increments 0
 
 # The canon: package.json and both documented pins agree.
 d="$(mk_case canon 1.7.0 'Install with
@@ -232,5 +195,42 @@ done
 # segment must still be caught, so the looser match is not simply truncating.
 d="$(mk_case near-miss 1.7.0 'npm install --save-dev github:magicsunday/coding-standard#1.7.1')"
 assert_rejects "$d" "a pin differing only in the patch segment" "MISMATCH"
+
+# Both values this gate echoes come from the pull-request branch, and its report
+# goes to STDERR, which on GitHub Actions doubles as the workflow-command channel.
+# The shipped gates carry these cases; this one shipped without them, which is
+# why it also shipped without the scrub they pin.
+#
+# The split detector cannot serve as the discriminator here: this gate's drift
+# report is short enough that one forged line stays under its line bound. So each
+# payload carries what one of the other arms keys on — the two command grammars and
+# an ESC — and each case also asserts the SCRUBBED form, without which a payload
+# that never arrived would pass the absence checks identically.
+# Leading spaces and a capital in the command name are deliberate: the runner
+# TrimStart()s before matching and compares the name case-insensitively, so a
+# detector anchored at `^::[a-z-]` would miss this line while the runner honours it.
+# Under "drop the scrub" the payload lands on its own line in exactly that shape.
+d="$(mk_case inert-version '1.7.0\n  ::Error::forged from a pull request' \
+    'github:magicsunday/coding-standard#1.7.0')"
+assert_report_is_inert "$d" "a package.json version cannot forge a \`::\` workflow command" \
+    '1.7.0?  ::Error::forged from a pull request'
+
+# The scrub breaks `#[`, the shorter form, so that a scrubbed value cannot combine
+# with the constant text around it into a legacy command. This pins that shorter
+# break directly; the full `##[` follows from it by subsumption.
+d="$(mk_case inert-version-short-prefix '1.7.0#[error]forged from a pull request' \
+    'github:magicsunday/coding-standard#1.7.0')"
+assert_report_is_inert "$d" "a value cannot COMPLETE a legacy prefix the report's own '#' starts" \
+    '1.7.0#?[error]forged from a pull request'
+
+d="$(mk_case inert-version-legacy '1.7.0##[error]forged from a pull request' \
+    'github:magicsunday/coding-standard#1.7.0')"
+assert_report_is_inert "$d" "a package.json version cannot forge a legacy \`##[…]\` command" \
+    '1.7.0##?[error]forged from a pull request'
+
+d="$(mk_case inert-readme-pin 1.7.0 \
+    "$(printf 'github:magicsunday/coding-standard#1.7.0\033cHIDDEN')")"
+assert_report_is_inert "$d" "a README pin cannot carry a terminal escape into the report" \
+    '1.7.0?cHIDDEN'
 
 verdict

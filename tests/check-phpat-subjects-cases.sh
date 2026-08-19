@@ -24,63 +24,17 @@ harness_workdir
 
 GATE="$ROOT/bin/check-phpat-subjects.php"
 
-assert_accepts() {
-    local dir="$1" label="$2" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 0 ]; then
-        printf 'FAIL (expected accept): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (accepted): %s\n' "$label"
-    fi
-}
+assert_accepts() { harness_accepts "$GATE" "$@"; }
+assert_rejects() { harness_rejects "$GATE" "$@"; }
 
-assert_rejects() {
-    local dir="$1" label="$2" expected="$3" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-
-    # Exactly 1, the gate's own drift verdict — not merely "not zero". 2 is the
-    # could-not-run exit and has `assert_usage_error`; anything else is a fatal or
-    # a missing `php`.
-    # Both used to satisfy every case here while the siblings had already been
-    # tightened, which is the drift that made the shared harness worth having.
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 1 ]; then
-        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
-        fails=$((fails + 1))
-    elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (rejected on the tested violation): %s\n' "$label"
-    fi
-}
-
-# Thin wrappers over the shared definitions. These ARE the probed helpers.
+# Thin wrappers over the shared definitions in tests/harness.sh.
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
-# Both reporters, driven down their failing path. A path that is not a directory
-# is all it takes: the gate answers that with a non-verdict exit, so `accepts`
-# sees a rejection and `rejects` sees neither exit 1 nor its substring.
-probe_reporters() {
-    local probe="$ROOT/__bookkeeping_probe__"
-
-    assert_accepts         "$probe" 'probe'
-    assert_rejects         "$probe" 'probe' 'a substring the gate never prints'
-    assert_usage_error     "$probe" 'probe' 'a substring the gate never prints'
-    assert_report_is_inert "$probe" 'probe'
-}
-
-harness_probe_reporters 4 probe_reporters
-
-# The bar is derived, not remembered — see harness_assert_no_stray_increments.
-harness_assert_no_stray_increments 5
+# Every helper above is a one-line wrapper whose increment lives in harness.sh and
+# is probed there. What this file must still prove is that it grew no report site
+# of its own — see harness_assert_no_stray_increments.
+harness_assert_no_stray_increments 0
 
 # write_class <dir> <relpath-under-src> <namespace> <kind> <name>
 write_class() {
@@ -479,17 +433,70 @@ mkdir -p "$d/tests/Architecture"
     printf '    }\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 
-assert_report_is_inert "$d" 'a classname subject carrying control characters'
+assert_report_is_inert "$d" 'a classname subject carrying control characters' \
+    'Nope?[2K?::error title=Architecture'
+
+# Length is the ONLY property the wrap adds at these sites — both captures admit
+# identifier bytes only, so the C0 scrub and the prefix break are no-ops on them.
+# Without a case that exceeds the cap, removing every safeReportValue() around
+# $ruleName and $selector leaves the whole suite green, which is how the wrap's own
+# stated motivation went unpinned. The sibling gate's overlong-key case is the shape.
+d="$work/report-length-rule-name"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+long_name="$(printf 'z%.0s' $(seq 1 400))"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function %s(): Rule\n    {\n' "$long_name"
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::inNamespace('Vendor\\Mod\\Nope'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Long rule name.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_rejects "$d" "an overlong rule name is truncated with a marker" \
+    "$(printf 'z%.0s' $(seq 1 64))…"
+
+# The legacy `##[` grammar, with the payload FIRST so it lands inside the 64-byte
+# cap. Appended to a longer subject it was cut off and the case proved nothing —
+# measured: the scrubbed value reached 70 bytes before the payload began.
+d="$work/report-injection-legacy-prefix"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::classname('##[error]forged clean run'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'a classname subject opening with the legacy prefix' \
+    'classname(##?[error]forged clean run)'
 
 # The other two consumer-controlled report sites. Measured: dropping the guard at
 # either of them left the whole suite green while only the classname site was
 # pinned — so the claim "every report site a consumer controls" held for the code
 # and not for the proof.
 #
-# `$ruleName` and `$selector` stay unwrapped on purpose and are NOT covered here:
-# both come from a `(\w+)` capture, so they cannot carry a newline, an ESC or a
-# leading `::`. What they can carry is length — that is a log-volume question, not
-# an injection one, and the injection property is what these cases pin.
+# `$ruleName` and `$selector` are wrapped like every other consumer value. They were
+# left raw while an argument held that their captures admit identifier bytes only —
+# true, but recorded as prose with nothing enforcing it, and it did not cover length:
+# a rule name and a selector of 5000 bytes each produced one 10 kB violation line,
+# which is the amplification the 64-byte cap exists against.
 d="$work/report-injection-namespace"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
 mkdir -p "$d/tests/Architecture"
@@ -510,7 +517,8 @@ mkdir -p "$d/tests/Architecture"
     printf '    }\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 
-assert_report_is_inert "$d" 'an inNamespace subject carrying control characters'
+assert_report_is_inert "$d" 'an inNamespace subject carrying control characters' \
+    'Nope?[2K?::error title=Architecture'
 
 # The fail-closed arm: an argument the gate cannot resolve is echoed back verbatim,
 # and a concatenation is exactly what reaches it.
@@ -535,6 +543,7 @@ mkdir -p "$d/tests/Architecture"
     printf '    }\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 
-assert_report_is_inert "$d" 'an unresolvable argument carrying control characters'
+assert_report_is_inert "$d" 'an unresolvable argument carrying control characters' \
+    '?[2K?::error title=Architecture'
 
 verdict

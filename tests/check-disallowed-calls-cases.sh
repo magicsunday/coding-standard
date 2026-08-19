@@ -31,26 +31,12 @@ set -euo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 
-# report_failure <message>
-#
 # The one reporting helper this file has. Its six report sites used to print and
-# increment inline, which left the counter unprovable: `harness_probe_reporters`
-# drives a HELPER, and there was none to drive. Four reviewers reported the same
-# thing, and the commit that introduced tests/harness.sh claimed both stragglers
-# were "closed by the move" — only the verdict half was.
-report_failure() {
-    printf 'FAIL: %s\n' "$1"
-    fails=$((fails + 1))
-}
-
-probe_reporters() {
-    report_failure 'probe'
-}
-
-harness_probe_reporters 1 probe_reporters
+# increment inline, which left the counter unprovable.
+report_failure() { harness_fail "$1"; }
 
 # The bar is derived, not remembered — see harness_assert_no_stray_increments.
-harness_assert_no_stray_increments 1
+harness_assert_no_stray_increments 0
 
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"

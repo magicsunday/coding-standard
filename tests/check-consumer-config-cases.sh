@@ -35,46 +35,9 @@ FIXTURE="$ROOT/tests/consumer"
 # expected exit 1 and substring. Three guards named in case labels are unprotected
 # that way. The repository's own bar is zero notices; a harness that certifies a
 # gate has no business accepting a run that did not meet it.
-# assert_accepts <dir> <label>
-assert_accepts() {
-    local dir="$1" label="$2" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 0 ]; then
-        printf 'FAIL (expected accept): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (accepted): %s\n' "$label"
-    fi
-}
-
-# assert_rejects <dir> <label> <expected-substring>
-#
-# Requires a nonzero exit AND that the report names the SPECIFIC violation under
-# test — so a case cannot "pass" because it was rejected for an unrelated reason
-# (a missing phpunit.xml, a broken fixture), which would give false confidence.
-assert_rejects() {
-    local dir="$1" label="$2" expected="$3" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif [ "$rc" -ne 1 ]; then
-        # Exactly 1, the gate's drift verdict — not merely "not zero". 2 is the
-        # usage error and 255 a fatal, and both used to satisfy every case here:
-        # dropping an is_array guard made the gate die on a TypeError whose stack
-        # trace contained the asserted value, and the case reported ok.
-        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
-        fails=$((fails + 1))
-    elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (rejected on the tested violation): %s\n' "$label"
-    fi
-}
+# Thin wrappers over the shared definitions in tests/harness.sh.
+assert_accepts() { harness_accepts "$GATE" "$@"; }
+assert_rejects() { harness_rejects "$GATE" "$@"; }
 
 # assert_reports_once <dir> <label> <file prefix>
 #
@@ -83,22 +46,19 @@ assert_rejects() {
 # the property a read-failure path needs, since the defect it guards against is an
 # EXTRA fabricated violation rather than a missing one.
 assert_reports_once() {
-    local dir="$1" label="$2" prefix="$3" out rc count
+    local dir="$1" label="$2" prefix="$3" out rc count reason=''
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
     count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
 
     if degraded "$out"; then
-        printf 'FAIL (the gate ran degraded — PHP emitted a diagnostic): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
+        reason='the gate ran degraded — PHP emitted a diagnostic'
     elif [ "$rc" -ne 1 ]; then
-        printf 'FAIL (expected the drift verdict, got exit %s): %s\n%s\n' "$rc" "$label" "$out"
-        fails=$((fails + 1))
+        reason="expected the drift verdict, got exit $rc"
     elif [ "$count" -ne 1 ]; then
-        printf 'FAIL (expected exactly one %s violation, got %s): %s\n%s\n' "$prefix" "$count" "$label" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (reported exactly once): %s\n' "$label"
+        reason="expected exactly one $prefix violation, got $count"
     fi
+
+    harness_settle "$reason" "$label" "$out" 'reported exactly once'
 }
 
 # Membership asked the same way in every direction, so the three set relations
@@ -117,41 +77,15 @@ contains() { # <needle> <haystack…>
 }
 
 # The derived loops can fail before any gate run, so they report directly.
-report_failure() { # <message>
-    printf 'FAIL (harness): %s\n' "$1" >&2
-    fails=$((fails + 1))
-}
+report_failure() { harness_fail "$1"; }
 
-# Thin wrappers over the shared definitions, so the call sites below stay short
-# and the bodies live in one place. These ARE the probed helpers.
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
-# EVERY reporting helper, not one of them. A probe that drives a single helper
-# proves a single helper: measured, dropping the increment from `assert_accepts`
-# left a single-helper probe green while a genuinely failing case printed FAILED
-# and the run exited 0 — the exact silent-off state the probe exists to rule out,
-# reached through the eleven sites it did not cover.
-#
-# The gate exits 2 on a directory that does not exist, which drives every helper
-# into a failing arm: not 0 (accepts), not 1 (rejects, reports_once), and a
-# substring it never prints (usage_error, which does see exit 2). $work is created
-# further down, so the probe uses a path that simply is not a directory.
-probe_reporters() {
-    local probe="$ROOT/__bookkeeping_probe__"
-
-    assert_accepts         "$probe" 'probe'
-    assert_rejects         "$probe" 'probe' 'a substring the gate never prints'
-    assert_reports_once    "$probe" 'probe' 'nothing'
-    assert_usage_error     "$probe" 'probe' 'a substring the gate never prints'
-    assert_report_is_inert "$probe" 'probe'
-    report_failure 'probe'
-}
-
-harness_probe_reporters 6 probe_reporters
-
-# The bar is derived, not remembered — see harness_assert_no_stray_increments.
-harness_assert_no_stray_increments 9
+# Every helper above is a one-line wrapper whose increment lives in harness.sh and
+# is probed there. What this file must still prove is that it grew no report site
+# of its own — see harness_assert_no_stray_increments.
+harness_assert_no_stray_increments 0
 
 # The canonical fixture must be accepted.
 assert_accepts "$FIXTURE" "canon fixture"
@@ -1254,13 +1188,14 @@ assert_rejects "$d" "biome.json whose reported rule group carries a comma before
 d="$(mk_js_case biome-control-chars-in-rule-group)"
 php -r '
     $esc = chr(27);
-    $key = "a" . $esc . "[2K\ncheck-consumer-config: OK — forged\n::notice::forged\nb";
+    $key = "a" . $esc . "[2K\n::notice::forged\n##[error]forged\nb";
     file_put_contents($argv[1], json_encode([
         "extends" => ["@magicsunday/coding-standard/biome/base.json"],
         "linter"  => ["rules" => [$key => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
-assert_report_is_inert "$d" 'a rule-group key carrying control characters'
+assert_report_is_inert "$d" 'a rule-group key carrying control characters' \
+    'a?[2K?::notice::forged?##?[error]forged?b'
 
 # The `overrides` half, which had no case at all. Every other overrides fixture
 # writes a JSON ARRAY, so the index is an int and the guard is a no-op on all of
@@ -1275,7 +1210,8 @@ php -r '
         "overrides" => [$key => ["linter" => ["rules" => ["recommended" => false]]]],
     ]));
 ' "$d/biome.json"
-assert_report_is_inert "$d" 'an overrides key carrying a newline'
+assert_report_is_inert "$d" 'an overrides key carrying a newline' \
+    'x?::error::forged?y'
 
 # The phpunit.xml attribute VALUE, the site the round-11 guard did not reach.
 # XML attribute-value normalisation folds only LITERAL control characters to a
@@ -1284,10 +1220,11 @@ assert_report_is_inert "$d" 'an overrides key carrying a newline'
 # escape sequence and the ANSI arm above cannot fire here.
 d="$(mk_case phpunit-control-chars-in-value)"
 sed -i 's/failOnRisky="true"/failOnRisky="false\&#10;::error::forged\&#10;  - phpunit.xml: OK"/' "$d/phpunit.xml"
-assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character reference'
+assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character reference' \
+    'false?::error::forged?'
 
 # The size cap, both sides of the bound. 131072 is read and checked; one byte more
-# is reported as itself rather than scanned — the pass is quadratic on an
+# is reported as unread rather than scanned — the pass is quadratic on an
 # unterminated string literal, and the input is pull-request content.
 d="$(mk_js_case biome-at-the-size-cap)"
 php -r '
@@ -1309,15 +1246,15 @@ assert_rejects "$d" "a biome.json exactly at the size cap is still read and chec
 
 d="$(mk_js_case biome-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
-assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate reads"
+assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
-# The tsconfig arm is a separate code path with its own sprintf. Delete the whole
+# The tsconfig arm is a separate code path. Delete the whole
 # `is_int($tsconfigJson)` block and the suite stayed green while the gate printed
 # OK for a tsconfig.json it never read — an int is neither null nor an array, so
 # no later arm catches it.
 d="$(mk_js_case ts-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
-assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate reads"
+assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;
 # removing `\x7F` from the class left every one of them green.
