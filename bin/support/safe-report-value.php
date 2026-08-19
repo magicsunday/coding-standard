@@ -44,12 +44,6 @@ declare(strict_types=1);
  * The exit code still carries the real verdict, which is what keeps this log
  * integrity rather than a gate bypass.
  *
- * A global function rather than a closure in a variable: it is then resolvable by
- * PHPStan and by an IDE across the `require` boundary, which matters concretely
- * while #47 is open and nothing analyses `bin/` beyond a syntax check. A namespaced
- * class was weighed and rejected — both entry scripts run in the global namespace
- * by design, and the package autoloads no runtime code.
- *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
  * @link    https://github.com/magicsunday/coding-standard/

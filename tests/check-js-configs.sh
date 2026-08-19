@@ -175,12 +175,16 @@ printf 'INFO     tools under test: %s\n' "$(safe_report "$tools")"
 # `devEngines` and not `engines` is in the README, under "The npm side is not the
 # mirror image of the Composer side" — written out there once instead of a third
 # time here, since the copy that drifted first was one of these restatements. What
-# matters at this call site: npm's own check cannot be RELIED on — older npm
-# ignores `devEngines` entirely, and the `js` job never runs an install at the
-# repository root at all (checkout, setup-node, `npm run ci:test:js`) — so this
-# gate is the enforcement CI actually has. Not "npm checks nothing": on npm >= 10.9
-# a root install does hard-fail on `onFail: "error"`, which is why the README says
-# so and this comment must not say the opposite.
+# matters at this call site: npm's own check cannot be RELIED on, because older npm
+# ignores `devEngines` entirely. That half carries the argument on its own. The
+# half that stood beside it — "the js job never runs an install at the repository
+# root" — is true and does not support the conclusion: npm runs the check before
+# `install`, `ci` AND `run`, and the job's one step is `npm run ci:test:js` in that
+# root. So on current npm the two overlap, and only this gate covers an old one.
+# Re-derive rather than trusting the sentence:
+#
+#     curl -s https://raw.githubusercontent.com/npm/cli/latest/docs/lib/content/configuring-npm/package-json.md \
+#         | grep -n 'will run before'
 # Take the FIRST numeric group, not every digit in the string: stripping all
 # non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
 # above every real version, so the check would hard-fail on a runner that
@@ -289,11 +293,10 @@ const below = (left, right) => {
     return false;
 };
 
-// The one derived list in this harness with no non-empty anchor, which the
-// siblings all carry (`mappings`, `jscpd_formats`, `declared`, `tools`,
-// `packed`). Remove the peerDependencies block and the loop runs zero times,
-// `failed` stays false, and the line at the end reports that the ranges agree
-// having compared nothing.
+// This WAS the one derived list here without the non-empty anchor its siblings
+// carry: removing the peerDependencies block left the loop at zero iterations,
+// `failed` false, and the line at the end reporting that the ranges agree having
+// compared nothing. The guard three lines down is that anchor.
 const peers = Object.entries(pkg.peerDependencies ?? {});
 
 if (peers.length === 0) {
@@ -354,12 +357,12 @@ for (const [name, range] of peers) {
     }
 }
 
-// The fourth hand-kept copy of the Biome version, and the only one nothing tied
-// to anything: the pin, the peer range, the README prose and the $schema URL in
-// biome/base.json all name it. Biome never fetches or validates against that URL,
-// so a drifted `$schema` mis-autocompletes in an editor rather than breaking a
-// run — but it is the copy a Dependabot bump leaves behind, silently, forever.
-// Deriving it here makes the bump carry it.
+// The Biome version is written in four places — the devDependencies pin, the peer
+// range, the README prose and this `$schema` URL — and each needs its own tie,
+// because a Dependabot bump moves the pin alone. This is the tie for the `$schema`.
+// Biome never fetches or validates against that URL, so a drift here
+// mis-autocompletes in an editor rather than breaking a run, which is exactly why
+// nothing else would ever notice it.
 //
 // Read with readFileSync rather than require: a base config that stops being
 // valid JSON belongs to ci:test:json, and swallowing it here as a missing
@@ -481,8 +484,9 @@ manifest_crashed() { # <combined output>
 
 # Both directions, and both throw shapes. `crashing-gate` below does crash the gate,
 # but through `require`, which throws an Error and prints stack frames — the bare
-# string probe is the only thing reaching the second alternative. Without these, so an unprobed pattern here would be asserted at every control and proven
-# at none — the same hole the shared `degraded` probe above it closes.
+# string probe is the only thing reaching the second alternative. Without these two
+# an unprobed pattern would be asserted at every control and proven at none, which
+# is the hole the shared `degraded` probe above it closes for the PHP side.
 for manifest_crash_probe in \
     "$(node -e 'throw new Error("boom")' 2>&1)" \
     "$(node -e 'throw "a bare string"' 2>&1)"

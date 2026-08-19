@@ -6,10 +6,12 @@ library code, and no PHPUnit suite. Its correctness is proven two ways: by *cons
 adoption* (a repo wires the configs and its own `composer ci:test` stays green), and
 by the fixture-driven gates under `tests/`, each of which drives the thing it certifies
 against inputs that must produce a finding — including `tests/check-js-configs.sh`,
-which runs the real Biome and `tsc` against the shared configs. A gate that cannot be
+which runs the real Biome, `tsc` and jscpd against the shared configs and the shipped `templates/jscpd.json`. A gate that cannot be
 shown to fail proves nothing, so a gate here is not trusted without its failure
-path — `ci:test:json` is the one that still lacks one, tracked in #41 rather than
-left implicit.
+path — of the FIRST-PARTY gates, `ci:test:json` is the one that still lacks one,
+tracked in #41 rather than left implicit. `ci:test:php:lint` is a third-party
+syntax check with no first-party logic to drive, which is why it is not counted
+here.
 
 ## Layout
 
@@ -23,9 +25,9 @@ left implicit.
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
-| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`/`tsconfig.json` exists), parsed as JSONC |
+| `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`, `biome.jsonc` or `tsconfig.json` exists), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
-| `bin/support/safe-report-value.php` | `require`d by both `bin/` gates | scrubs C0/DEL from any value read out of a consumer file before it reaches a report, and caps it at 64 bytes — both gates run in the consumer's CI over pull-request content, and their STDERR is GitHub Actions' workflow-command channel; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json but must stay inside the dist archive |
+| `bin/support/safe-report-value.php` | `require`d by the PHP gates that echo a value read out of a repository file (`grep -rln safe-report-value.php bin tests`); the node gate carries its own `encodeValue()`, which cannot require a PHP file | scrubs C0/DEL and breaks the legacy `##[` workflow-command prefix on any such value, and caps it at 64 bytes — the `bin/` gates run in the consumer's CI over pull-request content and this repository's own gate over its own, and the runner scans both STDERR and STDOUT for workflow commands; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json but must stay inside the dist archive |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
@@ -52,8 +54,10 @@ directory that matches how it is consumed, never at the root for convenience.
   deliberately not the mirror image of the Composer side:** `package.json` ships the
   two configs and nothing else, so it does NOT deliver the toolchain the way `require`
   does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself.
-  **Node tool versions track the current major — always pin forward.** The peer ranges
-  are `^2.5.0` and `^7.0.2` and never span a major CI does not exercise; moving one
+  **Node tool versions track the current major — always pin forward.** The peer
+  ranges never span a major CI does not exercise — read them rather than trusting a
+  copy here (`jq -r '.peerDependencies' package.json`), and note that
+  `tests/check-js-configs.sh` asserts each against the exact pin it installs; moving one
   means bumping the exact root `devDependencies` pin first, letting
   `tests/check-js-configs.sh` vet it, and only then widening the range. The Node floor
   is **node >= 24**, declared in `devEngines` and NOT in `engines` — `engines` is
@@ -119,7 +123,11 @@ directory that matches how it is consumed, never at the root for convenience.
   unreachable. Re-derive which they are rather than trusting a list here:
 
   ```
-  for r in $(gh repo list magicsunday --limit 100 --no-archived --json name --jq '.[].name'); do
+  repos="$(gh repo list magicsunday --limit 100 --no-archived --json name --jq '.[].name')" \
+      || { echo 'gh failed — RESULT UNKNOWN, not clean' >&2; exit 1; }
+  [ -n "$repos" ] || { echo 'no repositories listed — RESULT UNKNOWN' >&2; exit 1; }
+
+  for r in $repos; do
       for f in biome.json biome.jsonc tsconfig.json; do
           gh api "repos/magicsunday/$r/contents/$f" >/dev/null 2>&1 || continue
           gh api "repos/magicsunday/$r/contents/composer.json" >/dev/null 2>&1 || echo "$r"
@@ -128,10 +136,18 @@ directory that matches how it is consumed, never at the root for convenience.
   done
   ```
 
+  The first two lines are the point, not boilerplate: without them an unauthenticated
+  or rate-limited `gh` yields an empty word list, the loop never runs, and the block
+  exits 0 printing NOTHING — byte-identical to "every JS/TS repository also has a
+  composer.json". Measured with `gh` stubbed to fail. That is the shape this file
+  forbids eighty lines further down (*a gate that aborts must not read as a gate that
+  passed*), so the recipe has to carry the third state itself.
+
   All three spellings, because the gate covers all three and a `biome.json`-only
-  probe halves the answer — it prints two repositories where the widened loop
-  prints four. Note the probe cannot tell a 404 from a rate limit or a network
-  failure; a repository appearing here after an unexplained `gh` error is worth
+  probe halves the answer. The per-file probe below has the same blind spot in the
+  small: `|| continue` treats a 403 or a rate limit exactly like a 404, so a
+  throttled repository drops out of the answer without a word. A repository
+  appearing here after an unexplained `gh` error is worth
   re-running before acting on.
 
   Do not read a green run as "every consumer's JS config is checked"; a node-side
@@ -144,9 +160,11 @@ directory that matches how it is consumed, never at the root for convenience.
   consumers, each of which went to exit 1 on a link they never claimed. And they could
   not have pre-empted it: a consumer cannot pin an npm tag that does not exist yet, so
   "align first, enforce second" is the only order the dependency direction allows. Same
-  staging rule as the workflow step, one layer down. The exception is a check that is a
-  defect on its own terms rather than a broken link — the `"//"` key makes a Biome
-  config unloadable however it was written, so that one stays unconditional.
+  staging rule as the workflow step, one layer down. The exceptions are the checks that
+  cannot be answered, or are a defect however the file was written: the `"//"` key
+  (which makes a Biome config unloadable whoever wrote it), an unreadable file, one
+  past the size cap, and a `package.json` the probe cannot parse. Those four stay
+  unconditional; the row in the Layout table above lists the same set.
 - **A stricter template is a change to every consumer, same as a stricter base.** The
   canonical `templates/*` are the house standard, not a starting point to loosen: a
   consumer copy must not drop a strict flag. When tightening a template, verify the
@@ -161,16 +179,22 @@ directory that matches how it is consumed, never at the root for convenience.
   config may depend on the choice: `base.neon` reaches its sibling rule packs with
   `../../../`, resolved from the package's own position, so both layouts work and the
   fixture proves it.
-- **Every gate has exactly one definition, and CI invokes that one.** The manifest
-  declaring the gate is the definition — `composer.json` for the PHP gates,
-  `package.json` for the JS one, since the `js` job runs without PHP. A workflow step
-  that repeats the inner command instead is a second definition that drifts silently:
-  a composer script can grow a second command — an array entry, or a string
-  promoted to one — and that command would
-  never run in CI, which keeps passing the first command alone. It also decides where
-  a gate is discoverable — the JS smoke had no manifest entry at all and was reachable
-  only by reading the workflow, while the class of break it exists to catch
-  (`ci:test:json` cannot see an unloadable Biome config) has no other local check.
+- **Every gate invoked as a single command has exactly one definition, and CI invokes
+  that one.** The manifest declaring the gate is the definition — `composer.json` for
+  the PHP gates, `package.json` for the JS one, since the `js` job runs without PHP. A
+  workflow step that repeats the inner command instead is a second definition that
+  drifts silently: a composer script can grow a second command — an array entry, or a
+  string promoted to one — and that command would never run in CI, which keeps passing
+  the first command alone. It also decides where a gate is discoverable, and locally
+  reproducible: run `composer ci:test:<name>` and `npm run ci:test:js`, not the script
+  paths, which is how CI runs them.
+
+  The stated exceptions, all in `ci.yml` because they cannot be a single command:
+  `composer validate --strict`, and the three consumer-smoke steps
+  (`phpstan`, `php-cs-fixer`, `rector`), which run under
+  `working-directory: tests/consumer`. Enumerating both manifests therefore does NOT
+  give full local coverage — a sweep that assumes it will report the smoke as run when
+  it was not.
 - **Indentation is 4 spaces in every file** (YAML, JSON, PHP, neon).
 - **A tool with a PHP constraint narrower than the consumer's matrix gets its OWN
   manifest, never a root `require --dev`.** The case that forced the rule is
@@ -190,8 +214,9 @@ directory that matches how it is consumed, never at the root for convenience.
 - **Versioning:** the Composer package is tag-versioned (Packagist); tag `X.Y.Z` and
   keep `package.json`'s `version` in step for the npm git-dependency pin. The README
   writes that tag out a third time in its install instructions, so
-  `composer ci:test:version` asserts all of them agree — bump them in the same commit
-  as the tag. The gate fails closed if the README documents no pin at all, so deleting
+  `composer ci:test:version` asserts that the manifest and every README pin agree —
+  it reads no git, so the TAG is kept in step by bumping all of them in the same
+  commit as the tag, not by the gate. The gate fails closed if the README documents no pin at all, so deleting
   the instructions cannot make it pass vacuously.
   **Narrowing an npm peer range ships as a MINOR, and the release notes say so.** In
   the npm ecosystem a raised peer floor is the canonical breaking change — npm 7+
@@ -243,7 +268,12 @@ auto-merge; `.github/dependabot.yml` covers composer + npm + github-actions. The
 own `ci.yml` adds a `js` job running the JS consumer smoke, the counterpart to the
 PHP consumer smoke. **That job publishes the status context `JS/TS configs` — no
 spaces around the slash, and no matrix suffix — and it must be registered in the
-branch's `required_status_checks`.** A branch-protection setting is invisible in git,
+branch's `required_status_checks`.** Read the setting rather than trusting this
+sentence about it:
+`gh api repos/magicsunday/coding-standard/branches/main/protection --jq '.required_status_checks.contexts[]?'`.
+Register the context AFTER the job has reported once on the default branch: the
+other order leaves every open PR permanently `BLOCKED` with all checks green,
+waiting on a context no workflow on `main` can emit. A branch-protection setting is invisible in git,
 so it is recorded here: without it the smoke cannot block a merge, and the npm
 Dependabot group auto-merges patch and minor bumps of the very tools it smokes, so a
 Biome release lands with the gate red and unread. Adding a matrix dimension to that

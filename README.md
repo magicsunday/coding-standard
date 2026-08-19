@@ -80,7 +80,7 @@ The published artifact is `biome/` and `tsconfig/`, two directories of JSON with
 code that runs on Node, so it cannot care what the consumer's runtime is; exporting a
 floor from it would fail an install over a constraint the package never exercises.
 `devEngines` constrains this repository alone, which is where the floor is real. It
-is honoured by npm >= 10.9, which with `onFail: "error"` hard-fails the install, and ignored entirely by older versions — so it cannot be relied on, and (npm/cli PR 7766, shipped in v10.9.0 — re-derive with `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`)
+is honoured by npm >= 10.9, which with `onFail: "error"` hard-fails the `install`, `ci` or `run` it precedes, and ignored entirely by older versions — so it cannot be relied on, and (npm/cli PR 7766, shipped in v10.9.0 — re-derive with `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`)
 `tests/check-js-configs.sh` fails outright on an older Node and additionally rejects a
 re-added `engines.node`, and the CI job pins `node-version: 24` rather than the
 floating `lts/*` alias, which would move up a major on its own every October.
@@ -582,6 +582,25 @@ liveness-checked. It is a **static** check — it does not run PHPStan — and f
 every rule method must yield a classifiable subject. A repo with no `ArchitectureTest` is
 skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
 (`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
+
+## Releasing this package
+
+The version this package ships lives in three places: the git tag, `package.json`'s
+`version`, and every `github:magicsunday/coding-standard#<tag>` pin written in this
+README. Nothing links them, so a release that bumps the manifest and forgets a
+README pin documents an install command for a tag that does not exist — and a
+consumer following it silently gets the older code.
+
+`composer ci:test:version` re-derives every documented pin from the README and
+compares it against `package.json`. A pin that is not a version tag, a pin that
+disagrees with the manifest, and a README that documents no pin at all are each a
+finding; the last one matters because a gate with nothing to compare would
+otherwise pass vacuously. `composer ci:test:version-lockstep` is its fixture-driven
+self-test, which drives the gate into each of those states on purpose.
+
+Unlike the consumer gates in this README, this one is not shipped for anyone else to
+run — it guards this repository's own release hygiene. Bump `package.json` and every
+README pin in the same commit as the tag.
 
 ## JS/TS configs
 

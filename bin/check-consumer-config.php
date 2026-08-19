@@ -109,17 +109,13 @@ $violations = [];
  * Shared by the `.phplint.yml` and `deptrac.yaml` checks: one defect on two paths
  * was fixed twice before this existed.
  *
- * Measured on php 8.5, asking whether the shared import is found in the captured
- * block. The last two rows are the boundary, and they are the reason the column-0
- * list-item alternative is safe — a top-level key stops the scan before it:
+ * The boundary that makes the column-0 list-item alternative safe: a top-level key
+ * stops the scan before it, so an entry written under a LATER key is not captured.
+ * Both directions are driven in tests/check-consumer-config-cases.sh; list them
+ * rather than copying their verdicts here, since a before/after table describes a
+ * version of the code that no longer exists:
  *
- *     plain                          before: found      now: found
- *     no trailing final newline      before: NOT found  now: found
- *     entry after a blank line       before: NOT found  now: found
- *     entry after a column-0 comment before: NOT found  now: found
- *     column-0 block sequence        before: NOT found  now: found
- *     entry under a LATER key        before: NOT found  now: NOT found
- *     column-0 entry under a later   before: NOT found  now: NOT found
+ *     grep -n 'work/deptrac-\|work/phplint-' tests/check-consumer-config-cases.sh
  *
  * @param string $contents The file contents, line endings already normalised.
  * @param string $key      The top-level key whose block to isolate.
@@ -477,7 +473,12 @@ if (is_file($phplintFile)) {
         // `^extensions` anchor below sits at offset 0 and the BOM displaces it.
         // jscpd 5.0.14 answers its own BOM'd config with `expected value at line
         // 1 column 1`, and deptrac with `no extension able to load "<BOM>imports"`,
-        // so for those two a BOM IS the defect and stripping it would hide one.
+        // so for those two a BOM IS the defect and stripping it would hide one. The
+        // deptrac observation is the one of the three carrying no version, because
+        // none was recorded — re-derive it against the installed one rather than
+        // putting a number here that was never measured:
+        //
+        //     composer show deptrac/deptrac | head -2
         $contents = $stripBom($contents);
         $contents = str_replace(["\r\n", "\r"], "\n", $contents);
 

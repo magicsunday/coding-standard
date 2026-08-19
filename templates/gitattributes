@@ -14,11 +14,9 @@
 #
 # `/package.json` is deliberately NOT in the list below, and neither is
 # `/package-lock.json`. It looks like dev-only config a Composer consumer never
-# reads, and export-ignoring it looks free because npm goes by `files` rather
-# than by `.gitattributes` — but that is only true of `npm pack` on a checkout.
-# A `github:` dependency is resolved by pacote, which fetches GitHub's codeload
-# archive, and that archive HAS export-ignore applied. The manifest is then gone
-# before npm can read it. Measured with npm 11.16.0 against a branch carrying the
+# reads, and export-ignoring it looks free because npm goes by `files` rather than
+# by `.gitattributes` — but that is only true of `npm pack` on a checkout, and the
+# paragraph above is why. Measured with npm 11.16.0 against a branch carrying the
 # line: `npm error enoent Could not read package.json` and nothing installed.
 # Any repository consumed as a git dependency — this package, webtrees-chart-lib —
 # is uninstallable with that line present.

@@ -57,12 +57,17 @@ mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
     | grep -oE "function: '[a-z0-9_]+\(\)'" \
     | sed -E "s/function: '([a-z0-9_]+)\(\)'/\1/")
 
-# The extractor's own vocabulary must not bound what it sees. `[a-z_]+` skipped
-# every ban carrying a digit — `md5()`, `crc32()`, `base64_decode()` — which then
-# got no per-function assertion, and the cardinality check below compares against
-# the same truncated list, so it could not notice either. Counting the declared
-# bans structurally is what discriminates; the sibling extractors got this in an
-# earlier round and this one was missed.
+# The extractor's own vocabulary must not bound what it sees. `[a-z_]+` cannot see a
+# ban carrying a digit or a dash, such a ban would get no per-function assertion, and
+# a cardinality check compared against the same truncated list could not notice
+# either. Conditional on purpose: the five bans this config declares today all match
+# it — re-derive with the same comment filter the extractor uses, since the config
+# ships a commented example that a bare grep counts as a sixth:
+#
+#     grep -vE '^[[:space:]]*#' phpstan/disallowed-calls.neon | grep -oE "function: '[^']+'"
+#
+# So nothing has been skipped. The guard is for the next spelling, and it reports
+# itself rather than disappearing.
 # Occurrences, not lines: BANNED is filled from `grep -oE`, so two `function: '…'`
 # entries on one neon line would read as 1 == 1 and the second would ship
 # unexercised.

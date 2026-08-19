@@ -393,13 +393,10 @@ $methodOffsets = array_column($methodDecls[0], 1);
 // used to restart at index 0 per rule — quadratic by inspection, over an input this
 // gate reads unbounded and that is pull-request content in the CONSUMER's CI.
 //
-// The cost is stated as a shape, not a number, because the number did not reproduce:
-// a reviewer measured seconds at 32000 rules, and a 9.5 MB / 32000-rule fixture ran
-// flat at ~47 ms here under php 8.5 either way. Whatever bounds it in practice is not
-// this loop, so the cursor is kept for the complexity class rather than a speedup —
-// re-derive before citing a figure:
-//
-//     time php bin/check-phpat-subjects.php <a repo with N generated #[TestRule] methods>
+// The cursor never rewinds, so the search is linear by inspection. Kept for the
+// complexity class, not for a measured speedup: the figure that motivated it did
+// not reproduce, and the review that established that is what this commit's
+// message records.
 $methodCursor = 0;
 
 foreach ($methodHeads[1] as $index => $nameMatch) {

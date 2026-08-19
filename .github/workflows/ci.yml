@@ -35,10 +35,7 @@ jobs:
                   # `require`, as the tool consumers get — so it is always that
                   # workflow's "every other leg" case, and leaving the input unset
                   # makes the driver state depend on the runner image rather than on
-                  # a decision. Measured cost of a loaded Xdebug on this repository's
-                  # PHP-executing harnesses: 5.6 s to 9.5 s. No count is given —
-                  # every attempt at one needed a grep that disagreed with the next
-                  # reader's, which is a sign the number is not the point.
+                  # a decision.
                   coverage: none
 
             - name: Checkout repository
