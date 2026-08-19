@@ -28,6 +28,22 @@ root="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$root/tests/harness.sh"
 harness_workdir
 
+# safe_report <value>
+#
+# The bash-side counterpart of encodeValue() below, for the report sites that are
+# printf and not node. Everything this file echoes about the package manifest, the
+# tarball or the shared configs is pull-request content in this repository's own
+# `pull_request` job, and the runner scans the job log for workflow commands: a
+# devDependency name carrying a newline put a forged `::error::` at column 0, and a
+# `files` entry carrying `##[` forged the legacy form mid-line. Both reproduced.
+#
+# Newlines to `?` first, because a value that cannot start a line cannot start a
+# command; then the remaining control bytes and DEL; then the legacy prefix broken
+# the way bin/support/safe-report-value.php breaks it, for the reason stated there.
+safe_report() {
+    printf '%s' "$1" | tr '\n\r' '??' | tr -d '\000-\010\013\014\016-\037\177' | sed 's/#\[/#?[/g'
+}
+
 pass() { printf 'OK       %s\n' "$1"; }
 
 # The optional second argument is a log to excerpt, so each failure carries its
@@ -37,7 +53,9 @@ fail() {
     fails=$((fails + 1))
 
     if [ "$#" -gt 1 ]; then
-        sed -n '1,40p' "$2" >&2
+        # npm echoes package specifiers verbatim, so the excerpt carries whatever a
+        # devDependency name says. Same scrub as the report lines.
+        sed -n '1,40p' "$2" | tr -d '\000-\010\013\014\016-\037\177' | sed 's/#\[/#?[/g' >&2
     fi
 }
 
@@ -50,6 +68,61 @@ probe_reporters() {
 }
 
 harness_probe_reporters 1 probe_reporters
+
+# Both directions of the bash-side scrub, then the wiring, because the three holes
+# it closes all shipped together and neither half alone would have caught them.
+#
+# The PHP gates have twenty inert-report controls between them and this one had
+# none: its single workflow-command case drove the NODE reporter, which is a
+# different function from the printf lines below. All three raw sites were
+# reachable with one poisoned package.json, and both grammars came out of one
+# payload — measured.
+probe_safe_report() {
+    local forged scrubbed
+    forged="$(printf 'evil@1.0.0\n::error title=pwned::forged ##[error]legacy')"
+    scrubbed="$(safe_report "$forged")"
+
+    if grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$scrubbed"; then
+        fail "bookkeeping self-test — safe_report left a \`::\` command at line start"
+    fi
+
+    if grep -qF -- '##[' <<<"$scrubbed"; then
+        fail "bookkeeping self-test — safe_report left a legacy \`##[…]\` command"
+    fi
+
+    # The accepting direction, so the scrub cannot pass by mangling everything: a
+    # value with nothing wrong in it must come back unchanged.
+    if [ "$(safe_report '@biomejs/biome@2.5.5')" != '@biomejs/biome@2.5.5' ]; then
+        fail "bookkeeping self-test — safe_report altered a value that needed no scrubbing"
+    fi
+}
+
+probe_safe_report
+
+# The WIRING, derived from this file rather than remembered. Every value below is
+# read out of package.json, the tarball listing or biome/base.json — pull-request
+# content in this repository's own `pull_request` job — and every report line that
+# interpolates one has to route it through safe_report. A new report site that
+# forgets is what this catches; the probe above only proves the helper works.
+#
+# Comment lines are filtered, as are printfs whose output goes to a FILE rather
+# than to the log — writing a fixture path is not reporting. `>&2` is a report and
+# stays in scope. The pattern then looks for the variable NOT already inside a
+# safe_report call.
+report_sites_unscrubbed=0
+
+while IFS= read -r line; do
+    report_sites_unscrubbed=$((report_sites_unscrubbed + 1))
+    printf 'FAILED   a report line interpolates consumer content unscrubbed: %s\n' "$line" >&2
+done < <(grep -nE '^[[:space:]]*(printf|pass|fail) .*\$(tools|entry|source_ext|target_ext)\b' -- "$0" \
+    | grep -vE '^[0-9]+:[[:space:]]*#' \
+    | grep -vE '> "[^"]*"[[:space:]]*$' \
+    | grep -vE 'safe_report "\$(tools|entry|source_ext|target_ext)"' || true)
+
+if [ "$report_sites_unscrubbed" -ne 0 ]; then
+    fail "$report_sites_unscrubbed report site(s) echo consumer content without safe_report"
+    verdict
+fi
 
 # See the sibling harnesses: the bar is derived, not remembered.
 harness_assert_no_stray_increments 1
@@ -96,7 +169,7 @@ if [ -z "$tools" ]; then
     exit 1
 fi
 
-printf 'INFO     tools under test: %s\n' "$tools"
+printf 'INFO     tools under test: %s\n' "$(safe_report "$tools")"
 
 # Enforce the devEngines floor rather than documenting it. Why the floor lives in
 # `devEngines` and not `engines` is in the README, under "The npm side is not the
@@ -131,7 +204,54 @@ manifest_check() {
     ROOT="$1" node -e '
 const pkg = require(process.env.ROOT + "/package.json");
 
-const want = parseInt(String(pkg.devEngines?.runtime?.version ?? "").match(/(\d+)/)?.[1] ?? "", 10);
+// The TYPE, before any shape test. `exec` and `test` call ToString on their
+// argument, so a one-element array joins straight back to the string and
+// satisfies a pattern the value never had.
+// `grep -nE "asString[(]" tests/check-js-configs.sh` lists the readers; the
+// pattern wants a literal paren, which this line does not carry, so it cannot
+// count itself.
+// Declared above the first reader: a `const` is not hoisted, and placing it beside
+// a later one has produced a TDZ error twice.
+const asString = (value) => (typeof value === "string" ? value : "");
+
+let failed = false;
+
+// Values go on their own INFO line, never into the sentence a control asserts —
+// the measurement behind that rule is at manifest_rejects, beside the filtering
+// that answers it. Two mechanisms carry it: the `INFO ` prefix the filter keys on,
+// and the JSON encoding that keeps a value on ONE line so the filter can reach it.
+// peer-name-poison below pins all three, on the three report sites it drives.
+// Declared up here for the same hoisting reason as asString above.
+const encodeValue = (value) => {
+    // The RESULT, not the input: JSON.stringify returns undefined for a function or
+    // a symbol as well as for undefined itself, and .replaceAll() on that throws.
+    // No fixture drives it and none is added: every value reaching report() is
+    // JSON.parse-derived or an error message, and neither can be a function. It is
+    // written this way because it costs one line and makes the prototype-chain
+    // comment below true, not because the case is reachable.
+    const encoded = JSON.stringify(value);
+
+    return encoded === undefined ? "(absent)" : encoded.replaceAll("#[", "#?[");
+};
+
+const report = (sentence, values) => {
+    console.error(sentence);
+
+    for (const [label, value] of Object.entries(values)) {
+        // Two guards on one line. JSON.stringify returns undefined — not a string —
+        // for an absent value, and the template would then render the bareword;
+        // schema-no-key reaches that. And the encoding blocks a newline or an ESC but
+        // not `##[`, which the Actions runner matches UNANCHORED, so a peer name out
+        // of a pull request forges a legacy workflow command from mid-line. The PHP
+        // gates break the same prefix in bin/support/safe-report-value.php; this is
+        // the node reporter, and it needs its own.
+        console.error(`INFO     ${label}: ${encodeValue(value)}`);
+    }
+
+    failed = true;
+};
+
+const want = parseInt(asString(pkg.devEngines?.runtime?.version).match(/(\d+)/)?.[1] ?? "", 10);
 const have = parseInt(process.versions.node.split(".")[0], 10);
 
 if (!Number.isInteger(want)) {
@@ -143,7 +263,7 @@ if (pkg.engines?.node !== undefined) {
     process.exit(1);
 }
 if (have < want) {
-    console.error(`node ${process.versions.node} is below the devEngines floor >=${want}`);
+    report("the running node is below the devEngines floor", { running: process.versions.node, floor: want });
     process.exit(1);
 }
 
@@ -169,8 +289,6 @@ const below = (left, right) => {
     return false;
 };
 
-let failed = false;
-
 // The one derived list in this harness with no non-empty anchor, which the
 // siblings all carry (`mappings`, `jscpd_formats`, `declared`, `tools`,
 // `packed`). Remove the peerDependencies block and the loop runs zero times,
@@ -184,11 +302,18 @@ if (peers.length === 0) {
 }
 
 for (const [name, range] of peers) {
-    const pin = pkg.devDependencies?.[name];
+    // hasOwn, not a plain property read: `Object.entries` yields own keys, but the
+    // lookup on the other side walks the prototype, so a peer named `constructor`
+    // or `toString` resolves to an Object.prototype member. The no-pin arm below
+    // then does not fire, the diagnostic names the wrong cause, and the INFO line
+    // prints `(absent)` — encodeValue reads the RESULT of JSON.stringify, which is
+    // undefined for a function too, so the value is reported as missing rather
+    // than crashing the reporter. No apostrophe in this payload: it is single-quoted
+    // in bash, and one closes the string (AGENTS.md records the trap).
+    const pin = Object.hasOwn(pkg.devDependencies ?? {}, name) ? pkg.devDependencies[name] : undefined;
 
     if (pin === undefined) {
-        console.error(`peerDependencies declares ${name}, but no devDependencies pin proves it`);
-        failed = true;
+        report("a peerDependencies entry has no devDependencies pin proving it", { peer: name });
         continue;
     }
 
@@ -198,9 +323,8 @@ for (const [name, range] of peers) {
     // resolves to while reporting the pin as proven. The whole premise of this
     // block is "the version the smoke actually exercises", so the pin has to be
     // one version.
-    if (!/^\d+\.\d+\.\d+$/.test(pin)) {
-        console.error(`devDependencies ${name} ${pin} is not an exact version — the smoke can only prove the version it installs`);
-        failed = true;
+    if (!/^\d+\.\d+\.\d+$/.test(asString(pin))) {
+        report("a devDependencies pin is not an exact version — the smoke can only prove the version it installs", { peer: name, pin });
         continue;
     }
 
@@ -209,18 +333,24 @@ for (const [name, range] of peers) {
     // strength of its floor while the pin 2.5.5 violates its ceiling. Rejecting
     // the shape is honest; approximating a full semver range here is not, and a
     // range this package cannot check has no business being declared by it.
-    if (!/^\^\d+\.\d+\.\d+$/.test(range)) {
-        console.error(`peerDependencies ${name} ${range} is not a plain caret range — this check evaluates ^X.Y.Z only, and would otherwise accept a range it cannot verify`);
-        failed = true;
+    if (!/^\^\d+\.\d+\.\d+$/.test(asString(range))) {
+        report("a peerDependencies range is not a plain caret range — this check evaluates ^X.Y.Z only, and would otherwise accept a range it cannot verify", { peer: name, range });
         continue;
     }
 
     const wanted = segments(range);
     const pinned = segments(pin);
 
-    if ((wanted[0] !== pinned[0]) || below(pinned, wanted)) {
-        console.error(`peerDependencies ${name} ${range} is not satisfied by the pinned ${pin} the smoke proves`);
-        failed = true;
+    // `^0.x` does not mean what `^1.x` means: below 1.0.0 npm treats the MINOR as
+    // the compatibility boundary, so `^0.2.0` is `>=0.2.0 <0.3.0` and the pin 0.3.0
+    // does not satisfy it. Comparing the major alone accepted it. No peer here is
+    // below 1.0.0 today, which is exactly why the arm has its own fixture: nothing
+    // in the current manifest would ever exercise it.
+    const boundary = wanted[0] === 0 ? 2 : 1;
+    const sameLine = wanted.slice(0, boundary).every((part, at) => part === pinned[at]);
+
+    if (!sameLine || below(pinned, wanted)) {
+        report("a peerDependencies range is not satisfied by the pin the smoke proves", { peer: name, range, pin });
     }
 }
 
@@ -235,30 +365,52 @@ for (const [name, range] of peers) {
 // valid JSON belongs to ci:test:json, and swallowing it here as a missing
 // `$schema` would name the wrong cause.
 const basePath = process.env.ROOT + "/biome/base.json";
-let schemaVersion = null;
+
+// The whole URL, anchored at both ends. Matching the version anywhere in the
+// string admitted every value that merely contained `schemas/<X.Y.Z>/`.
+const canonicalSchema = /^https:\/\/biomejs\.dev\/schemas\/([0-9]+\.[0-9]+\.[0-9]+)\/schema\.json$/;
+
+let schemaValue;
 
 try {
-    schemaVersion = /schemas\/([0-9]+\.[0-9]+\.[0-9]+)\//.exec(JSON.parse(require("node:fs").readFileSync(basePath, "utf8")).$schema ?? "")?.[1] ?? null;
+    schemaValue = JSON.parse(require("node:fs").readFileSync(basePath, "utf8")).$schema;
 } catch (error) {
-    console.error(`biome/base.json could not be read for its $schema: ${error.message}`);
-    failed = true;
+    // Exit rather than fall through, as the gates above already do. The
+    // arms below then need no flag to keep them from reporting a second, wrong
+    // cause on top of this one — which schema-absent pins through its
+    // must-not-carry argument. JSON-encoded because a V8 parse error quotes the
+    // offending input, newlines and all, and a raw multi-line value would break
+    // out of its INFO line into the stream a control asserts against.
+    report("biome/base.json could not be read for its $schema", { "read error": error.message });
+    process.exit(1);
 }
 
-const biomePin = pkg.devDependencies?.["@biomejs/biome"];
+// The raw value is kept beside the coerced one: asString maps an absent entry
+// and a wrongly typed one alike to "", and the no-pin arm below is the one
+// reader that must tell them apart.
+const biomePinRaw = pkg.devDependencies?.["@biomejs/biome"];
+const biomePin = asString(biomePinRaw);
+const schemaVersion = canonicalSchema.exec(asString(schemaValue))?.[1] ?? null;
 
-// A missing or unparseable version in the URL is a finding, not a skip. The
-// previous form only compared when both sides were present, so deleting the
-// `$schema` key — or an editor rewriting it to `…/schemas/latest/schema.json`
-// — turned the check off silently while the block still printed that the pins
-// agree. Verified with node: all three shapes yield null.
+
+// Absent, null, wrongly typed, unversioned or not the published URL — a finding,
+// not a skip. The previous form only compared when both sides were present, so
+// deleting the key, or an editor rewriting the value to `…/schemas/latest/…`,
+// turned the check off silently while the block still printed that the pins
+// agree.
 if (schemaVersion === null) {
-    console.error("biome/base.json carries no $schema pinning an X.Y.Z Biome version");
-    failed = true;
-}
-
-if ((schemaVersion !== null) && (biomePin !== undefined) && (schemaVersion !== biomePin)) {
-    console.error(`biome/base.json pins $schema at ${schemaVersion}, but the devDependency proving it is ${biomePin}`);
-    failed = true;
+    report("$schema is not the canonical https://biomejs.dev/schemas/<X.Y.Z>/schema.json", { "offending $schema value": schemaValue });
+} else if (biomePinRaw === undefined) {
+    report("$schema names a Biome version that no devDependencies entry pins", { "offending $schema value": schemaValue });
+} else if (biomePin === "") {
+    report("$schema names a Biome version whose devDependencies entry is not a version string", { "devDependencies entry": biomePinRaw });
+} else if (schemaVersion !== biomePin) {
+    // The one arm whose sentence carries a fixture-derived value, because
+    // schema-drift asserts the version. Safe only because canonicalSchema
+    // constrains that capture to digits and dots: widen the group and a $schema
+    // value can supply the text another control asserts.
+    report(`biome/base.json pins $schema at ${schemaVersion}, but the devDependency proving it is a different version`,
+        { "devDependencies pin": biomePin });
 }
 
 if (failed) {
@@ -278,34 +430,123 @@ manifest_check "$root" || {
 # statement rather than a check.
 manifest_fixtures="$work/manifest-fixtures"
 
-# Each fixture also gets a biome/base.json whose $schema agrees with its own pin.
-# The check reads that file unconditionally — a missing one is a finding, not a
-# skip — so a fixture without it would fail for a reason it was not built to
-# measure, and the control would report the wrong cause. The $schema is derived
-# from the fixture body rather than hard-coded, so a fixture varying the Biome pin
-# stays consistent by construction.
-manifest_fixture() { # <name> <package.json body>
+# Each fixture also gets a biome/base.json whose $schema is derived from the
+# fixture body. The check reads that file unconditionally — a missing one is a
+# finding, not a skip — so a fixture without one would fail for a reason it was
+# not built to measure.
+#
+# The derivation covers a fixture that varies the Biome pin. A fixture whose pin is
+# not a version string trips the $schema type arm whatever the base.json says, so
+# it reports two causes by construction; one whose pin is a string but not a
+# version passes its own base.json instead, because the derived URL would carry
+# `schemas/^2.5.5/` and trip the canonical arm rather than the one under test.
+manifest_fixture() { # <name> <package.json body> [<raw JSON $schema value>]
     mkdir -p "$manifest_fixtures/$1/biome"
     printf '%s\n' "$2" > "$manifest_fixtures/$1/package.json"
 
-    local pin
-    pin="$(BODY="$2" node -e 'const p = JSON.parse(process.env.BODY).devDependencies?.["@biomejs/biome"];
-process.stdout.write(p === undefined ? "0.0.0" : p)')"
+    # The optional third argument is written verbatim and skips the derivation
+    # entirely — for the fixtures whose whole point is a $schema the derivation
+    # could not produce.
+    local schema="${3:-}"
 
-    printf '{"$schema": "https://biomejs.dev/schemas/%s/schema.json"}\n' "$pin" \
-        > "$manifest_fixtures/$1/biome/base.json"
+    if [ -z "$schema" ]; then
+        # The ternary writes "0.0.0" for anything that is not a string, so the pin
+        # cannot come out empty. A crashed derivation writes `schemas//schema.json`
+        # instead, and the fixture then reports a non-canonical $schema alongside
+        # whatever it was built to measure.
+        local pin
+        pin="$(BODY="$2" node -e 'const p = JSON.parse(process.env.BODY).devDependencies?.["@biomejs/biome"];
+process.stdout.write(typeof p === "string" ? p : "0.0.0")')"
+        schema="\"https://biomejs.dev/schemas/$pin/schema.json\""
+    fi
+
+    printf '{"$schema": %s}\n' "$schema" > "$manifest_fixtures/$1/biome/base.json"
 
     printf '%s' "$manifest_fixtures/$1"
 }
 
-manifest_rejects() { # <dir> <label> <substring the diagnostic must carry>
-    local out
+# A crash is not a verdict, and the exit code cannot say which it was: this program
+# exits 1 to reject, and node exits 1 on an uncaught throw as well. Measured — a
+# `throw` at the top of manifest_check carrying the asserted sentences reported OK
+# on most controls, so the whole block proved nothing while printing green. Node
+# prints a stack frame and this program never does, which is the discriminator the
+# exit code is not. A throw of a NON-Error value prints no frame at all, only the
+# crash preamble naming the source position — hence the second alternative, and the
+# second positive probe below that would otherwise leave it unmeasured. The shared
+# `degraded` cannot serve here: its alternation is PHP-shaped and matches none of
+# node's output.
+manifest_crashed() { # <combined output>
+    grep -qE '^[[:space:]]+at |^\[eval\]:[0-9]' <<<"$1"
+}
+
+# Both directions, and both throw shapes. `crashing-gate` below does crash the gate,
+# but through `require`, which throws an Error and prints stack frames — the bare
+# string probe is the only thing reaching the second alternative. Without these, so an unprobed pattern here would be asserted at every control and proven
+# at none — the same hole the shared `degraded` probe above it closes.
+for manifest_crash_probe in \
+    "$(node -e 'throw new Error("boom")' 2>&1)" \
+    "$(node -e 'throw "a bare string"' 2>&1)"
+do
+    if ! manifest_crashed "$manifest_crash_probe"; then
+        printf 'FAILED  harness bookkeeping: manifest_crashed does not recognise a node crash\n' >&2
+        exit 1
+    fi
+done
+
+# The gate's own diagnostics, including the shape a fixture-controlled value takes
+# once report() has encoded it onto an INFO line.
+for manifest_crash_probe in \
+    'a peerDependencies entry has no devDependencies pin proving it' \
+    'INFO     peer: "   at the start"' \
+    'INFO     peer: "[eval]:1"'
+do
+    if manifest_crashed "$manifest_crash_probe"; then
+        printf 'FAILED  harness bookkeeping: manifest_crashed misreads `%s` as a crash\n' "$manifest_crash_probe" >&2
+        exit 1
+    fi
+done
+
+# The prelude both assertion helpers need, held once: two copies of the crash check
+# is how the sibling harnesses drifted apart in the first place. Sets `out`; returns
+# 1 when it has already reported.
+manifest_ran() { # <dir> <label>
     if out="$(manifest_check "$1" 2>&1)"; then
         fail "$2 — accepted, so the check does not discriminate"
-    elif grep -qF -- "$3" <<<"$out"; then
-        pass "$2"
-    else
+        return 1
+    fi
+
+    if manifest_crashed "$out"; then
+        fail "$2 — the gate did not run, it died: $out"
+        return 1
+    fi
+}
+
+# The assertion is matched against the diagnostic with every INFO line removed.
+# Those lines carry the offending VALUE, and this helper greps the whole stream —
+# so a `$schema` reading `… is not satisfied by the pin the smoke proves` satisfied the
+# peer-drift control on a manifest whose peers agreed. Measured; peer-name-poison
+# below is the standing control.
+#
+# The optional fourth argument is text the diagnostic must NOT carry. Without it a
+# guard whose job is to SUPPRESS a second, wrong cause cannot be measured at all:
+# deleting it leaves the first cause printed, the exit non-zero and every control
+# green.
+manifest_rejects() { # <dir> <label> <substring it must carry> [<substring it must not>]
+    local out asserted
+    manifest_ran "$1" "$2" || return 0
+
+    # `grep -v` exits 1 when it filters everything away, which is an empty
+    # assertable diagnostic rather than an error. Defensive against `set -e` only:
+    # no path reaches it today, because `report` always prints its sentence
+    # line before the INFO one, and every other rejection is a bare console.error.
+    asserted="$(grep -v '^INFO ' <<<"$out")" || asserted=""
+
+    if ! grep -qF -- "$3" <<<"$asserted"; then
         fail "$2 — rejected, but not for the tested reason: $out"
+    elif [ "$#" -gt 3 ] && grep -qF -- "$4" <<<"$asserted"; then
+        fail "$2 — reported a second, wrong cause as well: $out"
+    else
+        pass "$2"
     fi
 }
 
@@ -319,12 +560,42 @@ manifest_rejects "$(manifest_fixture engines-readded \
     "manifest control — a re-added engines.node is reported" \
     "belongs in devEngines"
 
-manifest_rejects "$(manifest_fixture peer-major-drift \
+# The asserted sentences, held once each. Every reader needs the identical bytes:
+# the controls that assert one, and the poison values that prove no fixture can
+# supply it. As separate literals they desynchronised on the first rewording, and
+# the poison control then reported OK under the very mutation it names.
+peer_drift_sentence='is not satisfied by the pin the smoke proves'
+no_pin_sentence='has no devDependencies pin proving it'
+
+peer_major_drift="$(manifest_fixture peer-major-drift \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
        "devDependencies": { "@biomejs/biome": "2.5.5" },
-       "peerDependencies": { "@biomejs/biome": "^1.9.0" } }')" \
+       "peerDependencies": { "@biomejs/biome": "^1.9.0" } }')"
+
+manifest_rejects "$peer_major_drift" \
     "manifest control — a peer range naming another major than the pin is reported" \
-    "is not satisfied by the pinned"
+    "$peer_drift_sentence"
+
+# The poison controls further down all forbid text, and "the value never arrived"
+# satisfies every one of them: deleting report()'s INFO emission outright left the
+# whole set green, measured. So the containment was pinned in both its mechanisms
+# and in neither direction. This asserts against the UNFILTERED stream, which is
+# why manifest_rejects cannot host it — that helper greps the stream with the INFO
+# lines already removed.
+manifest_reports_value() { # <dir> <label> <exact line the diagnostic must carry>
+    local out
+    manifest_ran "$1" "$2" || return 0
+
+    if ! grep -qxF -- "$3" <<<"$out"; then
+        fail "$2 — the offending value never reached the operator: $out"
+    else
+        pass "$2"
+    fi
+}
+
+manifest_reports_value "$peer_major_drift" \
+    "manifest control — the offending value reaches the operator on its own INFO line" \
+    'INFO     pin: "2.5.5"'
 
 # The only ACCEPT case among the manifest controls, and the only one that
 # DISCRIMINATES a numeric `below()` from a string compare of the joined form.
@@ -353,6 +624,36 @@ manifest_rejects "$(manifest_fixture no-devengines \
     "manifest control — a package.json with no devEngines floor is reported" \
     "no parseable devEngines"
 
+# The floor reader's coercion. Without asString the array stringifies to `>=1`, the
+# digit matches and the floor gate passes — so the fixture needs peers and a pin that
+# agree, or the run exits 1 on an unrelated anchor and the control rides on that
+# instead. With them, dropping the coercion turns this case into "accepted, so the
+# check does not discriminate".
+manifest_rejects "$(manifest_fixture floor-not-a-string \
+    '{ "devEngines": { "runtime": { "name": "node", "version": [">=1"] } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')" \
+    "manifest control — a devEngines floor that is not a string is reported as unparseable" \
+    "no parseable devEngines"
+
+# Caret semantics below 1.0.0, where the MINOR is the compatibility boundary:
+# `^0.2.0` is `>=0.2.0 <0.3.0`, so the pin 0.3.0 does NOT satisfy it. Comparing the
+# major alone accepted this. No peer in the real manifest is below 1.0.0, so this
+# arm has no other way to be reached — and that is precisely why the fixture exists.
+manifest_rejects "$(manifest_fixture peer-zero-major-minor-drift \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "0.3.0" },
+       "peerDependencies": { "@biomejs/biome": "^0.2.0" } }')" \
+    "manifest control — a 0.x pin past the caret minor is reported" \
+    "$peer_drift_sentence"
+
+# The accepting twin, so the arm above cannot pass by rejecting every 0.x range.
+manifest_accepts "$(manifest_fixture peer-zero-major-in-range \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "0.2.7" },
+       "peerDependencies": { "@biomejs/biome": "^0.2.0" } }')" \
+    "manifest control — a 0.x pin inside the caret minor is accepted"
+
 # The floor-vs-pin half of the peer check, which no case reached: peer-major-drift
 # short-circuits on the major, peer-without-pin continues before it, and the real
 # manifest satisfies both. So dropping `below()` entirely kept every case green
@@ -362,7 +663,7 @@ manifest_rejects "$(manifest_fixture peer-floor-above-pin \
        "devDependencies": { "@biomejs/biome": "2.5.5" },
        "peerDependencies": { "@biomejs/biome": "^2.9.0" } }')" \
     "manifest control — a peer floor above the pin, same major, is reported" \
-    "is not satisfied by the pinned"
+    "$peer_drift_sentence"
 
 manifest_rejects "$(manifest_fixture peer-range-not-caret \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
@@ -375,20 +676,167 @@ manifest_rejects "$(manifest_fixture peer-without-pin \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
        "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')" \
     "manifest control — a peer with no pin proving it is reported" \
-    "no devDependencies pin proves it"
+    "$no_pin_sentence"
 
-# The $schema check, driven both ways. The helper writes a fixture $schema that
-# agrees with the fixture pin, so every case above proves the accepting
-# direction; this one overwrites it afterwards to prove the rejecting one.
-schema_drift="$(manifest_fixture schema-drift \
+# The same arm, reached by a peer whose NAME is an Object.prototype member. A plain
+# `pkg.devDependencies?.[name]` resolves it through the prototype, so the pin reads
+# as present, this arm is skipped and the next one names the wrong cause — which is
+# what the must-not-carry pins.
+manifest_rejects "$(manifest_fixture peer-named-after-a-prototype-member \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0", "constructor": "^1.0.0" } }')" \
+    "manifest control — a peer named after an Object.prototype member reports as unpinned, not as mistyped" \
+    "$no_pin_sentence" \
+    "is not an exact version"
+
+# The ToString coercion asString exists against (see its comment), on the
+# exact-version gate: `["2.5.5"]` stringifies back to a valid version and slips it,
+# which is what makes this fixture the coercion discriminator. The poison duty lives
+# with peer-name-poison, which carries the identical payload on this same report site.
+peer_pin_array="$(manifest_fixture peer-pin-array \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": ["2.5.5"] },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
+
+manifest_rejects "$peer_pin_array" \
+    "manifest control — a devDependencies pin that is an array is reported" \
+    "is not an exact version"
+
+# A second control on the same fixture: it legitimately reports more than one cause,
+# and each cause needs its own must-carry. Without this one the $schema type arm can
+# be deleted outright and nothing reddens — measured.
+manifest_rejects "$peer_pin_array" \
+    "manifest control — a pin that exists but is not a version string is named as that, not as absent" \
+    "is not a version string"
+
+manifest_rejects "$(manifest_fixture peer-range-array \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": ["^2.5.0"] } }')" \
+    "manifest control — a peerDependencies range that is an array is reported" \
+    "is not a plain caret range"
+
+# The $schema check, driven both ways. The accepting direction is proven by
+# manifest_check "$root" above, against this repository's real biome/base.json;
+# the cases below overwrite the fixture config to prove the rejecting one. A case
+# that trips one of the gates above the peer loop never reaches this block at all,
+# so its derived $schema proves nothing either way.
+#
+# The mutation each fixture below earned is recorded in the commit that added it,
+# not here: a copy here is a coverage claim with nothing behind it, and successive
+# versions of exactly that copy were falsified by review.
+schema_rejects() { # <name> <raw JSON $schema value> <label> <must carry> [<must not carry>]
+    local dir name value
+    name="$1"
+    value="$2"
+    shift 2
+
+    dir="$(manifest_fixture "$name" \
+        '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+           "devDependencies": { "@biomejs/biome": "2.5.5" },
+           "peerDependencies": { "@biomejs/biome": "^2.5.0" } }' "$value")"
+
+    manifest_rejects "$dir" "$@"
+}
+
+schema_rejects schema-drift '"https://biomejs.dev/schemas/2.4.0/schema.json"' \
+    "manifest control — a base config whose \$schema lags the pin is reported" \
+    "pins \$schema at 2.4.0"
+
+schema_rejects schema-unversioned '"https://biomejs.dev/schemas/latest/schema.json"' \
+    "manifest control — a \$schema naming no X.Y.Z version is reported, not skipped" \
+    "is not the canonical"
+
+schema_rejects schema-foreign-host '"https://example.invalid/schemas/2.5.5/schema.json"' \
+    "manifest control — a \$schema served from a foreign host is reported" \
+    "is not the canonical"
+
+schema_rejects schema-plain-http '"http://biomejs.dev/schemas/2.5.5/schema.json"' \
+    "manifest control — a \$schema served over plain http is reported" \
+    "is not the canonical"
+
+schema_rejects schema-wrong-path '"https://biomejs.dev/x/2.5.5/schema.json"' \
+    "manifest control — a \$schema on the right host but the wrong path is reported" \
+    "is not the canonical"
+
+schema_rejects schema-wrong-filename '"https://biomejs.dev/schemas/2.5.5/config.json"' \
+    "manifest control — a \$schema whose filename is not schema.json is reported" \
+    "is not the canonical"
+
+schema_rejects schema-leading-space '" https://biomejs.dev/schemas/2.5.5/schema.json"' \
+    "manifest control — a \$schema with a pasted leading space is reported" \
+    "is not the canonical"
+
+schema_rejects schema-suffixed '"https://biomejs.dev/schemas/2.5.5/schema.json.evil"' \
+    "manifest control — a \$schema carrying trailing content past schema.json is reported" \
+    "is not the canonical"
+
+# The type, not the shape — the coercion asString exists against, on this reader.
+schema_rejects schema-array '["https://biomejs.dev/schemas/2.5.5/schema.json"]' \
+    "manifest control — a \$schema array stringifying to the canonical URL is reported" \
+    "is not the canonical"
+
+# Every other fixture writes `{"$schema": <value>}`, so this is the one shape that
+# reaches report() with an ABSENT value.
+schema_no_key="$(manifest_fixture schema-no-key \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
        "devDependencies": { "@biomejs/biome": "2.5.5" },
        "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
-printf '{"$schema": "https://biomejs.dev/schemas/2.4.0/schema.json"}\n' > "$schema_drift/biome/base.json"
+printf '{"note": "no $schema here"}\n' > "$schema_no_key/biome/base.json"
 
-manifest_rejects "$schema_drift" \
-    "manifest control — a base config whose \$schema lags the pin is reported" \
-    "pins \$schema at 2.4.0"
+manifest_rejects "$schema_no_key" \
+    "manifest control — a base config with no \$schema key is reported" \
+    "is not the canonical"
+
+manifest_reports_value "$schema_no_key" \
+    "manifest control — an absent \$schema reaches the operator as absent, not as the word undefined" \
+    'INFO     offending $schema value: (absent)'
+
+# The legacy `##[` grammar, which the JSON encoding does NOT break: the runner finds
+# that prefix unanchored, so a peer name carrying it forges a command from mid-line.
+# Asserted through the helper that reads the UNFILTERED stream, because the value
+# lives on an INFO line and manifest_rejects strips those before it looks.
+manifest_reports_value "$(manifest_fixture peer-name-legacy-prefix \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0", "##[error]forged": "^1.0.0" } }')" \
+    "manifest control — a peer name cannot forge a legacy workflow command" \
+    'INFO     peer: "##?[error]forged"'
+
+
+# The oracle's own controls — the measurement they stand on is at manifest_rejects,
+# beside the filtering that answers it. Poisoned here: a peer name, its pin and its
+# range. The payload carries an embedded newline, so it pins the JSON encoding as
+# well as the `INFO ` prefix — without the encoding a value spills past its own line
+# into the stream the assertion reads, which is the same hole one level down. One
+# fixture is enough because `report()` is one function: the other value routes reach
+# the same two lines, so nothing is left unpinned by not repeating the payload.
+manifest_rejects "$(manifest_fixture peer-name-poison \
+    "{ \"devEngines\": { \"runtime\": { \"name\": \"node\", \"version\": \">=24\" } },
+       \"devDependencies\": { \"@biomejs/biome\": \"2.5.5\",
+                             \"poison-pin\": \"x\\n$peer_drift_sentence\",
+                             \"poison-range\": \"2.0.0\" },
+       \"peerDependencies\": { \"@biomejs/biome\": \"^2.5.0\",
+                             \"poison-pin\": \"^2.0.0\",
+                             \"poison-range\": \"x\\n$peer_drift_sentence\",
+                             \"x\\n$peer_drift_sentence\": \"^1.0.0\" } }")" \
+    "manifest control — a peer name, pin or range cannot supply the text another control asserts" \
+    "$no_pin_sentence" \
+    "$peer_drift_sentence"
+
+# A canonical $schema whose version nothing pins. The body differs from the one
+# the helper writes so that this arm is the fixture only cause — peer-without-pin
+# reaches the same arm, but reports the peer gap alongside it.
+schema_no_pin="$(manifest_fixture schema-no-pin \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "typescript": "7.0.2" },
+       "peerDependencies": { "typescript": "^7.0.0" } }' \
+    '"https://biomejs.dev/schemas/9.9.9/schema.json"')"
+
+manifest_rejects "$schema_no_pin" \
+    "manifest control — a canonical \$schema no pin proves is reported, not skipped" \
+    "names a Biome version that no devDependencies entry pins"
 
 schema_absent="$(manifest_fixture schema-absent \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
@@ -397,24 +845,14 @@ schema_absent="$(manifest_fixture schema-absent \
 rm -f "$schema_absent/biome/base.json"
 
 # A base config that cannot be read is reported here rather than skipped: a check
-# whose subject disappears must fail, or removing the file removes the check.
+# whose subject disappears must fail, or removing the file removes the check. The
+# fourth argument is what makes the catch's `process.exit(1)` measurable — turn it
+# back into a `failed = true` and this arm reports a second, wrong cause on top of
+# its own, which without the argument no control would see.
 manifest_rejects "$schema_absent" \
-    "manifest control — an unreadable base config is reported, not skipped" \
-    "could not be read for its"
-
-# Present but carrying no X.Y.Z — the arm one step past `schema-absent`, and the
-# one the previous form left open: it compared only when both sides parsed, so a
-# `$schema` an editor rewrote to `…/schemas/latest/schema.json` turned the check
-# off in silence while the block still reported that the pins agree.
-schema_unversioned="$(manifest_fixture schema-unversioned \
-    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
-       "devDependencies": { "@biomejs/biome": "2.5.5" },
-       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
-printf '{"$schema": "https://biomejs.dev/schemas/latest/schema.json"}\n' > "$schema_unversioned/biome/base.json"
-
-manifest_rejects "$schema_unversioned" \
-    "manifest control — a \$schema naming no X.Y.Z version is reported, not skipped" \
-    "carries no \$schema pinning"
+    "manifest control — an unreadable base config is reported, and not also as a missing \$schema" \
+    "could not be read for its" \
+    "is not the canonical"
 
 # Zero peer ranges must not read as "every peer range agrees". Every other derived
 # list in this harness carries this anchor; this loop was the gap.
@@ -433,12 +871,75 @@ manifest_rejects "$(manifest_fixture peers-absent \
 range_as_pin="$(manifest_fixture range-as-pin \
     '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
        "devDependencies": { "@biomejs/biome": "^2.5.5" },
-       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }')"
-printf '{"$schema": "https://biomejs.dev/schemas/2.5.5/schema.json"}\n' > "$range_as_pin/biome/base.json"
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" } }' \
+    '"https://biomejs.dev/schemas/2.5.5/schema.json"')"
 
 manifest_rejects "$range_as_pin" \
     "manifest control — a devDependency range standing in for a pin is reported" \
     "is not an exact version"
+
+# The must-not-carry argument is a control in its own right, and an unproven one:
+# disabling it leaves every case above green — measured. Same shape as
+# probe_reporters at the top of this file. The driver has to be a fixture that
+# legitimately reports a SECOND cause, so that forbidding it raises the counter
+# exactly once; range-as-pin is one, and the substring below is a stable prefix of
+# its second diagnostic rather than the derived version that follows.
+probe_negative_assertion() {
+    manifest_rejects "$range_as_pin" \
+        'bookkeeping self-test — the must-not-carry argument' \
+        'is not an exact version' \
+        'pins $schema at'
+}
+
+harness_probe_reporters 1 probe_negative_assertion \
+    'manifest_rejects ignores its must-not-carry argument'
+
+# The crash guard, driven rather than asserted — it shipped with nothing exercising
+# it, which is the shape it exists against. A package.json that is not JSON makes the
+# program's own `require` throw before any check runs.
+crashing_gate="$manifest_fixtures/crashing-gate"
+mkdir -p "$crashing_gate/biome"
+printf 'not json at all\n' > "$crashing_gate/package.json"
+printf '{"$schema": "https://biomejs.dev/schemas/2.5.5/schema.json"}\n' > "$crashing_gate/biome/base.json"
+
+# The asserted substring is one the CRASH prints. With the guard the case reports
+# that the gate died; without it the substring is found and the case reports ok — so
+# the expected count drops from 1 to 0 and the probe fires. Asserting a substring the
+# crash does NOT print cannot discriminate: both paths report a failure, for
+# different reasons, and the count is the same.
+#
+# Which makes the probe rest on a foreign system's wording, so the premise is checked
+# rather than assumed: the tail below is V8's, it did not exist before Node 20, and if
+# it is reworded the probe silently stops discriminating instead of going red.
+crash_substring='is not valid JSON'
+crash_probe_out="$(manifest_check "$crashing_gate" 2>&1)" || true
+
+if ! grep -qF -- "$crash_substring" <<<"$crash_probe_out"; then
+    printf 'FAILED  harness bookkeeping: the crash no longer prints `%s`, so probe_crash_guard discriminates nothing\n' \
+        "$crash_substring" >&2
+    exit 1
+fi
+
+probe_crash_guard() {
+    manifest_rejects "$crashing_gate" \
+        'bookkeeping self-test — the crash guard' \
+        "$crash_substring"
+}
+
+harness_probe_reporters 1 probe_crash_guard \
+    'manifest_rejects accepts a crashed gate as a verdict'
+
+# The third assertion helper, driven like its two siblings. Replacing its body with a
+# bare `pass` silently retires both value controls — the only thing standing between
+# the poison set and a value that never arrived at all.
+probe_reports_value() {
+    manifest_reports_value "$peer_major_drift" \
+        'bookkeeping self-test — the value helper' \
+        'INFO     pin: "an INFO line this report never prints"'
+}
+
+harness_probe_reporters 1 probe_reports_value \
+    'manifest_reports_value accepts a report that never carried the value'
 
 rm -rf "$manifest_fixtures"
 
@@ -515,9 +1016,9 @@ while IFS= read -r entry; do
     # already avoid.
     if grep -qxF -- "$entry" <<<"$packed" \
         || grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/" <<<"$packed"; then
-        pass "declared and packed: $entry"
+        pass "declared and packed: $(safe_report "$entry")"
     else
-        fail "declared in package.json \"files\" but absent from the tarball: $entry"
+        fail "declared in package.json \"files\" but absent from the tarball: $(safe_report "$entry")"
     fi
 done <<<"$declared"
 
@@ -727,14 +1228,14 @@ while IFS=' ' read -r source_ext target_ext; do
     want="${expected_target[$source_ext]:-}"
 
     if [ -z "$want" ]; then
-        fail "biome/base.json maps the .$source_ext extension, which this smoke has no proven target for — add one rather than shipping the row unproven"
+        fail "biome/base.json maps the .$(safe_report "$source_ext") extension, which this smoke has no proven target for — add one rather than shipping the row unproven"
         continue
     fi
 
     seen_row[$source_ext]=1
 
     if [ "$target_ext" != "$want" ]; then
-        fail "biome/base.json maps .$source_ext to .$target_ext; the target this smoke proves is .$want"
+        fail "biome/base.json maps .$(safe_report "$source_ext") to .$(safe_report "$target_ext"); the target this smoke proves is .$want"
         continue
     fi
 
@@ -745,9 +1246,9 @@ while IFS=' ' read -r source_ext target_ext; do
         "$want" > "src/use.$source_ext"
 
     if biome_ci "$work/biome-map-$source_ext.log"; then
-        pass "biome — the extensionMappings row .$source_ext -> .$want is in force"
+        pass "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is in force"
     else
-        fail "biome — an import spelling .$want from a .$source_ext source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
+        fail "biome — an import spelling .$want from a .$(safe_report "$source_ext") source was rejected; the mapping row is wrong or missing" "$work/biome-map-$source_ext.log"
     fi
 
     rm "src/mod.$source_ext" "src/use.$source_ext"
@@ -757,7 +1258,7 @@ done <<<"$mappings"
 # loop never reaches it and no assertion runs — silence that reads as success.
 for source_ext in "${!expected_target[@]}"; do
     if [ -z "${seen_row[$source_ext]:-}" ]; then
-        fail "biome/base.json no longer maps the .$source_ext extension, which this smoke proves — the row was dropped rather than retargeted"
+        fail "biome/base.json no longer maps the .$(safe_report "$source_ext") extension, which this smoke proves — the row was dropped rather than retargeted"
     fi
 done
 
