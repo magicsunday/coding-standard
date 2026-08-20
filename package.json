@@ -23,6 +23,9 @@
     "bin": {
         "check-js-config": "bin/check-js-config.mjs"
     },
+    "engines": {
+        "node": ">=20"
+    },
     "devEngines": {
         "runtime": {
             "name": "node",

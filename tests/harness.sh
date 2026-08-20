@@ -290,6 +290,30 @@ harness_decide_rejects() {
     harness_settle "$reason" "$label" "$out" 'rejected on the tested violation'
 }
 
+# harness_decide_reports_once <out> <rc> <label> <file prefix>
+#
+# See harness_decide_accepts for why this is split out — added for #32's node
+# gate to reach the same "reported once, as itself" property `assert_reports_once`
+# checks on the PHP side, which `harness_decide_rejects` cannot express: that
+# helper greps for the PRESENCE of one substring, not for "and nothing further
+# was said about this file" — the property a read-failure path needs, since the
+# defect it guards against is an EXTRA fabricated violation rather than a
+# missing one.
+harness_decide_reports_once() {
+    local out="$1" rc="$2" label="$3" prefix="$4" count reason=''
+    count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
+
+    if degraded "$out"; then
+        reason='the gate ran degraded — it emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif [ "$count" -ne 1 ]; then
+        reason="expected exactly one $prefix violation, got $count"
+    fi
+
+    harness_settle "$reason" "$label" "$out" 'reported exactly once'
+}
+
 # harness_rejects <gate> <dir> <label> <substring the report must carry>
 #
 # The drift verdict. Exactly exit 1, not merely non-zero: 2 is the could-not-run
@@ -469,6 +493,7 @@ harness_decide_report_is_inert() {
 harness_run_argv() {
     local dir="$1"
     shift
+    # shellcheck disable=SC2034 # read by the caller that sources this file, not by anything in it
     HARNESS_OUT="$("$@" "$dir" 2>&1)" && HARNESS_RC=0 || HARNESS_RC=$?
 }
 

@@ -52,19 +52,10 @@ assert_rejects() { harness_rejects "$GATE" "$@"; }
 # the property a read-failure path needs, since the defect it guards against is an
 # EXTRA fabricated violation rather than a missing one.
 assert_reports_once() {
-    local dir="$1" label="$2" prefix="$3" out rc count reason=''
+    local dir="$1" label="$2" prefix="$3" out rc
     out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
 
-    if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
-    elif [ "$rc" -ne 1 ]; then
-        reason="expected the drift verdict, got exit $rc"
-    elif [ "$count" -ne 1 ]; then
-        reason="expected exactly one $prefix violation, got $count"
-    fi
-
-    harness_settle "$reason" "$label" "$out" 'reported exactly once'
+    harness_decide_reports_once "$out" "$rc" "$label" "$prefix"
 }
 
 # Membership asked the same way in every direction, so the three set relations
@@ -124,6 +115,7 @@ assert_usage_error_js()     { assert_js assert_usage_error     harness_decide_us
 # separately re-probed by this file's own probe_report_is_inert_js_shapes —
 # search this file for "empty-must-carry arm shared by" for why.
 assert_report_is_inert_js() { assert_js assert_report_is_inert harness_decide_report_is_inert "$@"; }
+assert_reports_once_js()    { assert_js assert_reports_once    harness_decide_reports_once    "$@"; }
 
 # `php` and `node` are both shadowed, the way harness.sh shadows `php` for its own
 # assert_* probes: each _js wrapper calls the PHP-only assertion FIRST, so without
@@ -220,10 +212,15 @@ probe_report_is_inert_js_shapes() {
 harness_probe_reporters 3 probe_report_is_inert_js_shapes \
     'assert_report_is_inert_js has a node arm that no longer decides'
 
-# assert_reports_once is this file's own helper rather than a wrapper, so its arms are
-# not covered by harness.sh's probe — and it became load-bearing when the six oversize
-# cases were written against it. Measured before this: replacing its whole body with
-# `pass "$2"` left the entire suite green.
+# assert_reports_once/harness_decide_reports_once are not covered by harness.sh's
+# own probe suite (harness_probe_assert_shapes/harness_probe_inert_shapes only drive
+# harness_decide_accepts/rejects/usage_error/report_is_inert) — and they became
+# load-bearing when the six oversize cases were written against them, seven once
+# assert_reports_once_js joined for the package.json case. Measured before this:
+# replacing assert_reports_once's whole body with `pass "$2"` left the entire suite
+# green. Both arms — PHP directly below, node via assert_reports_once_js further
+# down — get their own probe here rather than in harness.sh, for the same reason
+# harness.sh has none: this file is where the load-bearing use lives.
 #
 # `php` is shadowed the way harness.sh shadows it, so each arm is reached without a
 # gate that produces it. Three calls, three increments; delete an arm and one is lost.
@@ -252,9 +249,36 @@ probe_reports_once() {
 harness_probe_reporters 3 probe_reports_once \
     'assert_reports_once has an arm that no longer decides'
 
-# Every helper above is a one-line wrapper whose increment lives in harness.sh and
-# is probed there. What this file must still prove is that it grew no report site
-# of its own — see harness_assert_no_stray_increments.
+# The node twin, same shapes as probe_reports_once above — php stays a fixed,
+# passing single violation so only the node-side arm under test can decide, the
+# same convention probe_rejects_js_shapes and its siblings already use.
+probe_reports_once_js_shapes() {
+    php() { printf '%s\n' '  - package.json: one'; return 1; }
+    node() { printf '%s\n' "$node_fake_report"; return "$node_fake_rc"; }
+
+    # Satisfies every arm below it too — exit 1, exactly one `- package.json:`
+    # line — so only the degraded arm can decide, same shape probe_reports_once
+    # is measured against.
+    node_fake_report="$(printf 'Warning: the gate emitted a diagnostic\n  - package.json: one')"
+    node_fake_rc=1
+    assert_reports_once_js /nonexistent 'probe: reports_once_js, the node gate ran degraded' 'package.json'
+
+    node_fake_report='  - package.json: one'
+    node_fake_rc=2
+    assert_reports_once_js /nonexistent 'probe: reports_once_js, not the drift verdict' 'package.json'
+
+    node_fake_report="$(printf '  - package.json: one\n  - package.json: two')"
+    node_fake_rc=1
+    assert_reports_once_js /nonexistent 'probe: reports_once_js, reported twice' 'package.json'
+}
+
+harness_probe_reporters 3 probe_reports_once_js_shapes \
+    'assert_reports_once_js has a node arm that no longer decides'
+
+# Every _js wrapper above except the reports_once pair (probed just above, in this
+# file, for the reason stated there) is a one-line dispatcher whose increment lives
+# in harness.sh and is probed there. What this file must still prove is that it
+# grew no report site of its own — see harness_assert_no_stray_increments.
 harness_assert_no_stray_increments 0
 
 # The canonical fixture must be accepted.
@@ -1577,6 +1601,14 @@ done
 # A biome.json has to be present or the probe is never called at all — the JS/TS half
 # runs only where a JS config exists. It is a CLEAN one, so the single report this
 # case counts is the manifest's own.
+#
+# _js too: bin/check-js-config.mjs's own oversize arm (readBounded/npmDependencyDeclared)
+# is otherwise never driven to its violation outcome by any fixture. biome.json's
+# and tsconfig.json's own oversize cases (further up) already run both gates, but
+# through assert_rejects_js — a plain substring check, not this one's "reported
+# EXACTLY once, no fabricated second cause" property. This is the only case that
+# drives BOTH gates through assert_reports_once's stricter assertion, so without
+# it the parity this property needs would not hold on the node side.
 d="$(mk_case package-json-past-the-size-cap)"
 cat > "$d/biome.json" <<'JSON'
 {
@@ -1584,7 +1616,7 @@ cat > "$d/biome.json" <<'JSON'
 }
 JSON
 php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/package.json"
-assert_reports_once "$d" "an oversized package.json is reported once, as itself" \
+assert_reports_once_js "$d" "an oversized package.json is reported once, as itself" \
     "package.json"
 
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;

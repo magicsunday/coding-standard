@@ -246,20 +246,24 @@ fi
 
 printf 'INFO     tools under test: %s\n' "$(safe_report "$tools")"
 
-# Enforce the devEngines floor rather than documenting it. Why the floor lives in
-# `devEngines` and not `engines` is in the README, under "The npm side is not the
-# mirror image of the Composer side" — written out there once instead of a third
-# time here, since the copy that drifted first was one of these restatements. What
-# matters at this call site: npm's own check cannot be RELIED on, because older npm
-# ignores `devEngines` entirely. That half carries the argument on its own. The
-# half that stood beside it — "the js job never runs an install at the repository
-# root" — is true and does not support the conclusion: npm runs the check before
-# `install`, `ci` AND `run`, and the job's one step is `npm run ci:test:js` in that
-# root. So on current npm the two overlap, and only this gate covers an old one.
-# Re-derive rather than trusting the sentence:
+# Enforce the devEngines floor rather than documenting it. Why the REPOSITORY's
+# own development/CI floor lives in `devEngines` — not `engines` — is in the
+# README, under "The npm side is not the mirror image of the Composer side":
+# written out there once instead of a third time here, since the copy that
+# drifted first was one of these restatements. What matters at this call site:
+# npm's own check cannot be RELIED on, because older npm ignores `devEngines`
+# entirely. That half carries the argument on its own. The half that stood
+# beside it — "the js job never runs an install at the repository root" — is
+# true and does not support the conclusion: npm runs the check before
+# `install`, `ci` AND `run`, and the job's one step is `npm run ci:test:js` in
+# that root. So on current npm the two overlap for THIS floor, and only this
+# gate covers an old one. Re-derive rather than trusting the sentence:
 #
 #     curl -s https://raw.githubusercontent.com/npm/cli/latest/docs/lib/content/configuring-npm/package-json.md \
 #         | grep -n 'will run before'
+#
+# `engines.node`, checked separately a few lines down, is NOT this same floor
+# under a different name — see the comment on MIN_CONSUMER_NODE below for why.
 # Take the FIRST numeric group, not every digit in the string: stripping all
 # non-digits reads the ordinary spelling ">=24.0.0" as the floor 2400, which is
 # above every real version, so the check would hard-fail on a runner that
@@ -292,6 +296,20 @@ const pkg = require(process.env.ROOT + "/package.json");
 // Declared above the first reader: a `const` is not hoisted, and placing it beside
 // a later one has produced a TDZ error twice.
 const asString = (value) => (typeof value === "string" ? value : "");
+
+// The first-numeric-group parse both floor readers below need (devEngines and
+// engines.node) — why only the first group is taken is in the comment above
+// manifest_check. They part ways only in what they do with an unparseable
+// result, which stays at each call site rather than folding into this helper.
+const firstIntGroup = (value) => parseInt(asString(value).match(/(\d+)/)?.[1] ?? "", 10);
+
+// The floor genuinely required by code THIS package ships to a consumer: why
+// >=20 specifically is on the containsLoneSurrogate docblock in
+// bin/check-js-config.mjs (String.prototype.isWellFormed), not restated here.
+// Bump this only alongside whatever new bin/ code needs a newer runtime API —
+// it tracks a different thing than devEngines.runtime.version above and the
+// two are not meant to move together.
+const MIN_CONSUMER_NODE = 20;
 
 let failed = false;
 
@@ -330,19 +348,38 @@ const report = (sentence, values) => {
     failed = true;
 };
 
-const want = parseInt(asString(pkg.devEngines?.runtime?.version).match(/(\d+)/)?.[1] ?? "", 10);
+const want = firstIntGroup(pkg.devEngines?.runtime?.version);
 const have = parseInt(process.versions.node.split(".")[0], 10);
 
 if (!Number.isInteger(want)) {
     console.error("package.json declares no parseable devEngines.runtime.version floor");
     process.exit(1);
 }
-if (pkg.engines?.node !== undefined) {
-    console.error("package.json declares engines.node — the Node floor belongs in devEngines, which does not ride into a consumer install");
-    process.exit(1);
-}
 if (have < want) {
     report("the running node is below the devEngines floor", { running: process.versions.node, floor: want });
+    process.exit(1);
+}
+
+// Absence, a non-string, an unparseable value and a floor that is genuinely
+// too low all collapse into the SAME verdict here, on purpose: none of them
+// proves a consumer Node satisfies what bin/check-js-config.mjs needs, and a
+// fixture-verified table (spec-first-rule-change, #32) found no case where
+// telling them apart changes what an operator should do about it — dropping
+// the `|| 0` fallback DOES change the verdict (a malformed value would then
+// parse to NaN, and `NaN < MIN_CONSUMER_NODE` is false), so that fallback is
+// load-bearing, not decorative. Only the FIRST digit run in the string is
+// read, same reasoning as the devEngines floor above; an OR-range like
+// "20 || 22" would take the first alternative rather than being read as a
+// range. Out of scope by choice, not by absence: this repository writes its
+// own engines.node (unlike a peer range parsed from a third party), so an
+// OR-range reaching this check would be a value THIS repository chose to
+// write, and simplicity says not to parse a shape nothing here has a reason
+// to produce.
+const consumerWant = firstIntGroup(pkg.engines?.node) || 0;
+
+if (consumerWant < MIN_CONSUMER_NODE) {
+    report(`engines.node floor is below the Node version bin/check-js-config.mjs requires (>=${MIN_CONSUMER_NODE}, for String.prototype.isWellFormed())`,
+        { "declared engines.node": pkg.engines?.node });
     process.exit(1);
 }
 
@@ -521,7 +558,54 @@ manifest_fixtures="$work/manifest-fixtures"
 # `schemas/^2.5.5/` and trip the canonical arm rather than the one under test.
 manifest_fixture() { # <name> <package.json body> [<raw JSON $schema value>]
     mkdir -p "$manifest_fixtures/$1/biome"
-    printf '%s\n' "$2" > "$manifest_fixtures/$1/package.json"
+
+    # A passing engines.node, unless the body already has an opinion. Only
+    # engines_node_rejects() writes the key itself, for the fixtures whose own
+    # point IS engines.node; every other fixture tests something unrelated
+    # (the devEngines floor, a peer range, the $schema tie) and would
+    # otherwise all reject for a new, unintended reason the moment that
+    # requirement went live — the same drift the $schema derivation two lines
+    # down exists to prevent for THAT key.
+    # `"engines": null` is the escape hatch for the one input class auto-injection
+    # would otherwise make impossible to construct: a body that wants the key
+    # genuinely ABSENT.
+    #
+    # Checked explicitly rather than trusted to `set -e`: unlike the pin
+    # derivation below, whose crash degrades to a harmless malformed $schema
+    # string, a crash HERE would otherwise silently write an EMPTY
+    # package.json. The explicit `exit 1` is what makes this reliable, NOT the
+    # caller's assignment shape — this file never sets
+    # `shopt -s inherit_errexit`, so a plain failing command in here (as
+    # opposed to an unconditional `exit`) would NOT abort the surrounding
+    # `$(manifest_fixture …)` subshell even when the CALLER assigns it
+    # directly; a future check added to this function needs the same explicit
+    # `if ! …; then …; exit 1; fi` shape, not a bare assignment. What the
+    # caller's shape DOES decide is whether that `exit 1` — once it fires —
+    # is itself observed: a caller that assigns the substitution directly
+    # (`dir="$(manifest_fixture …)"`, several call sites below, including the
+    # engines.node fixtures via engines_node_rejects) gets a clean abort. One
+    # embedded as an argument to another command (`manifest_rejects
+    # "$(manifest_fixture …)" …`, as `floor-above-runtime` right below does)
+    # does not: `set -e` does not act on a substitution's exit status in that
+    # position, so the run continues with an empty dir and additionally
+    # reports manifest_check's own "did not run, it died" — misattributed, but
+    # not silent, since this diagnostic already printed. Measured, not
+    # assumed: `bash -c 'set -e; f(){ exit 1; }; g(){ :; }; g "$(f)"; echo
+    # after'` prints `after`, while `bash -c 'set -e; f(){ exit 1; }; x="$(f)";
+    # echo after'` does not.
+    local body
+    if ! body="$(BODY="$2" node -e 'const pkg = JSON.parse(process.env.BODY);
+if (pkg.engines === undefined) {
+    pkg.engines = { node: ">=20" };
+} else if (pkg.engines === null) {
+    delete pkg.engines;
+}
+process.stdout.write(JSON.stringify(pkg));' 2>&1)"; then
+        printf 'manifest_fixture %s: package.json body is not valid JSON — %s\n' "$1" "$body" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$body" > "$manifest_fixtures/$1/package.json"
 
     # The optional third argument is written verbatim and skips the derivation
     # entirely — for the fixtures whose whole point is a $schema the derivation
@@ -635,10 +719,47 @@ manifest_rejects "$(manifest_fixture floor-above-runtime \
     "manifest control — a floor above the running Node is reported" \
     "below the devEngines floor"
 
-manifest_rejects "$(manifest_fixture engines-readded \
-    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } }, "engines": { "node": ">=24" } }')" \
-    "manifest control — a re-added engines.node is reported" \
-    "belongs in devEngines"
+# engines.node used to be forbidden outright; #32 flipped that to required,
+# because bin/check-js-config.mjs now ships real code to a consumer's Node
+# (see the comment above manifest_check's engines.node arm). The three fixtures
+# below drive the REJECT side of that flip, one per input class — but not one
+# per code path: key absent (via the null-sentinel) and value present-but-
+# unparseable both take the identical `|| 0` fallback route to the same
+# comparison (see the comment above MIN_CONSUMER_NODE for why that fallback is
+# load-bearing regardless), and only the third — present, parseable, but too
+# low — reaches the comparison with a genuinely different, nonzero value. The
+# ACCEPT side needs no fixture of its own — every other manifest_accepts case
+# below relies on manifest_fixture's auto-injected ">=20", and
+# `manifest_check "$root"` above already proves the real repository's own
+# `>=20` passes end to end.
+#
+# Held once, same reason as peer_drift_sentence/no_pin_sentence further down:
+# three separate literals desynchronise on the first rewording of report()'s
+# message, and the mutation surfaces as an honest test failure rather than a
+# silent pass either way — but only if the sentence lives in one place.
+consumer_engines_sentence='engines.node floor is below the Node version'
+
+# Same fixed-body-vary-one-fragment shape as schema_rejects() further down;
+# assigns the substitution rather than embedding it, same reason as that
+# helper's own `dir="$(manifest_fixture …)"` — only the assignment form gives
+# manifest_fixture's crash guard (the comment above it) something for
+# `set -e` to act on.
+engines_node_rejects() { # <name> <engines JSON fragment> <label>
+    local dir
+    dir="$(manifest_fixture "$1" \
+        "{ \"devEngines\": { \"runtime\": { \"name\": \"node\", \"version\": \">=24\" } }, \"engines\": $2 }")"
+
+    manifest_rejects "$dir" "$3" "$consumer_engines_sentence"
+}
+
+engines_node_rejects engines-absent 'null' \
+    "manifest control — a package.json with no engines.node at all is reported"
+
+engines_node_rejects engines-node-not-parseable '{ "node": "latest" }' \
+    "manifest control — an engines.node value with no parseable digits is reported, not accepted via the || 0 fallback"
+
+engines_node_rejects engines-too-low '{ "node": ">=18" }' \
+    "manifest control — an engines.node floor below what bin/check-js-config.mjs needs is reported"
 
 # The asserted sentences, held once each. Every reader needs the identical bytes:
 # the controls that assert one, and the poison values that prove no fixture can

@@ -41,9 +41,10 @@ which records in `package.json`:
 ```
 
 **The npm side is not the mirror image of the Composer side.** The Composer package
-delivers the whole PHP toolchain transitively; the npm package ships the two config
-files and nothing else, so it installs no tooling. Each consumer adds the tools it
-uses itself:
+delivers the whole PHP toolchain transitively; the npm package ships the two shared
+config directories with no tooling of their own, so it installs no `biome`/
+`typescript` tooling — each consumer adds those itself (`bin/check-js-config.mjs`
+is a deliberate, separate exception, further down):
 
 ```shell
 npm install --save-dev @biomejs/biome@^2.5.0 typescript@^7.0.2
@@ -73,17 +74,31 @@ what the tools themselves demand — derive them rather than trusting these numb
 `typescript` (14.21.3 and 16.20.0 as of 2026-07-28): those floors are years behind the maintained release lines, so meeting
 them says nothing about a repository being current.
 
-`devEngines` rather than `engines`, because the two point in opposite directions.
-`engines` is consumer-facing: npm evaluates it on every install of this package and
-prints `EBADENGINE` in the *consumer's* log — a hard failure under `engine-strict`.
-The published artifact is `biome/` and `tsconfig/`, two directories of JSON with no
-code that runs on Node, so it cannot care what the consumer's runtime is; exporting a
-floor from it would fail an install over a constraint the package never exercises.
-`devEngines` constrains this repository alone, which is where the floor is real. It
-is honoured by npm >= 10.9, which with `onFail: "error"` hard-fails the `install`, `ci` or `run` it precedes, and ignored entirely by older versions — so it cannot be relied on, and (npm/cli PR 7766, shipped in v10.9.0 — re-derive with `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`)
-`tests/check-js-configs.sh` fails outright on an older Node and additionally rejects a
-re-added `engines.node`, and the CI job pins `node-version: 24` rather than the
-floating `lts/*` alias, which would move up a major on its own every October.
+`devEngines` and `engines` point at two different audiences and do not move
+together. `devEngines` (**Node >= 24**) constrains this repository's own
+development/CI toolchain — the floor is real here, but npm cannot rely on it
+alone: it is honoured only by npm >= 10.9, which with `onFail: "error"`
+hard-fails the `install`, `ci` or `run` it precedes, and ignored entirely by
+older versions (npm/cli PR 7766, shipped in v10.9.0 — re-derive with
+`curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`).
+`tests/check-js-configs.sh` is the backstop: it fails outright on an older
+Node, and the CI job pins `node-version: 24` rather than the floating `lts/*`
+alias, which would move up a major on its own every October.
+
+`engines` (**Node >= 20**) is the separate, consumer-facing constraint added
+for `bin/check-js-config.mjs`: npm evaluates it on every install of this
+package and prints `EBADENGINE` in the *consumer's* log — a hard failure under
+`engine-strict`. Unlike the importable `biome/`/`tsconfig/` JSON, that script
+is real code that runs on a consumer's Node — why >=20 specifically is on the
+`containsLoneSurrogate` docblock in `bin/check-js-config.mjs`, not restated
+here. A consumer below that floor gets an uncaught crash instead of a clean
+gate report if nothing declares the requirement. `tests/check-js-configs.sh`
+enforces this floor too, independently of the devEngines one: it rejects a
+`package.json` whose `engines.node` is absent, unparseable, or below what the
+shipped script
+needs. Bumping `devEngines` to track a newer toolchain does not raise
+`engines`, and the reverse — the two are reasoned about, and checked,
+separately.
 
 ## Layout
 

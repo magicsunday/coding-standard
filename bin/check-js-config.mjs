@@ -502,9 +502,14 @@ function exceedsMaxJsonDepth(buffer, maxDepth) {
  * Walks a decoded JSONC value (object keys and string values, at any depth)
  * for a UTF-16 surrogate code unit with no matching partner — the class
  * json_decode() rejects a `\uXXXX` escape for and JSON.parse() accepts.
- * `String.prototype.isWellFormed()` (Node >=20, and this package pins
- * `devEngines.runtime` at >=24) answers exactly that question for one
- * string; this is its recursive counterpart over a whole parsed document.
+ * `String.prototype.isWellFormed()` answers exactly that question for one
+ * string — unflagged since Node 20.0.0 (V8 11.3, re-derive with
+ * `curl -s https://raw.githubusercontent.com/nodejs/node/main/doc/changelogs/CHANGELOG_V20.md \
+ *     | grep -B5 isWellFormed`), which is why this file is the floor
+ * package.json's `engines.node` declares (npm-enforced on a consumer's
+ * install; unrelated to this repository's own >=24 `devEngines` floor, which
+ * governs developing this package, not running it once installed). This is
+ * its recursive counterpart over a whole parsed document.
  *
  * @param {*} value
  *

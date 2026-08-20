@@ -56,9 +56,11 @@ directory that matches how it is consumed, never at the root for convenience.
 - **JS/TS:** a GitHub **git dependency** — `github:magicsunday/coding-standard#<tag>`
   (never published to the npm registry, like `webtrees-chart-lib`). `biome.json` and
   `tsconfig.json` `extends` the shared files from `node_modules`. **The npm side is
-  deliberately not the mirror image of the Composer side:** `package.json` ships the
-  two configs and nothing else, so it does NOT deliver the toolchain the way `require`
-  does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself.
+  deliberately not the mirror image of the Composer side:** the two shared config
+  directories carry no tooling of their own, so `package.json` does NOT deliver a
+  `biome`/`typescript` toolchain the way `require` does for PHP — each consumer
+  installs `@biomejs/biome` and `typescript` itself. (`bin/check-js-config.mjs` is
+  a deliberate, separate exception — see the Node-floor bullet below.)
   **Node tool versions track the current major — always pin forward.** The peer
   ranges never span a major CI does not exercise — read them rather than trusting a
   copy here (`jq -r '.peerDependencies' package.json`), and note that
@@ -70,10 +72,10 @@ directory that matches how it is consumed, never at the root for convenience.
   up: verified, pin `3.0.0` against a still-`^2.5.0` range exits 1 with `a
   peerDependencies range is not satisfied by the pin the smoke proves`. An agent
   following that order reads the red as "the new version fails the smoke" and reverts
-  a good bump. The Node floor
-  is **node >= 24**, declared in `devEngines` and NOT in `engines` — `engines` is
-  consumer-facing and this package ships no code that runs on Node, so a floor there
-  would fail a consumer's install over a constraint the artifact never exercises. CI
+  a good bump. **Two independent Node floors, do not conflate them:** `devEngines`
+  (`node >= 24`) governs developing this repository; `engines` (`node >= 20`, added
+  for `bin/check-js-config.mjs`, #32) is the separate, consumer-facing floor npm
+  enforces on install. Bumping one is not a reason to bump the other. CI
   pins `node-version: 24` — do not put the floating `lts/*` back, it changes major on
   its own schedule. Dependabot's npm ecosystem reads
   `devDependencies`, not `peerDependencies` (verified 2026-07-28), which is why the pins are the moving
