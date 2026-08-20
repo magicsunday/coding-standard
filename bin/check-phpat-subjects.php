@@ -657,7 +657,7 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     // silently resolving to just the root and testing the wrong namespace.
     $resolved = null;
 
-    if ($namespaceRoot !== null && preg_match('/^self::NAMESPACE_ROOT(?:\s*\.\s*\'([^\']*)\')?$/', $argument, $am) === 1) {
+    if (($namespaceRoot !== null) && (preg_match('/^self::NAMESPACE_ROOT(?:\s*\.\s*\'([^\']*)\')?$/', $argument, $am) === 1)) {
         $suffix   = isset($am[1]) ? str_replace('\\\\', '\\', $am[1]) : '';
         $resolved = $namespaceRoot . $suffix;
     } elseif (preg_match('/^\'([^\']+)\'$/', $argument, $lm) === 1) {

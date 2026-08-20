@@ -1141,8 +1141,8 @@ if ($biomeFile !== null) {
 
         if (is_array($rootIncludes)) {
             $positive = array_filter(
-                $rootIncludes,
-                static fn (mixed $pattern): bool => is_string($pattern) && !str_starts_with($pattern, '!')
+                array_filter($rootIncludes, 'is_string'),
+                static fn (string $pattern): bool => !str_starts_with($pattern, '!')
             );
 
             if (count($positive) === 0) {

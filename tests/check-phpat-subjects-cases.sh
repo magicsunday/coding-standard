@@ -673,6 +673,36 @@ $CONFIG_RULE"
 assert_rejects "$d" "a src/ file past the size cap is reported, not silently skipped" \
     "is larger than the 262144 bytes this gate reads"
 
+# The companion in the OTHER direction: the file above put the oversized file behind
+# the inNamespace() arm (Node.php, under Model), leaving classname()'s guard exercised
+# only by the chmod-based src-unreadable case below — which is skipped under root.
+# Root is not a corner case here: it is this image's default user. Same shape, the
+# oversized file IS the classname() target this time.
+d="$work/src-past-the-size-cap-classname-target"
+write_class "$d" "Model/Node.php" "Vendor\Mod\Model" "final class" "Node"
+mkdir -p "$d/src"
+php -r '
+    file_put_contents($argv[1], "<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod;
+
+// " . str_repeat("x", 262145) . "
+final class Configuration
+{
+}
+");
+' "$d/src/Configuration.php"
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "an oversized classname() target is reported, not silently skipped"     "is larger than the 262144 bytes this gate reads"
+out="$(php "$GATE" "$d" 2>&1)" || true
+if grep -qF -- 'matches no class' <<<"$out"; then
+    harness_fail "an oversized classname() target made the gate fabricate a vacuous-rule verdict"
+fi
+
 # The must-not-carry half. $inventoryIncomplete has two sites — this one and the
 # unreadable arm above it — and only the unreadable one had this check. Measured:
 # dropping this site's flag alone left the suite green while the gate went on to
