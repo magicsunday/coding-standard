@@ -545,9 +545,11 @@ function containsLoneSurrogate(value) {
  * call site: there is no longer a second copy of the pipeline for a new
  * guard to land on only one of.
  *
- * @param {Buffer} buffer Raw bytes for a strict-JSON caller (package.json);
- *                        already comment/trailing-comma-stripped and
- *                        BOM-stripped for a JSONC caller (biome/tsconfig).
+ * @param {Buffer} buffer Already BOM-stripped by every caller; additionally
+ *                        comment/trailing-comma-stripped for a JSONC caller
+ *                        (biome/tsconfig), passed through unchanged (beyond
+ *                        the BOM strip) for the strict-JSON caller
+ *                        (package.json).
  *
  * @returns {*|null} The decoded value, or null on any of the failures above.
  */
