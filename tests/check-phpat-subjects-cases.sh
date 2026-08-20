@@ -678,9 +678,14 @@ assert_rejects "$d" "a src/ file past the size cap is reported, not silently ski
 # only by the chmod-based src-unreadable case below — which is skipped under root.
 # Root is not a corner case here: it is this image's default user. Same shape, the
 # oversized file IS the classname() target this time.
-d="$work/src-past-the-size-cap-classname-target"
-write_class "$d" "Model/Node.php" "Vendor\Mod\Model" "final class" "Node"
-mkdir -p "$d/src"
+# NAMED d2, not reassigned into $d: the block below this one is a PRE-EXISTING
+# must-not-carry written against the FIRST fixture (the inNamespace-arm one, still
+# named $d). Round 17 found that inserting a bare `d=` reassignment here silently
+# repointed that pre-existing block at this new fixture instead — the exact class of
+# gap this pair exists to close, reintroduced for the sibling arm by the fix itself.
+d2="$work/src-past-the-size-cap-classname-target"
+write_class "$d2" "Model/Node.php" "Vendor\Mod\Model" "final class" "Node"
+mkdir -p "$d2/src"
 php -r '
     file_put_contents($argv[1], "<?php
 
@@ -693,18 +698,19 @@ final class Configuration
 {
 }
 ");
-' "$d/src/Configuration.php"
-write_archtest "$d" "$MODEL_RULE
+' "$d2/src/Configuration.php"
+write_archtest "$d2" "$MODEL_RULE
 
 $CONFIG_RULE"
-assert_rejects "$d" "an oversized classname() target is reported, not silently skipped"     "is larger than the 262144 bytes this gate reads"
-out="$(php "$GATE" "$d" 2>&1)" || true
+assert_rejects "$d2" "an oversized classname() target is reported, not silently skipped"     "is larger than the 262144 bytes this gate reads"
+out="$(php "$GATE" "$d2" 2>&1)" || true
 if grep -qF -- 'matches no class' <<<"$out"; then
     harness_fail "an oversized classname() target made the gate fabricate a vacuous-rule verdict"
 fi
 
-# The must-not-carry half. $inventoryIncomplete has two sites — this one and the
-# unreadable arm above it — and only the unreadable one had this check. Measured:
+# The must-not-carry half, against the FIRST fixture ($d, the inNamespace-arm one
+# declared above) — $inventoryIncomplete has two sites, this one and the unreadable
+# arm elsewhere, and only the unreadable one had this check before. Measured:
 # dropping this site's flag alone left the suite green while the gate went on to
 # print "matches no class" for a class this very file defines, one screen up.
 out="$(php "$GATE" "$d" 2>&1)" || true
