@@ -508,38 +508,12 @@ function exceedsMaxJsonDepth(buffer, maxDepth) {
 }
 
 /**
- * @param {string} value
- *
- * @returns {boolean} True if value contains a UTF-16 surrogate code unit with
- *                     no matching partner — the class json_decode() rejects a
- *                     `\uXXXX` escape for and JSON.parse() accepts.
- */
-function hasLoneSurrogate(value) {
-    const n = value.length;
-
-    for (let i = 0; i < n; i += 1) {
-        const code = value.charCodeAt(i);
-
-        if (code >= 0xd800 && code <= 0xdbff) {
-            const next = value.charCodeAt(i + 1);
-
-            if (!(next >= 0xdc00 && next <= 0xdfff)) {
-                return true;
-            }
-
-            i += 1;
-        } else if (code >= 0xdc00 && code <= 0xdfff) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/**
  * Walks a decoded JSONC value (object keys and string values, at any depth)
- * for a lone surrogate. See hasLoneSurrogate for what that means and why it
- * matters; this is its recursive counterpart over a whole parsed document.
+ * for a UTF-16 surrogate code unit with no matching partner — the class
+ * json_decode() rejects a `\uXXXX` escape for and JSON.parse() accepts.
+ * `String.prototype.isWellFormed()` (Node >=20, and this package pins
+ * `devEngines.runtime` at >=24) answers exactly that question for one
+ * string; this is its recursive counterpart over a whole parsed document.
  *
  * @param {*} value
  *
@@ -547,7 +521,7 @@ function hasLoneSurrogate(value) {
  */
 function containsLoneSurrogate(value) {
     if (typeof value === 'string') {
-        return hasLoneSurrogate(value);
+        return !value.isWellFormed();
     }
 
     if (Array.isArray(value)) {
@@ -556,7 +530,7 @@ function containsLoneSurrogate(value) {
 
     if (value !== null && typeof value === 'object') {
         for (const [key, entry] of Object.entries(value)) {
-            if (hasLoneSurrogate(key) || containsLoneSurrogate(entry)) {
+            if (!key.isWellFormed() || containsLoneSurrogate(entry)) {
                 return true;
             }
         }
@@ -746,7 +720,13 @@ function npmDependencyDeclared(repoRoot) {
         return false;
     }
 
-    const text = decodeUtf8Strict(contents);
+    // Checked ahead of JSON.parse for the same reason loadJsonc checks it
+    // ahead of ITS JSON.parse call: package.json has no comment-stripping
+    // pass to bound it first, but it is read up to MAX_TEXT_BYTES (1 MiB) —
+    // room enough for a maximally-nested document that JSON.parse's own
+    // recursive descent can crash the process on outright (a native stack
+    // overflow, uncatchable by the try/catch below) rather than throw.
+    const text = exceedsMaxJsonDepth(contents, MAX_JSON_DEPTH) ? null : decodeUtf8Strict(contents);
     let json = null;
 
     if (text !== null) {

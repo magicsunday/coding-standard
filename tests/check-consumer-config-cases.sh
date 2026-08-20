@@ -1739,6 +1739,22 @@ php -r '
 ' "$d/tsconfig.json"
 assert_accepts_js "$d" "tsconfig.json nested to exactly the 511-level depth PHP still accepts"
 
+# The npm probe's own depth guard: package.json has no comment-stripping
+# pass to run exceedsMaxJsonDepth ahead of like loadJsonc's biome.json/
+# tsconfig.json path does, so this is a separate call site that needs the
+# same guard independently — verified against the real PHP gate, which
+# needs no such guard of its own (json_decode() enforces its depth cap
+# natively at every call site).
+d="$(mk_case js-package-json-depth-512)"
+node -e '
+    const fs = require("fs");
+    const k = 511;
+    const body = "{\"a\":".repeat(k) + "1" + "}".repeat(k);
+    fs.writeFileSync(process.argv[1], "{\"devDependencies\":" + body + "}");
+' "$d/package.json"
+printf '{\n    "linter": { "enabled": false }\n}\n' > "$d/biome.json"
+assert_rejects_js "$d" "a package.json nested past the 512-level depth cap is reported, not crashed on" "package.json: is not valid JSON"
+
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
