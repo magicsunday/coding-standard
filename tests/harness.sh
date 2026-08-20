@@ -241,20 +241,77 @@ harness_settle() {
     printf 'ok (%s): %s\n' "$4" "$2"
 }
 
-# harness_accepts <gate> <dir> <label>
+# harness_decide_accepts <out> <rc> <label>
 #
-# The clean verdict, exit 0.
-harness_accepts() {
-    local gate="$1" dir="$2" label="$3" out rc reason=''
-    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+# The clean-verdict decision, split out of harness_accepts so a caller driving a
+# DIFFERENT interpreter (harness_run_argv, added for the node gate in #32) gets
+# the same decision without a second `php`-shaped top-level function. Added
+# alongside harness_accepts rather than in place of it: harness_accepts keeps its
+# existing <gate> <dir> <label> signature and every existing caller, and now
+# dispatches to this.
+harness_decide_accepts() {
+    local out="$1" rc="$2" label="$3" reason=''
 
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 0 ]; then
         reason="expected accept, got exit $rc"
     fi
 
     harness_settle "$reason" "$label" "$out" 'accepted'
+}
+
+# harness_accepts <gate> <dir> <label>
+#
+# The clean verdict, exit 0.
+harness_accepts() {
+    local gate="$1" dir="$2" label="$3" out rc
+    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    harness_decide_accepts "$out" "$rc" "$label"
+}
+
+# harness_decide_rejects <out> <rc> <label> <expected>
+#
+# See harness_decide_accepts for why this is split out.
+harness_decide_rejects() {
+    local out="$1" rc="$2" label="$3" expected="$4" reason=''
+
+    if degraded "$out"; then
+        reason='the gate ran degraded — it emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif [ -z "$expected" ]; then
+        reason='the must-carry argument is empty, so it would assert nothing'
+    elif ! grep -qF -- "$expected" <<<"$out"; then
+        reason="rejected, but not for the tested reason; expected to find: $expected"
+    fi
+
+    harness_settle "$reason" "$label" "$out" 'rejected on the tested violation'
+}
+
+# harness_decide_reports_once <out> <rc> <label> <file prefix>
+#
+# See harness_decide_accepts for why this is split out — added for #32's node
+# gate to reach the same "reported once, as itself" property `assert_reports_once`
+# checks on the PHP side, which `harness_decide_rejects` cannot express: that
+# helper greps for the PRESENCE of one substring, not for "and nothing further
+# was said about this file" — the property a read-failure path needs, since the
+# defect it guards against is an EXTRA fabricated violation rather than a
+# missing one.
+harness_decide_reports_once() {
+    local out="$1" rc="$2" label="$3" prefix="$4" count reason=''
+    count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
+
+    if degraded "$out"; then
+        reason='the gate ran degraded — it emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif [ "$count" -ne 1 ]; then
+        reason="expected exactly one $prefix violation, got $count"
+    fi
+
+    harness_settle "$reason" "$label" "$out" 'reported exactly once'
 }
 
 # harness_rejects <gate> <dir> <label> <substring the report must carry>
@@ -265,20 +322,10 @@ harness_accepts() {
 # sibling harnesses were tightened for that separately, at different times, and
 # each kept a different message — which is the drift this file exists to end.
 harness_rejects() {
-    local gate="$1" dir="$2" label="$3" expected="$4" out rc reason=''
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
-    elif [ "$rc" -ne 1 ]; then
-        reason="expected the drift verdict, got exit $rc"
-    elif [ -z "$expected" ]; then
-        reason='the must-carry argument is empty, so it would assert nothing'
-    elif ! grep -qF -- "$expected" <<<"$out"; then
-        reason="rejected, but not for the tested reason; expected to find: $expected"
-    fi
-
-    harness_settle "$reason" "$label" "$out" 'rejected on the tested violation'
+    harness_decide_rejects "$out" "$rc" "$label" "$expected"
 }
 
 # harness_fail <message>
@@ -310,17 +357,27 @@ harness_probe_reporters 1 harness_probe_fail 'harness_fail does not raise the fa
 # exists to stop exactly that, and the three had already drifted apart on stdout
 # vs stderr, `FAIL` vs `FAILED`, and branch order.
 harness_usage_error() {
-    local gate="$1" dir="$2" label="$3" expected="$4" out rc reason=''
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    # One report site, for the reason harness_report_is_inert states below and this
-    # function did not follow: with an increment behind each arm, the reporter probe
-    # only ever reaches the arm its own fixture takes. Measured — the probe drives a
-    # path that is not a directory, which lands in the substring arm, so deleting the
-    # increment from the exit-code arm left a real gate regression printing FAILED and
-    # the run exiting 0.
+    harness_decide_usage_error "$out" "$rc" "$label" "$expected"
+}
+
+# harness_decide_usage_error <out> <rc> <label> <expected>
+#
+# See harness_decide_accepts for why this is split out.
+#
+# One report site, for the reason harness_report_is_inert states below and this
+# function did not follow: with an increment behind each arm, the reporter probe
+# only ever reaches the arm its own fixture takes. Measured — the probe drives a
+# path that is not a directory, which lands in the substring arm, so deleting the
+# increment from the exit-code arm left a real gate regression printing FAILED and
+# the run exiting 0.
+harness_decide_usage_error() {
+    local out="$1" rc="$2" label="$3" expected="$4" reason=''
+
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 2 ]; then
         reason="expected the usage exit, got exit $rc"
     elif [ -z "$expected" ]; then
@@ -374,12 +431,25 @@ harness_usage_error() {
 # only ever reaches the arm its own fixture takes, leaving the others free to lose
 # theirs. Measured.
 harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report must carry>]
-    local gate="$1" dir="$2" label="$3" out rc lines reason=''
+    local gate="$1" dir="$2" label="$3" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    # "${@:4}" — not "$4" behind an if/else — is what carries whether a 4th
+    # argument was PASSED at all: it expands to zero words when there is none
+    # and one word when there is, so harness_decide_report_is_inert's own `$#`
+    # sees the same presence/absence its must-carry arms decide on.
+    harness_decide_report_is_inert "$out" "$rc" "$label" "${@:4}"
+}
+
+# harness_decide_report_is_inert <out> <rc> <label> [<scrubbed payload the report must carry>]
+#
+# See harness_decide_accepts for why this is split out.
+harness_decide_report_is_inert() {
+    local out="$1" rc="$2" label="$3" lines reason=''
     lines="$(grep -c . <<<"$out" || true)"
 
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 1 ]; then
         reason="expected the drift verdict, got exit $rc"
     elif grep -q "$(printf '\033')" <<<"$out"; then
@@ -407,6 +477,24 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
     fi
 
     harness_settle "$reason" "$label" "$out" 'rejected, and the report stayed inert'
+}
+
+# harness_run_argv <dir> <cmd...>
+#
+# Runs <cmd...> <dir>, capturing stdout+stderr and the exit code into
+# HARNESS_OUT / HARNESS_RC. Every gate-specific assertion above hardcodes
+# `php "$gate" "$dir"`, which cannot flex to a second interpreter — added for a
+# caller driving a node-side gate (bin/check-js-config.mjs, added for #32)
+# alongside the PHP one. A caller builds its own thin accept/reject wrapper
+# around this and around the already-shared, already-probed harness_settle and
+# degraded, rather than this file growing a second `php`-shaped function family
+# per interpreter it is asked to drive — harness_accepts and friends stay
+# exactly as proven by harness_probe_assert_shapes, unmodified.
+harness_run_argv() {
+    local dir="$1"
+    shift
+    # shellcheck disable=SC2034 # read by the caller that sources this file, not by anything in it
+    HARNESS_OUT="$("$@" "$dir" 2>&1)" && HARNESS_RC=0 || HARNESS_RC=$?
 }
 
 # Every arm of the three shared assertions, driven once. Per-caller copies of this

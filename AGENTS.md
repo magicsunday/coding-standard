@@ -27,7 +27,8 @@ here.
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
 | `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`biome.jsonc`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`, `biome.jsonc` or `tsconfig.json` exists), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |
-| `bin/support/safe-report-value.php` | `require`d by the PHP gates that echo a value read out of a repository file (`grep -rln "^require_once .*safe-report-value" bin tests` — anchored on the statement, since the bare path also matches files that only mention it); the node gate carries its own `encodeValue()`, which cannot require a PHP file | scrubs C0/DEL and breaks the legacy `##[` workflow-command prefix on any such value, and caps it at 64 bytes — the `bin/` gates run in the consumer's CI over pull-request content and this repository's own gate over its own, and the runner scans both STDERR and STDOUT for workflow commands; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json but must stay inside the dist archive |
+| `bin/check-js-config.mjs` | executable (npm `bin`, `check-js-config`) | the node-only front end for the SAME `biome.json`/`biome.jsonc`/`tsconfig.json` contract `bin/check-consumer-config.php` covers — for a repository with no `composer.json` at all (#32). Not a reimplementation kept in step by hand: every biome/tsconfig case in `tests/check-consumer-config-cases.sh` also runs this gate against the identical fixture directory and requires the identical verdict (`assert_accepts_js`/`assert_rejects_js`/`assert_usage_error_js`/`assert_report_is_inert_js` there), so the two contracts cannot silently drift apart |
+| `bin/support/safe-report-value.php`, `bin/support/safe-report-value.mjs` | `require`d / `import`ed by the gates that echo a value read out of a repository file (`grep -rln "^require_once .*safe-report-value" bin tests` for the PHP requirers — anchored on the statement, since the bare path also matches files that only mention it — and `grep -rl "from '\./support/safe-report-value.mjs'" bin` for the one node requirer, `bin/check-js-config.mjs`); `tests/check-js-configs.sh`'s own inline `encodeValue()` is a THIRD, unrelated scrub for a different trust boundary (that script's own INFO lines about the npm pack/install it runs) and is not this file | scrubs C0/DEL and breaks the legacy `##[` workflow-command prefix on any such value, and caps it at 64 bytes — the `bin/` gates run in the consumer's CI over pull-request content and this repository's own gate over its own, and the runner scans both STDERR and STDOUT for workflow commands; NOT a `bin` entry point, so it needs no `"bin"` row in composer.json/package.json but must stay inside the dist archive/npm tarball |
 
 **Layout rule:** the directory states the consumption mode — a tool-named directory
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
@@ -55,9 +56,11 @@ directory that matches how it is consumed, never at the root for convenience.
 - **JS/TS:** a GitHub **git dependency** — `github:magicsunday/coding-standard#<tag>`
   (never published to the npm registry, like `webtrees-chart-lib`). `biome.json` and
   `tsconfig.json` `extends` the shared files from `node_modules`. **The npm side is
-  deliberately not the mirror image of the Composer side:** `package.json` ships the
-  two configs and nothing else, so it does NOT deliver the toolchain the way `require`
-  does for PHP — each consumer installs `@biomejs/biome` and `typescript` itself.
+  deliberately not the mirror image of the Composer side:** the two shared config
+  directories carry no tooling of their own, so `package.json` does NOT deliver a
+  `biome`/`typescript` toolchain the way `require` does for PHP — each consumer
+  installs `@biomejs/biome` and `typescript` itself. (`bin/check-js-config.mjs` is
+  a deliberate, separate exception — see the Node-floor bullet below.)
   **Node tool versions track the current major — always pin forward.** The peer
   ranges never span a major CI does not exercise — read them rather than trusting a
   copy here (`jq -r '.peerDependencies' package.json`), and note that
@@ -69,10 +72,10 @@ directory that matches how it is consumed, never at the root for convenience.
   up: verified, pin `3.0.0` against a still-`^2.5.0` range exits 1 with `a
   peerDependencies range is not satisfied by the pin the smoke proves`. An agent
   following that order reads the red as "the new version fails the smoke" and reverts
-  a good bump. The Node floor
-  is **node >= 24**, declared in `devEngines` and NOT in `engines` — `engines` is
-  consumer-facing and this package ships no code that runs on Node, so a floor there
-  would fail a consumer's install over a constraint the artifact never exercises. CI
+  a good bump. **Two independent Node floors, do not conflate them:** `devEngines`
+  (`node >= 24`) governs developing this repository; `engines` (`node >= 20`, added
+  for `bin/check-js-config.mjs`, #32) is the separate, consumer-facing floor npm
+  enforces on install. Bumping one is not a reason to bump the other. CI
   pins `node-version: 24` — do not put the floating `lts/*` back, it changes major on
   its own schedule. Dependabot's npm ecosystem reads
   `devDependencies`, not `peerDependencies` (verified 2026-07-28), which is why the pins are the moving
@@ -126,11 +129,17 @@ directory that matches how it is consumed, never at the root for convenience.
   `ci:test:php:templates` script to every consumer and align its template copies to the
   canon, (3) only then add the step to the reusable workflow. Never add the workflow
   step before all consumers carry the script.
-- **The JS/TS lockstep checks do not reach a repository without Composer.** They live
-  in `bin/check-consumer-config.php`, a Composer-installed entry point a consumer runs
-  from `ci:test:php:templates` — so they only ever see repositories that consume the
-  PHP side too. The pure-JS repositories have no `composer.json` and are therefore
-  unreachable. Re-derive which they are rather than trusting a list here:
+- **`bin/check-consumer-config.php` alone does not reach a repository without
+  Composer.** It is a Composer-installed entry point a consumer runs from
+  `ci:test:php:templates`, so it only ever sees repositories that consume the PHP
+  side too — the pure-JS repositories have no `composer.json` and are therefore
+  unreachable through it. `bin/check-js-config.mjs` (#32) is the node-only front end
+  for the same `biome.json`/`biome.jsonc`/`tsconfig.json` contract, wired as an npm
+  `bin` entry instead, and does reach them — but SHIPPING the gate is not the same as
+  a given repository ADOPTING it: a pure-JS repository still needs the npm script
+  wired into its own CI. Re-derive which repositories have a JS/TS config but no
+  `composer.json` — the rollout candidates for that wiring — rather than trusting a
+  list here:
 
   Save it and run it; do not paste it into an interactive shell, since both guards
   `exit`:
@@ -167,8 +176,9 @@ directory that matches how it is consumed, never at the root for convenience.
   composer.json probe's stderr through if you need to see one, since its `|| echo`
   turns a 403 into a FALSE POSITIVE rather than a silent drop.
 
-  Do not read a green run as "every consumer's JS config is checked"; a node-side
-  entry point for those repositories is #32.
+  Do not read a green run as "every consumer's JS config is checked" — it means no
+  candidate for the `bin/check-js-config.mjs` rollout was found among currently
+  reachable repositories, not that every one already runs the gate.
 - **A gate over a shared link keys on ADOPTION, never on the file being present.**
   The JS/TS half of the lockstep gate asserts that `biome.json`, `biome.jsonc` and `tsconfig.json` extend
   the shared configs — but only once the repository declares the npm dependency. Keyed
