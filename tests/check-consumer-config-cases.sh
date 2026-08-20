@@ -88,53 +88,42 @@ report_failure() { harness_fail "$1"; }
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
-# The four _js wrappers below are the differential half of #32: every
-# biome.json/tsconfig.json case that calls one, in addition to the PHP-only
-# assertion it wraps, requires bin/check-js-config.mjs to reach the SAME verdict
-# against the identical fixture directory. They call harness_run_argv rather than
-# a gate-specific harness.sh helper for the reason stated on harness_run_argv
-# itself: a second, near-identical `php`-shaped function family for one more
-# interpreter is what this whole file exists to avoid, and harness_settle/degraded
-# — the actually shared, already-probed bookkeeping — are reused unchanged.
-assert_accepts_js() {
-    assert_accepts "$@"
+# assert_js <php-assert-fn> <decide-fn> <dir> <label> [<expected>]
+#
+# The shared dispatch skeleton behind all four _js wrappers below: run the
+# PHP-only assertion first, then the node gate via harness_run_argv, then
+# decide with the same harness_decide_* function harness.sh's own
+# php-dispatching wrapper uses, labelled "(node)". They call harness_run_argv
+# rather than a gate-specific harness.sh helper for the reason stated on
+# harness_run_argv itself: a second, near-identical `php`-shaped function
+# family for one more interpreter is what this whole file exists to avoid,
+# and harness_settle/degraded/harness_decide_* — the actually shared,
+# already-probed bookkeeping — are reused unchanged.
+#
+# "${@:3}" (after the `shift 2`) is what forwards an ABSENT optional argument
+# as absent rather than as an empty string — the same presence-preserving
+# slice harness_report_is_inert already relies on for
+# harness_decide_report_is_inert's own optional 4th argument. That is what
+# lets assert_report_is_inert_js's must-carry arm work through this shared
+# dispatcher with no special-cased branch of its own.
+assert_js() {
+    local assert_fn="$1" decide_fn="$2"
+    shift 2
+    "$assert_fn" "$@"
 
     local dir="$1" label="$2"
     harness_run_argv "$dir" node "$NODE_GATE"
-    harness_decide_accepts "$HARNESS_OUT" "$HARNESS_RC" "$label (node)"
+    "$decide_fn" "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "${@:3}"
 }
 
-assert_rejects_js() {
-    assert_rejects "$@"
-
-    local dir="$1" label="$2" expected="$3"
-    harness_run_argv "$dir" node "$NODE_GATE"
-    harness_decide_rejects "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$expected"
-}
-
-assert_usage_error_js() {
-    assert_usage_error "$@"
-
-    local dir="$1" label="$2" expected="$3"
-    harness_run_argv "$dir" node "$NODE_GATE"
-    harness_decide_usage_error "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$expected"
-}
+assert_accepts_js()         { assert_js assert_accepts         harness_decide_accepts         "$@"; }
+assert_rejects_js()         { assert_js assert_rejects         harness_decide_rejects         "$@"; }
+assert_usage_error_js()     { assert_js assert_usage_error     harness_decide_usage_error     "$@"; }
 
 # The empty-must-carry arm harness_decide_report_is_inert carries is NOT
 # separately re-probed by this file's own probe_report_is_inert_js_shapes —
 # search this file for "empty-must-carry arm shared by" for why.
-assert_report_is_inert_js() {
-    assert_report_is_inert "$@"
-
-    local dir="$1" label="$2"
-    harness_run_argv "$dir" node "$NODE_GATE"
-
-    if [ "$#" -gt 2 ]; then
-        harness_decide_report_is_inert "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$3"
-    else
-        harness_decide_report_is_inert "$HARNESS_OUT" "$HARNESS_RC" "$label (node)"
-    fi
-}
+assert_report_is_inert_js() { assert_js assert_report_is_inert harness_decide_report_is_inert "$@"; }
 
 # `php` and `node` are both shadowed, the way harness.sh shadows `php` for its own
 # assert_* probes: each _js wrapper calls the PHP-only assertion FIRST, so without
@@ -1655,6 +1644,33 @@ assert_rejects_js "$d" "tsconfig.json whose block comment must not swallow the r
 d="$(mk_js_case ts-block-comment-unterminated)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json"\n}\n/* never closed' > "$d/tsconfig.json"
 assert_rejects_js "$d" "tsconfig.json with an unterminated block comment" "tsconfig.json: not valid JSON(C)"
+
+# An invalid UTF-8 byte sitting INSIDE a comment: json_decode() rejects
+# invalid UTF-8, but $stripJsonc strips comments byte-safe, BEFORE that
+# check ever runs — so a stray byte a comment would have discarded is never
+# seen by the parser at all, and the file is accepted. A node port that
+# validated UTF-8 before stripping comments (rather than after, on the
+# surviving text) would reject this file where PHP does not.
+d="$(mk_js_case ts-invalid-utf8-inside-comment)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "{\n    // a stray byte: \xFF end\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\"\n}\n"
+    );
+' "$d/tsconfig.json"
+assert_accepts_js "$d" "tsconfig.json with an invalid UTF-8 byte discarded inside a comment"
+
+# The control: the same invalid byte OUTSIDE any comment must still reject —
+# proves the case above passes because the byte was stripped away with the
+# comment, not because invalid UTF-8 is tolerated everywhere.
+d="$(mk_js_case ts-invalid-utf8-outside-comment)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\", \"junk\": \"\xFF\"\n}\n"
+    );
+' "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json with an invalid UTF-8 byte outside any comment" "tsconfig.json: not valid JSON(C)"
 
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"

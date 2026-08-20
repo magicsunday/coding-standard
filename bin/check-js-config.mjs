@@ -227,29 +227,62 @@ function stripBom(text) {
 }
 
 /**
+ * Strips a leading UTF-8 BOM at the BYTE level, before any decoding. See
+ * stripBom's docblock for why the leading-BOM case matters; this is its
+ * byte-safe counterpart for loadJsonc, which must not decode before
+ * stripping comments (see stripJsonc's docblock for why).
+ *
+ * @param {Buffer} buffer
+ *
+ * @returns {Buffer}
+ */
+function stripBomBytes(buffer) {
+    if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+        return buffer.subarray(3);
+    }
+
+    return buffer;
+}
+
+/**
+ * @param {number} byte
+ *
+ * @returns {boolean} True for the PCRE default (byte, non-`/u`) `\s` class —
+ *                     space, tab, LF, CR, FF, VT — ASCII whitespace only, not
+ *                     the wider set JS's `\s` matches on a decoded string.
+ *                     $stripJsonc's trailing-comma pattern has no `/u`
+ *                     modifier either, so this mirrors it exactly rather than
+ *                     the (wider, Unicode-aware) `\s` this file used before
+ *                     the byte-level rewrite.
+ */
+function isAsciiWhitespaceByte(byte) {
+    return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x0c || byte === 0x0b;
+}
+
+/**
  * Scans a complete string literal starting at a `"` and returns the index just
  * past its closing quote (or `n`, on an unterminated literal — the caller's own
  * scan then runs out at the same point a real JSON parser would reject it).
- * Shared by stripComments and stripTrailingCommas, which both need to copy a
- * string literal verbatim and skip past it without treating anything inside it
- * as a comment marker or a structural comma.
+ * Shared by stripCommentsBytes and stripTrailingCommasBytes, which both need
+ * to copy a string literal verbatim and skip past it without treating
+ * anything inside it as a comment marker or a structural comma.
  *
- * @param {string} json
+ * @param {Buffer} buffer
  * @param {number} start Index of the opening `"`.
- * @param {number} n     `json.length`.
+ * @param {number} n     `buffer.length`.
  *
  * @returns {number}
  */
-function skipStringLiteral(json, start, n) {
+function skipStringLiteralBytes(buffer, start, n) {
     let j = start + 1;
 
     while (j < n) {
-        if (json[j] === '\\') {
+        if (buffer[j] === 0x5c) {
             j += 2;
             continue;
         }
 
-        if (json[j] === '"') {
+        if (buffer[j] === 0x22) {
             j += 1;
             break;
         }
@@ -263,54 +296,72 @@ function skipStringLiteral(json, start, n) {
 /**
  * Reduces a JSONC document to strict JSON, leaving string contents untouched.
  *
- * A single left-to-right scan rather than a regex: it matches a complete string
- * literal first and copies it verbatim, so nothing inside a string is ever
- * rewritten — not a `//` in a URL, not a `"//"` key, not a `,` that happens to
- * sit before a `}` or `]`. Comments are replaced with ONE space (not removed
- * outright), so a comment placed inside a token cannot fuse the halves back
- * together. This is deliberately NOT a port of $stripJsonc's PCRE possessive-
- * quantifier trick in bin/check-consumer-config.php — that trick exists to keep
- * a *regex* linear; a hand-written scan is linear by construction and needs no
+ * Operates on raw BYTES, not a decoded string — deliberately, because
+ * bin/check-consumer-config.php's $stripJsonc runs byte-safe (no `/u`
+ * modifier) over the raw file bytes and only implicitly validates UTF-8
+ * AFTERWARDS, via json_decode() on the already-stripped text. An earlier,
+ * string-based version of this scan decoded first and validated UTF-8 before
+ * stripping — which meant an invalid byte sitting INSIDE a `//`/`/* *\/`
+ * comment was rejected here before the comment that would have discarded it
+ * ever ran, while the PHP gate strips the comment first and never sees the
+ * byte at all. Verified divergence on an otherwise-canonical, adopted
+ * biome.json/tsconfig.json carrying one stray non-UTF-8 byte inside a
+ * comment: PHP accepted it, the string-based port rejected it. Operating on
+ * bytes and deferring decodeUtf8Strict until after stripping (see
+ * loadJsonc) closes that gap — every delimiter this scan looks for (`"`,
+ * `\`, `/`, `*`, `\n`, whitespace, `,`, `}`, `]`) is single-byte ASCII, and a
+ * UTF-8 continuation/invalid byte is always >= 0x80, so it can never be
+ * misread as one.
+ *
+ * A single left-to-right scan rather than a regex: it matches a complete
+ * string literal first and copies it verbatim, so nothing inside a string is
+ * ever rewritten — not a `//` in a URL, not a `"//"` key, not a `,` that
+ * happens to sit before a `}` or `]`. Comments are replaced with ONE space
+ * (not removed outright), so a comment placed inside a token cannot fuse the
+ * halves back together. This is deliberately NOT a port of $stripJsonc's
+ * PCRE possessive-quantifier trick — that trick exists to keep a *regex*
+ * linear; a hand-written scan is linear by construction and needs no
  * equivalent.
  *
- * @param {string} json
+ * @param {Buffer} buffer
  *
- * @returns {string}
+ * @returns {Buffer}
  */
-function stripComments(json) {
-    let out = '';
+function stripCommentsBytes(buffer) {
+    const n = buffer.length;
+    const pieces = [];
     let i = 0;
-    const n = json.length;
+    let segmentStart = 0;
 
     while (i < n) {
-        const c = json[i];
+        const c = buffer[i];
 
-        if (c === '"') {
-            const j = skipStringLiteral(json, i, n);
-
-            out += json.slice(i, j);
-            i = j;
+        if (c === 0x22) {
+            i = skipStringLiteralBytes(buffer, i, n);
             continue;
         }
 
-        if (c === '/' && json[i + 1] === '/') {
+        if (c === 0x2f && buffer[i + 1] === 0x2f) {
+            pieces.push(buffer.subarray(segmentStart, i));
+
             let j = i + 2;
 
-            while (j < n && json[j] !== '\n') {
+            while (j < n && buffer[j] !== 0x0a) {
                 j += 1;
             }
 
-            out += ' ';
+            pieces.push(Buffer.from([0x20]));
             i = j;
+            segmentStart = i;
             continue;
         }
 
-        if (c === '/' && json[i + 1] === '*') {
+        if (c === 0x2f && buffer[i + 1] === 0x2a) {
             let j = i + 2;
             let closed = false;
 
             while (j < n) {
-                if (json[j] === '*' && json[j + 1] === '/') {
+                if (buffer[j] === 0x2a && buffer[j + 1] === 0x2f) {
                     closed = true;
                     j += 2;
                     break;
@@ -326,80 +377,89 @@ function stripComments(json) {
                 // parse as JSON afterwards. Treating an unterminated comment
                 // as extending to EOF (as the closed branch below does) would
                 // instead "fix" it silently, accepting a config the PHP gate
-                // rejects. Copying the rest of the document verbatim mirrors
-                // PHP: whatever comes after is not valid JSON either way.
-                out += json.slice(i, n);
+                // rejects. Leaving segmentStart where it is and stopping the
+                // scan copies the rest of the document verbatim on the flush
+                // below, mirroring PHP: whatever comes after is not valid
+                // JSON either way.
                 i = n;
-                continue;
+                break;
             }
 
-            out += ' ';
+            pieces.push(buffer.subarray(segmentStart, i));
+            pieces.push(Buffer.from([0x20]));
             i = j;
+            segmentStart = i;
             continue;
         }
 
-        out += c;
         i += 1;
     }
 
-    return out;
+    pieces.push(buffer.subarray(segmentStart, n));
+
+    return Buffer.concat(pieces);
 }
 
 /**
  * Strips a trailing comma before `}` or `]`, string-aware for the same reason
- * as stripComments — `{"a": "x,]"}` must decode to `x,]`, not `x]`.
+ * as stripCommentsBytes — `{"a": "x,]"}` must decode to `x,]`, not `x]`.
+ * Operates on bytes for the same reason stripCommentsBytes does.
  *
- * @param {string} json Comment-free JSON (comments already reduced to spaces).
+ * @param {Buffer} buffer Comment-free bytes (comments already reduced to spaces).
  *
- * @returns {string}
+ * @returns {Buffer}
  */
-function stripTrailingCommas(json) {
-    let out = '';
+function stripTrailingCommasBytes(buffer) {
+    const n = buffer.length;
+    const pieces = [];
     let i = 0;
-    const n = json.length;
+    let segmentStart = 0;
 
     while (i < n) {
-        const c = json[i];
+        const c = buffer[i];
 
-        if (c === '"') {
-            const j = skipStringLiteral(json, i, n);
-
-            out += json.slice(i, j);
-            i = j;
+        if (c === 0x22) {
+            i = skipStringLiteralBytes(buffer, i, n);
             continue;
         }
 
-        if (c === ',') {
+        if (c === 0x2c) {
             let j = i + 1;
 
-            while (j < n && /\s/.test(json[j])) {
+            while (j < n && isAsciiWhitespaceByte(buffer[j])) {
                 j += 1;
             }
 
-            if (json[j] === '}' || json[j] === ']') {
+            if (buffer[j] === 0x7d || buffer[j] === 0x5d) {
+                pieces.push(buffer.subarray(segmentStart, i));
                 i += 1;
+                segmentStart = i;
                 continue;
             }
         }
 
-        out += c;
         i += 1;
     }
 
-    return out;
+    pieces.push(buffer.subarray(segmentStart, n));
+
+    return Buffer.concat(pieces);
 }
 
 /**
- * @param {string} json
+ * @param {Buffer} buffer
  *
- * @returns {string}
+ * @returns {Buffer}
  */
-function stripJsonc(json) {
-    return stripTrailingCommas(stripComments(json));
+function stripJsonc(buffer) {
+    return stripTrailingCommasBytes(stripCommentsBytes(buffer));
 }
 
 /**
  * Loads a JSONC config. Mirrors $loadJsonc's four-way outcome.
+ *
+ * UTF-8 validity is checked AFTER stripBomBytes/stripJsonc, not before — see
+ * stripCommentsBytes's docblock for why the order is load-bearing.
  *
  * @param {string} path
  *
@@ -416,19 +476,17 @@ function loadJsonc(path) {
         return { kind: 'oversize' };
     }
 
-    const text = decodeUtf8Strict(buffer);
+    const stripped = stripJsonc(stripBomBytes(buffer));
+    const text = decodeUtf8Strict(stripped);
 
     if (text === null) {
         return { kind: 'unparseable' };
     }
 
-    const contents = stripBom(text);
-    const stripped = stripJsonc(contents);
-
     let decoded;
 
     try {
-        decoded = JSON.parse(stripped);
+        decoded = JSON.parse(text);
     } catch {
         return { kind: 'unparseable' };
     }
