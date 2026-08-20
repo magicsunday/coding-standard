@@ -119,8 +119,6 @@ degraded() {
 # — so the pattern is asserted at every assertion helper and was proven at none.
 # Measured: replacing the alternation with German words left three harnesses green.
 #
-# `Recoverable fatal error` is listed separately above: it does not match the
-# `Fatal error` alternative, because the anchor requires the line to START there.
 # One line per alternative, not a sample of them. Four of the seven stood here and the
 # comment claimed both directions "by construction"; dropping `Notice|` from the
 # pattern left every suite green. `Recoverable fatal error` needs its own line because
@@ -160,12 +158,10 @@ unset harness_degraded_probe
 #
 # The run's single exit point. **Do not turn the `exit` below into `return`.**
 #
-# Callers may call `verdict` anywhere, not only as their last line — re-derive with
-# `grep -n '^[[:space:]]*verdict' tests/*.sh`, which finds one inside an `if` body in
-# check-js-configs.sh, 1500 lines before the end, whose whole purpose is to abort
-# before the smoke packs anything. With `return` that call returns from the function
-# and the script packs, installs and runs on. The tail verdict would still exit 1, so
-# the failure is not lost — the early abort is.
+# `verdict` must be able to END the run, not just leave a function: a caller may call
+# it anywhere, and with `return` such a call would fall through and the script would
+# carry on. No caller does that today — every harness calls it once, as its last line,
+# and its early aborts are bare `exit 1` — so the reason below is the load-bearing one.
 #
 # The same hole in the other direction: `||` suppresses `set -e` for its left side, so
 # a caller writing `verdict || true` would continue at exit 0. `exit` has nothing left
@@ -231,8 +227,9 @@ harness_probe_reporters() { # <expected> <driver> [<what a failure means>]
 # harness_settle <reason> <label> <output> <ok-note>
 #
 # The report tail both shared assertions grew once they were converted to the
-# decide-then-report-once shape. One increment site for the whole file, which is
-# also what makes the caller-side bar meaningful: harness.sh's own count is now 1.
+# decide-then-report-once shape. Every increment in this file goes through here or
+# through harness_fail, which is what makes the caller-side bar meaningful; the bar
+# itself is declared at the foot of this file rather than restated here.
 harness_settle() {
     if [ -n "$1" ]; then
         printf 'FAILED (%s): %s\n%s\n' "$1" "$2" "$3" >&2
@@ -294,9 +291,10 @@ harness_fail() {
     fails=$((fails + 1))
 }
 
-# harness_fail's increment, driven once here rather than in each caller. The two
-# increment sites in this file are harness_settle (probed by
-# harness_probe_inert_shapes below, six arms, six increments) and this one.
+# harness_fail's increment, driven once here rather than in each caller. The other
+# increment site is harness_settle, driven by harness_probe_assert_shapes and
+# harness_probe_inert_shapes below; each states its own arm count as the argument to
+# harness_probe_reporters, so no number is repeated here to drift from it.
 harness_probe_fail() {
     harness_fail 'bookkeeping self-test'
 }
@@ -503,7 +501,7 @@ harness_probe_inert_shapes() {
     harness_fake_report='  - x: nothing wrong here'
     harness_report_is_inert php /nonexistent 'probe: an empty must-carry' ''
 
-    # The exit-code arm, which the six above cannot reach: they all stub `return 1`,
+    # The exit-code arm, which the arms above cannot reach: they all stub `return 1`,
     # and every real fixture rejects with 1. Without this, a gate that started
     # ACCEPTING a poisoned fixture would be reported as "rejected, and the report
     # stayed inert".

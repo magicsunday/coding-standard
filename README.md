@@ -517,12 +517,17 @@ reporting that to a repository which never claimed the link is the failure mode 
 adoption gate exists to prevent.
 
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
-their rule content genuinely cannot drift — the **link** can. Five things are asserted: the
-shared config is actually extended (a look-alike package name does not count), neither
-`linter` nor `formatter` is switched off — Biome offers that toggle in three nested
+their rule content genuinely cannot drift — the **link** can. What is asserted, with
+`bin/check-consumer-config.php` as the list rather than this paragraph: the
+shared config is actually extended (a look-alike package name does not count, and an
+`extends` entry AFTER the shared base is reported, because both tools let a later entry
+win), none of `linter`, `formatter` and `assist` is switched off — Biome offers those
+toggles in three nested
 places and they combine: the document, every `overrides` entry, and a per-language block
 inside either of those, so `javascript.linter.enabled: false` silences the shared
-standard for every JS/TS file while the top-level key still reads `true` — the
+standard for every JS/TS file while the top-level key still reads `true` — `files.includes`
+carries at least one positive pattern, since an all-negative list checks nothing while
+every `enabled` still reads `true`, the
 strict flags are not overridden back to `false` underneath it
 (the nine options `strict` switches on as a group — TypeScript treats a specific one
 written back as an override of the umbrella, so pinning only `strict` pins nothing —

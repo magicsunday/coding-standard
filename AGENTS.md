@@ -33,7 +33,10 @@ here.
 (`php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/`) holds an **importable**
 config; `templates/` holds **copy-and-adapt** files whose tools require the file at the
 consumer's repo root and therefore cannot be imported; the repository root holds only
-this package's **own** dev config, all of it `export-ignore`d — except `/package.json` and `/package-lock.json`, which a `github:` consumer must receive (see the header of `templates/gitattributes`). Put a new config in the
+this package's **own** dev config, all of it `export-ignore`d — except
+`/package.json`, which a `github:` consumer must receive. This repository tracks no
+lock file; a repository that does has the same exception for it, and the header of
+`templates/gitattributes` is where that is stated. Put a new config in the
 directory that matches how it is consumed, never at the root for convenience.
 
 ## How it is consumed
@@ -150,18 +153,18 @@ directory that matches how it is consumed, never at the root for convenience.
   or rate-limited `gh` yields an empty word list, the loop never runs, and the block
   exits 0 printing NOTHING — byte-identical to "every JS/TS repository also has a
   composer.json". Measured with `gh` stubbed to fail. That is the shape this file
-  forbids eighty lines further down (*a gate that aborts must not read as a gate that
+  forbids below (*a gate that aborts must not read as a gate that
   passed*), so the recipe has to carry the third state itself.
 
   All three spellings, because the gate covers all three and a `biome.json`-only
-  probe halves the answer. The per-file probe below has the same blind spot in the
+  probe halves the answer. The per-file probe ABOVE has the same blind spot in the
   small: `|| continue` treats a 403 or a rate limit exactly like a 404, so a
   throttled repository drops out of the answer without a word. A repository
-  appearing here after an unexplained `gh` error is worth — though note the probes
-  write to `/dev/null 2>&1`, so no such error is visible; let the composer.json
-  probe's stderr through if you need to see one, since its `|| echo` turns a 403 into
-  a FALSE POSITIVE rather than a silent drop. A repository
-  re-running before acting on.
+  appearing here after an unexplained `gh` error is worth re-running before acting on.
+
+  Note that the probes write to `/dev/null 2>&1`, so no such error is visible. Let the
+  composer.json probe's stderr through if you need to see one, since its `|| echo`
+  turns a 403 into a FALSE POSITIVE rather than a silent drop.
 
   Do not read a green run as "every consumer's JS config is checked"; a node-side
   entry point for those repositories is #32.

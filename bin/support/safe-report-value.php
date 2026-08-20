@@ -13,11 +13,11 @@ declare(strict_types=1);
  * Defines safeReportValue() for the PHP gates that echo a value read out of a
  * repository file. Re-derive which those are rather than trusting a list here:
  * `grep -rln "^require_once .*safe-report-value" bin tests`. Anchored, and naming
- * the statement rather than the path: the bare path returns seven files, four of
- * which only mention it in prose, two of which are shell and cannot require a PHP
- * file at all — including this one, whose own docblock carries the pattern. The node gate (tests/check-js-configs.sh)
- * is on the same trust boundary and cannot require this file; it carries its own
- * encodeValue() for the same reason.
+ * the statement rather than the path: the bare path also matches files that only
+ * MENTION it, including shell files that cannot require a PHP file at all, and
+ * including this one, whose own docblock carries the pattern. The node gate
+ * (tests/check-js-configs.sh) is on the same trust boundary and cannot require this
+ * file; it carries its own encodeValue() for the same reason.
  *
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
