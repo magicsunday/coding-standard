@@ -40,8 +40,10 @@ declare(strict_types=1);
  *
  *     php .build/vendor/magicsunday/coding-standard/bin/check-phpat-subjects.php .
  *
- * Exit 0 = every liveness-checked subject matches a class; 1 = a vacuous or
- * unparseable subject; 2 = bad arguments or no ArchitectureTest found.
+ * Exit 0 = nothing to check (no ArchitectureTest), or every liveness-checked
+ * subject matches a class; 1 = a vacuous or unparseable subject, or a src/ file
+ * this gate could not read; 2 = the gate could not run at all (bad arguments, no
+ * src/ directory, or an ArchitectureTest this gate could not read).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT

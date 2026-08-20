@@ -669,6 +669,28 @@ $CONFIG_RULE"
 assert_rejects "$d" "a src/ file past the size cap is reported, not silently skipped" \
     "is larger than the 262144 bytes this gate reads"
 
+# The must-not-carry half. $inventoryIncomplete has two sites — this one and the
+# unreadable arm above it — and only the unreadable one had this check. Measured:
+# dropping this site's flag alone left the suite green while the gate went on to
+# print "matches no class" for a class this very file defines, one screen up.
+out="$(php "$GATE" "$d" 2>&1)" || true
+if grep -qF -- 'matches no class' <<<"$out"; then
+    harness_fail "an oversized src/ file made the gate fabricate a vacuous-rule verdict"
+fi
+
+# The safeReportValue() half. Oversize, not unreadable — the one a pull request can
+# actually produce: git carries no mode bits, so a chmod 000 fixture cannot ship in a
+# PR, but a >256 KB file is one \`git add\`. Measured: removing safeReportValue() from
+# just this report site survived the suite before this case existed.
+d="$work/src-oversize-poisoned-name"
+write_class "$d" "Configuration.php" "Vendor\Mod" "final class" "Configuration"
+mkdir -p "$d/src"
+poisoned="$d/src/$(printf 'a\n::error title=x::forged.php')"
+php -r 'file_put_contents($argv[1], "<?php\n// " . str_repeat("x", 262145));' "$poisoned"
+write_archtest "$d" "$CONFIG_RULE"
+assert_report_is_inert "$d" 'an oversized src/ filename carrying control characters' \
+    'a?::error'
+
 # --- REJECT (exit 2): an ArchitectureTest past the size cap ---
 # The gate's only exit-1 path that carries no violation list, and nothing drove it.
 d="$work/archtest-past-the-size-cap"
