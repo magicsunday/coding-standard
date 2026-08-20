@@ -28,6 +28,15 @@ jobs:
               with:
                   php-version: ${{ matrix.php }}
                   tools: composer:v2
+                  # Explicit, the way the org's reusable php-quality.yml writes it
+                  # (magicsunday/.github, .github/workflows/php-quality.yml — the
+                  # `coverage:` expression, read 2026-08-15). This repository runs
+                  # no PHPUnit suite and no Infection — phpunit/phpunit IS in
+                  # `require`, as the tool consumers get — so it is always that
+                  # workflow's "every other leg" case, and leaving the input unset
+                  # makes the driver state depend on the runner image rather than on
+                  # a decision.
+                  coverage: none
 
             - name: Checkout repository
               uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -54,14 +63,14 @@ jobs:
             # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the
             # gate is proven not to pass vacuously.
             - name: Lockstep gate self-test
-              run: bash tests/check-consumer-config-cases.sh
+              run: composer ci:test:templates
 
             # Exercise the phpat subject-liveness guard: the harness proves it accepts
             # an ArchitectureTest whose rule subjects all match a real class and rejects
             # the vacuous cases (a trait-only namespace subject, an empty namespace, a
             # missing classname target, an unparseable subject).
             - name: phpat subject-liveness self-test
-              run: bash tests/check-phpat-subjects-cases.sh
+              run: composer ci:test:phpat-subjects
 
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
@@ -93,3 +102,52 @@ jobs:
             # only place that tier is loaded at all, so it doubles as its smoke test.
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
+
+            # These two sit LAST on purpose. A failing step skips every later one,
+            # and what they catch is a documentation mismatch — a release that
+            # bumps package.json's version without the README pin. Ahead of the
+            # consumer smoke, that one-line defect would suppress PHPStan, Rector
+            # and php-cs-fixer against the installed fixture on all three legs,
+            # exactly on the release commit where that answer matters most.
+            #
+            # The npm tag is hand-written in the README and repeated in
+            # package.json, so a release that bumps only one of them leaves the
+            # install instructions pointing at a tag without the fix.
+            - name: Version lockstep gate
+              run: composer ci:test:version
+
+            # The gate above runs against this repository, where every copy of
+            # the version already agrees — so it only ever takes the happy path
+            # and would stay green if it lost the ability to fail. These cases
+            # put it in each failing state on purpose.
+            - name: Version lockstep gate self-test
+              run: composer ci:test:version-lockstep
+
+    js:
+        name: JS/TS configs
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            # Pinned to the `devEngines` floor rather than `lts/*`: a floating LTS
+            # alias silently moves to the next major every October, which is the
+            # same drift the tool version pins exist to prevent.
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+
+            # The PHP consumer smoke has no JS counterpart, which is how an
+            # unloadable biome/base.json shipped: `ci:test:json` proves the file
+            # parses as JSON, but Biome rejects an unknown key outright, so a
+            # perfectly valid JSON document can still fail every consumer. This
+            # packs the package as npm ships it, installs it into a throwaway
+            # consumer and runs Biome and tsc against the shared configs — with
+            # controls proving a rule violation and an unchecked index are
+            # actually rejected, so the gate cannot pass vacuously.
+            - name: JS consumer smoke
+              run: npm run --silent ci:test:js

@@ -15,38 +15,26 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# CDPATH= because the target `tests/..` starts with neither /, ./ nor ../ and is
+# therefore searched in CDPATH — which both redirects it and echoes the resolved
+# path, making ROOT a two-line value that opens nothing.
+ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/tests/harness.sh"
+harness_workdir
+
 GATE="$ROOT/bin/check-phpat-subjects.php"
 
-fails=0
+assert_accepts() { harness_accepts "$GATE" "$@"; }
+assert_rejects() { harness_rejects "$GATE" "$@"; }
 
-assert_accepts() {
-    local dir="$1" label="$2" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -ne 0 ]; then
-        printf 'FAIL (expected accept): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (accepted): %s\n' "$label"
-    fi
-}
+# Thin wrappers over the shared definitions in tests/harness.sh.
+assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
+assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
-assert_rejects() {
-    local dir="$1" label="$2" expected="$3" out rc
-    out="$(php "$GATE" "$dir" 2>&1)" && rc=0 || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf 'FAIL (expected reject): %s\n%s\n' "$label" "$out"
-        fails=$((fails + 1))
-    elif ! grep -qF "$expected" <<<"$out"; then
-        printf 'FAIL (rejected, but not for the tested reason): %s\n  expected substring: %s\n%s\n' "$label" "$expected" "$out"
-        fails=$((fails + 1))
-    else
-        printf 'ok (rejected on the tested violation): %s\n' "$label"
-    fi
-}
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# Every helper above is a one-line wrapper whose increment lives in harness.sh and
+# is probed there. What this file must still prove is that it grew no report site
+# of its own — see harness_assert_no_stray_increments.
+harness_assert_no_stray_increments 0
 
 # write_class <dir> <relpath-under-src> <namespace> <kind> <name>
 write_class() {
@@ -318,6 +306,505 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$COMPOSED_ARG_RULE"
 assert_rejects "$d" "composed self::NAMESPACE_ROOT . self::CONST fails closed" "could not resolve"
 
+# --- REJECT: three attribute and return-type spellings the text scan could not see ---
+# Each of these made the gate exit 0 on a rule it had never looked at. The subjects are
+# deliberately vacuous, so an accept means the rule was skipped rather than analysed.
+#
+# `qualifiedReturn` is GH-50's case: the old head pattern spelled the return type as the
+# bare `Rule`. The token walk reads the attribute, not the signature, so the rule is now
+# ANALYSED — the report names its vacuous subject rather than a parse failure.
+d="$work/unrecognised-rule-head"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[TestRule]
+    public function qualifiedReturn(): \\PHPat\\Test\\Builder\\Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Qualified return type.');
+    }"
+# The full sentence, not just its head: this is the one positive assertion in the
+# file for the classname arm's wording, and the src-unreadable must-not-carry
+# elsewhere in this suite greps for "matches no class" assuming both liveness arms
+# use it — true today only because this line pins it for the classname half too.
+assert_rejects "$d" "a #[TestRule] with a qualified return type is analysed, not skipped" \
+    "qualifiedReturn: subject classname(Vendor\Mod\DoesNotExist) matches no class"
+
+d="$work/attribute-with-parens"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[TestRule()]
+    public function parenthesised(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Attribute written with parentheses.');
+    }"
+assert_rejects "$d" "a #[TestRule()] written with parentheses is analysed" \
+    "parenthesised: subject classname"
+
+# The spelling a consumer without the `use` writes.
+d="$work/attribute-fully-qualified"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "$MODEL_RULE
+
+    #[\\PHPat\\Test\\Attributes\\TestRule]
+    public function fullyQualified(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\DoesNotExist'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Fully qualified attribute.');
+    }"
+assert_rejects "$d" "a fully qualified #[TestRule] attribute is analysed" \
+    "fullyQualified: subject classname"
+
+# --- REJECT: a #[TestRule] that attaches to no method ---
+# Written on a property, it reads a subject from nothing. The walk must not carry it
+# forward onto the next method either — that would make an ordinary helper a rule and
+# hide the misplaced attribute. Both directions are in this one case: the count reports
+# the orphan, and modelIsALeaf keeps working beside it.
+d="$work/attribute-on-a-property"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    private string \$notAMethod = 'x';
+
+    public function helper(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because('Not a rule.');
+    }"
+assert_rejects "$d" "a #[TestRule] on a property is reported, not carried onto the next method" \
+    "attribute(s) found but only 0 resolved"
+
+# The accepting twin: an ordinary attribute beside the rules must not be counted.
+# Totalling every attribute rather than the TestRule ones reds this.
+d="$work/other-attribute-present"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\CoversNothing]
+    public function notARule(): void
+    {
+    }
+
+$MODEL_RULE
+
+$CONFIG_RULE"
+assert_accepts "$d" "an ordinary attribute beside the rules is not counted as one"
+
+# --- The brace counter: only DELIMITER tokens bound a body ---
+# `"$x{"` lexes the brace as T_ENCAPSED_AND_WHITESPACE whose text is exactly `{`.
+# Counting that made a vacuous rule's body run past its own method into the helper
+# below, whose subject is live — one added character turned a fail-closed reject into
+# `OK`. This is the repo's own malformed-with-helper shape plus that character.
+d="$work/brace-in-interpolated-string"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    public function vacuous(): Rule
+    {
+        \$x    = 'note';
+        \$note = \"prefix \$x{\";
+
+        return \$this->build(\$note);
+    }
+
+    public function build(string \$note): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Model\\Node'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
+            ->because(\$note);
+    }"
+assert_rejects "$d" "an interpolated brace does not extend a body into the next method" \
+    "could not identify a subject selector"
+
+# The mirror direction, which is a false RED on correct code: the stray `}` cut the
+# body short and a live rule was reported unparseable.
+d="$work/closing-brace-in-string"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        \$what = 'x';
+        \$note = \"a \$what}\";
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because(\$note);
+    }"
+assert_accepts "$d" "a closing brace inside a string does not cut a body short"
+
+# The two interpolation openers, whose CLOSING brace is an ordinary CHAR token. Count
+# only CHAR tokens and that `}` decrements against nothing, cutting the body.
+d="$work/curly-interpolation"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        \$what = 'x';
+        \$note = \"a {\$what} and \${what}\";
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because(\$note);
+    }"
+assert_accepts "$d" "both interpolation openers keep the brace depth balanced"
+
+# --- The attribute scan must not re-walk its own group ---
+# A `::class` argument in a FOLLOWING attribute lexes as T_CLASS. Re-walking the group
+# let it hit the declaration barrier and clear the flag `#[TestRule]` had just set, so
+# a live rule was reported as absent.
+d="$work/attribute-with-class-argument"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[TestRule]
+    #[\\PHPUnit\\Framework\\Attributes\\CoversClass(\\Vendor\\Mod\\Configuration::class)]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a ::class argument in a neighbouring attribute does not hide the rule"
+
+# The same walk, one comma further. Bracket depth alone does not tell an attribute
+# SEPARATOR from an ARGUMENT separator — both sit at depth 1 — so a comma inside an
+# argument list re-armed name position and the second argument was read as an
+# attribute name. Measured before the paren counter: this file produced
+# `notARule: could not identify a subject selector` and exit 1 for a helper that
+# carries no rule at all.
+d="$work/attribute-with-two-arguments"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\UsesClass(\\Vendor\\Mod\\Model\\Node::class, \\Vendor\\Mod\\TestRule::class)]
+    public function notARule(): void
+    {
+    }
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a TestRule name as a SECOND attribute argument is not counted as a rule"
+
+# The grouped spelling, which is the reason the comma arm exists at all: two
+# attributes in one `#[…]`. It has to keep working now that the comma is conditional,
+# and nothing drove it before — deleting the arm left the suite green.
+d="$work/attribute-group-with-testrule"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\CoversNothing, TestRule]
+    public function grouped(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Grouped.');
+    }"
+assert_rejects "$d" "a #[TestRule] grouped behind another attribute is analysed" \
+    "inNamespace(Vendor\\Mod\\Model)"
+
+# An ARRAY argument closes the group early unless `[` raises the depth. Deleting the
+# `[` arm left the suite green, and combined with the grouped spelling above it is a
+# fail-open: the walk resumes past the `TestRule` name and the rule is never seen.
+d="$work/attribute-with-array-argument"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\TestWith([1, 2]), TestRule]
+    public function afterAnArray(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('After an array.');
+    }"
+assert_rejects "$d" "an array argument does not close the attribute group early" \
+    "inNamespace(Vendor\\Mod\\Model)"
+
+# A body-less declaration ends on `;`. Without that arm the body scan runs past the
+# declaration into the NEXT method and adopts its selector — the same fail-open shape
+# as the malformed-with-helper case, one declaration form over. Deleting the arm left
+# the suite green.
+d="$work/attribute-on-a-bodyless-method"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    abstract public function declaredOnly(): Rule;
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Model'))
+            ->because('Live.');
+    }"
+assert_rejects "$d" "a body-less rule declaration does not adopt the next method's selector" \
+    "could not identify a subject selector"
+
+# The same distinction the other way: a TestRule name used as a VALUE is not a rule,
+# and counting it produced a false red with a diagnostic pointing at the wrong file.
+d="$work/testrule-as-an-argument"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\UsesClass(TestRule::class)]
+    public function notARule(): void
+    {
+    }
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a TestRule name used as an attribute argument is not counted as a rule"
+
+# --- REJECT: a rule that only LOOKS like one, inside a heredoc ---
+# The text scan counted it, so an ArchitectureTest with zero real rules reported OK.
+# Tokens see one string, so the emptiness guard fires instead.
+d="$work/heredoc-rule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    public function notARule(): string
+    {
+        return <<<'CODE'
+    #[TestRule]
+    public function looksReal(): Rule
+    {
+        return PHPat::rule()->classes(Selector::inNamespace('Vendor\\Mod'));
+    }
+CODE;
+    }"
+assert_rejects "$d" "a rule inside a heredoc is not counted as one" \
+    "no #[TestRule] methods found"
+# --- REJECT: a class named only inside a heredoc is not in the inventory ---
+# The inventory used to be a line-anchored regex over comment-stripped text, which
+# cannot tell a declaration from a string that looks like one. A `class Node` inside
+# a heredoc registered a class that does not exist, so a vacuous subject naming it was
+# certified live. Tokens answer this by construction; without them the case ACCEPTS.
+d="$work/heredoc-class"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/src/Model"
+cat > "$d/src/Model/template.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod\Model;
+
+return <<<'CODE'
+final class Node
+{
+}
+CODE;
+PHP
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "a class named inside a heredoc is not inventoried" "matches no class"
+
+# --- ACCEPT: two declarations in one file are both inventoried ---
+# The inventory took the FIRST match per file, so a second class was invisible and any
+# subject naming it was reported vacuous. Both subjects here live in one file.
+d="$work/two-classes-one-file"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+cat > "$d/src/Pair.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod;
+
+final class Other
+{
+}
+
+final class Configuration
+{
+}
+PHP
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_accepts "$d" "a second declaration in the same file is inventoried"
+
+# --- REJECT: a src/ file past the size cap says so ---
+# The arm existed and could not report: it appends to $violations inside the inventory
+# loop, and a later `$violations = []` discarded every one of those entries. Measured
+# before the fix — this fixture printed `OK` and exited 0, with the oversized file
+# silently absent from the inventory. Revert the declaration's position and it does
+# again.
+d="$work/src-past-the-size-cap"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/src/Model"
+php -r '
+    file_put_contents($argv[1], "<?php\n\ndeclare(strict_types=1);\n\nnamespace Vendor\\Mod\\Model;\n\n// " . str_repeat("x", 262145) . "\nfinal class Node\n{\n}\n");
+' "$d/src/Model/Node.php"
+write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d" "a src/ file past the size cap is reported, not silently skipped" \
+    "is larger than the 262144 bytes this gate reads"
+
+# The companion in the OTHER direction: the file above put the oversized file behind
+# the inNamespace() arm (Node.php, under Model), leaving classname()'s guard exercised
+# only by the chmod-based src-unreadable case below — which is skipped under root.
+# Root is not a corner case here: it is this image's default user. Same shape, the
+# oversized file IS the classname() target this time.
+# NAMED d2, not reassigned into $d: the block below this one is a PRE-EXISTING
+# must-not-carry written against the FIRST fixture (the inNamespace-arm one, still
+# named $d). Round 17 found that inserting a bare `d=` reassignment here silently
+# repointed that pre-existing block at this new fixture instead — the exact class of
+# gap this pair exists to close, reintroduced for the sibling arm by the fix itself.
+d2="$work/src-past-the-size-cap-classname-target"
+write_class "$d2" "Model/Node.php" "Vendor\Mod\Model" "final class" "Node"
+mkdir -p "$d2/src"
+php -r '
+    file_put_contents($argv[1], "<?php
+
+declare(strict_types=1);
+
+namespace Vendor\Mod;
+
+// " . str_repeat("x", 262145) . "
+final class Configuration
+{
+}
+");
+' "$d2/src/Configuration.php"
+write_archtest "$d2" "$MODEL_RULE
+
+$CONFIG_RULE"
+assert_rejects "$d2" "an oversized classname() target is reported, not silently skipped"     "is larger than the 262144 bytes this gate reads"
+out="$(php "$GATE" "$d2" 2>&1)" || true
+if grep -qF -- 'matches no class' <<<"$out"; then
+    harness_fail "an oversized classname() target made the gate fabricate a vacuous-rule verdict"
+fi
+
+# The must-not-carry half, against the FIRST fixture ($d, the inNamespace-arm one
+# declared above) — $inventoryIncomplete has two sites, this one and the unreadable
+# arm elsewhere, and only the unreadable one had this check before. Measured:
+# dropping this site's flag alone left the suite green while the gate went on to
+# print "matches no class" for a class this very file defines, one screen up.
+out="$(php "$GATE" "$d" 2>&1)" || true
+if grep -qF -- 'matches no class' <<<"$out"; then
+    harness_fail "an oversized src/ file made the gate fabricate a vacuous-rule verdict"
+fi
+
+# The safeReportValue() half. Oversize, not unreadable — the one a pull request can
+# actually produce: git carries no mode bits, so a chmod 000 fixture cannot ship in a
+# PR, but a >256 KB file is one \`git add\`. Measured: removing safeReportValue() from
+# just this report site survived the suite before this case existed.
+d="$work/src-oversize-poisoned-name"
+write_class "$d" "Configuration.php" "Vendor\Mod" "final class" "Configuration"
+mkdir -p "$d/src"
+poisoned="$d/src/$(printf 'a\n::error title=x::forged.php')"
+php -r 'file_put_contents($argv[1], "<?php\n// " . str_repeat("x", 262145));' "$poisoned"
+write_archtest "$d" "$CONFIG_RULE"
+assert_report_is_inert "$d" 'an oversized src/ filename carrying control characters' \
+    'a?::error'
+
+# --- REJECT (exit 2): an ArchitectureTest past the size cap ---
+# The gate's only exit-1 path that carries no violation list, and nothing drove it.
+d="$work/archtest-past-the-size-cap"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+php -r '
+    file_put_contents($argv[1], "<?php\n\n// " . str_repeat("x", 262145) . "\n");
+' "$d/tests/Architecture/ArchitectureTest.php"
+assert_usage_error "$d" "an ArchitectureTest past the size cap is reported as oversized" \
+    "is larger than the 262144 bytes this gate reads"
+
+# --- The unreadable half of both read arms ---
+# There was no chmod fixture in this file at all, so only the oversize half of each
+# arm was driven. That is what let two defects ship: the raw E_WARNING and the
+# fabricated liveness verdict below. Skipped under root, where mode 000 denies
+# nothing and every case here would read as a false regression; CI runs non-root.
+if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip (running as root: mode 000 does not deny read): the unreadable-source cases\n'
+else
+    # An unreadable src/ file leaves the inventory SHORT, and the liveness arms can
+    # then only answer "not found". Before the guard this fixture reported the read
+    # failure AND `modelIsALeaf: subject inNamespace(Vendor\Mod\Model) matches no
+    # class — a vacuous rule` for a class that plainly exists. The must-not-carry is
+    # the point of the case; the must-carry only proves it reported at all.
+    d="$work/src-unreadable"
+    write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+    write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+    write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+    # BOTH targets, so both liveness arms are driven: inNamespace(Model) and
+    # classname(Configuration) each lose their class to the same read failure.
+    chmod 000 "$d/src/Model/Node.php" "$d/src/Configuration.php"
+    assert_rejects "$d" "an unreadable src/ file reports as unreadable, not as a vacuous rule" \
+        "cannot be read, so its classes are not in the inventory"
+
+    # $GATE is a PHP FILE, so it needs the interpreter — every harness helper spells
+    # it `php "$gate"`. Executing it directly fails silently, $out stays empty and the
+    # grep below then asserts nothing; measured, that is exactly what this line did
+    # before the prefix was added.
+    out="$(php "$GATE" "$d" 2>&1)" || true
+    if grep -qF -- 'matches no class' <<<"$out"; then
+        harness_fail "an unreadable src/ file made the gate fabricate a vacuous-rule verdict"
+    fi
+
+    # A filename is the widest byte domain either shipped gate reports, and a pull
+    # request chooses it. Measured: with safeReportValue() removed from this one site
+    # the suite stayed green, because nothing drove it.
+    #
+    # The directory name is deliberately two characters: safeReportValue() truncates
+    # at 64 bytes from the FRONT, and a path carries its identifying part at the end,
+    # so a long work dir would eat the poison and leave the must-carry asserting the
+    # tmp prefix. The must-carry is correspondingly short — `a?::error` is the whole
+    # proof, since the `?` is the newline this site has to have translated.
+    d="$work/pn"
+    write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+    write_archtest "$d" "$CONFIG_RULE"
+    poisoned="$d/src/$(printf 'a\n::error title=x::forged ##[error]legacy \033[2K\rcr.php')"
+    printf '<?php\n' > "$poisoned"
+    chmod 000 "$poisoned"
+    assert_report_is_inert "$d" 'a src/ filename carrying control characters cannot forge a command' \
+        'a?::error'
+
+    # The ArchitectureTest itself, the exit-2 half. Distinct from the oversize case
+    # above, and it must say which of the two happened.
+    d="$work/archtest-unreadable"
+    write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+    mkdir -p "$d/tests/Architecture"
+    printf '<?php\n' > "$d/tests/Architecture/ArchitectureTest.php"
+    chmod 000 "$d/tests/Architecture/ArchitectureTest.php"
+    assert_usage_error "$d" "an unreadable ArchitectureTest reports as unreadable, not as oversized" \
+        "cannot be read"
+fi
+
 # --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
 d="$work/no-testrule"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
@@ -327,7 +814,7 @@ assert_rejects "$d" "no #[TestRule] methods" "no #[TestRule] methods found"
 # --- REJECT (exit 2): an ArchitectureTest present but no src/ directory ---
 d="$work/no-src"
 write_archtest "$d" "$MODEL_RULE"
-assert_rejects "$d" "ArchitectureTest but no src/" "no src/ directory"
+assert_usage_error "$d" "ArchitectureTest but no src/" "no src/ directory"
 
 # --- REJECT: a malformed rule must not adopt a following helper's selector ---
 # Model/ HAS a class, so if the search leaked into buildRule() it would wrongly ACCEPT
@@ -393,9 +880,169 @@ d="$work/no-archtest"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 assert_accepts "$d" "no ArchitectureTest present"
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails"
-    exit 1
-fi
+# A PHP identifier may legally carry bytes above 0x7F. With `\w+` and no `/u` the
+# head pattern stopped at the first such byte, so a #[TestRule] method named this
+# way was skipped in silence — in a gate whose docblock says it fails CLOSED. All
+# three widened patterns could be reverted and the suite stayed green until these
+# two cases existed.
+d="$work/rule-name-non-ascii"
+write_class "$d" 'Model/Node.php' 'Vendor\Mod\Model' 'final class' Node
+write_archtest "$d" "$(printf '    #[TestRule]\n    public function pr\xc3\xbcfeSchichten(): Rule\n    {\n        return PHPat::rule()\n            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))\n            ->shouldNot()->dependOn()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->because(%s);\n    }\n' "'\\Nope'" "'\\Model\\Node'" "'Injected.'")"
+assert_rejects "$d" "a #[TestRule] method named with a non-ASCII identifier is analysed, not skipped" "matches no class"
 
-printf '\nAll cases passed.\n'
+# The bounding twin. The subject search stops at the NEXT `function` declaration;
+# with `\w+` a helper whose name carries such a byte is not a bound, so the search
+# leaks into it and adopts its selector — the case flips from reject to accept.
+d="$work/helper-name-non-ascii"
+write_class "$d" 'Model/Node.php' 'Vendor\Mod\Model' 'final class' Node
+write_archtest "$d" "$(printf '    #[TestRule]\n    public function malformed(): Rule\n    {\n        return PHPat::rule()\n    }\n\n    private function h\xc3\xa4lfer(): Rule\n    {\n        return PHPat::rule()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->shouldNot()->dependOn()\n            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))\n            ->because(%s);\n    }\n' "'\\Model\\Node'" "'\\Model\\Node'" "'Helper.'")"
+assert_rejects "$d" "a malformed rule does not adopt a non-ASCII-named helper's selector" "could not identify a subject selector"
+
+
+# The report-shape control for THIS binary. Its subject expression is read out of
+# the consumer's ArchitectureTest and interpolated into the report, on the same
+# trust boundary as the sibling gate — and here the source is a PHP file rather
+# than XML, so ESC is expressible and the ANSI half of the threat model applies
+# too. Asserts the properties GitHub Actions and a terminal key on, not the
+# absence of the payload text: once the bytes cannot start a line, the text is
+# inert, and demanding its absence would also pass on a gate that stopped
+# reporting the subject at all.
+d="$work/report-injection"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+
+# Built with printf rather than a second interpreter: the buildbox ships PHP, not
+# python3. A raw ESC and raw newlines inside a PHP single-quoted string are legal,
+# and the gate's own `[^)]*` / `[^\']+` captures do not exclude either.
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Nope\033[2K\n"
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf '::add-mask::secret\n'
+    printf "check-phpat-subjects: OK'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'a classname subject carrying control characters' \
+    'Nope?[2K?::error title=Architecture'
+
+# Length is the ONLY property the wrap adds at these sites — both captures admit
+# identifier bytes only, so the C0 scrub and the prefix break are no-ops on them.
+# Without a case that exceeds the cap, removing every safeReportValue() around
+# $ruleName and $selector leaves the whole suite green, which is how the wrap's own
+# stated motivation went unpinned. The sibling gate's overlong-key case is the shape.
+d="$work/report-length-rule-name"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+long_name="$(printf 'z%.0s' $(seq 1 400))"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function %s(): Rule\n    {\n' "$long_name"
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::inNamespace('Vendor\\Mod\\Nope'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Long rule name.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_rejects "$d" "an overlong rule name is truncated with a marker" \
+    "$(printf 'z%.0s' $(seq 1 64))…"
+
+# The legacy `##[` grammar, with the payload FIRST so it lands inside the 64-byte
+# cap. Appended to a longer subject it was cut off and the case proved nothing —
+# measured: the scrubbed value reached 70 bytes before the payload began.
+d="$work/report-injection-legacy-prefix"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::classname('##[error]forged clean run'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'a classname subject opening with the legacy prefix' \
+    'classname(##?[error]forged clean run)'
+
+# The other two consumer-controlled report sites. Measured: dropping the guard at
+# either of them left the whole suite green while only the classname site was
+# pinned — so the claim "every report site a consumer controls" held for the code
+# and not for the proof.
+#
+# `$ruleName` and `$selector` are wrapped like every other consumer value. They were
+# left raw while an argument held that their captures admit identifier bytes only —
+# true, but recorded as prose with nothing enforcing it, and it did not cover length:
+# a rule name and a selector of 5000 bytes each produced one 10 kB violation line,
+# which is the amplification the 64-byte cap exists against.
+d="$work/report-injection-namespace"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::inNamespace('Vendor\\Mod\\Nope\033[2K\n"
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf "check-phpat-subjects: OK'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'an inNamespace subject carrying control characters' \
+    'Nope?[2K?::error title=Architecture'
+
+# The fail-closed arm: an argument the gate cannot resolve is echoed back verbatim,
+# and a concatenation is exactly what reaches it.
+d="$work/report-injection-argument"
+write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+    printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf '            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . "\033[2K\n'
+    printf '::error title=Architecture::no vacuous rules found\n'
+    printf 'check-phpat-subjects: OK"))\n'
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
+    printf "            ->because('Injected subject.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+
+assert_report_is_inert "$d" 'an unresolvable argument carrying control characters' \
+    '?[2K?::error title=Architecture'
+
+verdict

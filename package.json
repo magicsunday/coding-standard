@@ -1,6 +1,6 @@
 {
     "name": "@magicsunday/coding-standard",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "description": "Shared Biome and TypeScript configuration for the magicsunday/* JS/TS projects.",
     "license": "MIT",
     "author": "Rico Sonntag <mail@ricosonntag.de>",
@@ -17,5 +17,32 @@
     "files": [
         "biome",
         "tsconfig"
-    ]
+    ],
+    "devEngines": {
+        "runtime": {
+            "name": "node",
+            "version": ">=24",
+            "onFail": "error"
+        }
+    },
+    "scripts": {
+        "ci:test:js": "bash tests/check-js-configs.sh"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.5.5",
+        "jscpd": "5.0.14",
+        "typescript": "7.0.2"
+    },
+    "peerDependencies": {
+        "@biomejs/biome": "^2.5.0",
+        "typescript": "^7.0.2"
+    },
+    "peerDependenciesMeta": {
+        "@biomejs/biome": {
+            "optional": true
+        },
+        "typescript": {
+            "optional": true
+        }
+    }
 }

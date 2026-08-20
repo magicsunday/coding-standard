@@ -27,7 +27,7 @@ For the JS/TS configs, add a GitHub git dependency (no npm-registry account need
 the same mechanism `webtrees-chart-lib` uses):
 
 ```shell
-npm install --save-dev github:magicsunday/coding-standard#1.7.0
+npm install --save-dev github:magicsunday/coding-standard#1.8.0
 ```
 
 which records in `package.json`:
@@ -35,10 +35,55 @@ which records in `package.json`:
 ```json
 {
     "devDependencies": {
-        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.8.0"
     }
 }
 ```
+
+**The npm side is not the mirror image of the Composer side.** The Composer package
+delivers the whole PHP toolchain transitively; the npm package ships the two config
+files and nothing else, so it installs no tooling. Each consumer adds the tools it
+uses itself:
+
+```shell
+npm install --save-dev @biomejs/biome@^2.5.0 typescript@^7.0.2
+```
+
+The versions the shared configs are proven against are declared as **optional**
+`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^7.0.2`. Optional, because
+a repository adopting only the Biome config should not be warned about a missing
+TypeScript, and vice versa; npm still validates the range of whichever one is
+installed.
+
+**The ranges track the current major, they are not a compatibility promise.** A tool
+release is adopted here and the floor moves up with it, rather than accumulating old
+majors a green CI never exercises — so a consumer on an older Biome or TypeScript
+updates its tools together with this package, not independently of it. That is the
+same bargain as the PHP side, where the toolchain versions are pinned here once for
+every repository; only the mechanism differs, because npm cannot deliver the tools.
+
+The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
+`typescript 7.0.2`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
+by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
+widened by hand once a bump is green.
+
+`devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
+what the tools themselves demand — derive them rather than trusting these numbers:
+`node -p "require('@biomejs/biome/package.json').engines.node"` and the same for
+`typescript` (14.21.3 and 16.20.0 as of 2026-07-28): those floors are years behind the maintained release lines, so meeting
+them says nothing about a repository being current.
+
+`devEngines` rather than `engines`, because the two point in opposite directions.
+`engines` is consumer-facing: npm evaluates it on every install of this package and
+prints `EBADENGINE` in the *consumer's* log — a hard failure under `engine-strict`.
+The published artifact is `biome/` and `tsconfig/`, two directories of JSON with no
+code that runs on Node, so it cannot care what the consumer's runtime is; exporting a
+floor from it would fail an install over a constraint the package never exercises.
+`devEngines` constrains this repository alone, which is where the floor is real. It
+is honoured by npm >= 10.9, which with `onFail: "error"` hard-fails the `install`, `ci` or `run` it precedes, and ignored entirely by older versions — so it cannot be relied on, and (npm/cli PR 7766, shipped in v10.9.0 — re-derive with `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`)
+`tests/check-js-configs.sh` fails outright on an older Node and additionally rejects a
+re-added `engines.node`, and the CI job pins `node-version: 24` rather than the
+floating `lts/*` alias, which would move up a major on its own every October.
 
 ## Layout
 
@@ -48,7 +93,7 @@ The directory a file lives in states how it is meant to be consumed:
 |---|---|---|
 | `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
 | `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
-| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. The package lints itself with its own template. |
+| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/` — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
 
 Every include path below is written as `.build/vendor/…`, the house layout: the
 `magicsunday/*` repositories set `config.vendor-dir` to `.build/vendor` and
@@ -404,9 +449,9 @@ from drifting from this package.
 | `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev` |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
-| `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene |
+| `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
-| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate |
+| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 
@@ -439,6 +484,91 @@ repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.jso
 skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
 
+The gate also covers `biome.json` (or `biome.jsonc`) and `tsconfig.json`, on a
+narrower contract, and only for a repository that **declares the npm dependency**
+(`@magicsunday/coding-standard` in `dependencies` / `devDependencies` /
+`optionalDependencies` / `peerDependencies`). That gate on adoption is not politeness: a consumer cannot pin
+an npm tag before the tag exists, so a check that demanded the link the moment the file
+existed would red every repository that ships a `biome.json` today — on the very update
+that first delivers the check, for a link they never claimed to have. Align first,
+enforce second, exactly as the template gate itself was staged.
+
+Four reports do **not** wait for adoption, each because it names a defect on the
+file's own terms rather than a missing link:
+
+- a `"//"` key in the Biome config — it makes the file unloadable for Biome whether or
+  not it extends anything, so a repository writing its own config is just as broken by it;
+- a `biome.json`/`biome.jsonc` or `tsconfig.json` that **cannot be opened** — no reader
+  tolerance is in play there, the file simply is not readable, and that is true whoever
+  wrote it;
+- a `package.json` that cannot be read or does not parse, **in a repository that has a
+  `biome.json` or `tsconfig.json` at all** — that file *is* the adoption probe, so
+  treating a broken one as "has not adopted" would switch the whole JS/TS contract off
+  precisely when the repository's own tooling is in an unknown state;
+- a `biome.json`/`biome.jsonc` or `tsconfig.json` past the size this gate reads — the
+  file is not scanned at all, so nothing downstream of it was checked, and that is
+  true whoever wrote it. A repository with
+  neither config is not probed for the JS/TS contract in the first place, so nothing is
+  reported there.
+
+A JSON(C) **parse** failure of a Biome or TypeScript config, by contrast, is gated on
+adoption: this reader is not Biome's, it can reject a file the real tool accepts, and
+reporting that to a repository which never claimed the link is the failure mode the
+adoption gate exists to prevent.
+
+Once the dependency is declared, the files are treated as one-line `extends` stubs, so
+their rule content genuinely cannot drift — the **link** can. What is asserted, with
+`bin/check-consumer-config.php` as the list rather than this paragraph: the
+shared config is actually extended (a look-alike package name does not count), none of
+`linter`, `formatter` and `assist` is switched off — Biome offers those
+toggles in three nested
+places and they combine: the document, every `overrides` entry, and a per-language block
+inside either of those, so `javascript.linter.enabled: false` silences the shared
+standard for every JS/TS file while the top-level key still reads `true`; `files.includes`
+carries at least one positive pattern, since an all-negative list checks nothing while
+every `enabled` still reads `true`; the
+strict flags are not overridden back to `false` underneath the `extends` link
+(the nine options `strict` switches on as a group — TypeScript treats a specific one
+written back as an override of the umbrella, so pinning only `strict` pins nothing —
+plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`,
+`forceConsistentCasingInFileNames` and `isolatedModules`, which the shared base sets
+itself; `$pinnedFlags` in `bin/check-consumer-config.php` is the list),
+`biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
+config, so that one key makes a file that is valid JSON completely unloadable — and
+the recommended rule floor is still on. That last one is checked everywhere Biome
+offers it, which is more places than it first appears: two spellings (the
+`recommended` boolean deprecated in 2.5, and `preset`), on `linter.rules` **and on
+every rule group beneath it**, and again inside **every `overrides` entry**. Each
+combination reaches the same end: `linter.rules.suspicious.preset: "none"` lets a
+`debugger` statement through while every top-level key still reads as it should. A
+narrower check would close the front door and leave those open. Legitimate
+`overrides` use — relaxing a single rule for one path — stays untouched.
+Ergonomics flags stay free: turning `skipLibCheck` off is stricter, not drift, and
+`module`/`target`/`lib`/`jsx`/`paths` are per-repository by design. Both files are
+parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments and
+trailing commas are accepted, and a `//` inside a string value is not mistaken for
+one.
+
+**What it does not do, stated because the list above reads as if it did.** The gate
+inspects the consumer's own config file for explicit off-switches; it does not
+compute the configuration the tool ends up with. Two consequences, both measured
+against Biome 2.5.5 rather than reasoned about:
+
+- An `extends` list may name a further **local** file after the shared one, and that
+  file wins. `["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"]`
+  with `{"linter": {"enabled": false}}` in the second lets `a == b` through while the
+  gate reports OK. The same holds for `tsconfig.json`, where a later entry setting
+  `noUncheckedIndexedAccess: false` survives into `tsc --showConfig`.
+- A single rule may be switched off by name — `"noDoubleEquals": "off"` — which the
+  gate does not look at. It pins the preset floor and each rule group, not the
+  individual rules the base enables.
+
+So this is a **drift detector, not a bypass guard**: it catches a consumer copy that
+has fallen out of step, not one that deliberately steers around the standard — and a
+repository willing to do the latter can equally drop the gate from its CI. Closing
+both would mean resolving the `extends` chain and deriving the rule names from the
+shared base; that is tracked in #36 rather than half-done here.
+
 ### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
 
 phpat rules run inside PHPStan, and a rule whose **subject matches nothing** enforces
@@ -457,6 +587,25 @@ every rule method must yield a classifiable subject. A repo with no `Architectur
 skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
 (`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
 
+## Releasing this package
+
+The version this package ships lives in three places: the git tag, `package.json`'s
+`version`, and every `github:magicsunday/coding-standard#<tag>` pin written in this
+README. Nothing links them, so a release that bumps the manifest and forgets a
+README pin documents an install command for a tag that does not exist — and a
+consumer following it silently gets the older code.
+
+`composer ci:test:version` re-derives every documented pin from the README and
+compares it against `package.json`. A pin that is not a version tag, a pin that
+disagrees with the manifest, and a README that documents no pin at all are each a
+finding; the last one matters because a gate with nothing to compare would
+otherwise pass vacuously. `composer ci:test:version-lockstep` is its fixture-driven
+self-test, which drives the gate into each of those states on purpose.
+
+Unlike the consumer gates in this README, this one is not shipped for anyone else to
+run — it guards this repository's own release hygiene. Bump `package.json` and every
+README pin in the same commit as the tag.
+
 ## JS/TS configs
 
 ```jsonc
@@ -469,7 +618,84 @@ skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
 { "extends": "@magicsunday/coding-standard/tsconfig/base.json" }
 ```
 
-Lint with `biome ci --error-on-warnings` so every warning is CI-fatal.
+Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. The TypeScript
+base carries no `module`/`target`/`lib`/`jsx` and no `paths`; those are per-repository
+and belong in the consumer's own `compilerOptions`.
+
+`useImportExtensions` runs with an `extensionMappings` table (`ts`/`tsx` → `js`,
+`mts` → `mjs`, `cts` → `cjs`), so a local ESM import spells the extension `.js` in
+TypeScript sources too — which is what TS ESM emits and what `tsc` resolves. Without
+it the two tools contradict each other and no spelling satisfies both: Biome demands
+`./bar.ts`, which `tsc` then rejects with TS5097 unless `allowImportingTsExtensions`
+is on, while the house spelling `./bar.js` is reported as a violation.
+
+The blunter `forceJsExtensions: true` settles the same conflict and was tried first.
+It is wrong for a shared base, because it rewrites the suggestion for **every**
+extension rather than the TypeScript ones: measured against Biome 2.5.5,
+`import "./theme.css"` and `import palette from "./palette.json"` are both reported,
+each carrying a *Safe* fix that rewrites the specifier to a `.js` path that does not
+exist — so a plain `biome check --write` or an editor save-action silently breaks a
+consumer that imports a stylesheet or a JSON asset. `extensionMappings` buys the
+TypeScript case and leaves the rest alone. The smoke asserts both directions plus the
+asset imports, so neither the rule the base exists to settle nor the regression that
+option class invites is left for a consumer to discover.
+
+The base carries **no `vcs` block** on purpose. `useIgnoreFile: true` would look like
+the obvious way to keep a consumer's gitignored build output out of the lint run, but
+Biome then aborts with `couldn't find an ignore file` in any repository that has none
+beside its config — a configuration error rather than a finding, so the whole run
+dies. Excluding build output stays a consumer decision, made where the build output is
+known.
+
+The Biome base turns the recommended rule set on through `linter.rules.preset`, not
+the `recommended` boolean, which Biome's configuration reference marks deprecated in
+favour of it. Both spellings still enable the same rules on 2.5, so nothing lints
+differently — but the choice is **not** free, and the cost is a version floor rather
+than behaviour: `preset` does not exist before Biome 2.5, and Biome refuses a config
+carrying an unknown key outright rather than ignoring it. Measured against 2.4.11,
+the shared base answers `Found an unknown key 'preset'` and the whole run dies. So a
+repository extending this base needs **Biome 2.5 or newer** — the same floor the
+`^2.5.0` peer declares, stated here because an optional peer is not consulted when
+Biome is installed at a workspace root, run through `npx`, or installed globally.
+
+A consumer overriding either spelling to its off value (`preset: "none"`,
+`recommended: false`) is reported by the lockstep gate.
+
+**Do not reach for `biome migrate --write` to make that move.** Measured against
+2.5.0 and 2.5.5, it rewrites `linter.rules.recommended` to `preset: "none"` — the
+OFF value — and it does so for `true` and `false` alike, discarding the distinction
+rather than translating it. A repository that follows the tool's own migration path
+therefore ends up with every recommended rule silently disabled. The gate rejects
+exactly that, so the failure surfaces as a lockstep violation on a config the
+consumer believes it just migrated correctly; the fix is to write
+`"preset": "recommended"` by hand.
+
+### The `"//"` note key is decided per tool, not banned
+
+JSON has no comments, so a note is conventionally smuggled in as a `"//"` key. Whether
+that works is a property of the reader, and the three readers here disagree — so this
+package uses the key in some shipped files and forbids it in others. That looks like a
+contradiction until the measurements are written down, so here they are:
+
+| File | `"//"` | Because |
+|---|---|---|
+| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
+| `templates/jscpd.json` | **yes** | jscpd reads JSON5 and ignores it; the smoke runs the template verbatim, note key and all |
+| `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
+
+The gate follows the same split: it reports a `"//"` key in a consumer's
+`biome.json`/`biome.jsonc` and says nothing about one in `tsconfig.json`. That check is
+one of the few that does not wait for adoption, because the file is unloadable however
+it was written.
+
+The Biome case is not hypothetical — this package shipped a `biome/base.json` carrying
+one, and it was dead config for every consumer that extended it while `ci:test:json`
+reported the file as perfectly valid JSON. That is what the JS smoke exists for.
+
+`tests/check-js-configs.sh` guards this — it packs the package as npm
+ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
+shared configs, with controls proving a `==` comparison and an unchecked array index
+are actually rejected. The `js` CI job runs it on every pull request and on every push to `main`.
 
 ## License
 

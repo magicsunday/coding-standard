@@ -25,7 +25,19 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# CDPATH= because the target `tests/..` starts with neither /, ./ nor ../ and is
+# therefore searched in CDPATH — which both redirects it and echoes the resolved
+# path, making ROOT a two-line value that opens nothing.
+ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/tests/harness.sh"
+
+# The one reporting helper this file has. Its six report sites used to print and
+# increment inline, which left the counter unprovable.
+report_failure() { harness_fail "$1"; }
+
+# The bar is derived, not remembered — see harness_assert_no_stray_increments.
+harness_assert_no_stray_increments 0
+
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
@@ -34,7 +46,6 @@ if [ ! -x "$PHPSTAN" ]; then
     exit 2
 fi
 
-fails=0
 
 # The banned functions are DERIVED from the shipped config, never hand-kept: a
 # sixth ban added to disallowed-calls.neon must not be silently untested, and the
@@ -43,8 +54,33 @@ CONFIG="$ROOT/phpstan/disallowed-calls.neon"
 # Comment lines are stripped first — the file documents an `allowIn` override in a
 # commented example, which would otherwise be parsed as a sixth, duplicate ban.
 mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
-    | grep -oE "function: '[a-z_]+\(\)'" \
-    | sed -E "s/function: '([a-z_]+)\(\)'/\1/")
+    | grep -oE "function: '[a-z0-9_]+\(\)'" \
+    | sed -E "s/function: '([a-z0-9_]+)\(\)'/\1/")
+
+# The extractor's own vocabulary must not bound what it sees. `[a-z0-9_]+` cannot see
+# an uppercase letter, a `\` or a `::` — a class-method ban such as
+# `Nette\Utils\Strings::upper()`, which spaze/phpstan-disallowed-calls supports. Such
+# a ban would get no per-function assertion, and a cardinality check compared against
+# the same truncated list could not notice either. (Digits and dashes are NOT the gap:
+# the class already admits digits, and no PHP function name carries a dash.)
+# Conditional on purpose: the five bans this config declares today all match
+# it — re-derive with the same comment filter the extractor uses, since the config
+# ships a commented example that a bare grep counts as a sixth:
+#
+#     grep -vE '^[[:space:]]*#' phpstan/disallowed-calls.neon | grep -oE "function: '[^']+'"
+#
+# So nothing has been skipped. The guard is for the next spelling, and it reports
+# itself rather than disappearing.
+# Occurrences, not lines: BANNED is filled from `grep -oE`, so two `function: '…'`
+# entries on one neon line would read as 1 == 1 and the second would ship
+# unexercised.
+declared_bans="$(grep -vE '^[[:space:]]*#' "$CONFIG" | grep -oF "function: '" | wc -l || true)"
+
+if [ "$declared_bans" -ne "${#BANNED[@]}" ]; then
+    printf 'FAIL: the config declares %s ban(s) but this harness parsed %s — widen the extractor rather than leaving a ban unexercised.\n' \
+        "$declared_bans" "${#BANNED[@]}"
+    exit 2
+fi
 
 if [ "${#BANNED[@]}" -eq 0 ]; then
     printf 'FAIL: no banned functions parsed out of %s — the extraction broke.\n' "$CONFIG"
@@ -59,9 +95,7 @@ control_out="$(cd "$CONSUMER" && "$PHPSTAN" analyse case-folding \
     && control_rc=0 || control_rc=$?
 
 if [ "$control_rc" -ne 0 ]; then
-    printf 'FAIL (control): base.neon alone reports on the case-folding fixture, so a\n'
-    printf '  report in the positive run would not prove disallowed-calls.neon fired.\n%s\n' "$control_out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'control: base.neon alone reports on the case-folding fixture, so a\n  report in the positive run would not prove disallowed-calls.neon fired.\n%s' "$control_out")"
 else
     printf 'ok (control): base.neon alone is clean on the case-folding fixture\n'
 fi
@@ -72,15 +106,13 @@ out="$(cd "$CONSUMER" && "$PHPSTAN" analyse \
     && rc=0 || rc=$?
 
 if [ "$rc" -eq 0 ]; then
-    printf 'FAIL: the case-folding config reported nothing — it loads but does not fire.\n%s\n' "$out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'the case-folding config reported nothing — it loads but does not fire.\n%s' "$out")"
 else
     for fn in "${BANNED[@]}"; do
         if grep -qF "Calling ${fn}() is forbidden" <<<"$out"; then
             printf 'ok (reported): %s()\n' "$fn"
         else
-            printf 'FAIL: %s() is not reported by the case-folding config.\n' "$fn"
-            fails=$((fails + 1))
+            report_failure "$(printf '%s() is not reported by the case-folding config.' "$fn")"
         fi
     done
 
@@ -94,9 +126,8 @@ else
     if [ "$reported" -eq "${#BANNED[@]}" ]; then
         printf 'ok (count): %d report(s) for %d ban(s)\n' "$reported" "${#BANNED[@]}"
     else
-        printf 'FAIL: %d report(s) for %d ban(s) — the fixture and the config have drifted.\n%s\n' \
-            "$reported" "${#BANNED[@]}" "$out"
-        fails=$((fails + 1))
+        report_failure "$(printf '%d report(s) for %d ban(s) — the fixture and the config have drifted.\n%s' \
+            "$reported" "${#BANNED[@]}" "$out")"
     fi
 fi
 
@@ -111,23 +142,15 @@ strict_out="$(cd "$CONSUMER" && "$PHPSTAN" analyse \
     && strict_rc=0 || strict_rc=$?
 
 if [ "$strict_rc" -eq 0 ]; then
-    printf 'FAIL (wiring): the strict tier reported nothing on the case-folding fixture,\n'
-    printf '  so the documented automatic inclusion does not hold.\n%s\n' "$strict_out"
-    fails=$((fails + 1))
+    report_failure "$(printf 'wiring: the strict tier reported nothing on the case-folding fixture,\n  so the documented automatic inclusion does not hold.\n%s' "$strict_out")"
 else
     for fn in "${BANNED[@]}"; do
         if grep -qF "Calling ${fn}() is forbidden" <<<"$strict_out"; then
             printf 'ok (wiring): %s() is reported through strict.neon\n' "$fn"
         else
-            printf 'FAIL (wiring): %s() is not reported through strict.neon.\n%s\n' "$fn" "$strict_out"
-            fails=$((fails + 1))
+            report_failure "$(printf 'wiring: %s() is not reported through strict.neon.\n%s' "$fn" "$strict_out")"
         fi
     done
 fi
 
-if [ "$fails" -ne 0 ]; then
-    printf '\n%d case(s) failed.\n' "$fails"
-    exit 1
-fi
-
-printf '\nAll cases passed.\n'
+verdict
