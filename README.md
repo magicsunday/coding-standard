@@ -87,16 +87,22 @@ alias, which would move up a major on its own every October.
 
 `engines` (**Node >= 20**) is the separate, consumer-facing constraint added
 for `bin/check-js-config.mjs`: npm evaluates it on every install of this
-package and prints `EBADENGINE` in the *consumer's* log — a hard failure under
-`engine-strict`. Unlike the importable `biome/`/`tsconfig/` JSON, that script
-is real code that runs on a consumer's Node — why >=20 specifically is on the
-`containsLoneSurrogate` docblock in `bin/check-js-config.mjs`, not restated
-here. A consumer below that floor gets an uncaught crash instead of a clean
+package and prints `EBADENGINE` in the *consumer's* log. Unlike the
+importable `biome/`/`tsconfig/` JSON, that script is real code that runs on a
+consumer's Node — why >=20 specifically, and exactly when `EBADENGINE` is a
+hard failure rather than a warning, are both on the `containsLoneSurrogate`
+docblock in `bin/check-js-config.mjs`, not restated here. A consumer below
+that floor gets an uncaught crash instead of a clean
 gate report if nothing declares the requirement. `tests/check-js-configs.sh`
 enforces this floor too, independently of the devEngines one: it rejects a
-`package.json` whose `engines.node` is absent, unparseable, or below what the
-shipped script
-needs. Bumping `devEngines` to track a newer toolchain does not raise
+`package.json` whose `engines.node` is anything other than a single, literal
+`>=X[.Y[.Z]]` lower bound at or above what the shipped script needs — absent,
+unparseable, too low, and any shape it does not fully evaluate (an OR-range,
+a caret/tilde/`.x` range, a bare version, `*`) all reject, because a shape it
+cannot verify could state a floor npm actually reads as looser than it looks
+— the OR-range example and its semver verification are on the check itself
+in `tests/check-js-configs.sh`, not restated here. Bumping `devEngines` to
+track a newer toolchain does not raise
 `engines`, and the reverse — the two are reasoned about, and checked,
 separately.
 

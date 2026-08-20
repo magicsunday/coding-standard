@@ -506,10 +506,17 @@ function exceedsMaxJsonDepth(buffer, maxDepth) {
  * string — unflagged since Node 20.0.0 (V8 11.3, re-derive with
  * `curl -s https://raw.githubusercontent.com/nodejs/node/main/doc/changelogs/CHANGELOG_V20.md \
  *     | grep -B5 isWellFormed`), which is why this file is the floor
- * package.json's `engines.node` declares (npm-enforced on a consumer's
- * install; unrelated to this repository's own >=24 `devEngines` floor, which
- * governs developing this package, not running it once installed). This is
- * its recursive counterpart over a whole parsed document.
+ * package.json's `engines.node` declares — the supported runtime floor npm
+ * evaluates on a consumer's install. The warning-otherwise half is
+ * documented (re-derive with `curl -s
+ * https://raw.githubusercontent.com/npm/cli/latest/docs/lib/content/configuring-npm/package-json.md \
+ *     | grep -A1 engine-strict`); the hard-failure-under-`engine-strict` half
+ * is the runtime behavior itself, not the docs (re-derive with `curl -s
+ * https://raw.githubusercontent.com/npm/cli/latest/workspaces/arborist/lib/arborist/build-ideal-tree.js \
+ *     | grep -A3 engineStrict` — the `throw err` arm). Unrelated to this
+ * repository's own >=24 `devEngines` floor, which governs developing this
+ * package, not running it once installed. This is its recursive counterpart
+ * over a whole parsed document.
  *
  * @param {*} value
  *

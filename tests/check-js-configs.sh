@@ -299,8 +299,12 @@ const asString = (value) => (typeof value === "string" ? value : "");
 
 // The first-numeric-group parse both floor readers below need (devEngines and
 // engines.node) — why only the first group is taken is in the comment above
-// manifest_check. They part ways only in what they do with an unparseable
-// result, which stays at each call site rather than folding into this helper.
+// manifest_check. They part ways in more than unparseable-result handling
+// now: the devEngines caller (`want`) only guards against that with
+// Number.isInteger below; the engines.node caller validates the WHOLE raw
+// shape before ever calling this helper, because a value can parse cleanly
+// to a valid-looking but wrong floor here (the OR-range case) without being
+// unparseable at all — see the shape-check comment further down.
 const firstIntGroup = (value) => parseInt(asString(value).match(/(\d+)/)?.[1] ?? "", 10);
 
 // The floor genuinely required by code THIS package ships to a consumer: why
@@ -360,26 +364,40 @@ if (have < want) {
     process.exit(1);
 }
 
-// Absence, a non-string, an unparseable value and a floor that is genuinely
-// too low all collapse into the SAME verdict here, on purpose: none of them
-// proves a consumer Node satisfies what bin/check-js-config.mjs needs, and a
-// fixture-verified table (spec-first-rule-change, #32) found no case where
-// telling them apart changes what an operator should do about it — dropping
-// the `|| 0` fallback DOES change the verdict (a malformed value would then
-// parse to NaN, and `NaN < MIN_CONSUMER_NODE` is false), so that fallback is
-// load-bearing, not decorative. Only the FIRST digit run in the string is
-// read, same reasoning as the devEngines floor above; an OR-range like
-// "20 || 22" would take the first alternative rather than being read as a
-// range. Out of scope by choice, not by absence: this repository writes its
-// own engines.node (unlike a peer range parsed from a third party), so an
-// OR-range reaching this check would be a value THIS repository chose to
-// write, and simplicity says not to parse a shape nothing here has a reason
-// to produce.
-const consumerWant = firstIntGroup(pkg.engines?.node) || 0;
+// Only a single, unambiguous ">=" lower bound is evaluated — same reasoning
+// as the peerDependencies range check further down, not restated here. This
+// is not a hypothetical for engines.node either:
+// `>=20 || >=18` reads as floor 20 under a first-digit extraction, but the
+// semver OR semantics accept the LOOSER alternative — Node 18 satisfies
+// the range — which is exactly the gap this check exists to close. Verified
+// with the `semver` package: `semver.satisfies("18.0.0", ">=20 || >=18")` is
+// `true`. The same shape also rejects a bare version ("20") or a caret/`.x`
+// range (`^20.0.0`, `20.x`) — each implies an upper bound this floor is not
+// meant to carry — and rejects `*`/empty, which permits anything at all.
+// Absence, a non-string, and an unparseable value all fail the same regex,
+// so they collapse into this one verdict too — a fixture-verified table
+// (spec-first-rule-change, #32) found no case where telling them apart
+// changes what an operator should do about it.
+// Held once: both arms below report on the same field, and a report() call
+// site that diverges from its sibling by accident (not by design, the way
+// the peer-range arms further down each carry their own distinct payload)
+// is exactly the drift this file guards against elsewhere.
+const declaredEnginesNode = { "declared engines.node": pkg.engines?.node };
+
+if (!/^>=\d+(\.\d+){0,2}$/.test(asString(pkg.engines?.node))) {
+    report(`engines.node is not a single ">=X" floor this check can verify (>=${MIN_CONSUMER_NODE} required, for String.prototype.isWellFormed())`,
+        declaredEnginesNode);
+    process.exit(1);
+}
+
+// The shape check above already guarantees a digit run is present, so
+// firstIntGroup cannot return NaN here — unlike its other call site (`want`
+// above), this one needs no `|| 0`/`Number.isInteger` fallback.
+const consumerWant = firstIntGroup(pkg.engines?.node);
 
 if (consumerWant < MIN_CONSUMER_NODE) {
     report(`engines.node floor is below the Node version bin/check-js-config.mjs requires (>=${MIN_CONSUMER_NODE}, for String.prototype.isWellFormed())`,
-        { "declared engines.node": pkg.engines?.node });
+        declaredEnginesNode);
     process.exit(1);
 }
 
@@ -721,22 +739,24 @@ manifest_rejects "$(manifest_fixture floor-above-runtime \
 
 # engines.node used to be forbidden outright; #32 flipped that to required,
 # because bin/check-js-config.mjs now ships real code to a consumer's Node
-# (see the comment above manifest_check's engines.node arm). The three fixtures
-# below drive the REJECT side of that flip, one per input class — but not one
-# per code path: key absent (via the null-sentinel) and value present-but-
-# unparseable both take the identical `|| 0` fallback route to the same
-# comparison (see the comment above MIN_CONSUMER_NODE for why that fallback is
-# load-bearing regardless), and only the third — present, parseable, but too
-# low — reaches the comparison with a genuinely different, nonzero value. The
-# ACCEPT side needs no fixture of its own — every other manifest_accepts case
-# below relies on manifest_fixture's auto-injected ">=20", and
-# `manifest_check "$root"` above already proves the real repository's own
-# `>=20` passes end to end.
+# (see the comment above manifest_check's engines.node arm). The four
+# fixtures below drive the REJECT side of that flip, split across the two
+# checks that arm now runs in sequence: the shape check (absent, unparseable,
+# and the OR-range whose EFFECTIVE floor a first-digit read cannot see — the
+# case CodeRabbit's PR #70 review found; the mechanics are on the shape-check
+# comment above manifest_check's engines.node arm, not restated here) and the
+# floor comparison the shape check's survivors still have to clear (too-low).
+# The ACCEPT side needs no fixture of its own — every other manifest_accepts
+# case below relies on
+# manifest_fixture's auto-injected ">=20", and `manifest_check "$root"` above
+# already proves the real repository's own ">=20" passes end to end.
 #
-# Held once, same reason as peer_drift_sentence/no_pin_sentence further down:
-# three separate literals desynchronise on the first rewording of report()'s
-# message, and the mutation surfaces as an honest test failure rather than a
-# silent pass either way — but only if the sentence lives in one place.
+# Both sentences held once each, same reason as peer_drift_sentence/
+# no_pin_sentence further down: a separate literal per call site
+# desynchronises on the first rewording of report()'s message, and the
+# mutation surfaces as an honest test failure rather than a silent pass
+# either way — but only if the sentence lives in one place.
+consumer_engines_shape_sentence='engines.node is not a single ">=X" floor this check can verify'
 consumer_engines_sentence='engines.node floor is below the Node version'
 
 # Same fixed-body-vary-one-fragment shape as schema_rejects() further down;
@@ -744,22 +764,29 @@ consumer_engines_sentence='engines.node floor is below the Node version'
 # helper's own `dir="$(manifest_fixture …)"` — only the assignment form gives
 # manifest_fixture's crash guard (the comment above it) something for
 # `set -e` to act on.
-engines_node_rejects() { # <name> <engines JSON fragment> <label>
+engines_node_rejects() { # <name> <engines JSON fragment> <label> <sentence>
     local dir
     dir="$(manifest_fixture "$1" \
         "{ \"devEngines\": { \"runtime\": { \"name\": \"node\", \"version\": \">=24\" } }, \"engines\": $2 }")"
 
-    manifest_rejects "$dir" "$3" "$consumer_engines_sentence"
+    manifest_rejects "$dir" "$3" "$4"
 }
 
 engines_node_rejects engines-absent 'null' \
-    "manifest control — a package.json with no engines.node at all is reported"
+    "manifest control — a package.json with no engines.node at all is reported" \
+    "$consumer_engines_shape_sentence"
 
 engines_node_rejects engines-node-not-parseable '{ "node": "latest" }' \
-    "manifest control — an engines.node value with no parseable digits is reported, not accepted via the || 0 fallback"
+    "manifest control — an engines.node value with no parseable digits is reported" \
+    "$consumer_engines_shape_sentence"
+
+engines_node_rejects engines-node-or-range '{ "node": ">=20 || >=18" }' \
+    "manifest control — an OR-range whose loosest alternative permits an unsupported Node is reported, not accepted at its first alternative's floor" \
+    "$consumer_engines_shape_sentence"
 
 engines_node_rejects engines-too-low '{ "node": ">=18" }' \
-    "manifest control — an engines.node floor below what bin/check-js-config.mjs needs is reported"
+    "manifest control — an engines.node floor below what bin/check-js-config.mjs needs is reported" \
+    "$consumer_engines_sentence"
 
 # The asserted sentences, held once each. Every reader needs the identical bytes:
 # the controls that assert one, and the poison values that prove no fixture can
