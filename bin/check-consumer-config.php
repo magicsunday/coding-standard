@@ -1023,7 +1023,16 @@ $npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $
         return false;
     }
 
-    foreach (['dependencies', 'devDependencies', 'optionalDependencies'] as $section) {
+    // peerDependencies included: npm >=7 auto-installs an unmet peer with no other
+    // declaration needed — measured, `npm install` on a package.json naming a package
+    // ONLY under peerDependencies adds it to node_modules. A consumer moving the entry
+    // there (or a PR that does it to switch this whole contract off) still has the
+    // package on disk and the shared configs still apply; a section list that excluded
+    // it would report "not adopted" for a repository that plainly is. Not proof of
+    // resolution either way — a future npm dependency section this list does not name,
+    // or a non-standard install path (a workspace hoist, a resolutions/overrides shim),
+    // is not covered.
+    foreach (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
         if (isset($json[$section]['@magicsunday/coding-standard'])) {
             return true;
         }

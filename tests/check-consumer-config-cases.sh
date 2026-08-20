@@ -1763,8 +1763,12 @@ fi
 
 # --- the remaining branches --------------------------------------------------
 
-# The adoption probe reads three dependency sections; only one was exercised.
-for section in dependencies optionalDependencies; do
+# The adoption probe reads four dependency sections; only devDependencies (used
+# throughout the rest of this file) was exercised before this loop existed.
+# peerDependencies included: npm >=7 auto-installs an unmet peer with no other
+# declaration needed, so a consumer (or an adversarial PR) moving the entry there
+# alone still has the package on disk and the shared configs still apply.
+for section in dependencies optionalDependencies peerDependencies; do
     d="$(mk_case "js-adopted-via-$section")"
     printf '{\n    "%s": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' "$section" > "$d/package.json"
     printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
