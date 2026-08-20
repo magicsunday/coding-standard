@@ -32,12 +32,14 @@ declare(strict_types=1);
  *
  * The JS/TS configs (biome.json, tsconfig.json) are checked too, on a narrower
  * contract: they are `extends` stubs rather than copies, so their rule content
- * cannot drift — but the LINK can. The full list of what is asserted is the
- * `$fail(…)` sites in the `biome.json`/`tsconfig.json` blocks below, bounded by
- * their own section markers so the count excludes every other config this file
- * checks (`sed -n '/^\/\/ biome.json/,$p' bin/check-consumer-config.php | grep
- * -c '\$fail('`) — restated here it would be the third copy to drift out of
- * step with the code, after this file's own history of that.
+ * cannot drift — but the LINK can. What is asserted for THIS pair — not counted
+ * here, because a number drifts and a boundary is disputable (does the shared
+ * package.json-readability precondition belong to the count or not?) — is every
+ * `$fail(…)` site from the `// --- biome.json / tsconfig.json` section marker
+ * to the end of the file (`sed -n '/^\/\/ --- biome.json \/ tsconfig.json/,$p'
+ * bin/check-consumer-config.php | grep -n '\$fail('`) — restated as a fixed
+ * list here it would be the third copy to drift out of step with the code,
+ * after this file's own history of that.
  *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
