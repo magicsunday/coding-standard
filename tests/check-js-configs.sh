@@ -53,9 +53,22 @@ fail() {
     fails=$((fails + 1))
 
     if [ "$#" -gt 1 ]; then
-        # npm echoes package specifiers verbatim, so the excerpt carries whatever a
-        # devDependency name says. Same scrub as the report lines.
-        sed -n '1,40p' "$2" | tr -d '\000-\010\013\014\016-\037\177' | sed 's/#\[/#?[/g' >&2
+        # The one report route in this file that reaches COLUMN 0. Every other line
+        # carries a constant prefix (`OK       `, `FAILED   `, `INFO     `), so a value
+        # inside it cannot open a line; a tool's log is printed as it came. Biome
+        # echoes an unknown config key verbatim, newline included, so a key spelled
+        # "\n::error::forged" in a consumer's biome.json arrives at column 0 — measured
+        # against the real binary.
+        #
+        # Not the same scrub as safe_report, and deliberately: the excerpt is
+        # multi-line by design, so newlines stay. What has to go instead is the
+        # sequence at the START of a line, plus CR — the runner reads with
+        # StreamReader.ReadLine(), which treats a bare CR as a line break, and the
+        # C0 class below keeps 13 on purpose so a CRLF log stays readable.
+        sed -n '1,40p' "$2" \
+            | tr '\r' '?' \
+            | tr -d '\000-\010\013\014\016-\037\177' \
+            | sed -e 's/#\[/#?[/g' -e 's/^[[:space:]]*::/  ?::/' >&2
     fi
 }
 
@@ -85,16 +98,25 @@ harness_probe_reporters 1 probe_reporters
 # a redirect target or a log-path argument, and reported nineteen sites of which
 # thirteen were neither.
 #
-# The property is about the OUTPUT, so it is asserted on the output. A poisoned fixture
-# drives every value route this file reports, and the run must carry neither grammar
-# nor an ESC — which is what GitHub Actions and a terminal key on, and it holds however
-# a future report line is written.
+# The property is about the OUTPUT, so it is asserted on the output: the run must carry
+# neither grammar nor an ESC, which is what GitHub Actions and a terminal key on.
+#
+# What it does NOT do, stated because two earlier designs claimed coverage they did not
+# have and this one must not: it drives the report HELPERS over a poisoned value, not
+# every call site. A new report line added without safe_report is invisible to it —
+# measured, stripping safe_report from three real sites leaves this green. The PHP side
+# has the right shape (harness_report_is_inert runs the real binary over a real
+# fixture); doing the same here needs the smoke's loops driven over a poisoned $root,
+# which is tracked rather than bolted on. What this pins is the helpers, the encoder
+# and the log-excerpt route, each in both directions.
 harness_probe_report_inertness() {
     local poisoned forged out
     poisoned="$(mktemp -d)"
-    forged="$(printf 'x\n::error title=pwned::forged ##[error]legacy \033[2K')"
+    # Every byte class the two scrubs handle, so dropping any one of them is visible:
+    # a newline (opens a line), a CR (opens a line to the runner, invisible to grep),
+    # both command grammars, and an ESC.
+    forged="$(printf 'x\n::error title=pwned::forged ##[error]legacy \033[2K\rcr')"
 
-    mkdir -p "$poisoned/biome"
     FORGED="$forged" node -e '
 const fs = require("node:fs");
 const forged = process.env.FORGED;
@@ -106,10 +128,6 @@ fs.writeFileSync(dir + "/package.json", JSON.stringify({
     devDependencies: { [forged]: "1.0.0" },
     peerDependencies: { [forged]: "^1.0.0" },
 }));
-fs.writeFileSync(dir + "/biome/base.json", JSON.stringify({
-    linter: { rules: { correctness: { useImportExtensions: { options: { extensionMappings: { [forged]: forged } } } } } },
-}));
-fs.writeFileSync(dir + "/templates/jscpd.json".replace("/templates", ""), JSON.stringify({ format: [forged] }));
 ' "$poisoned"
 
     # Only the value-reporting helpers are driven, not the whole gate: the point is the
@@ -122,6 +140,8 @@ fs.writeFileSync(dir + "/templates/jscpd.json".replace("/templates", ""), JSON.s
             fail "templates/jscpd.json names the format \"$(safe_report "$forged")\", which this smoke has no fixture extension for" 
             fail "README documents $(safe_report "$forged") $(safe_report "$forged") but package.json pins $(safe_report "$forged")"
             fail "biome/base.json maps the .$(safe_report "$forged") extension, which this smoke has no proven target for"
+            printf '%s\n' 'x' '    ::error::forgedByATool' 'mid ##[error]legacyFromATool' "$(printf 'cr\rforged')" > "$poisoned/tool.log"
+            fail 'a tool rejected the fixture' "$poisoned/tool.log"
             ROOT="$poisoned" node -e '
 const pkg = require(process.env.ROOT + "/package.json");
 const encodeValue = (value) => {
@@ -150,10 +170,30 @@ for (const [name, range] of Object.entries(pkg.peerDependencies)) {
         fail "bookkeeping self-test — an ANSI escape from a consumer value reached the report"
     fi
 
-    # The accepting direction, so the assertion cannot pass by producing nothing: the
-    # poisoned value must actually have reached the stream, scrubbed.
-    if ! grep -qF -- '#?[error]legacy' <<<"$out"; then
-        fail "bookkeeping self-test — the poisoned value never reached the report, so nothing was asserted"
+    # CR is its own line break to the runner: it reads child output with
+    # StreamReader.ReadLine(), which ends a line on LF, CR, or CRLF. The three arms
+    # above cannot see it, because grep splits on LF only — so a bare CR opens a line
+    # they never examine, and dropping either scrub's CR handling was invisible.
+    if grep -q "$(printf '\r')" <<<"$out"; then
+        fail "bookkeeping self-test — a bare carriage return reached the report, which opens a line to the runner"
+    fi
+
+    # The accepting direction, one per ROUTE. A single must-carry over the union is
+    # satisfied by any one of them, so retiring the others would go unnoticed — the
+    # inert-by-omission shape this family keeps producing.
+    if ! grep -qF -- 'tools under test: x?::error' <<<"$out"; then
+        fail "bookkeeping self-test — the bash report route printed no scrubbed payload"
+    fi
+
+    # The node encoder ESCAPES the newline rather than translating it — `\n`, two
+    # characters — which is its containment mechanism and a different one from the bash
+    # side's `?`. Asserting the bash spelling here was wrong and this arm caught it.
+    if ! grep -qF -- 'INFO     peer: "x\n::error' <<<"$out"; then
+        fail "bookkeeping self-test — the node encoder printed no scrubbed payload"
+    fi
+
+    if ! grep -qF -- '  ?::error::forgedByATool' <<<"$out"; then
+        fail "bookkeeping self-test — the log-excerpt route printed no scrubbed payload"
     fi
 }
 

@@ -390,6 +390,13 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
         reason='a consumer value forged a `::` workflow command'
     elif grep -qF -- '##[' <<<"$out"; then
         reason='a consumer value forged a legacy `##[…]` workflow command'
+    elif grep -q "$(printf '\r')" <<<"$out"; then
+        # CR is its own line break to the runner, which reads child output with
+        # StreamReader.ReadLine() — LF, CR or CRLF all end a line. The `::` arm above
+        # cannot see it, because grep splits on LF only, so a bare CR opens a line that
+        # arm never examines. Measured: dropping \r from safeReportValue's class left
+        # every suite green before this existed.
+        reason='a consumer value carried a bare carriage return, which opens a line to the runner'
     elif [ "$lines" -gt 4 ]; then
         reason="a consumer value split the report across $lines lines"
     elif [ "$#" -gt 3 ] && [ -z "$4" ]; then
@@ -484,6 +491,9 @@ harness_probe_inert_shapes() {
     harness_fake_report='  - x: mid-line ##[error]forged'
     harness_report_is_inert php /nonexistent 'probe: a legacy `##[…]` command'
 
+    harness_fake_report="$(printf '  - x: before\rafter')"
+    harness_report_is_inert php /nonexistent 'probe: a bare carriage return'
+
     harness_fake_report="$(printf 'a\nb\nc\nd\ne')"
     harness_report_is_inert php /nonexistent 'probe: the report was split'
 
@@ -503,7 +513,7 @@ harness_probe_inert_shapes() {
     harness_fake_rc=1
 }
 
-harness_probe_reporters 7 harness_probe_inert_shapes \
+harness_probe_reporters 8 harness_probe_inert_shapes \
     'harness_report_is_inert has an arm that no longer decides'
 
 # harness_assert_no_stray_increments <expected-count>

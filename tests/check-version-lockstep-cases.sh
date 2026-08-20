@@ -215,6 +215,15 @@ d="$(mk_case inert-version '1.7.0\n  ::Error::forged from a pull request' \
 assert_report_is_inert "$d" "a package.json version cannot forge a \`::\` workflow command" \
     '1.7.0?  ::Error::forged from a pull request'
 
+# A bare CR in a consumer value, which the `::` arm cannot see: grep splits on LF, so a
+# CR opens a line that arm never examines, while the runner's ReadLine() treats it as a
+# line break. Dropping \r from safeReportValue's class left every suite green before
+# this case existed.
+d="$(mk_case inert-version-carriage-return '1.7.0\r::Error::forged from a pull request' \
+    'github:magicsunday/coding-standard#1.7.0')"
+assert_report_is_inert "$d" 'a carriage return in a consumer value cannot open a line' \
+    '1.7.0?::Error::forged'
+
 # The scrub breaks `#[`, the shorter form, so that a scrubbed value cannot combine
 # with the constant text around it into a legacy command. This pins that shorter
 # break directly; the full `##[` follows from it by subsumption.
