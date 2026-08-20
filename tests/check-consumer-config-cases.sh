@@ -1427,20 +1427,26 @@ for oversize_file in phpunit.xml .jscpd.json .phplint.yml .editorconfig deptrac.
     assert_reports_once "$d" "an oversized $oversize_file is reported once, as itself" "$oversize_file"
 done
 
-# The npm probe's own oversize arm, which is the one place this bound can turn a
-# report into a SILENCE rather than a wrong cause: $npmDependencyDeclared answers
-# whether the repository adopted the package, and an oversize manifest used to make
-# it answer "no" — switching the whole adoption-gated JS/TS contract off on the
-# strength of a file the gate could not read. The biome.json here carries a defect
-# the gate must still name.
+# The npm probe's own oversize arm. What it pins is that the manifest problem is
+# REPORTED, once and as itself — not that the JS/TS contract keeps running. It does
+# not: an unreadable manifest means the gate cannot know whether the repository
+# declared the dependency, so it answers "not adopted" and the adoption-gated checks
+# are skipped. That is deliberate — reporting them on a guess is the false positive
+# the adoption gate exists for — and it is safe only because the read was already
+# reported. An earlier label here claimed the opposite, which assert_reports_once
+# could never have decided: it counts `- package.json:` lines and nothing else.
+#
+# A biome.json has to be present or the probe is never called at all — the JS/TS half
+# runs only where a JS config exists. It is a CLEAN one, so the single report this
+# case counts is the manifest's own.
 d="$(mk_case package-json-past-the-size-cap)"
 cat > "$d/biome.json" <<'JSON'
 {
-    "linter": { "enabled": false }
+    "extends": ["@magicsunday/coding-standard/biome/base.json"]
 }
 JSON
 php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/package.json"
-assert_reports_once "$d" "an oversized package.json is reported once and does not silence the JS/TS contract" \
+assert_reports_once "$d" "an oversized package.json is reported once, as itself" \
     "package.json"
 
 # The DEL half of the scrub class. `\x00-\x1F` is exercised by the payloads above;

@@ -163,9 +163,15 @@ $fail = static function (array &$violations, string $file, string $detail): void
 // Required rather than duplicated.
 require_once __DIR__ . '/support/safe-report-value.php';
 
-// The oversize verdict, held once — the wording was edited at each reader separately
-// before this binding existed. Takes the bound as an argument, because the JSONC and
-// plain-text readers do not share one.
+/**
+ * The oversize verdict, held once — the wording was edited at each reader separately
+ * before this binding existed. Takes the bound as an argument, because the JSONC and
+ * plain-text readers do not share one.
+ *
+ * @param int $bound The cap the reader was held to.
+ *
+ * @return string The detail line, ready for $fail.
+ */
 $tooLargeDetail = static fn (int $bound): string => sprintf(
     'is larger than the %d bytes this gate checks, so it was not read in full. A shared-config stub is a few hundred bytes.',
     $bound
@@ -992,10 +998,11 @@ $npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $
     $contents = $readBounded($violations, $packageJsonFile, 'package.json');
 
     if ($contents === null) {
-        // Reported as oversize by $readBounded. Returning false here would switch the
-        // whole adoption-gated JS/TS contract off on the strength of a manifest the
-        // gate could not read — the fail-open js-package-json-unreadable exists
-        // against, reached by the other of the two paths into this arm.
+        // Oversize, and already reported by $readBounded — which is what makes
+        // answering "not adopted" safe here. The gate cannot know whether a manifest
+        // it could not read declares the dependency, and reporting the adoption-gated
+        // contract on a guess is the false positive that gate exists to prevent. What
+        // would be a fail-open is answering false SILENTLY; the run is already red.
         return false;
     }
 
