@@ -156,14 +156,45 @@ function readBoundedBytes(path, maxBytes) {
 }
 
 /**
+ * Decodes bytes as UTF-8, rejecting invalid sequences instead of silently
+ * substituting U+FFFD the way `Buffer.prototype.toString('utf8')` does.
+ *
+ * PHP's `json_decode()` unconditionally rejects a document containing invalid
+ * UTF-8 (returns null), and $stripJsonc runs byte-safe ahead of it — so a
+ * config with one stray invalid byte anywhere is a parse failure on the PHP
+ * side, whoever wrote it. `buffer.toString('utf8')` would instead "repair" the
+ * byte to U+FFFD before any parsing happens, and `JSON.parse` would then
+ * accept the repaired string — silently ACCEPTING a config the PHP gate
+ * rejects, on the same byte-identical file. `TextDecoder` with `fatal: true`
+ * is the one Node primitive that fails the way `json_decode` does.
+ *
+ * @param {Buffer} buffer
+ *
+ * @returns {string|null} The decoded text, or null on invalid UTF-8.
+ */
+function decodeUtf8Strict(buffer) {
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Reads a plain-text config under MAX_TEXT_BYTES, reporting an oversize file
  * itself. Mirrors $readBounded: false means unreadable (not yet reported), null
- * means oversize (already reported), a string is the contents.
+ * means oversize (already reported), a Buffer is the contents.
+ *
+ * Returned as bytes, not a decoded string: PHP's own $readBounded is
+ * encoding-agnostic too — it is the caller's json_decode() that rejects
+ * invalid UTF-8, so decoding (and deciding what an invalid-UTF-8 read means
+ * for the caller's own contract) belongs at the call site, via
+ * decodeUtf8Strict.
  *
  * @param {string} path
  * @param {string} label How the file is named in the report.
  *
- * @returns {string|false|null}
+ * @returns {Buffer|false|null}
  */
 function readBounded(path, label) {
     const buffer = readBoundedBytes(path, MAX_TEXT_BYTES + 1);
@@ -178,7 +209,7 @@ function readBounded(path, label) {
         return null;
     }
 
-    return buffer.toString('utf8');
+    return buffer;
 }
 
 /**
@@ -193,6 +224,40 @@ function readBounded(path, label) {
  */
 function stripBom(text) {
     return text.startsWith('﻿') ? text.slice(1) : text;
+}
+
+/**
+ * Scans a complete string literal starting at a `"` and returns the index just
+ * past its closing quote (or `n`, on an unterminated literal — the caller's own
+ * scan then runs out at the same point a real JSON parser would reject it).
+ * Shared by stripComments and stripTrailingCommas, which both need to copy a
+ * string literal verbatim and skip past it without treating anything inside it
+ * as a comment marker or a structural comma.
+ *
+ * @param {string} json
+ * @param {number} start Index of the opening `"`.
+ * @param {number} n     `json.length`.
+ *
+ * @returns {number}
+ */
+function skipStringLiteral(json, start, n) {
+    let j = start + 1;
+
+    while (j < n) {
+        if (json[j] === '\\') {
+            j += 2;
+            continue;
+        }
+
+        if (json[j] === '"') {
+            j += 1;
+            break;
+        }
+
+        j += 1;
+    }
+
+    return j;
 }
 
 /**
@@ -221,21 +286,7 @@ function stripComments(json) {
         const c = json[i];
 
         if (c === '"') {
-            let j = i + 1;
-
-            while (j < n) {
-                if (json[j] === '\\') {
-                    j += 2;
-                    continue;
-                }
-
-                if (json[j] === '"') {
-                    j += 1;
-                    break;
-                }
-
-                j += 1;
-            }
+            const j = skipStringLiteral(json, i, n);
 
             out += json.slice(i, j);
             i = j;
@@ -291,21 +342,7 @@ function stripTrailingCommas(json) {
         const c = json[i];
 
         if (c === '"') {
-            let j = i + 1;
-
-            while (j < n) {
-                if (json[j] === '\\') {
-                    j += 2;
-                    continue;
-                }
-
-                if (json[j] === '"') {
-                    j += 1;
-                    break;
-                }
-
-                j += 1;
-            }
+            const j = skipStringLiteral(json, i, n);
 
             out += json.slice(i, j);
             i = j;
@@ -359,7 +396,13 @@ function loadJsonc(path) {
         return { kind: 'oversize' };
     }
 
-    const contents = stripBom(buffer.toString('utf8'));
+    const text = decodeUtf8Strict(buffer);
+
+    if (text === null) {
+        return { kind: 'unparseable' };
+    }
+
+    const contents = stripBom(text);
     const stripped = stripJsonc(contents);
 
     let decoded;
@@ -375,6 +418,24 @@ function loadJsonc(path) {
     }
 
     return { kind: 'ok', value: decoded };
+}
+
+/**
+ * True for anything `json_decode(..., true)` would answer `is_array()` true
+ * for: a JSON array AND a JSON object alike, since PHP's associative array
+ * does not distinguish them. Every `is_array($x)` check ported from
+ * bin/check-consumer-config.php needs this, not `Array.isArray` — a JS
+ * `Array.isArray` is false for a plain object, which silently narrows a PHP
+ * "either shape" check to "array shape only". Pair with `Object.values()`
+ * (uniform over an array's elements and an object's values) wherever the PHP
+ * side then iterates the checked value with `foreach`.
+ *
+ * @param {*} value
+ *
+ * @returns {boolean}
+ */
+function isArrayLike(value) {
+    return value !== null && typeof value === 'object';
 }
 
 /**
@@ -394,11 +455,11 @@ function loadJsonc(path) {
 function extendsShared(config, sharedStem, suffixOptional, listRequired = false) {
     const extendsValue = Object.hasOwn(config, 'extends') ? config.extends : null;
 
-    if (listRequired && !Array.isArray(extendsValue)) {
+    if (listRequired && !isArrayLike(extendsValue)) {
         return false;
     }
 
-    const candidates = Array.isArray(extendsValue) ? extendsValue : [extendsValue];
+    const candidates = isArrayLike(extendsValue) ? Object.values(extendsValue) : [extendsValue];
     const escapedStem = sharedStem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const suffix = suffixOptional ? '(?:\\.json)?' : '\\.json';
     const pattern = new RegExp(
@@ -474,12 +535,15 @@ function npmDependencyDeclared(repoRoot) {
         return false;
     }
 
-    let json;
+    const text = decodeUtf8Strict(contents);
+    let json = null;
 
-    try {
-        json = JSON.parse(stripBom(contents));
-    } catch {
-        json = null;
+    if (text !== null) {
+        try {
+            json = JSON.parse(stripBom(text));
+        } catch {
+            json = null;
+        }
     }
 
     if (json === null || typeof json !== 'object') {
@@ -589,8 +653,8 @@ if (biomeFile !== null) {
         // route that leaves every `enabled` flag true.
         const rootIncludes = biomeJson.files?.includes ?? null;
 
-        if (Array.isArray(rootIncludes)) {
-            const positive = rootIncludes.filter(
+        if (isArrayLike(rootIncludes)) {
+            const positive = Object.values(rootIncludes).filter(
                 (pattern) => typeof pattern === 'string' && !pattern.startsWith('!'),
             );
 

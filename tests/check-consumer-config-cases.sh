@@ -157,11 +157,15 @@ assert_report_is_inert_js() {
     out="$HARNESS_OUT"
     lines="$(grep -c . <<<"$out" || true)"
 
-    # The four arms proven below (degraded, wrong exit, empty must-carry, wrong
-    # substring) are the dispatch this wrapper adds. The scrub-shape arms below
-    # them (ANSI/`::`/`##[`/CR/line-split) reuse harness_report_is_inert's own
-    # regexes verbatim — proven once, in harness.sh's harness_probe_inert_shapes,
-    # against the same patterns — so they are not reproven here.
+    # Three of the arms below are proven by probe_report_is_inert_js_shapes
+    # (degraded, wrong exit, wrong substring) — the dispatch this wrapper adds.
+    # The empty-must-carry arm is NOT re-probed, for the same reason stated
+    # where assert_rejects_js's identical arm is skipped above: it is the same
+    # one-line check already proven in harness.sh's own probes, reused verbatim
+    # rather than rewritten. The scrub-shape arms below them (ANSI/`::`/`##[`/
+    # CR/line-split) reuse harness_report_is_inert's own regexes verbatim —
+    # proven once, in harness.sh's harness_probe_inert_shapes, against the same
+    # patterns — so they are not reproven here either.
     if degraded "$out"; then
         reason='the node gate ran degraded — it emitted a diagnostic'
     elif [ "$HARNESS_RC" -ne 1 ]; then
@@ -224,9 +228,15 @@ probe_usage_error_js_shapes() {
     node_fake_report='  - x: refused to run'
     node_fake_rc=1
     assert_usage_error_js /nonexistent 'probe: usage_error_js, not the usage exit' 'refused'
+
+    # The php stub still carries 'refused' (so the php-side call passes), the
+    # node stub does not (so only the node-side wrong-reason arm decides).
+    node_fake_report='  - x: something else happened'
+    node_fake_rc=2
+    assert_usage_error_js /nonexistent 'probe: usage_error_js, the wrong reason' 'refused'
 }
 
-harness_probe_reporters 2 probe_usage_error_js_shapes \
+harness_probe_reporters 3 probe_usage_error_js_shapes \
     'assert_usage_error_js has a node arm that no longer decides'
 
 probe_rejects_js_shapes() {
