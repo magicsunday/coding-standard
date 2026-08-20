@@ -35,7 +35,8 @@ config; `templates/` holds **copy-and-adapt** files whose tools require the file
 consumer's repo root and therefore cannot be imported; the repository root holds only
 this package's **own** dev config, all of it `export-ignore`d — except
 `/package.json`, which a `github:` consumer must receive. This repository tracks no
-lock file; a repository that does has the same exception for it, and the header of
+lock file; a repository that DOES commit `/package-lock.json` has the same exception
+for that specific file, and the header of
 `templates/gitattributes` is where that is stated. Put a new config in the
 directory that matches how it is consumed, never at the root for convenience.
 
