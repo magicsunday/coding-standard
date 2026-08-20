@@ -569,6 +569,40 @@ repository willing to do the latter can equally drop the gate from its CI. Closi
 both would mean resolving the `extends` chain and deriving the rule names from the
 shared base; that is tracked in #36 rather than half-done here.
 
+### Node-only front end — `bin/check-js-config.mjs`
+
+`bin/check-consumer-config.php` is a Composer-installed entry point, so it only ever
+runs in a repository that consumes the PHP side too — which excludes exactly the
+repositories whose whole toolchain **is** the shared Biome/TypeScript setup (a pure-JS
+module with no `composer.json`). `bin/check-js-config.mjs` is that same
+`biome.json`/`tsconfig.json` contract — the adoption gate, the `"//"` guard, the
+`linter`/`formatter`/`assist` walk across the document/`overrides`/per-language scopes,
+the `files.includes` no-positive-pattern check, the recommended/preset floor at every
+scope, the `extends` link check, and the pinned strict-flag list — run against a path
+argument instead, with no PHP or Composer involved. It is a second front end for the
+SAME rule, not a second rule: every `biome.json`/`tsconfig.json` case in
+`tests/check-consumer-config-cases.sh` also runs this gate against the identical
+fixture directory and requires the identical verdict, so the two cannot silently drift
+apart the way two independently maintained fixture lists could.
+
+Shipped as an npm `bin` entry, so a consumer wires it as a plain npm script:
+
+```json
+"scripts": {
+    "ci:test:js:config": "check-js-config ."
+}
+```
+
+or invokes it directly: `node node_modules/@magicsunday/coding-standard/bin/check-js-config.mjs .`.
+Exit code 0 means every present config matches the shared standard, 1 means at least
+one drift, 2 means the path argument is not a directory. A repository with neither
+`biome.json`/`biome.jsonc` nor `tsconfig.json` is not probed at all, exactly as on the
+PHP side.
+
+Everything the "What it does not do" note above says about `bin/check-consumer-config.php`
+— a drift detector, not a bypass guard, and blind to a later `extends` entry or an
+individually named rule — applies here identically, since it is the same contract.
+
 ### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
 
 phpat rules run inside PHPStan, and a rule whose **subject matches nothing** enforces

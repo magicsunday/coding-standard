@@ -409,6 +409,23 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
     harness_settle "$reason" "$label" "$out" 'rejected, and the report stayed inert'
 }
 
+# harness_run_argv <dir> <cmd...>
+#
+# Runs <cmd...> <dir>, capturing stdout+stderr and the exit code into
+# HARNESS_OUT / HARNESS_RC. Every gate-specific assertion above hardcodes
+# `php "$gate" "$dir"`, which cannot flex to a second interpreter — added for a
+# caller driving a node-side gate (bin/check-js-config.mjs, added for #32)
+# alongside the PHP one. A caller builds its own thin accept/reject wrapper
+# around this and around the already-shared, already-probed harness_settle and
+# degraded, rather than this file growing a second `php`-shaped function family
+# per interpreter it is asked to drive — harness_accepts and friends stay
+# exactly as proven by harness_probe_assert_shapes, unmodified.
+harness_run_argv() {
+    local dir="$1"
+    shift
+    HARNESS_OUT="$("$@" "$dir" 2>&1)" && HARNESS_RC=0 || HARNESS_RC=$?
+}
+
 # Every arm of the three shared assertions, driven once. Per-caller copies of this
 # were what the shared helpers replaced; what the callers could NOT prove is that
 # each arm still decides, because no fixture makes a gate reject for the wrong

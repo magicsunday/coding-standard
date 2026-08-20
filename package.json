@@ -16,8 +16,13 @@
     ],
     "files": [
         "biome",
-        "tsconfig"
+        "tsconfig",
+        "bin/check-js-config.mjs",
+        "bin/support/safe-report-value.mjs"
     ],
+    "bin": {
+        "check-js-config": "bin/check-js-config.mjs"
+    },
     "devEngines": {
         "runtime": {
             "name": "node",

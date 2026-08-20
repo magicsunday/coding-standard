@@ -24,6 +24,12 @@ harness_workdir
 GATE="$ROOT/bin/check-consumer-config.php"
 FIXTURE="$ROOT/tests/consumer"
 
+# The node-side front end for the same biome.json/tsconfig.json contract, added
+# for #32 — see bin/check-js-config.mjs's own header. Driven only by
+# assert_accepts_js/assert_rejects_js/assert_usage_error_js/assert_report_is_inert_js
+# below, alongside their PHP-only counterparts, never standalone.
+NODE_GATE="$ROOT/bin/check-js-config.mjs"
+
 # `degraded` comes from tests/harness.sh. Why this harness needs it, which the
 # shared comment cannot know:
 #
@@ -81,6 +87,192 @@ report_failure() { harness_fail "$1"; }
 
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
+
+# The four _js wrappers below are the differential half of #32: every
+# biome.json/tsconfig.json case that calls one, in addition to the PHP-only
+# assertion it wraps, requires bin/check-js-config.mjs to reach the SAME verdict
+# against the identical fixture directory. They call harness_run_argv rather than
+# a gate-specific harness.sh helper for the reason stated on harness_run_argv
+# itself: a second, near-identical `php`-shaped function family for one more
+# interpreter is what this whole file exists to avoid, and harness_settle/degraded
+# — the actually shared, already-probed bookkeeping — are reused unchanged.
+assert_accepts_js() {
+    assert_accepts "$@"
+
+    local dir="$1" label="$2" reason=''
+    harness_run_argv "$dir" node "$NODE_GATE"
+
+    if degraded "$HARNESS_OUT"; then
+        reason='the node gate ran degraded — it emitted a diagnostic'
+    elif [ "$HARNESS_RC" -ne 0 ]; then
+        reason="expected the node gate to accept, got exit $HARNESS_RC"
+    fi
+
+    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'accepted'
+}
+
+assert_rejects_js() {
+    assert_rejects "$@"
+
+    local dir="$1" label="$2" expected="$3" reason=''
+    harness_run_argv "$dir" node "$NODE_GATE"
+
+    if degraded "$HARNESS_OUT"; then
+        reason='the node gate ran degraded — it emitted a diagnostic'
+    elif [ "$HARNESS_RC" -ne 1 ]; then
+        reason="expected the node gate to reach the drift verdict, got exit $HARNESS_RC"
+    elif [ -z "$expected" ]; then
+        reason='the must-carry argument is empty, so it would assert nothing'
+    elif ! grep -qF -- "$expected" <<<"$HARNESS_OUT"; then
+        reason="the node gate rejected, but not for the tested reason; expected to find: $expected"
+    fi
+
+    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'rejected on the tested violation'
+}
+
+assert_usage_error_js() {
+    assert_usage_error "$@"
+
+    local dir="$1" label="$2" expected="$3" reason=''
+    harness_run_argv "$dir" node "$NODE_GATE"
+
+    if degraded "$HARNESS_OUT"; then
+        reason='the node gate ran degraded — it emitted a diagnostic'
+    elif [ "$HARNESS_RC" -ne 2 ]; then
+        reason="expected the node gate's usage exit, got exit $HARNESS_RC"
+    elif [ -z "$expected" ]; then
+        reason='the must-carry argument is empty, so it would assert nothing'
+    elif ! grep -qF -- "$expected" <<<"$HARNESS_OUT"; then
+        reason="the node gate refused, but not for the tested reason; expected to find: $expected"
+    fi
+
+    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'refused to run, as expected'
+}
+
+assert_report_is_inert_js() {
+    assert_report_is_inert "$@"
+
+    local dir="$1" label="$2" out lines reason=''
+    harness_run_argv "$dir" node "$NODE_GATE"
+    out="$HARNESS_OUT"
+    lines="$(grep -c . <<<"$out" || true)"
+
+    # The four arms proven below (degraded, wrong exit, empty must-carry, wrong
+    # substring) are the dispatch this wrapper adds. The scrub-shape arms below
+    # them (ANSI/`::`/`##[`/CR/line-split) reuse harness_report_is_inert's own
+    # regexes verbatim — proven once, in harness.sh's harness_probe_inert_shapes,
+    # against the same patterns — so they are not reproven here.
+    if degraded "$out"; then
+        reason='the node gate ran degraded — it emitted a diagnostic'
+    elif [ "$HARNESS_RC" -ne 1 ]; then
+        reason="expected the node gate to reach the drift verdict, got exit $HARNESS_RC"
+    elif grep -q "$(printf '\033')" <<<"$out"; then
+        reason='an ANSI escape from a consumer value reached the node report'
+    elif grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$out"; then
+        reason='a consumer value forged a `::` workflow command in the node report'
+    elif grep -qF -- '##[' <<<"$out"; then
+        reason='a consumer value forged a legacy `##[…]` workflow command in the node report'
+    elif grep -q "$(printf '\r')" <<<"$out"; then
+        reason='a consumer value carried a bare carriage return in the node report'
+    elif [ "$lines" -gt 4 ]; then
+        reason="a consumer value split the node report across $lines lines"
+    elif [ "$#" -gt 2 ] && [ -z "$3" ]; then
+        reason='the must-carry argument is empty, so it would assert nothing'
+    elif [ "$#" -gt 2 ] && ! grep -qF -- "$3" <<<"$out"; then
+        reason='the scrubbed value never reached the node report — inert by omission, not by scrubbing'
+    fi
+
+    harness_settle "$reason" "$label (node)" "$out" 'rejected, and the report stayed inert'
+}
+
+# `php` and `node` are both shadowed, the way harness.sh shadows `php` for its own
+# assert_* probes: each _js wrapper calls the PHP-only assertion FIRST, so without
+# a clean, FIXED php stub that call would run for real against /nonexistent, and
+# its own increment (or lack of one) would be indistinguishable from the node arm
+# under test. Every `expected` passed below is chosen so the fixed php stub
+# text contains it — keeping the php-side call passing throughout — while the
+# node stub is varied per call to drive exactly one node-side arm at a time. The
+# empty-must-carry arm shared by assert_rejects_js/harness_rejects (and by
+# assert_report_is_inert_js/harness_report_is_inert) is not re-probed here: it is
+# the same one-line check already proven in harness.sh's own probes, reused
+# verbatim rather than rewritten, so re-proving it here would pin the copy, not
+# new logic.
+probe_accepts_js_shapes() {
+    php() { printf '%s\n' 'check-consumer-config: OK'; return 0; }
+    node() { printf '%s\n' "$node_fake_report"; return "$node_fake_rc"; }
+
+    node_fake_report='Warning: the gate emitted a diagnostic'
+    node_fake_rc=0
+    assert_accepts_js /nonexistent 'probe: accepts_js, the node gate ran degraded'
+
+    node_fake_report='  - x: a drift verdict'
+    node_fake_rc=1
+    assert_accepts_js /nonexistent 'probe: accepts_js, the node gate did not accept'
+}
+
+harness_probe_reporters 2 probe_accepts_js_shapes \
+    'assert_accepts_js has a node arm that no longer decides'
+
+probe_usage_error_js_shapes() {
+    php() { printf '%s\n' '  - x: refused to run'; return 2; }
+    node() { printf '%s\n' "$node_fake_report"; return "$node_fake_rc"; }
+
+    node_fake_report='Warning: the gate emitted a diagnostic'
+    node_fake_rc=2
+    assert_usage_error_js /nonexistent 'probe: usage_error_js, the node gate ran degraded' 'refused'
+
+    node_fake_report='  - x: refused to run'
+    node_fake_rc=1
+    assert_usage_error_js /nonexistent 'probe: usage_error_js, not the usage exit' 'refused'
+}
+
+harness_probe_reporters 2 probe_usage_error_js_shapes \
+    'assert_usage_error_js has a node arm that no longer decides'
+
+probe_rejects_js_shapes() {
+    php() { printf '%s\n' '  - x: a drift verdict'; return 1; }
+    node() { printf '%s\n' "$node_fake_report"; return "$node_fake_rc"; }
+
+    node_fake_report='Warning: the gate emitted a diagnostic'
+    node_fake_rc=1
+    assert_rejects_js /nonexistent 'probe: rejects_js, the node gate ran degraded' 'x'
+
+    node_fake_report='  - x: refused to run'
+    node_fake_rc=2
+    assert_rejects_js /nonexistent 'probe: rejects_js, not the drift verdict' 'x'
+
+    # The php stub still carries 'x' (so the php-side call passes), the node stub
+    # does not (so only the node-side wrong-reason arm decides).
+    node_fake_report='clean report with no match'
+    node_fake_rc=1
+    assert_rejects_js /nonexistent 'probe: rejects_js, the wrong reason' 'x'
+}
+
+harness_probe_reporters 3 probe_rejects_js_shapes \
+    'assert_rejects_js has a node arm that no longer decides'
+
+probe_report_is_inert_js_shapes() {
+    php() { printf '%s\n' '  - x: a drift verdict'; return 1; }
+    node() { printf '%s\n' "$node_fake_report"; return "$node_fake_rc"; }
+
+    # No third argument on these two: harness_report_is_inert's must-carry check
+    # is optional (only active with a 4th argument, the wrapper's 3rd), so the
+    # php-side call stays clean without one.
+    node_fake_report='Warning: the gate emitted a diagnostic'
+    node_fake_rc=1
+    assert_report_is_inert_js /nonexistent 'probe: report_is_inert_js, the node gate ran degraded'
+
+    node_fake_report='  - x: refused to run'
+    node_fake_rc=2
+    assert_report_is_inert_js /nonexistent 'probe: report_is_inert_js, not the drift verdict'
+
+    node_fake_report='clean report with no match'
+    node_fake_rc=1
+    assert_report_is_inert_js /nonexistent 'probe: report_is_inert_js, the wrong reason' 'x'
+}
+
+harness_probe_reporters 3 probe_report_is_inert_js_shapes \
+    'assert_report_is_inert_js has a node arm that no longer decides'
 
 # assert_reports_once is this file's own helper rather than a wrapper, so its arms are
 # not covered by harness.sh's probe — and it became load-bearing when the six oversize
@@ -766,7 +958,7 @@ JSON
 # The canon pair must be accepted — including the JSONC comment tsconfig.json
 # legitimately carries, which a plain json_decode would have rejected.
 d="$(mk_js_case js-canon)"
-assert_accepts "$d" "canonical biome.json + tsconfig.json (with a JSONC comment)"
+assert_accepts_js "$d" "canonical biome.json + tsconfig.json (with a JSONC comment)"
 
 # The bug this package shipped: a "//" note key is valid JSON but makes Biome
 # refuse the entire config.
@@ -777,7 +969,7 @@ cat > "$d/biome.json" <<'JSON'
     "extends": ["@magicsunday/coding-standard/biome/base.json"]
 }
 JSON
-assert_rejects "$d" "biome.json with a \"//\" note key" '`"//"` key'
+assert_rejects_js "$d" "biome.json with a \"//\" note key" '`"//"` key'
 
 # The same key nested one level down is just as fatal — Biome rejects unknown
 # keys at any depth, so a top-level-only check would pass this vacuously.
@@ -791,7 +983,7 @@ cat > "$d/biome.json" <<'JSON'
     }
 }
 JSON
-assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
+assert_rejects_js "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 
 # The plain "no extends" case lives with the adoption pair further down, where it
 # is the counterpart to the same config in a repository that has not adopted.
@@ -800,52 +992,52 @@ assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 # prefix has to end at a segment boundary, the same rule the deptrac import uses.
 d="$(mk_js_case biome-lookalike-extends)"
 printf '{\n    "extends": ["notmagicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending a look-alike package" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending a look-alike package" "biome/base.json"
 
 # Reaching the same file through an explicit node_modules path is legitimate.
 d="$(mk_js_case biome-node-modules-path)"
 printf '{\n    "extends": ["./node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_accepts "$d" "biome.json extending via an explicit node_modules path"
+assert_accepts_js "$d" "biome.json extending via an explicit node_modules path"
 
 # The pnpm layout reaches the package through a second node_modules segment.
 d="$(mk_js_case biome-pnpm-path)"
 printf '{\n    "extends": ["./node_modules/.pnpm/@magicsunday+coding-standard@1.7.0/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_accepts "$d" "biome.json extending via a pnpm node_modules path"
+assert_accepts_js "$d" "biome.json extending via a pnpm node_modules path"
 
 # An arbitrary local path that merely LOOKS like the package must not count: both
 # tools would load that file instead of the installed one, so accepting it would
 # report a link to a config nobody shares.
 d="$(mk_js_case biome-local-lookalike)"
 printf '{\n    "extends": ["./fixtures/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending a local look-alike copy outside node_modules" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending a local look-alike copy outside node_modules" "biome/base.json"
 
 # A literal `node_modules/` segment somewhere in an arbitrary path is not this
 # repository's node_modules — both of these are loaded by the real tools INSTEAD
 # of the installed package, which is the whole failure mode.
 d="$(mk_js_case biome-nested-lookalike)"
 printf '{\n    "extends": ["./fixtures/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending through a node_modules under an unrelated path" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending through a node_modules under an unrelated path" "biome/base.json"
 
 d="$(mk_js_case biome-foreign-repo)"
 printf '{\n    "extends": ["../../other-repo/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending another repository's node_modules" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending another repository's node_modules" "biome/base.json"
 
 # Biome does NOT resolve an extensionless specifier — verified, it answers with
 # `module not found` — so the gate must not accept one either.
 d="$(mk_js_case biome-extensionless)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending without the .json suffix" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending without the .json suffix" "biome/base.json"
 
 # The scope is part of the package name. Neither tool resolves the unscoped
 # spelling — Biome answers `module not found`, tsc `TS6053: File … not found` —
 # so accepting it would report a link that cannot exist.
 d="$(mk_js_case biome-unscoped)"
 printf '{\n    "extends": ["magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json extending the unscoped package name" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending the unscoped package name" "biome/base.json"
 
 d="$(mk_js_case ts-unscoped)"
 printf '{\n    "extends": "magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json extending the unscoped package name" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json extending the unscoped package name" "tsconfig/base.json"
 
 # Neither tool trims the specifier before resolving it: tsc answers a padded one
 # with `TS6053: File ' @magicsunday/…' not found`, and Biome already proves it
@@ -854,11 +1046,11 @@ assert_rejects "$d" "tsconfig.json extending the unscoped package name" "tsconfi
 # as missing rather than accept a config the tools cannot load.
 d="$(mk_js_case ts-padded-specifier)"
 printf '{\n    "extends": " @magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json whose specifier carries leading whitespace" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json whose specifier carries leading whitespace" "tsconfig/base.json"
 
 d="$(mk_js_case biome-padded-specifier)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json "]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json whose specifier carries trailing whitespace" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose specifier carries trailing whitespace" "biome/base.json"
 
 # The trailing whitespace character the pattern's ANCHOR lets through rather than
 # its body: PCRE's `$` matches before a single trailing newline unless the `D`
@@ -866,11 +1058,11 @@ assert_rejects "$d" "biome.json whose specifier carries trailing whitespace" "bi
 # rejected — the same latitude, decided by which whitespace character it is.
 d="$(mk_js_case biome-newline-specifier)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json\\n"]\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json whose specifier ends in a newline" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose specifier ends in a newline" "biome/base.json"
 
 d="$(mk_js_case ts-newline-specifier)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json\\n"\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json whose specifier ends in a newline" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json whose specifier ends in a newline" "tsconfig/base.json"
 
 # Biome accepts only `"//"` or an array for `extends` and answers a bare string
 # with `The 'extends' field must be either '//' or an array of paths` — verified
@@ -880,13 +1072,13 @@ assert_rejects "$d" "tsconfig.json whose specifier ends in a newline" "tsconfig/
 # the two are asserted in opposite directions.
 d="$(mk_js_case biome-extends-scalar)"
 printf '{\n    "extends": "@magicsunday/coding-standard/biome/base.json"\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json whose extends is a bare string instead of a list" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose extends is a bare string instead of a list" "biome/base.json"
 
 # A specifier that is not a string at all must report as a missing link rather
 # than fail the gate on a type error.
 d="$(mk_js_case biome-extends-not-a-string)"
 printf '{\n    "extends": 5\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json whose extends is not a specifier at all" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose extends is not a specifier at all" "biome/base.json"
 
 d="$(mk_js_case biome-linter-off)"
 cat > "$d/biome.json" <<'JSON'
@@ -895,7 +1087,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "enabled": false }
 }
 JSON
-assert_rejects "$d" "biome.json with the linter disabled" "\`linter.enabled\` must not be false"
+assert_rejects_js "$d" "biome.json with the linter disabled" "\`linter.enabled\` must not be false"
 
 d="$(mk_js_case biome-recommended-off)"
 cat > "$d/biome.json" <<'JSON'
@@ -904,7 +1096,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "recommended": false } }
 }
 JSON
-assert_rejects "$d" "biome.json with the recommended set disabled" "\`linter.rules.recommended\`"
+assert_rejects_js "$d" "biome.json with the recommended set disabled" "\`linter.rules.recommended\`"
 
 # The formatter is half the shared standard; disabling it is the same class of
 # drift as disabling the linter, and shares the loop that reports it.
@@ -915,7 +1107,7 @@ cat > "$d/biome.json" <<'JSON'
     "formatter": { "enabled": false }
 }
 JSON
-assert_rejects "$d" "biome.json with the formatter disabled" "\`formatter.enabled\` must not be false"
+assert_rejects_js "$d" "biome.json with the formatter disabled" "\`formatter.enabled\` must not be false"
 
 # The third section Biome lets a consumer switch off wholesale. Verified against
 # the pinned schema that `assist.enabled` exists at the root, in an `overrides`
@@ -930,7 +1122,7 @@ cat > "$d/biome.json" <<'JSON'
     "assist": { "enabled": false }
 }
 JSON
-assert_rejects "$d" "biome.json with assist disabled" "\`assist.enabled\` must not be false"
+assert_rejects_js "$d" "biome.json with assist disabled" "\`assist.enabled\` must not be false"
 
 # The same toggle one scope down, so the walk is pinned rather than the root read.
 d="$(mk_js_case biome-assist-off-in-override)"
@@ -942,7 +1134,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "biome.json disabling assist inside an override's language block" \
+assert_rejects_js "$d" "biome.json disabling assist inside an override's language block" \
     "overrides[0].javascript.assist.enabled"
 
 # The disable route that leaves every `enabled` flag true: narrowed to nothing,
@@ -956,7 +1148,7 @@ cat > "$d/biome.json" <<'JSON'
     "files": { "includes": ["!**/vendor/**", "!**/node_modules/**"] }
 }
 JSON
-assert_rejects "$d" "biome.json narrowed to no positive include" "carries no positive pattern"
+assert_rejects_js "$d" "biome.json narrowed to no positive include" "carries no positive pattern"
 
 # The accepting twin, so the arm above cannot be satisfied by rejecting every
 # `files.includes`. This is the canonical shape a consumer writes.
@@ -967,7 +1159,7 @@ cat > "$d/biome.json" <<'JSON'
     "files": { "includes": ["src/**", "!**/vendor/**"] }
 }
 JSON
-assert_accepts "$d" "biome.json narrowed to a real path set"
+assert_accepts_js "$d" "biome.json narrowed to a real path set"
 
 # `preset: "none"` is the modern spelling of `recommended: false` — Biome
 # deprecated the boolean in 2.5 — and silences exactly the same rules. Checking
@@ -979,7 +1171,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "preset": "none" } }
 }
 JSON
-assert_rejects "$d" "biome.json with the rule preset set to none" "\`linter.rules.preset\`"
+assert_rejects_js "$d" "biome.json with the rule preset set to none" "\`linter.rules.preset\`"
 
 # The counterpart: the preset a consumer is SUPPOSED to keep must pass, so the
 # check above cannot be satisfied by rejecting the key outright.
@@ -990,7 +1182,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "preset": "recommended" } }
 }
 JSON
-assert_accepts "$d" "biome.json keeping the recommended rule preset"
+assert_accepts_js "$d" "biome.json keeping the recommended rule preset"
 
 # Biome carries `recommended`/`preset` on every rule GROUP as well, so switching
 # one group off drops that group's floor while the top-level keys stay untouched.
@@ -1002,7 +1194,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "suspicious": { "preset": "none" } } }
 }
 JSON
-assert_rejects "$d" "biome.json switching one rule group's preset to none" "linter.rules.suspicious.preset"
+assert_rejects_js "$d" "biome.json switching one rule group's preset to none" "linter.rules.suspicious.preset"
 
 d="$(mk_js_case biome-group-recommended-off)"
 cat > "$d/biome.json" <<'JSON'
@@ -1011,7 +1203,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "correctness": { "recommended": false } } }
 }
 JSON
-assert_rejects "$d" "biome.json switching one rule group's recommended off" "linter.rules.correctness.recommended"
+assert_rejects_js "$d" "biome.json switching one rule group's recommended off" "linter.rules.correctness.recommended"
 
 # An overrides entry has its own linter/formatter block, so one matching `**`
 # disables the shared standard for every file while the top level reads enabled.
@@ -1024,7 +1216,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "biome.json disabling the linter through an overrides entry" "overrides[0].linter.enabled"
+assert_rejects_js "$d" "biome.json disabling the linter through an overrides entry" "overrides[0].linter.enabled"
 
 d="$(mk_js_case biome-override-preset-none)"
 cat > "$d/biome.json" <<'JSON'
@@ -1035,7 +1227,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "biome.json dropping the rule floor through an overrides entry" "overrides[0].linter.rules.preset"
+assert_rejects_js "$d" "biome.json dropping the rule floor through an overrides entry" "overrides[0].linter.rules.preset"
 
 # Biome carries linter/formatter a THIRD time, per language — and there it
 # silences the shared standard for every file of that language while the
@@ -1051,7 +1243,7 @@ cat > "$d/biome.json" <<'JSON'
     "javascript": { "formatter": { "enabled": false } }
 }
 JSON
-assert_rejects "$d" "biome.json disabling the formatter for a whole language" "javascript.formatter.enabled"
+assert_rejects_js "$d" "biome.json disabling the formatter for a whole language" "javascript.formatter.enabled"
 
 # The cross product: a per-language block INSIDE an overrides entry. That is the
 # idiomatic place to write one, since an override is how a language setting gets
@@ -1065,7 +1257,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "biome.json disabling a language's linter inside an overrides entry" "overrides[0].javascript.linter.enabled"
+assert_rejects_js "$d" "biome.json disabling a language's linter inside an overrides entry" "overrides[0].javascript.linter.enabled"
 
 # A non-zero index and a non-JS language, so neither the index nor the language
 # list is satisfied by the first entry alone.
@@ -1079,7 +1271,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "biome.json disabling a non-JS language's formatter in the SECOND overrides entry" "overrides[1].json.formatter.enabled"
+assert_rejects_js "$d" "biome.json disabling a non-JS language's formatter in the SECOND overrides entry" "overrides[1].json.formatter.enabled"
 
 # Every row of the gate's language table, READ from the gate rather than retyped
 # here. Two of the six had cases; a typo in any of the other four — `grahpql` for
@@ -1135,7 +1327,7 @@ proven_languages=(javascript json css graphql grit html)
 for language in "${gate_languages[@]}"; do
     d="$(mk_js_case "biome-language-$language-linter-off")"
     printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    "%s": { "linter": { "enabled": false } }\n}\n' "$language" > "$d/biome.json"
-    assert_rejects "$d" "biome.json disabling the linter for $language" "$language.linter.enabled"
+    assert_rejects_js "$d" "biome.json disabling the linter for $language" "$language.linter.enabled"
 
     if ! contains "$language" "${proven_languages[@]}"; then
         report_failure "the gate now walks the language \`$language\`, which this harness does not name — add it rather than leaving the row unexercised"
@@ -1159,7 +1351,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_accepts "$d" "biome.json setting a per-language style option inside an overrides entry"
+assert_accepts_js "$d" "biome.json setting a per-language style option inside an overrides entry"
 
 # The counterpart: a per-language block that only sets style options is normal
 # consumer use and must not be reported.
@@ -1170,7 +1362,7 @@ cat > "$d/biome.json" <<'JSON'
     "javascript": { "formatter": { "quoteStyle": "single" } }
 }
 JSON
-assert_accepts "$d" "biome.json setting a per-language style option"
+assert_accepts_js "$d" "biome.json setting a per-language style option"
 
 # A legitimate overrides entry — narrowing a single rule for one path — must not
 # be reported, or the check would push consumers off a feature they need.
@@ -1186,13 +1378,13 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_accepts "$d" "biome.json narrowing a single rule for one path through overrides"
+assert_accepts_js "$d" "biome.json narrowing a single rule for one path through overrides"
 
 # A malformed config must be reported as such rather than silently skipped —
 # json_decode returns null, which an `?? null` read cannot tell from "absent".
 d="$(mk_js_case biome-malformed)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json that is not valid JSON(C)" "biome.json: not valid JSON(C)"
+assert_rejects_js "$d" "biome.json that is not valid JSON(C)" "biome.json: not valid JSON(C)"
 
 # biome.jsonc is Biome's own alternative filename; the gate must find it there
 # too. Asserted as a REJECT, because that is the only shape that proves discovery:
@@ -1207,7 +1399,7 @@ cat > "$d/biome.jsonc" <<'JSON'
     "extends": ["@magicsunday/coding-standard/biome/base.json"]
 }
 JSON
-assert_rejects "$d" "biome.jsonc is discovered, parsed with comments, and named in the report" "biome.jsonc: "
+assert_rejects_js "$d" "biome.jsonc is discovered, parsed with comments, and named in the report" "biome.jsonc: "
 
 d="$(mk_js_case biome-jsonc-clean)"
 rm "$d/biome.json"
@@ -1217,7 +1409,7 @@ cat > "$d/biome.jsonc" <<'JSON'
     "extends": ["@magicsunday/coding-standard/biome/base.json"]
 }
 JSON
-assert_accepts "$d" "a clean biome.jsonc is accepted"
+assert_accepts_js "$d" "a clean biome.jsonc is accepted"
 
 # The two cases above reach only the note-key guard and the clean-parse path,
 # both of which run before the adoption gate. So nothing drove a .jsonc file
@@ -1226,16 +1418,16 @@ assert_accepts "$d" "a clean biome.jsonc is accepted"
 d="$(mk_js_case biome-jsonc-no-extends)"
 rm "$d/biome.json"
 printf '{\n    // no shared link\n    "linter": { "enabled": true }\n}\n' > "$d/biome.jsonc"
-assert_rejects "$d" "biome.jsonc without the shared extends" "biome.jsonc: must \`extends\`"
+assert_rejects_js "$d" "biome.jsonc without the shared extends" "biome.jsonc: must \`extends\`"
 
 d="$(mk_js_case biome-jsonc-linter-off)"
 rm "$d/biome.json"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json"],\n    // switched off\n    "linter": { "enabled": false }\n}\n' > "$d/biome.jsonc"
-assert_rejects "$d" "biome.jsonc with the linter disabled" "biome.jsonc: \`linter.enabled\`"
+assert_rejects_js "$d" "biome.jsonc with the linter disabled" "biome.jsonc: \`linter.enabled\`"
 
 d="$(mk_js_case ts-no-extends)"
 printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json without the shared extends" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json without the shared extends" "tsconfig/base.json"
 
 d="$(mk_js_case ts-strict-off)"
 cat > "$d/tsconfig.json" <<'JSON'
@@ -1244,7 +1436,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     "compilerOptions": { "strict": false }
 }
 JSON
-assert_rejects "$d" "tsconfig.json overriding strict to false" "\`compilerOptions.strict\`"
+assert_rejects_js "$d" "tsconfig.json overriding strict to false" "\`compilerOptions.strict\`"
 
 # The subtler override: `strict` stays on, but the flag the shared base adds ON
 # TOP of strict is switched off. This is the realistic drift, and a check that
@@ -1256,7 +1448,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     "compilerOptions": { "strict": true, "noUncheckedIndexedAccess": false }
 }
 JSON
-assert_rejects "$d" "tsconfig.json disabling noUncheckedIndexedAccess" "noUncheckedIndexedAccess"
+assert_rejects_js "$d" "tsconfig.json disabling noUncheckedIndexedAccess" "noUncheckedIndexedAccess"
 
 # An extends ARRAY is legal in TypeScript 5+; the shared base may sit anywhere in it.
 d="$(mk_js_case ts-extends-array)"
@@ -1266,7 +1458,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     "compilerOptions": { "noEmit": true }
 }
 JSON
-assert_accepts "$d" "tsconfig.json with the shared base in an extends array"
+assert_accepts_js "$d" "tsconfig.json with the shared base in an extends array"
 
 # Ergonomics flags are deliberately NOT pinned: turning skipLibCheck off is
 # stricter, not looser, and must not be reported as drift.
@@ -1277,7 +1469,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     "compilerOptions": { "skipLibCheck": false }
 }
 JSON
-assert_accepts "$d" "tsconfig.json turning skipLibCheck off (stricter, not drift)"
+assert_accepts_js "$d" "tsconfig.json turning skipLibCheck off (stricter, not drift)"
 
 # A trailing comma is legal in tsconfig.json and must not read as malformed.
 d="$(mk_js_case ts-trailing-comma)"
@@ -1289,7 +1481,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     },
 }
 JSON
-assert_accepts "$d" "tsconfig.json with trailing commas"
+assert_accepts_js "$d" "tsconfig.json with trailing commas"
 
 # A "//" sequence INSIDE a string is not a comment — stripping it would corrupt
 # the document and turn a valid consumer config into a false rejection.
@@ -1302,13 +1494,13 @@ cat > "$d/tsconfig.json" <<'JSON'
     }
 }
 JSON
-assert_accepts "$d" "tsconfig.json with a // inside a string value"
+assert_accepts_js "$d" "tsconfig.json with a // inside a string value"
 
 # tsc appends `.json` itself, so this resolves to the very same file — verified
 # with 7.0.2. Rejecting it would report drift on a working consumer config.
 d="$(mk_js_case ts-extensionless)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
-assert_accepts "$d" "tsconfig.json extending without the .json suffix"
+assert_accepts_js "$d" "tsconfig.json extending without the .json suffix"
 
 # The string-protection the trailing-comma pass needs: a comma before a bracket
 # INSIDE a string value is part of the value, not punctuation to strip.
@@ -1328,7 +1520,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "sus,]picious": { "preset": "none" } } }
 }
 JSON
-assert_rejects "$d" "biome.json whose reported rule group carries a comma before a bracket inside a string" "linter.rules.sus,]picious"
+assert_rejects_js "$d" "biome.json whose reported rule group carries a comma before a bracket inside a string" "linter.rules.sus,]picious"
 
 # A rule-group key is arbitrary bytes chosen by whoever opened the pull request,
 # and this gate runs in the CONSUMER's CI over branch content. Why that reaches a
@@ -1346,7 +1538,7 @@ php -r '
         "linter"  => ["rules" => [$key => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
-assert_report_is_inert "$d" 'a rule-group key carrying control characters' \
+assert_report_is_inert_js "$d" 'a rule-group key carrying control characters' \
     'a?[2K?::notice::forged?##?[error]forged?b'
 
 # The `overrides` half, which had no case at all. Every other overrides fixture
@@ -1362,7 +1554,7 @@ php -r '
         "overrides" => [$key => ["linter" => ["rules" => ["recommended" => false]]]],
     ]));
 ' "$d/biome.json"
-assert_report_is_inert "$d" 'an overrides key carrying a newline' \
+assert_report_is_inert_js "$d" 'an overrides key carrying a newline' \
     'x?::error::forged?y'
 
 # The phpunit.xml attribute VALUE, the site the round-11 guard did not reach.
@@ -1394,11 +1586,11 @@ php -r '
 
     file_put_contents($argv[1], $out);
 ' "$d/biome.json"
-assert_rejects "$d" "a biome.json exactly at the size cap is still read and checked" '`"//"` key'
+assert_rejects_js "$d" "a biome.json exactly at the size cap is still read and checked" '`"//"` key'
 
 d="$(mk_js_case biome-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
-assert_rejects "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
+assert_rejects_js "$d" "a biome.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
 # The tsconfig arm is a separate code path. Delete the whole
 # `is_int($tsconfigJson)` block and the suite stayed green while the gate printed
@@ -1406,7 +1598,7 @@ assert_rejects "$d" "a biome.json past the size cap is reported as oversized, no
 # no later arm catches it.
 d="$(mk_js_case ts-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
-assert_rejects "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
+assert_rejects_js "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
 
 # The plain-text bound. Measured before the cap reached these readers: a 196 MB
 # .editorconfig at memory_limit=128M ended in `Allowed memory size exhausted`, exit
@@ -1458,7 +1650,7 @@ php -r '
         "linter"  => ["rules" => ["a" . chr(127) . "b" => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
-assert_rejects "$d" "a DEL byte in a rule-group key is scrubbed" "linter.rules.a?b"
+assert_rejects_js "$d" "a DEL byte in a rule-group key is scrubbed" "linter.rules.a?b"
 
 # The truncation arm, which nothing reached: the payloads above are well under the
 # bound, so the ternary took its else branch in every case and deleting the cap
@@ -1473,7 +1665,7 @@ php -r '
         "linter"  => ["rules" => [str_repeat("z", 400) => ["recommended" => false]]],
     ]));
 ' "$d/biome.json"
-assert_rejects "$d" "an overlong rule-group key is truncated with a marker" \
+assert_rejects_js "$d" "an overlong rule-group key is truncated with a marker" \
     "linter.rules.$(printf 'z%.0s' $(seq 1 64))…"
 
 # Block comments: the accept case, and the discriminating one — a multi-line
@@ -1486,7 +1678,7 @@ cat > "$d/tsconfig.json" <<'JSON'
     "extends": "@magicsunday/coding-standard/tsconfig/base.json"
 }
 JSON
-assert_accepts "$d" "tsconfig.json with a block comment"
+assert_accepts_js "$d" "tsconfig.json with a block comment"
 
 d="$(mk_js_case ts-block-comment-swallow)"
 cat > "$d/tsconfig.json" <<'JSON'
@@ -1497,12 +1689,12 @@ cat > "$d/tsconfig.json" <<'JSON'
     "compilerOptions": { "strict": false }
 }
 JSON
-assert_rejects "$d" "tsconfig.json whose block comment must not swallow the rest" "\`compilerOptions.strict\`"
+assert_rejects_js "$d" "tsconfig.json whose block comment must not swallow the rest" "\`compilerOptions.strict\`"
 
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json with a comment splitting a token" "tsconfig.json: not valid JSON(C)"
+assert_rejects_js "$d" "tsconfig.json with a comment splitting a token" "tsconfig.json: not valid JSON(C)"
 
 # The `\\.` branch of the string pattern, driven by the only input that needs it:
 # an ESCAPED QUOTE followed by a comment opener. A backslash pair alone does not
@@ -1520,14 +1712,14 @@ cat > "$d/tsconfig.json" <<'JSON'
     }
 }
 JSON
-assert_accepts "$d" "tsconfig.json with an escaped quote before a comment opener inside a string"
+assert_accepts_js "$d" "tsconfig.json with an escaped quote before a comment opener inside a string"
 
 # The JSONC tolerance must not extend to genuinely broken input: an unclosed
 # object has to be reported, not read as an empty config that passes every
 # subsequent `?? null` check.
 d="$(mk_js_case ts-malformed)"
 printf '{\n    "compilerOptions": { "strict": true\n' > "$d/tsconfig.json"
-assert_rejects "$d" "tsconfig.json that is not valid JSON(C)" "tsconfig.json: not valid JSON(C)"
+assert_rejects_js "$d" "tsconfig.json that is not valid JSON(C)" "tsconfig.json: not valid JSON(C)"
 
 # --- the adoption gate -------------------------------------------------------
 #
@@ -1545,17 +1737,17 @@ mk_unadopted_case() {
 
 d="$(mk_unadopted_case js-unadopted-biome)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_accepts "$d" "standalone biome.json in a repo that has not adopted the npm package"
+assert_accepts_js "$d" "standalone biome.json in a repo that has not adopted the npm package"
 
 d="$(mk_unadopted_case js-unadopted-tsconfig)"
 printf '{\n    "compilerOptions": { "strict": false }\n}\n' > "$d/tsconfig.json"
-assert_accepts "$d" "standalone tsconfig.json in a repo that has not adopted the npm package"
+assert_accepts_js "$d" "standalone tsconfig.json in a repo that has not adopted the npm package"
 
 # A repo with no package.json at all is the same case, and is the shape every
 # PHP-only consumer has.
 d="$(mk_case js-no-package-json)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_accepts "$d" "standalone biome.json with no package.json at all"
+assert_accepts_js "$d" "standalone biome.json with no package.json at all"
 
 # A parse failure, unlike the `"//"` key, IS gated on adoption — this reader is
 # not Biome's, so it can reject a file the real tool accepts, and reporting that
@@ -1563,23 +1755,23 @@ assert_accepts "$d" "standalone biome.json with no package.json at all"
 # exists to prevent.
 d="$(mk_unadopted_case js-unadopted-malformed)"
 printf '{\n    "linter": { "enabled": true\n' > "$d/biome.json"
-assert_accepts "$d" "malformed biome.json in a repo that has not adopted the npm package"
+assert_accepts_js "$d" "malformed biome.json in a repo that has not adopted the npm package"
 
 d="$(mk_js_case js-adopted-malformed)"
 printf '{\n    "linter": { "enabled": true\n' > "$d/biome.json"
-assert_rejects "$d" "malformed biome.json once the npm package is declared" "biome.json: not valid JSON(C)"
+assert_rejects_js "$d" "malformed biome.json once the npm package is declared" "biome.json: not valid JSON(C)"
 
 # Both tools read a BOM-prefixed config and honour it; json_decode does not. A
 # reader stricter than the tools reports a defect in a file that loads fine.
 d="$(mk_js_case biome-bom)"
 printf '\xEF\xBB\xBF' > "$d/biome.json"
 cat "$FIXTURE/biome.json" >> "$d/biome.json"
-assert_accepts "$d" "biome.json saved with a UTF-8 BOM"
+assert_accepts_js "$d" "biome.json saved with a UTF-8 BOM"
 
 d="$(mk_js_case ts-bom)"
 printf '\xEF\xBB\xBF' > "$d/tsconfig.json"
 cat "$FIXTURE/tsconfig.json" >> "$d/tsconfig.json"
-assert_accepts "$d" "tsconfig.json saved with a UTF-8 BOM"
+assert_accepts_js "$d" "tsconfig.json saved with a UTF-8 BOM"
 
 # The probe that decides whether any of this runs must not fail open: an
 # unreadable package.json would otherwise switch the entire JS/TS contract off
@@ -1587,14 +1779,14 @@ assert_accepts "$d" "tsconfig.json saved with a UTF-8 BOM"
 d="$(mk_case js-package-json-malformed)"
 printf '{\n    "devDependencies": {\n' > "$d/package.json"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "an unparseable package.json is reported, not treated as non-adoption" "package.json: is not valid JSON"
+assert_rejects_js "$d" "an unparseable package.json is reported, not treated as non-adoption" "package.json: is not valid JSON"
 
 # A package.json with a BOM is readable by npm, so it must not be reported — and
 # the dependency inside it must still be seen.
 d="$(mk_case js-package-json-bom)"
 printf '\xEF\xBB\xBF{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "a BOM-prefixed package.json is still read for the dependency" "biome/base.json"
+assert_rejects_js "$d" "a BOM-prefixed package.json is still read for the dependency" "biome/base.json"
 
 # The exception that proves the gate is not simply switched off: a `"//"` key
 # makes the config unloadable for Biome whether or not it extends anything, so
@@ -1606,7 +1798,7 @@ assert_rejects "$d" "a BOM-prefixed package.json is still read for the dependenc
 # green.
 d="$(mk_unadopted_case biome-oversize-unadopted)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.json"
-assert_rejects "$d" "an oversized biome.json is reported in a repository that never adopted the package" \
+assert_rejects_js "$d" "an oversized biome.json is reported in a repository that never adopted the package" \
     "larger than the 131072 bytes this gate checks"
 
 d="$(mk_unadopted_case js-unadopted-note-key)"
@@ -1616,12 +1808,12 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "enabled": true }
 }
 JSON
-assert_rejects "$d" "\"//\" key is reported even without adoption" '`"//"` key'
+assert_rejects_js "$d" "\"//\" key is reported even without adoption" '`"//"` key'
 
 # And the counterpart: once the dependency IS declared, the full contract is back.
 d="$(mk_js_case js-adopted-no-extends)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects "$d" "biome.json without extends once the npm package is declared" "biome/base.json"
+assert_rejects_js "$d" "biome.json without extends once the npm package is declared" "biome/base.json"
 
 # --- the pinned strict flags, derived from the shipped base ------------------
 #
@@ -1718,9 +1910,9 @@ for flag in "${base_flags[@]}"; do
     printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
 
     if contains "$flag" "${ergonomics[@]}"; then
-        assert_accepts "$d" "tsconfig.json turning the ergonomics flag $flag off"
+        assert_accepts_js "$d" "tsconfig.json turning the ergonomics flag $flag off"
     else
-        assert_rejects "$d" "tsconfig.json turning the shared strict flag $flag off" "compilerOptions.$flag"
+        assert_rejects_js "$d" "tsconfig.json turning the shared strict flag $flag off" "compilerOptions.$flag"
     fi
 done
 
@@ -1752,7 +1944,7 @@ for flag in "${strict_family[@]}"; do
 
     d="$(mk_js_case "ts-strict-family-$flag")"
     printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": true, "%s": false }\n}\n' "$flag" > "$d/tsconfig.json"
-    assert_rejects "$d" "tsconfig.json overriding the strict-family flag $flag while keeping strict" "compilerOptions.$flag"
+    assert_rejects_js "$d" "tsconfig.json overriding the strict-family flag $flag while keeping strict" "compilerOptions.$flag"
 done
 
 # `strict` itself has to remain in the base, or the family above is switched on by
@@ -1772,7 +1964,7 @@ for section in dependencies optionalDependencies peerDependencies; do
     d="$(mk_case "js-adopted-via-$section")"
     printf '{\n    "%s": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' "$section" > "$d/package.json"
     printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-    assert_rejects "$d" "the npm dependency declared under $section counts as adoption" "biome/base.json"
+    assert_rejects_js "$d" "the npm dependency declared under $section counts as adoption" "biome/base.json"
 done
 
 # Every overrides case so far put the violation at index 0, so a walk that only
@@ -1788,7 +1980,7 @@ cat > "$d/biome.json" <<'JSON'
     ]
 }
 JSON
-assert_rejects "$d" "a violation in the SECOND overrides entry is reported with its index" "overrides[1].linter.enabled"
+assert_rejects_js "$d" "a violation in the SECOND overrides entry is reported with its index" "overrides[1].linter.enabled"
 
 # jscpd's `format` as a bare string rather than a list: the deny-list loop would
 # skip it, so the spelling that scans nothing would pass through the escape
@@ -1803,7 +1995,7 @@ assert_rejects "$d" ".jscpd.json with a scalar format instead of a list" 'Use "t
 # trick, and it is the only case covering that arm.
 d="$(mk_case php-only-broken-package-json)"
 printf '{\n    "devDependencies": {\n' > "$d/package.json"
-assert_accepts "$d" "a PHP-only repo is not probed for the JS/TS contract at all"
+assert_accepts_js "$d" "a PHP-only repo is not probed for the JS/TS contract at all"
 
 # The other arm of the same condition: a TypeScript-only consumer has no
 # biome.json, so a probe keyed on that alone would leave the whole tsconfig
@@ -1811,13 +2003,13 @@ assert_accepts "$d" "a PHP-only repo is not probed for the JS/TS contract at all
 d="$(mk_case ts-only-adopted)"
 printf '{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": false }\n}\n' > "$d/tsconfig.json"
-assert_rejects "$d" "a TypeScript-only consumer is still held to the tsconfig contract" "\`compilerOptions.strict\`"
+assert_rejects_js "$d" "a TypeScript-only consumer is still held to the tsconfig contract" "\`compilerOptions.strict\`"
 
 # A path that is not a directory is a usage error, not drift — a distinct verdict
 # with nothing pinning it, so the block could be deleted and every case stayed
 # green while a mistyped path reported "phpunit.xml: missing" against a directory
 # that does not exist.
-assert_usage_error "$work/does-not-exist" "a path that is not a directory" "Not a directory"
+assert_usage_error_js "$work/does-not-exist" "a path that is not a directory" "Not a directory"
 
 # An unreadable config is not a syntax error, and reporting it as one sends the
 # reader to fix the wrong thing. Every read site gets a case, because two of them
@@ -1835,12 +2027,12 @@ else
     d="$(mk_unadopted_case js-unreadable-biome)"
     cp "$FIXTURE/biome.json" "$d/biome.json"
     chmod 000 "$d/biome.json"
-    assert_rejects "$d" "an unreadable biome.json reports as unreadable, not as malformed" "biome.json: exists but cannot be read"
+    assert_rejects_js "$d" "an unreadable biome.json reports as unreadable, not as malformed" "biome.json: exists but cannot be read"
     chmod 644 "$d/biome.json"
 
     d="$(mk_js_case js-unreadable-tsconfig)"
     chmod 000 "$d/tsconfig.json"
-    assert_rejects "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "tsconfig.json: exists but cannot be read"
+    assert_rejects_js "$d" "an unreadable tsconfig.json reports as unreadable, not as malformed" "tsconfig.json: exists but cannot be read"
     chmod 644 "$d/tsconfig.json"
 
     # The same file in a NON-adopting repository. The biome case above is written
@@ -1851,7 +2043,7 @@ else
     d="$(mk_unadopted_case js-unreadable-tsconfig-unadopted)"
     cp "$FIXTURE/tsconfig.json" "$d/tsconfig.json"
     chmod 000 "$d/tsconfig.json"
-    assert_rejects "$d" "an unreadable tsconfig.json is reported even without adoption" "tsconfig.json: exists but cannot be read"
+    assert_rejects_js "$d" "an unreadable tsconfig.json is reported even without adoption" "tsconfig.json: exists but cannot be read"
     chmod 644 "$d/tsconfig.json"
 
     # Fails open without the guard: the gate would print OK for a config it never read.
@@ -1865,7 +2057,7 @@ else
     printf '{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
     printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
     chmod 000 "$d/package.json"
-    assert_rejects "$d" "an unreadable package.json does not switch the JS/TS contract off" "package.json: exists but cannot be read"
+    assert_rejects_js "$d" "an unreadable package.json does not switch the JS/TS contract off" "package.json: exists but cannot be read"
     chmod 644 "$d/package.json"
 
 
@@ -1906,7 +2098,7 @@ cat > "$d/biome.json" <<'JSON'
     "overrides": ["not-an-object", { "includes": ["**"], "linter": { "enabled": false } }]
 }
 JSON
-assert_rejects "$d" "a non-object overrides entry does not hide the next one" "overrides[1].linter.enabled"
+assert_rejects_js "$d" "a non-object overrides entry does not hide the next one" "overrides[1].linter.enabled"
 
 # A mis-typed per-language block must not stop the walk reporting what else it
 # finds. Stated as what it pins, not as what it looks like it pins: removing the
@@ -1922,7 +2114,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "enabled": false }
 }
 JSON
-assert_rejects "$d" "biome.json whose per-language block is a string, not an object" \
+assert_rejects_js "$d" "biome.json whose per-language block is a string, not an object" \
     "\`linter.enabled\` must not be false"
 
 # Which spelling wins when both exist. Every other `.jsonc` case removes the `.json`
@@ -1935,7 +2127,7 @@ cat > "$d/biome.jsonc" <<'JSONC'
     "linter": { "enabled": false }
 }
 JSONC
-assert_accepts "$d" "biome.json is read in preference to a biome.jsonc beside it"
+assert_accepts_js "$d" "biome.json is read in preference to a biome.jsonc beside it"
 
 d="$(mk_js_case biome-rules-not-an-object)"
 cat > "$d/biome.json" <<'JSON'
@@ -1944,7 +2136,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "enabled": false, "rules": "off" }
 }
 JSON
-assert_rejects "$d" "a scalar linter.rules does not hide the enabled check" "linter.enabled"
+assert_rejects_js "$d" "a scalar linter.rules does not hide the enabled check" "linter.enabled"
 
 d="$(mk_js_case biome-group-not-an-object)"
 cat > "$d/biome.json" <<'JSON'
@@ -1953,7 +2145,7 @@ cat > "$d/biome.json" <<'JSON'
     "linter": { "rules": { "suspicious": "info", "correctness": { "preset": "none" } } }
 }
 JSON
-assert_rejects "$d" "a scalar rule group does not hide the next group" "linter.rules.correctness.preset"
+assert_rejects_js "$d" "a scalar rule group does not hide the next group" "linter.rules.correctness.preset"
 
 d="$work/jscpd-format-non-string"; jscpd_fixture "$d"
 sed -i 's/"reporters": \["console-full"\]/"reporters": ["console-full"],\n    "format": [5, "ts"]/' "$d/.jscpd.json"
@@ -2028,6 +2220,6 @@ assert_rejects "$d" ".jscpd.json omitting minLines entirely" "minLines"
 
 # A repo with no JS at all must stay accepted — these configs are optional.
 d="$(mk_case no-js)"
-assert_accepts "$d" "PHP-only repo without biome.json or tsconfig.json"
+assert_accepts_js "$d" "PHP-only repo without biome.json or tsconfig.json"
 
 verdict
