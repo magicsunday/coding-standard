@@ -88,11 +88,10 @@ function safeReportValue(int|string $value): string
 
     // `#[`, not `##[`, so the scrubbed value is safe INDEPENDENTLY of the constant
     // text it gets interpolated into: a report ending in `#` would otherwise supply
-    // the first character of a legacy command the scrub had left intact. No report
-    // site does that today — `pins #%s` in tests/check-version-lockstep.php is the
-    // only constant ending in `#`, and its value is a README pin token whose capture
-    // class excludes `[`. Breaking the shorter form costs nothing, subsumes the
-    // longer one, and removes the need to re-check that as the reports change.
+    // the first character of a legacy command the scrub had left intact. Breaking the
+    // shorter form costs nothing, subsumes the longer one, and removes the need to
+    // check whether any constant text ends in `#` as the reports change — the scrub
+    // applies unconditionally, so no such count is load-bearing here.
     //
     // `::` is deliberately left alone: the v2 parser needs it at line start (it
     // TrimStart()s first, so leading whitespace does not protect a line), while
