@@ -1672,6 +1672,21 @@ php -r '
 ' "$d/tsconfig.json"
 assert_rejects_js "$d" "tsconfig.json with an invalid UTF-8 byte outside any comment" "tsconfig.json: not valid JSON(C)"
 
+# isAsciiWhitespaceByte mirrors $stripJsonc's trailing-comma pattern, which has
+# no `/u` modifier and therefore matches only ASCII whitespace — NOT a non-
+# breaking space (U+00A0, encoded \xC2\xA0). A byte-level scan that instead
+# matched JS's Unicode-aware `\s` (as the string-based scan this replaced
+# used to) would strip a comma left dangling before `}` by an NBSP alone,
+# accepting a document real JSONC — and the PHP gate — reject.
+d="$(mk_js_case ts-trailing-comma-nbsp)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"strict\": true,\xC2\xA0}\n}\n"
+    );
+' "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json with a trailing comma before a non-breaking space, not a real comma-then-close" "tsconfig.json: not valid JSON(C)"
+
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
