@@ -384,6 +384,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         // until the bracket closes. Only the last `\`-separated segment is compared, so
         // the qualified and imported spellings answer the same.
         $depth      = 1;
+        $parens     = 0;
         $expectName = true;
 
         for ($ahead = $index + 1; ($ahead < $ruleCount) && ($depth > 0); ++$ahead) {
@@ -394,15 +395,26 @@ for ($index = 0; $index < $ruleCount; ++$index) {
                     ++$depth;
                 } elseif ($inner === ']') {
                     --$depth;
-                } elseif (($inner === ',') && ($depth === 1)) {
-                    // `#[A, TestRule]` is one group holding two attributes, so a name
-                    // is expected again after the comma.
-                    $expectName = true;
                 } elseif ($inner === '(') {
                     // From here to the matching `)` everything is an ARGUMENT, and a
                     // name there denotes nothing: `#[UsesClass(TestRule::class)]` is
                     // not a rule. Only the token in NAME position counts.
+                    ++$parens;
                     $expectName = false;
+                } elseif ($inner === ')') {
+                    --$parens;
+                } elseif (($inner === ',') && ($depth === 1) && ($parens === 0)) {
+                    // `#[A, TestRule]` is one group holding two attributes, so a name
+                    // is expected again after the comma.
+                    //
+                    // `$parens` is what keeps this off an ARGUMENT separator. Bracket
+                    // depth alone does not: a comma between two arguments is also at
+                    // depth 1, so it re-armed name position inside the list the `(`
+                    // arm had just closed. Measured before the counter existed —
+                    // `#[UsesClass(Node::class, X\TestRule::class)]` on an ordinary
+                    // helper produced `could not identify a subject selector` and
+                    // exit 1, naming a method that carries no rule.
+                    $expectName = true;
                 }
 
                 continue;

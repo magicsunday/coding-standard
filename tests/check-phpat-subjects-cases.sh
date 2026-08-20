@@ -482,6 +482,86 @@ write_archtest "$d" "    #[TestRule]
     }"
 assert_accepts "$d" "a ::class argument in a neighbouring attribute does not hide the rule"
 
+# The same walk, one comma further. Bracket depth alone does not tell an attribute
+# SEPARATOR from an ARGUMENT separator — both sit at depth 1 — so a comma inside an
+# argument list re-armed name position and the second argument was read as an
+# attribute name. Measured before the paren counter: this file produced
+# `notARule: could not identify a subject selector` and exit 1 for a helper that
+# carries no rule at all.
+d="$work/attribute-with-two-arguments"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\UsesClass(\\Vendor\\Mod\\Model\\Node::class, \\Vendor\\Mod\\TestRule::class)]
+    public function notARule(): void
+    {
+    }
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Live.');
+    }"
+assert_accepts "$d" "a TestRule name as a SECOND attribute argument is not counted as a rule"
+
+# The grouped spelling, which is the reason the comma arm exists at all: two
+# attributes in one `#[…]`. It has to keep working now that the comma is conditional,
+# and nothing drove it before — deleting the arm left the suite green.
+d="$work/attribute-group-with-testrule"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\CoversNothing, TestRule]
+    public function grouped(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Grouped.');
+    }"
+assert_rejects "$d" "a #[TestRule] grouped behind another attribute is analysed" \
+    "inNamespace(Vendor\\Mod\\Model)"
+
+# An ARRAY argument closes the group early unless `[` raises the depth. Deleting the
+# `[` arm left the suite green, and combined with the grouped spelling above it is a
+# fail-open: the walk resumes past the `TestRule` name and the rule is never seen.
+d="$work/attribute-with-array-argument"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    #[\\PHPUnit\\Framework\\Attributes\\TestWith([1, 2]), TestRule]
+    public function afterAnArray(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('After an array.');
+    }"
+assert_rejects "$d" "an array argument does not close the attribute group early" \
+    "inNamespace(Vendor\\Mod\\Model)"
+
+# A body-less declaration ends on `;`. Without that arm the body scan runs past the
+# declaration into the NEXT method and adopts its selector — the same fail-open shape
+# as the malformed-with-helper case, one declaration form over. Deleting the arm left
+# the suite green.
+d="$work/attribute-on-a-bodyless-method"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    abstract public function declaredOnly(): Rule;
+
+    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Model'))
+            ->because('Live.');
+    }"
+assert_rejects "$d" "a body-less rule declaration does not adopt the next method's selector" \
+    "could not identify a subject selector"
+
 # The same distinction the other way: a TestRule name used as a VALUE is not a rule,
 # and counting it produced a false red with a diagnostic pointing at the wrong file.
 d="$work/testrule-as-an-argument"
