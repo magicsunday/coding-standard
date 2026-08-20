@@ -519,9 +519,8 @@ adoption gate exists to prevent.
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
 their rule content genuinely cannot drift — the **link** can. What is asserted, with
 `bin/check-consumer-config.php` as the list rather than this paragraph: the
-shared config is actually extended (a look-alike package name does not count, and an
-`extends` entry AFTER the shared base is reported, because both tools let a later entry
-win), none of `linter`, `formatter` and `assist` is switched off — Biome offers those
+shared config is actually extended (a look-alike package name does not count), none of
+`linter`, `formatter` and `assist` is switched off — Biome offers those
 toggles in three nested
 places and they combine: the document, every `overrides` entry, and a per-language block
 inside either of those, so `javascript.linter.enabled: false` silences the shared
