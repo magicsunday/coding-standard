@@ -1696,6 +1696,49 @@ php -r '
 ' "$d/tsconfig.json"
 assert_rejects_js "$d" "tsconfig.json with a trailing comma before a non-breaking space, not a real comma-then-close" "tsconfig.json: not valid JSON(C)"
 
+# json_decode() rejects a `\uD800`-style escape with no matching low
+# surrogate ("Single unpaired UTF-16 surrogate in unicode escape");
+# JSON.parse() accepts it. Verified against the real gate: exit 1,
+# "not valid JSON(C)".
+d="$(mk_js_case ts-unpaired-surrogate)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "note": "\\uD800"\n}\n' > "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json with an unpaired UTF-16 surrogate escape" "tsconfig.json: not valid JSON(C)"
+
+# The accepting twin: a genuinely PAIRED surrogate (an emoji) must not be
+# rejected — otherwise the check above would be satisfied by rejecting every
+# astral-plane character rather than only unpaired ones.
+d="$(mk_js_case ts-paired-surrogate)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "note": "\\uD83D\\uDE00"\n}\n' > "$d/tsconfig.json"
+assert_accepts_js "$d" "tsconfig.json with a properly paired surrogate escape (an emoji)"
+
+# json_decode()'s default $depth is 512, and it fails ("Maximum stack depth
+# exceeded") once nesting reaches that count — the outermost container counts
+# as depth 1. Measured directly against 8.4: 511 levels decode cleanly, 512
+# does not; both fixtures below hit that exact boundary (1 wrapper level +
+# 511 or 510 nested `{"a": … }` levels = 512 or 511 total) and are verified
+# against the real PHP gate. JSON.parse() has no comparable cap at reachable
+# depths, and the 128 KiB size cap does nothing to bound this on its own —
+# 511 levels of `{"a": … }` costs well under 4 KB.
+d="$(mk_js_case ts-depth-512)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "{\"extends\":\"@magicsunday/coding-standard/tsconfig/base.json\",\"deep\":"
+            . str_repeat("{\"a\":", 511) . "1" . str_repeat("}", 511) . "}"
+    );
+' "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json nested to exactly the 512-level depth PHP rejects at" "tsconfig.json: not valid JSON(C)"
+
+d="$(mk_js_case ts-depth-511)"
+php -r '
+    file_put_contents(
+        $argv[1],
+        "{\"extends\":\"@magicsunday/coding-standard/tsconfig/base.json\",\"deep\":"
+            . str_repeat("{\"a\":", 510) . "1" . str_repeat("}", 510) . "}"
+    );
+' "$d/tsconfig.json"
+assert_accepts_js "$d" "tsconfig.json nested to exactly the 511-level depth PHP still accepts"
+
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"

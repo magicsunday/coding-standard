@@ -56,6 +56,16 @@ const MAX_JSONC_BYTES = 131072;
  */
 const MAX_TEXT_BYTES = 1048576;
 
+/**
+ * The deepest JSON nesting this gate will decode, matching PHP's
+ * `json_decode()` default `$depth`. Measured directly against 8.4: 511
+ * levels of `{"a": … }` nesting (the outermost container counts as depth 1)
+ * decodes cleanly, 512 fails with "Maximum stack depth exceeded" — so 511 is
+ * the last depth that must still be ACCEPTED, and exceedsMaxJsonDepth's
+ * `depth > maxDepth` check rejects starting at 512, not at 513.
+ */
+const MAX_JSON_DEPTH = 511;
+
 const repoRoot = process.argv[2] ?? '.';
 
 if (!isDirectory(repoRoot)) {
@@ -456,6 +466,106 @@ function stripJsonc(buffer) {
 }
 
 /**
+ * Reports whether a stripped JSONC document nests `{`/`[` past maxDepth
+ * levels, checked on raw bytes and iteratively — never by recursing over the
+ * decoded structure, which the 128 KiB size cap does nothing to bound (a
+ * maximally-nested document costs only a few bytes per level) and which
+ * could exhaust JS's own call stack on a file crafted to nest as deep as
+ * that cap allows.
+ *
+ * @param {Buffer} buffer Stripped JSONC bytes (stripJsonc's output).
+ * @param {number} maxDepth
+ *
+ * @returns {boolean}
+ */
+function exceedsMaxJsonDepth(buffer, maxDepth) {
+    const n = buffer.length;
+    let depth = 0;
+    let i = 0;
+
+    while (i < n) {
+        const c = buffer[i];
+
+        if (c === 0x22) {
+            i = skipStringLiteralBytes(buffer, i, n);
+            continue;
+        }
+
+        if (c === 0x7b || c === 0x5b) {
+            depth += 1;
+
+            if (depth > maxDepth) {
+                return true;
+            }
+        } else if (c === 0x7d || c === 0x5d) {
+            depth -= 1;
+        }
+
+        i += 1;
+    }
+
+    return false;
+}
+
+/**
+ * @param {string} value
+ *
+ * @returns {boolean} True if value contains a UTF-16 surrogate code unit with
+ *                     no matching partner — the class json_decode() rejects a
+ *                     `\uXXXX` escape for and JSON.parse() accepts.
+ */
+function hasLoneSurrogate(value) {
+    const n = value.length;
+
+    for (let i = 0; i < n; i += 1) {
+        const code = value.charCodeAt(i);
+
+        if (code >= 0xd800 && code <= 0xdbff) {
+            const next = value.charCodeAt(i + 1);
+
+            if (!(next >= 0xdc00 && next <= 0xdfff)) {
+                return true;
+            }
+
+            i += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Walks a decoded JSONC value (object keys and string values, at any depth)
+ * for a lone surrogate. See hasLoneSurrogate for what that means and why it
+ * matters; this is its recursive counterpart over a whole parsed document.
+ *
+ * @param {*} value
+ *
+ * @returns {boolean}
+ */
+function containsLoneSurrogate(value) {
+    if (typeof value === 'string') {
+        return hasLoneSurrogate(value);
+    }
+
+    if (Array.isArray(value)) {
+        return value.some((entry) => containsLoneSurrogate(entry));
+    }
+
+    if (value !== null && typeof value === 'object') {
+        for (const [key, entry] of Object.entries(value)) {
+            if (hasLoneSurrogate(key) || containsLoneSurrogate(entry)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Loads a JSONC config. Mirrors $loadJsonc's four-way outcome.
  *
  * UTF-8 validity is checked AFTER stripBomBytes/stripJsonc, not before — see
@@ -477,6 +587,18 @@ function loadJsonc(path) {
     }
 
     const stripped = stripJsonc(stripBomBytes(buffer));
+
+    if (exceedsMaxJsonDepth(stripped, MAX_JSON_DEPTH)) {
+        // json_decode()'s own default $depth is 512, and it fails past it
+        // ("Maximum stack depth exceeded") — measured directly: 511 levels of
+        // nesting decodes cleanly, 512 does not. JSON.parse() has no
+        // comparable cap at reachable depths, and the 128 KiB size cap does
+        // nothing to bound this — 600 levels of `{"a": … }` costs under 4 KB.
+        // Checked ahead of JSON.parse, on the byte-level stripped buffer, so
+        // this never recurses over a maximally-nested document itself.
+        return { kind: 'unparseable' };
+    }
+
     const text = decodeUtf8Strict(stripped);
 
     if (text === null) {
@@ -492,6 +614,17 @@ function loadJsonc(path) {
     }
 
     if (decoded === null || typeof decoded !== 'object') {
+        return { kind: 'unparseable' };
+    }
+
+    if (containsLoneSurrogate(decoded)) {
+        // json_decode() rejects a `\uD800`-style escape with no matching low
+        // surrogate ("Single unpaired UTF-16 surrogate in unicode escape");
+        // JSON.parse() accepts it and produces a string carrying the lone
+        // surrogate code unit. Checked on the PARSED result rather than the
+        // source text, because a \uXXXX escape is only ever meaningful once
+        // decoded — matching pairs, an escape split across concatenated
+        // string literals, etc. are all resolved by JSON.parse() first.
         return { kind: 'unparseable' };
     }
 
