@@ -99,95 +99,41 @@ assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 assert_accepts_js() {
     assert_accepts "$@"
 
-    local dir="$1" label="$2" reason=''
+    local dir="$1" label="$2"
     harness_run_argv "$dir" node "$NODE_GATE"
-
-    if degraded "$HARNESS_OUT"; then
-        reason='the node gate ran degraded — it emitted a diagnostic'
-    elif [ "$HARNESS_RC" -ne 0 ]; then
-        reason="expected the node gate to accept, got exit $HARNESS_RC"
-    fi
-
-    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'accepted'
+    harness_decide_accepts "$HARNESS_OUT" "$HARNESS_RC" "$label (node)"
 }
 
 assert_rejects_js() {
     assert_rejects "$@"
 
-    local dir="$1" label="$2" expected="$3" reason=''
+    local dir="$1" label="$2" expected="$3"
     harness_run_argv "$dir" node "$NODE_GATE"
-
-    if degraded "$HARNESS_OUT"; then
-        reason='the node gate ran degraded — it emitted a diagnostic'
-    elif [ "$HARNESS_RC" -ne 1 ]; then
-        reason="expected the node gate to reach the drift verdict, got exit $HARNESS_RC"
-    elif [ -z "$expected" ]; then
-        reason='the must-carry argument is empty, so it would assert nothing'
-    elif ! grep -qF -- "$expected" <<<"$HARNESS_OUT"; then
-        reason="the node gate rejected, but not for the tested reason; expected to find: $expected"
-    fi
-
-    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'rejected on the tested violation'
+    harness_decide_rejects "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$expected"
 }
 
 assert_usage_error_js() {
     assert_usage_error "$@"
 
-    local dir="$1" label="$2" expected="$3" reason=''
+    local dir="$1" label="$2" expected="$3"
     harness_run_argv "$dir" node "$NODE_GATE"
-
-    if degraded "$HARNESS_OUT"; then
-        reason='the node gate ran degraded — it emitted a diagnostic'
-    elif [ "$HARNESS_RC" -ne 2 ]; then
-        reason="expected the node gate's usage exit, got exit $HARNESS_RC"
-    elif [ -z "$expected" ]; then
-        reason='the must-carry argument is empty, so it would assert nothing'
-    elif ! grep -qF -- "$expected" <<<"$HARNESS_OUT"; then
-        reason="the node gate refused, but not for the tested reason; expected to find: $expected"
-    fi
-
-    harness_settle "$reason" "$label (node)" "$HARNESS_OUT" 'refused to run, as expected'
+    harness_decide_usage_error "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$expected"
 }
 
+# The empty-must-carry arm harness_decide_report_is_inert carries is NOT
+# separately re-probed by this file's own probe_report_is_inert_js_shapes —
+# search this file for "empty-must-carry arm shared by" for why.
 assert_report_is_inert_js() {
     assert_report_is_inert "$@"
 
-    local dir="$1" label="$2" out lines reason=''
+    local dir="$1" label="$2"
     harness_run_argv "$dir" node "$NODE_GATE"
-    out="$HARNESS_OUT"
-    lines="$(grep -c . <<<"$out" || true)"
 
-    # Three of the arms below are proven by probe_report_is_inert_js_shapes
-    # (degraded, wrong exit, wrong substring) — the dispatch this wrapper adds.
-    # The empty-must-carry arm is NOT re-probed — same reason as
-    # assert_rejects_js's identical arm, stated once in the general note on the
-    # probe wrappers below (search this file for "empty-must-carry arm shared
-    # by"): it is the same one-line check already proven in harness.sh's own
-    # probes, reused verbatim rather than rewritten. The scrub-shape arms below
-    # them (ANSI/`::`/`##[`/CR/line-split) reuse harness_report_is_inert's own
-    # regexes verbatim — proven once, in harness.sh's harness_probe_inert_shapes,
-    # against the same patterns — so they are not reproven here either.
-    if degraded "$out"; then
-        reason='the node gate ran degraded — it emitted a diagnostic'
-    elif [ "$HARNESS_RC" -ne 1 ]; then
-        reason="expected the node gate to reach the drift verdict, got exit $HARNESS_RC"
-    elif grep -q "$(printf '\033')" <<<"$out"; then
-        reason='an ANSI escape from a consumer value reached the node report'
-    elif grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$out"; then
-        reason='a consumer value forged a `::` workflow command in the node report'
-    elif grep -qF -- '##[' <<<"$out"; then
-        reason='a consumer value forged a legacy `##[…]` workflow command in the node report'
-    elif grep -q "$(printf '\r')" <<<"$out"; then
-        reason='a consumer value carried a bare carriage return in the node report'
-    elif [ "$lines" -gt 4 ]; then
-        reason="a consumer value split the node report across $lines lines"
-    elif [ "$#" -gt 2 ] && [ -z "$3" ]; then
-        reason='the must-carry argument is empty, so it would assert nothing'
-    elif [ "$#" -gt 2 ] && ! grep -qF -- "$3" <<<"$out"; then
-        reason='the scrubbed value never reached the node report — inert by omission, not by scrubbing'
+    if [ "$#" -gt 2 ]; then
+        harness_decide_report_is_inert "$HARNESS_OUT" "$HARNESS_RC" "$label (node)" "$3"
+    else
+        harness_decide_report_is_inert "$HARNESS_OUT" "$HARNESS_RC" "$label (node)"
     fi
-
-    harness_settle "$reason" "$label (node)" "$out" 'rejected, and the report stayed inert'
 }
 
 # `php` and `node` are both shadowed, the way harness.sh shadows `php` for its own
