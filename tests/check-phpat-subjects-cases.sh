@@ -326,8 +326,12 @@ write_archtest "$d" "$MODEL_RULE
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT))
             ->because('Qualified return type.');
     }"
+# The full sentence, not just its head: this is the one positive assertion in the
+# file for the classname arm's wording, and the src-unreadable must-not-carry
+# elsewhere in this suite greps for "matches no class" assuming both liveness arms
+# use it — true today only because this line pins it for the classname half too.
 assert_rejects "$d" "a #[TestRule] with a qualified return type is analysed, not skipped" \
-    "qualifiedReturn: subject classname"
+    "qualifiedReturn: subject classname(Vendor\Mod\DoesNotExist) matches no class"
 
 d="$work/attribute-with-parens"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"

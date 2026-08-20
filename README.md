@@ -524,10 +524,10 @@ shared config is actually extended (a look-alike package name does not count), n
 toggles in three nested
 places and they combine: the document, every `overrides` entry, and a per-language block
 inside either of those, so `javascript.linter.enabled: false` silences the shared
-standard for every JS/TS file while the top-level key still reads `true` — `files.includes`
+standard for every JS/TS file while the top-level key still reads `true`; `files.includes`
 carries at least one positive pattern, since an all-negative list checks nothing while
-every `enabled` still reads `true`, the
-strict flags are not overridden back to `false` underneath it
+every `enabled` still reads `true`; the
+strict flags are not overridden back to `false` underneath the `extends` link
 (the nine options `strict` switches on as a group — TypeScript treats a specific one
 written back as an override of the umbrella, so pinning only `strict` pins nothing —
 plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`,
