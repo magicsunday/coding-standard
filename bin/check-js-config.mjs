@@ -223,24 +223,15 @@ function readBounded(path, label) {
 }
 
 /**
- * Strips a leading UTF-8 BOM. npm, Node, Biome and tsc all read a BOM-prefixed
- * config and honour it, while JSON.parse does not reject it either in practice
- * — but tsconfig/biome comments are stripped BEFORE parsing, and a leading BOM
- * character would otherwise sit in front of the first token.
- *
- * @param {string} text
- *
- * @returns {string}
- */
-function stripBom(text) {
-    return text.startsWith('﻿') ? text.slice(1) : text;
-}
-
-/**
- * Strips a leading UTF-8 BOM at the BYTE level, before any decoding. See
- * stripBom's docblock for why the leading-BOM case matters; this is its
- * byte-safe counterpart for loadJsonc, which must not decode before
- * stripping comments (see stripJsonc's docblock for why).
+ * Strips a leading UTF-8 BOM, at the byte level, before any decoding. npm,
+ * Node, Biome and tsc all read a BOM-prefixed config and honour it, while
+ * decodeJsonLikePhp's strict decode does not reject one either — but a
+ * biome.json/tsconfig.json's comments are stripped BEFORE parsing, and a
+ * leading BOM would otherwise sit in front of the first token; operating on
+ * bytes rather than a decoded string is required for that path (see
+ * stripJsonc's docblock for why decoding must not happen first), and every
+ * caller — including package.json, which has no comment-stripping pass of
+ * its own — uses this one function rather than a second, string-based copy.
  *
  * @param {Buffer} buffer
  *
@@ -540,6 +531,72 @@ function containsLoneSurrogate(value) {
 }
 
 /**
+ * Decodes a byte buffer the way PHP's `json_decode()` does — applying every
+ * guard it enforces natively and this port has to hand-roll: a nesting-depth
+ * cap, strict UTF-8 validity, and rejecting an unpaired UTF-16 surrogate
+ * escape — returning null on any failure, exactly like json_decode() itself.
+ *
+ * The ONE place all three guards are wired together, on purpose: they were
+ * added to this file one at a time, at different call sites, over several
+ * rounds of review — and twice, a guard added at one JSON.parse() call site
+ * was found missing at the other (exceedsMaxJsonDepth, then
+ * containsLoneSurrogate). Routing every caller through this single function
+ * makes that class of gap structurally impossible to reintroduce at a THIRD
+ * call site: there is no longer a second copy of the pipeline for a new
+ * guard to land on only one of.
+ *
+ * @param {Buffer} buffer Raw bytes for a strict-JSON caller (package.json);
+ *                        already comment/trailing-comma-stripped and
+ *                        BOM-stripped for a JSONC caller (biome/tsconfig).
+ *
+ * @returns {*|null} The decoded value, or null on any of the failures above.
+ */
+function decodeJsonLikePhp(buffer) {
+    if (exceedsMaxJsonDepth(buffer, MAX_JSON_DEPTH)) {
+        // json_decode()'s own default $depth is 512, and it fails past it
+        // ("Maximum stack depth exceeded") — measured directly: 511 levels of
+        // nesting decodes cleanly, 512 does not. JSON.parse() has no
+        // comparable cap at reachable depths, and neither this file's size
+        // caps do anything to bound it on their own — 511 levels of
+        // `{"a": … }` costs well under 4 KB. Checked ahead of JSON.parse, on
+        // the byte-level buffer, so this never recurses over a maximally-
+        // nested document itself.
+        return null;
+    }
+
+    const text = decodeUtf8Strict(buffer);
+
+    if (text === null) {
+        return null;
+    }
+
+    let decoded;
+
+    try {
+        decoded = JSON.parse(text);
+    } catch {
+        return null;
+    }
+
+    if (decoded === null || typeof decoded !== 'object') {
+        return null;
+    }
+
+    if (containsLoneSurrogate(decoded)) {
+        // json_decode() rejects a `\uD800`-style escape with no matching low
+        // surrogate ("Single unpaired UTF-16 surrogate in unicode escape");
+        // JSON.parse() accepts it and produces a string carrying the lone
+        // surrogate code unit. Checked on the PARSED result rather than the
+        // source text, because a \uXXXX escape is only ever meaningful once
+        // decoded — matching pairs, an escape split across concatenated
+        // string literals, etc. are all resolved by JSON.parse() first.
+        return null;
+    }
+
+    return decoded;
+}
+
+/**
  * Loads a JSONC config. Mirrors $loadJsonc's four-way outcome.
  *
  * UTF-8 validity is checked AFTER stripBomBytes/stripJsonc, not before — see
@@ -561,48 +618,9 @@ function loadJsonc(path) {
     }
 
     const stripped = stripJsonc(stripBomBytes(buffer));
+    const decoded = decodeJsonLikePhp(stripped);
 
-    if (exceedsMaxJsonDepth(stripped, MAX_JSON_DEPTH)) {
-        // json_decode()'s own default $depth is 512, and it fails past it
-        // ("Maximum stack depth exceeded") — measured directly: 511 levels of
-        // nesting decodes cleanly, 512 does not. JSON.parse() has no
-        // comparable cap at reachable depths, and the 128 KiB size cap does
-        // nothing to bound this — 600 levels of `{"a": … }` costs under 4 KB.
-        // Checked ahead of JSON.parse, on the byte-level stripped buffer, so
-        // this never recurses over a maximally-nested document itself.
-        return { kind: 'unparseable' };
-    }
-
-    const text = decodeUtf8Strict(stripped);
-
-    if (text === null) {
-        return { kind: 'unparseable' };
-    }
-
-    let decoded;
-
-    try {
-        decoded = JSON.parse(text);
-    } catch {
-        return { kind: 'unparseable' };
-    }
-
-    if (decoded === null || typeof decoded !== 'object') {
-        return { kind: 'unparseable' };
-    }
-
-    if (containsLoneSurrogate(decoded)) {
-        // json_decode() rejects a `\uD800`-style escape with no matching low
-        // surrogate ("Single unpaired UTF-16 surrogate in unicode escape");
-        // JSON.parse() accepts it and produces a string carrying the lone
-        // surrogate code unit. Checked on the PARSED result rather than the
-        // source text, because a \uXXXX escape is only ever meaningful once
-        // decoded — matching pairs, an escape split across concatenated
-        // string literals, etc. are all resolved by JSON.parse() first.
-        return { kind: 'unparseable' };
-    }
-
-    return { kind: 'ok', value: decoded };
+    return decoded === null ? { kind: 'unparseable' } : { kind: 'ok', value: decoded };
 }
 
 /**
@@ -720,22 +738,14 @@ function npmDependencyDeclared(repoRoot) {
         return false;
     }
 
-    // Checked ahead of JSON.parse for the same reason loadJsonc checks it
-    // ahead of ITS JSON.parse call: package.json has no comment-stripping
-    // pass to bound it first, but it is read up to MAX_TEXT_BYTES (1 MiB) —
-    // room enough for a maximally-nested document that JSON.parse's own
-    // recursive descent can crash the process on outright (a native stack
-    // overflow, uncatchable by the try/catch below) rather than throw.
-    const text = exceedsMaxJsonDepth(contents, MAX_JSON_DEPTH) ? null : decodeUtf8Strict(contents);
-    let json = null;
-
-    if (text !== null) {
-        try {
-            json = JSON.parse(stripBom(text));
-        } catch {
-            json = null;
-        }
-    }
+    // package.json has no comment-stripping pass, so it goes through
+    // decodeJsonLikePhp directly after a byte-level BOM strip — the same
+    // pipeline loadJsonc uses for biome.json/tsconfig.json, which is the
+    // point: routing every JSON.parse() call site through the one shared
+    // function is what keeps a guard from landing on one of them and not
+    // the other, which has already happened twice (see decodeJsonLikePhp's
+    // own docblock).
+    const json = decodeJsonLikePhp(stripBomBytes(contents));
 
     if (json === null || typeof json !== 'object') {
         fail('package.json', 'is not valid JSON, so the JS/TS contract cannot be checked.');

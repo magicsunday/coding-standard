@@ -1739,12 +1739,11 @@ php -r '
 ' "$d/tsconfig.json"
 assert_accepts_js "$d" "tsconfig.json nested to exactly the 511-level depth PHP still accepts"
 
-# The npm probe's own depth guard: package.json has no comment-stripping
-# pass to run exceedsMaxJsonDepth ahead of like loadJsonc's biome.json/
-# tsconfig.json path does, so this is a separate call site that needs the
-# same guard independently — verified against the real PHP gate, which
-# needs no such guard of its own (json_decode() enforces its depth cap
-# natively at every call site).
+# The npm probe's own depth guard. package.json goes through the same
+# decodeJsonLikePhp pipeline biome.json/tsconfig.json does (see that
+# function's docblock) — verified against the real PHP gate, which needs no
+# such guard of its own (json_decode() enforces its depth cap natively at
+# every call site).
 d="$(mk_case js-package-json-depth-512)"
 node -e '
     const fs = require("fs");
@@ -1754,6 +1753,26 @@ node -e '
 ' "$d/package.json"
 printf '{\n    "linter": { "enabled": false }\n}\n' > "$d/biome.json"
 assert_rejects_js "$d" "a package.json nested past the 512-level depth cap is reported, not crashed on" "package.json: is not valid JSON"
+
+# The npm probe's own surrogate guard, same reasoning: package.json shares
+# decodeJsonLikePhp with biome.json/tsconfig.json, so a lone surrogate
+# ANYWHERE in the manifest — not just in the dependency version string this
+# probe reads — must be reported rather than silently accepted and used for
+# the adoption check. Verified against the real PHP gate on a byte-identical
+# fixture: the JS gate previously accepted this (exit 0), the PHP gate
+# rejected it (exit 1, "package.json: is not valid JSON") — a real
+# accept/reject divergence, not merely a differing message.
+d="$(mk_case js-package-json-unpaired-surrogate)"
+printf '{\n    "name": "consumer",\n    "description": "bad \\uD800 escape",\n    "devDependencies": { "@magicsunday/coding-standard": "^3.0.0" }\n}\n' > "$d/package.json"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
+assert_rejects_js "$d" "a package.json with an unpaired surrogate elsewhere in the manifest is reported" "package.json: is not valid JSON"
+
+# The accepting twin, so the case above cannot be satisfied by rejecting
+# every package.json outright.
+d="$(mk_case js-package-json-paired-surrogate)"
+printf '{\n    "name": "consumer",\n    "description": "an emoji: \\uD83D\\uDE00",\n    "devDependencies": { "@magicsunday/coding-standard": "^3.0.0" }\n}\n' > "$d/package.json"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
+assert_accepts_js "$d" "a package.json with a properly paired surrogate elsewhere in the manifest is accepted"
 
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
