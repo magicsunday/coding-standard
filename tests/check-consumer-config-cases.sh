@@ -1674,10 +1674,19 @@ assert_rejects_js "$d" "tsconfig.json with an invalid UTF-8 byte outside any com
 
 # isAsciiWhitespaceByte mirrors $stripJsonc's trailing-comma pattern, which has
 # no `/u` modifier and therefore matches only ASCII whitespace — NOT a non-
-# breaking space (U+00A0, encoded \xC2\xA0). A byte-level scan that instead
-# matched JS's Unicode-aware `\s` (as the string-based scan this replaced
-# used to) would strip a comma left dangling before `}` by an NBSP alone,
-# accepting a document real JSONC — and the PHP gate — reject.
+# breaking space (U+00A0, encoded \xC2\xA0). Pins that classification against
+# PHP directly, not against the accept/reject verdict: this fixture is
+# rejected either way a comma-before-NBSP-before-`}` is scanned, because the
+# leftover NBSP is not part of the JSON grammar's own whitespace set and is
+# fatal to JSON.parse/json_decode on its own, whether or not the comma ahead
+# of it was stripped. An earlier version of this comment claimed the wider,
+# Unicode-aware `\s` the string-based scan (replaced this round) used to
+# match would have flipped this specific fixture to an accept — verified
+# false by running that retired scan against this exact input: same reject,
+# same message. What the fixture actually demonstrates is narrower and still
+# worth pinning: isAsciiWhitespaceByte does not itself misclassify NBSP as
+# whitespace, which is the property that must not silently drift back toward
+# Unicode.
 d="$(mk_js_case ts-trailing-comma-nbsp)"
 php -r '
     file_put_contents(
