@@ -667,7 +667,7 @@ write_archtest "$d" "$MODEL_RULE
 
 $CONFIG_RULE"
 assert_rejects "$d" "a src/ file past the size cap is reported, not silently skipped" \
-    "larger than the 262144 bytes this gate reads"
+    "is larger than the 262144 bytes this gate reads"
 
 # --- REJECT (exit 2): an ArchitectureTest past the size cap ---
 # The gate's only exit-1 path that carries no violation list, and nothing drove it.
@@ -677,8 +677,71 @@ mkdir -p "$d/tests/Architecture"
 php -r '
     file_put_contents($argv[1], "<?php\n\n// " . str_repeat("x", 262145) . "\n");
 ' "$d/tests/Architecture/ArchitectureTest.php"
-assert_rejects "$d" "an ArchitectureTest past the size cap is reported as oversized" \
-    "unreadable or larger than the 262144 bytes this gate reads"
+assert_usage_error "$d" "an ArchitectureTest past the size cap is reported as oversized" \
+    "is larger than the 262144 bytes this gate reads"
+
+# --- The unreadable half of both read arms ---
+# There was no chmod fixture in this file at all, so only the oversize half of each
+# arm was driven. That is what let two defects ship: the raw E_WARNING and the
+# fabricated liveness verdict below. Skipped under root, where mode 000 denies
+# nothing and every case here would read as a false regression; CI runs non-root.
+if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip (running as root: mode 000 does not deny read): the unreadable-source cases\n'
+else
+    # An unreadable src/ file leaves the inventory SHORT, and the liveness arms can
+    # then only answer "not found". Before the guard this fixture reported the read
+    # failure AND `modelIsALeaf: subject inNamespace(Vendor\Mod\Model) matches no
+    # class — a vacuous rule` for a class that plainly exists. The must-not-carry is
+    # the point of the case; the must-carry only proves it reported at all.
+    d="$work/src-unreadable"
+    write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+    write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+    write_archtest "$d" "$MODEL_RULE
+
+$CONFIG_RULE"
+    # BOTH targets, so both liveness arms are driven: inNamespace(Model) and
+    # classname(Configuration) each lose their class to the same read failure.
+    chmod 000 "$d/src/Model/Node.php" "$d/src/Configuration.php"
+    assert_rejects "$d" "an unreadable src/ file reports as unreadable, not as a vacuous rule" \
+        "cannot be read, so its classes are not in the inventory"
+
+    # $GATE is a PHP FILE, so it needs the interpreter — every harness helper spells
+    # it `php "$gate"`. Executing it directly fails silently, $out stays empty and the
+    # grep below then asserts nothing; measured, that is exactly what this line did
+    # before the prefix was added.
+    out="$(php "$GATE" "$d" 2>&1)" || true
+    if grep -qF -- 'matches no class' <<<"$out"; then
+        harness_fail "an unreadable src/ file made the gate fabricate a vacuous-rule verdict"
+    fi
+
+    # A filename is the widest byte domain either shipped gate reports, and a pull
+    # request chooses it. Measured: with safeReportValue() removed from this one site
+    # the suite stayed green, because nothing drove it.
+    #
+    # The directory name is deliberately two characters: safeReportValue() truncates
+    # at 64 bytes from the FRONT, and a path carries its identifying part at the end,
+    # so a long work dir would eat the poison and leave the must-carry asserting the
+    # tmp prefix. The must-carry is correspondingly short — `a?::error` is the whole
+    # proof, since the `?` is the newline this site has to have translated.
+    d="$work/pn"
+    write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+    write_archtest "$d" "$CONFIG_RULE"
+    poisoned="$d/src/$(printf 'a\n::error title=x::forged ##[error]legacy \033[2K\rcr.php')"
+    printf '<?php\n' > "$poisoned"
+    chmod 000 "$poisoned"
+    assert_report_is_inert "$d" 'a src/ filename carrying control characters cannot forge a command' \
+        'a?::error'
+
+    # The ArchitectureTest itself, the exit-2 half. Distinct from the oversize case
+    # above, and it must say which of the two happened.
+    d="$work/archtest-unreadable"
+    write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+    mkdir -p "$d/tests/Architecture"
+    printf '<?php\n' > "$d/tests/Architecture/ArchitectureTest.php"
+    chmod 000 "$d/tests/Architecture/ArchitectureTest.php"
+    assert_usage_error "$d" "an unreadable ArchitectureTest reports as unreadable, not as oversized" \
+        "cannot be read"
+fi
 
 # --- REJECT: an ArchitectureTest with no #[TestRule] method at all ---
 d="$work/no-testrule"

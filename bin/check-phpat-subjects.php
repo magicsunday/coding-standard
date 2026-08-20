@@ -133,20 +133,60 @@ $stripComments = static function (string $code): string {
     return $result;
 };
 
-// Capped at the read, the way bin/check-consumer-config.php caps its own. Both
-// this file and every `src/*.php` below are pull-request content in the CONSUMER's
-// CI, and an uncapped read of one ends in `Allowed memory size exhausted` — exit
-// 255, no gate diagnostic. Reproduced with a 196 MB file at memory_limit=128M.
-$sourceRaw = file_get_contents($architectureTest, false, null, 0, MAX_SOURCE_BYTES + 1);
+/**
+ * Reads at most MAX_SOURCE_BYTES + 1 bytes, with PHP's own diagnostic suppressed.
+ *
+ * Capped at the read, the way bin/check-consumer-config.php caps its own. Both the
+ * ArchitectureTest and every `src/*.php` below are pull-request content in the
+ * CONSUMER's CI, and an uncapped read of one ends in `Allowed memory size
+ * exhausted` — exit 255, no gate diagnostic. Reproduced with a 196 MB file at
+ * memory_limit=128M.
+ *
+ * The scoped handler is why this is a function and not a bare call. On an
+ * unreadable file PHP raises an E_WARNING nothing suppresses, so
+ * `Failed to open stream: Permission denied` lands on the stream AHEAD of this
+ * gate's own diagnostic, carrying a path that never passed safeReportValue() —
+ * and the shared test harness classifies any run carrying such a line as having
+ * produced no verdict at all. Both sibling gates already read this way.
+ *
+ * @param string $path Path to the file to read.
+ *
+ * @return string|false The contents, or false when the file could not be read.
+ */
+$readSource = static function (string $path): string|false {
+    set_error_handler(static fn (): bool => true);
 
-if (($sourceRaw === false) || (strlen($sourceRaw) > MAX_SOURCE_BYTES)) {
+    try {
+        return file_get_contents($path, false, null, 0, MAX_SOURCE_BYTES + 1);
+    } finally {
+        restore_error_handler();
+    }
+};
+
+$sourceRaw = $readSource($architectureTest);
+
+// Two causes, two reports, and exit 2 for both: neither is drift the consumer can
+// fix in a rule, they are conditions under which this gate did not run. Collapsing
+// them into one sentence sends the reader to split a file that a permission bit put
+// out of reach, and reporting either as exit 1 puts a setup failure in the drift
+// bucket this file keeps apart everywhere else.
+if ($sourceRaw === false) {
     fwrite(\STDERR, sprintf(
-        "check-phpat-subjects: %s is unreadable or larger than the %d bytes this gate reads.\n",
+        "check-phpat-subjects: %s cannot be read.\n",
+        safeReportValue($architectureTest)
+    ));
+
+    exit(2);
+}
+
+if (strlen($sourceRaw) > MAX_SOURCE_BYTES) {
+    fwrite(\STDERR, sprintf(
+        "check-phpat-subjects: %s is larger than the %d bytes this gate reads.\n",
         safeReportValue($architectureTest),
         MAX_SOURCE_BYTES
     ));
 
-    exit(1);
+    exit(2);
 }
 
 $source = $stripComments($sourceRaw);
@@ -170,6 +210,11 @@ if (preg_match('/const\s+string\s+NAMESPACE_ROOT\s*=\s*\'([^\']+)\'/', $source, 
 /** @var list<string> $violations */
 $violations = [];
 
+// Set when a src/ file could not be inventoried. The liveness arms below compare a
+// subject against the inventory, so once it is short they can only answer "not
+// found", which is not the same fact as "does not exist".
+$inventoryIncomplete = false;
+
 /** @var array<string, string> $inventory */
 $inventory = [];
 
@@ -190,14 +235,22 @@ foreach ($directory as $file) {
     // The tokeniser answers both by construction — a string is one token, and the
     // loop does not stop at the first hit. Re-derive the token names rather than
     // trusting this list: https://www.php.net/manual/en/tokens.php
-    $sourceFile = file_get_contents($file->getPathname(), false, null, 0, MAX_SOURCE_BYTES + 1);
+    $sourceFile = $readSource($file->getPathname());
 
-    if (($sourceFile === false) || (strlen($sourceFile) > MAX_SOURCE_BYTES)) {
-        $violations[] = sprintf(
-            '%s is unreadable or larger than the %d bytes this gate reads, so its classes are not in the inventory.',
+    if ($sourceFile === false) {
+        $violations[]        = sprintf('%s cannot be read, so its classes are not in the inventory.', safeReportValue($file->getPathname()));
+        $inventoryIncomplete = true;
+
+        continue;
+    }
+
+    if (strlen($sourceFile) > MAX_SOURCE_BYTES) {
+        $violations[]        = sprintf(
+            '%s is larger than the %d bytes this gate reads, so its classes are not in the inventory.',
             safeReportValue($file->getPathname()),
             MAX_SOURCE_BYTES
         );
+        $inventoryIncomplete = true;
 
         continue;
     }
@@ -615,8 +668,14 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
         continue;
     }
 
+    // A subject is judged against the inventory, so a short inventory can only
+    // produce "not found" — which this gate would otherwise print as "matches no
+    // class", a cause the repository does not have. Measured before this guard:
+    // one `chmod 000` on a single class made the gate report a live rule as
+    // vacuous, beside the read failure that explained it. The read failure already
+    // reds the run, so staying silent about liveness loses nothing.
     if ($selector === 'inNamespace') {
-        if (!$namespaceHasClass($inventory, $resolved)) {
+        if (!$inventoryIncomplete && !$namespaceHasClass($inventory, $resolved)) {
             $violations[] = sprintf('%s: subject inNamespace(%s) matches no class — a vacuous rule (a trait-only or empty namespace enforces nothing).', safeReportValue($ruleName), safeReportValue($resolved));
         }
 
@@ -626,7 +685,7 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     if ($selector === 'classname') {
         $kind = $inventory[$resolved] ?? null;
 
-        if (($kind !== 'class') && ($kind !== 'abstract-class')) {
+        if (!$inventoryIncomplete && ($kind !== 'class') && ($kind !== 'abstract-class')) {
             $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', safeReportValue($ruleName), safeReportValue($resolved));
         }
 
