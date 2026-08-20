@@ -897,6 +897,22 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  * allows: a number or an object is simply not a specifier, and falls out here as
  * a missing link rather than a type error at the call site.
  *
+ * POSITION IN THE LIST DECIDES, which is why this answers three states and not
+ * two. Both tools merge `extends` left to right and let a later entry win, so a
+ * consumer naming the shared base and then a local file gets the shared standard
+ * back off again. Measured against the pinned versions: with
+ * `["@magicsunday/coding-standard/biome/base.json", "./local.json"]` and
+ * `{"linter": {"enabled": false}}` in the local file, `biome ci` 2.5.5 checks the
+ * tree and exits 0 where the same tree without the local file reports
+ * `noDoubleEquals` and exits 1; the tsconfig equivalent with `strict: false`
+ * makes tsc 7.0.2 accept code that the shared base rejects.
+ *
+ * This gate deliberately does not open a config it was not pointed at, so it
+ * cannot know what a later entry contains — only that there is one. `overridden`
+ * is therefore reported on position alone. `last` is safe without reading
+ * anything: the consumer's own document is inspected by this gate already, and
+ * its keys win over every `extends` entry.
+ *
  * A bare string is a specifier for tsconfig and NOT for Biome, which accepts only
  * `"//"` or an array of paths and answers anything else with `The 'extends' field
  * must be either '//' or an array of paths` — a deserialize error that kills the
@@ -909,13 +925,15 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripB
  * @param bool                    $suffixOptional Whether the consuming tool resolves the suffix itself.
  * @param bool                    $listRequired   Whether the consuming tool accepts only a list, never a bare string.
  *
- * @return bool
+ * @return string One of `absent` (nothing names the shared base), `last` (it is
+ *                named and nothing follows it) or `overridden` (it is named and a
+ *                later entry wins over it).
  */
-$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional, bool $listRequired = false): bool {
+$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional, bool $listRequired = false): string {
     $extends = $config['extends'] ?? null;
 
     if ($listRequired && !is_array($extends)) {
-        return false;
+        return 'absent';
     }
 
     $candidates = is_array($extends) ? $extends : [$extends];
@@ -931,13 +949,21 @@ $extendsShared = static function (array $config, string $sharedStem, bool $suffi
         $suffixOptional ? '(?:\.json)?' : '\.json'
     );
 
-    foreach ($candidates as $candidate) {
+    $sharedAt = null;
+
+    foreach (array_values($candidates) as $position => $candidate) {
         if (is_string($candidate) && (preg_match($pattern, $candidate) === 1)) {
-            return true;
+            // The LAST match, not the first: a list naming the shared base twice
+            // is answered by the copy that actually wins.
+            $sharedAt = $position;
         }
     }
 
-    return false;
+    if ($sharedAt === null) {
+        return 'absent';
+    }
+
+    return ($sharedAt === (count($candidates) - 1)) ? 'last' : 'overridden';
 };
 
 /**
@@ -1080,8 +1106,17 @@ if ($biomeFile !== null) {
     if ($adopted && is_array($biomeJson)) {
         // Biome requires the `.json` suffix — verified: it answers the bare
         // specifier with `Could not resolve … module not found`.
-        if (!$extendsShared($biomeJson, 'biome/base', false, true)) {
+        $biomeLink = $extendsShared($biomeJson, 'biome/base', false, true);
+
+        if ($biomeLink === 'absent') {
             $fail($violations, $label, 'must `extends` the shared `@magicsunday/coding-standard/biome/base.json`.');
+        } elseif ($biomeLink === 'overridden') {
+            $fail(
+                $violations,
+                $label,
+                '`extends` names an entry AFTER the shared `@magicsunday/coding-standard/biome/base.json`, '
+                . 'and Biome lets that entry win. Put the shared base last.'
+            );
         }
 
         // `linter`/`formatter` can be switched off at the top level and, per
@@ -1235,8 +1270,17 @@ if ($adopted && is_file($tsconfigFile)) {
     } elseif (is_array($tsconfigJson)) {
         // tsc appends `.json` itself, so the bare specifier resolves to the same
         // file and must not be reported as a missing link — verified with 7.0.2.
-        if (!$extendsShared($tsconfigJson, 'tsconfig/base', true)) {
+        $tsconfigLink = $extendsShared($tsconfigJson, 'tsconfig/base', true);
+
+        if ($tsconfigLink === 'absent') {
             $fail($violations, 'tsconfig.json', 'must `extends` the shared `@magicsunday/coding-standard/tsconfig/base.json`.');
+        } elseif ($tsconfigLink === 'overridden') {
+            $fail(
+                $violations,
+                'tsconfig.json',
+                '`extends` names an entry AFTER the shared `@magicsunday/coding-standard/tsconfig/base.json`, '
+                . 'and tsc lets that entry win. Put the shared base last.'
+            );
         }
 
         // Only the strictness flags are pinned. `esModuleInterop`,

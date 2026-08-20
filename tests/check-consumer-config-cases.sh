@@ -796,6 +796,76 @@ assert_rejects "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 # The plain "no extends" case lives with the adoption pair further down, where it
 # is the counterpart to the same config in a repository that has not adopted.
 
+# Position in the list decides, so both directions are driven. Both tools merge
+# `extends` left to right and let a LATER entry win, so naming the shared base and
+# then a local file hands the standard back. Measured against the pinned versions:
+# `biome ci` 2.5.5 exits 0 on a tree it otherwise reports, and tsc 7.0.2 accepts
+# code the shared base rejects. Nothing in the gate opens the later file — the
+# report is on position alone, which is why the accepting direction below matters
+# just as much: the shared base LAST must stay accepted, or every consumer that
+# adds a local layer the legitimate way gets a false report.
+d="$(mk_js_case biome-extends-overridden)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.local.json"]
+}
+JSON
+cat > "$d/biome.local.json" <<'JSON'
+{
+    "linter": { "enabled": false }
+}
+JSON
+assert_rejects "$d" "biome.json listing a local layer AFTER the shared base" 'names an entry AFTER the shared'
+
+d="$(mk_js_case biome-extends-shared-last)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["./biome.local.json", "@magicsunday/coding-standard/biome/base.json"]
+}
+JSON
+cat > "$d/biome.local.json" <<'JSON'
+{
+    "linter": { "enabled": true }
+}
+JSON
+assert_accepts "$d" "biome.json listing a local layer BEFORE the shared base"
+
+d="$(mk_js_case tsconfig-extends-overridden)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/tsconfig/base.json", "./tsconfig.local.json"]
+}
+JSON
+cat > "$d/tsconfig.local.json" <<'JSON'
+{
+    "compilerOptions": { "strict": false }
+}
+JSON
+assert_rejects "$d" "tsconfig.json listing a local layer AFTER the shared base" 'names an entry AFTER the shared'
+
+d="$(mk_js_case tsconfig-extends-shared-last)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["./tsconfig.local.json", "@magicsunday/coding-standard/tsconfig/base.json"]
+}
+JSON
+cat > "$d/tsconfig.local.json" <<'JSON'
+{
+    "compilerOptions": { "declaration": true }
+}
+JSON
+assert_accepts "$d" "tsconfig.json listing a local layer BEFORE the shared base"
+
+# The bare string tsconfig still resolves: one entry is trivially the last one, so
+# the position rule must not turn the single-specifier spelling into a report.
+d="$(mk_js_case tsconfig-extends-bare-string)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": "@magicsunday/coding-standard/tsconfig/base"
+}
+JSON
+assert_accepts "$d" "tsconfig.json extending the shared base as a bare string"
+
 # A near-miss package name must NOT satisfy the extends check — the optional path
 # prefix has to end at a segment boundary, the same rule the deptrac import uses.
 d="$(mk_js_case biome-lookalike-extends)"
