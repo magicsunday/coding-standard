@@ -307,12 +307,32 @@ function stripComments(json) {
 
         if (c === '/' && json[i + 1] === '*') {
             let j = i + 2;
+            let closed = false;
 
-            while (j < n && !(json[j] === '*' && json[j + 1] === '/')) {
+            while (j < n) {
+                if (json[j] === '*' && json[j + 1] === '/') {
+                    closed = true;
+                    j += 2;
+                    break;
+                }
+
                 j += 1;
             }
 
-            j = Math.min(j + 2, n);
+            if (!closed) {
+                // PHP's $stripJsonc alternative for this is the non-greedy
+                // `/\*.*?\*/`, which never matches an UNTERMINATED comment —
+                // so the raw `/*…` text is left in place there and fails to
+                // parse as JSON afterwards. Treating an unterminated comment
+                // as extending to EOF (as the closed branch below does) would
+                // instead "fix" it silently, accepting a config the PHP gate
+                // rejects. Copying the rest of the document verbatim mirrors
+                // PHP: whatever comes after is not valid JSON either way.
+                out += json.slice(i, n);
+                i = n;
+                continue;
+            }
+
             out += ' ';
             i = j;
             continue;
@@ -555,10 +575,14 @@ function npmDependencyDeclared(repoRoot) {
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
         const sectionValue = json[section];
 
+        // PHP checks isset($json[$section]['@magicsunday/coding-standard']),
+        // which is false when the key is present but its value is null —
+        // Object.hasOwn alone is true there, so the null check is required
+        // to keep the two in lockstep on an explicit `"…": null` entry.
         if (
-            sectionValue !== null
-            && typeof sectionValue === 'object'
+            isArrayLike(sectionValue)
             && Object.hasOwn(sectionValue, '@magicsunday/coding-standard')
+            && sectionValue['@magicsunday/coding-standard'] !== null
         ) {
             return true;
         }
@@ -626,9 +650,9 @@ if (biomeFile !== null) {
         const baseScopes = [['', biomeJson]];
         const overrides = biomeJson.overrides ?? null;
 
-        if (overrides !== null && typeof overrides === 'object') {
+        if (isArrayLike(overrides)) {
             for (const [index, override] of Object.entries(overrides)) {
-                if (override !== null && typeof override === 'object') {
+                if (isArrayLike(override)) {
                     baseScopes.push([`overrides[${safeReportValue(index)}].`, override]);
                 }
             }
@@ -643,7 +667,7 @@ if (biomeFile !== null) {
             for (const language of languages) {
                 const languageScope = baseScope[language] ?? null;
 
-                if (languageScope !== null && typeof languageScope === 'object') {
+                if (isArrayLike(languageScope)) {
                     scopes.push([`${prefix}${language}.`, languageScope]);
                 }
             }
@@ -666,7 +690,7 @@ if (biomeFile !== null) {
         for (const [prefix, scope] of scopes) {
             for (const toggle of ['linter', 'formatter', 'assist']) {
                 const toggleScope = scope[toggle];
-                const enabled = toggleScope !== null && typeof toggleScope === 'object' ? toggleScope.enabled : undefined;
+                const enabled = isArrayLike(toggleScope) ? toggleScope.enabled : undefined;
 
                 if (enabled === false) {
                     fail(label, `\`${prefix}${toggle}.enabled\` must not be false — that disables the shared standard wholesale.`);
@@ -676,14 +700,14 @@ if (biomeFile !== null) {
             // `recommended`/`preset` exist on every rule group as well as on
             // `rules` itself.
             const linterScope = scope.linter;
-            const topLevelRules = linterScope !== null && typeof linterScope === 'object' ? (linterScope.rules ?? null) : null;
+            const topLevelRules = isArrayLike(linterScope) ? (linterScope.rules ?? null) : null;
             const ruleScopes = [];
 
-            if (topLevelRules !== null && typeof topLevelRules === 'object') {
+            if (isArrayLike(topLevelRules)) {
                 ruleScopes.push(['linter.rules', topLevelRules]);
 
                 for (const [group, groupRules] of Object.entries(topLevelRules)) {
-                    if (groupRules !== null && typeof groupRules === 'object') {
+                    if (isArrayLike(groupRules)) {
                         ruleScopes.push([`linter.rules.${safeReportValue(group)}`, groupRules]);
                     }
                 }
@@ -750,7 +774,7 @@ if (adopted && tsconfigFileExists) {
 
         for (const flag of pinnedFlags) {
             const compilerOptions = tsconfigJson.compilerOptions;
-            const value = compilerOptions !== null && typeof compilerOptions === 'object' ? compilerOptions[flag] : undefined;
+            const value = isArrayLike(compilerOptions) ? compilerOptions[flag] : undefined;
 
             if (value === false) {
                 fail('tsconfig.json', `\`compilerOptions.${flag}\` must not be false — it overrides the shared strict base.`);

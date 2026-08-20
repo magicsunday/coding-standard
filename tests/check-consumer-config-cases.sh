@@ -159,13 +159,14 @@ assert_report_is_inert_js() {
 
     # Three of the arms below are proven by probe_report_is_inert_js_shapes
     # (degraded, wrong exit, wrong substring) — the dispatch this wrapper adds.
-    # The empty-must-carry arm is NOT re-probed, for the same reason stated
-    # where assert_rejects_js's identical arm is skipped above: it is the same
-    # one-line check already proven in harness.sh's own probes, reused verbatim
-    # rather than rewritten. The scrub-shape arms below them (ANSI/`::`/`##[`/
-    # CR/line-split) reuse harness_report_is_inert's own regexes verbatim —
-    # proven once, in harness.sh's harness_probe_inert_shapes, against the same
-    # patterns — so they are not reproven here either.
+    # The empty-must-carry arm is NOT re-probed — same reason as
+    # assert_rejects_js's identical arm, stated once in the general note on the
+    # probe wrappers below (search this file for "empty-must-carry arm shared
+    # by"): it is the same one-line check already proven in harness.sh's own
+    # probes, reused verbatim rather than rewritten. The scrub-shape arms below
+    # them (ANSI/`::`/`##[`/CR/line-split) reuse harness_report_is_inert's own
+    # regexes verbatim — proven once, in harness.sh's harness_probe_inert_shapes,
+    # against the same patterns — so they are not reproven here either.
     if degraded "$out"; then
         reason='the node gate ran degraded — it emitted a diagnostic'
     elif [ "$HARNESS_RC" -ne 1 ]; then
@@ -1701,6 +1702,14 @@ cat > "$d/tsconfig.json" <<'JSON'
 JSON
 assert_rejects_js "$d" "tsconfig.json whose block comment must not swallow the rest" "\`compilerOptions.strict\`"
 
+# An UNTERMINATED block comment: PHP's non-greedy `/\*.*?\*/` alternative never
+# matches one, so the raw `/*…` text is left in place and fails to parse. A
+# scanner that instead treats "no closing */" as "runs to EOF" would silently
+# accept a config real JSONC never would.
+d="$(mk_js_case ts-block-comment-unterminated)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json"\n}\n/* never closed' > "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json with an unterminated block comment" "tsconfig.json: not valid JSON(C)"
+
 # A comment placed inside a token must not fuse the halves back together.
 d="$(mk_js_case ts-comment-in-token)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "compilerOptions": { "strict": tr/* x */ue }\n}\n' > "$d/tsconfig.json"
@@ -1976,6 +1985,16 @@ for section in dependencies optionalDependencies peerDependencies; do
     printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
     assert_rejects_js "$d" "the npm dependency declared under $section counts as adoption" "biome/base.json"
 done
+
+# PHP checks isset($json[$section]['@magicsunday/coding-standard']), which is
+# false when the key is present but its value is null — a lookup keyed purely
+# on Object.hasOwn() would instead read this as adopted, and then wrongly
+# enforce the extends/strict-flag contract on a repository that never
+# resolved a real dependency here.
+d="$(mk_case js-dependency-value-null)"
+printf '{\n    "devDependencies": { "@magicsunday/coding-standard": null }\n}\n' > "$d/package.json"
+printf '{\n    "linter": { "enabled": false }\n}\n' > "$d/biome.json"
+assert_accepts_js "$d" "an explicit null dependency value does not count as adoption"
 
 # Every overrides case so far put the violation at index 0, so a walk that only
 # inspected the first entry would pass them all — and the index in the message
