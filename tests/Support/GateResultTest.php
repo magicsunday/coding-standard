@@ -32,15 +32,15 @@ final class GateResultTest extends TestCase
     public static function degradedOutputProvider(): array
     {
         return [
-            'PHP fatal error' => ['PHP Fatal error:  Uncaught Error: x'],
+            'PHP fatal error'             => ['PHP Fatal error:  Uncaught Error: x'],
             'PHP recoverable fatal error' => ['PHP Recoverable fatal error:  Argument 1 passed to f()'],
-            'PHP parse error' => ['PHP Parse error:  syntax error, unexpected token ";"'],
-            'PHP warning' => ['Warning: Undefined array key 0 in /x on line 1'],
-            'PHP notice' => ['Notice: Only variables should be passed by reference in /x on line 1'],
-            'PHP deprecated' => ['Deprecated: Implicit conversion in /x on line 1'],
-            'PHP uncaught type error' => ['Uncaught TypeError: f(): Argument #1 must be of type string'],
-            'Node Error stack frame' => ["Uncaught Error: boom\n    at Object.<anonymous> (/x.js:1:1)"],
-            'Node eval-mode marker' => ['[eval]:1'],
+            'PHP parse error'             => ['PHP Parse error:  syntax error, unexpected token ";"'],
+            'PHP warning'                 => ['Warning: Undefined array key 0 in /x on line 1'],
+            'PHP notice'                  => ['Notice: Only variables should be passed by reference in /x on line 1'],
+            'PHP deprecated'              => ['Deprecated: Implicit conversion in /x on line 1'],
+            'PHP uncaught type error'     => ['Uncaught TypeError: f(): Argument #1 must be of type string'],
+            'Node Error stack frame'      => ["Uncaught Error: boom\n    at Object.<anonymous> (/x.js:1:1)"],
+            'Node eval-mode marker'       => ['[eval]:1'],
         ];
     }
 
@@ -53,8 +53,8 @@ final class GateResultTest extends TestCase
     {
         return [
             'a report line mentioning "Warning" mid-sentence' => ['  - phpunit.xml: Warning is not a strict flag'],
-            'a report line quoting "at the start"' => ['INFO     peer: "   at the start"'],
-            'a report line quoting an eval-shaped fragment' => ['INFO     peer: "[eval]:1"'],
+            'a report line quoting "at the start"'            => ['INFO     peer: "   at the start"'],
+            'a report line quoting an eval-shaped fragment'   => ['INFO     peer: "[eval]:1"'],
         ];
     }
 
