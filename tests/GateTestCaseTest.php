@@ -254,11 +254,12 @@ final class GateTestCaseTest extends GateTestCase
     /**
      * Verifies that assertGateReportsOnce's needle requires BOTH the leading
      * `- ` and the trailing `:` around the file prefix, not just their
-     * combination — the round-6 decoy only proves a mutation dropping BOTH
-     * halves at once is caught. A decoy sharing the prefix as a string
-     * prefix (`biome.json` inside `biome.jsonc`) kills a colon-only drop; a
-     * decoy carrying the prefix with no leading dash kills a dash-only drop.
-     * Neither half is provable by the other.
+     * combination — assertGateReportsOncePassesWhenTheFilePrefixAppearsOnlyInAnUnrelatedMessage
+     * only proves a mutation dropping BOTH halves at once is caught. A decoy
+     * sharing the prefix as a string prefix (`biome.json` inside
+     * `biome.jsonc`) kills a colon-only drop; a decoy carrying the prefix
+     * with no leading dash kills a dash-only drop. Neither half is provable
+     * by the other.
      */
     #[Test]
     public function assertGateReportsOncePassesWhenTheFilePrefixNeedleShapeIsOnlyPartiallyPresentElsewhere(): void
