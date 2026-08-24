@@ -35,5 +35,8 @@
             <directory>tests/Support</directory>
             <file>tests/GateTestCase.php</file>
         </include>
+        <exclude>
+            <directory suffix="Test.php">tests/Support</directory>
+        </exclude>
     </source>
 </phpunit>

@@ -13,6 +13,7 @@ namespace MagicSunday\CodingStandard\Test\Support;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 use function sys_get_temp_dir;
@@ -27,6 +28,7 @@ use function sys_get_temp_dir;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateProcess::class)]
+#[UsesClass(GateResult::class)]
 final class GateProcessTest extends TestCase
 {
     /**

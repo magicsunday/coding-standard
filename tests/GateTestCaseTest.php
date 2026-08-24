@@ -11,9 +11,13 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
+use MagicSunday\CodingStandard\Test\Support\GateProcess;
+use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
 
 use function dirname;
 use function file_get_contents;
@@ -35,6 +39,9 @@ use function preg_quote;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateTestCase::class)]
+#[UsesClass(FixtureDirectory::class)]
+#[UsesClass(GateProcess::class)]
+#[UsesClass(GateResult::class)]
 final class GateTestCaseTest extends GateTestCase
 {
     /**
@@ -629,6 +636,21 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Expects the next assertion to throw an AssertionFailedError whose
+     * message starts with $expectedMessage — shared by every "$message
+     * overrides the generated default" test below.
+     *
+     * @param string $expectedMessage The custom message the caller passed in.
+     *
+     * @return void
+     */
+    private function expectAssertionFailedWithMessage(string $expectedMessage): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote($expectedMessage, '/') . '/');
+    }
+
+    /**
      * Verifies that a custom $message overrides the generated default when
      * assertGateAccepts fails because the process ran degraded — the shared
      * ternary in runAndAssertVerdict() that every assertGate* decision relies on.
@@ -636,8 +658,7 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateAcceptsFailsWhenDegradedWithACustomMessage(): void
     {
-        $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom degraded message', '/') . '/');
+        $this->expectAssertionFailedWithMessage('a custom degraded message');
 
         $this->assertGateAccepts(
             ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); exit(0);'],
@@ -654,8 +675,7 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateAcceptsFailsOnNonZeroExitWithACustomMessage(): void
     {
-        $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom exit-code message', '/') . '/');
+        $this->expectAssertionFailedWithMessage('a custom exit-code message');
 
         $this->assertGateAccepts(
             ['php', '-r', 'exit(1);'],
@@ -672,8 +692,7 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateRejectsFailsOnTheWrongReasonWithACustomMessage(): void
     {
-        $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom must-carry message', '/') . '/');
+        $this->expectAssertionFailedWithMessage('a custom must-carry message');
 
         $this->assertGateRejects(
             ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
@@ -691,8 +710,7 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateReportsOnceFailsOnZeroMatchingLinesWithACustomMessage(): void
     {
-        $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom reports-once message', '/') . '/');
+        $this->expectAssertionFailedWithMessage('a custom reports-once message');
 
         $this->assertGateReportsOnce(
             ['php', '-r', 'fwrite(STDOUT, "  - y: unrelated\n"); exit(1);'],

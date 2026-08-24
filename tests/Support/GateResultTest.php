@@ -24,9 +24,12 @@ use PHPUnit\Framework\TestCase;
  * (`^[[:space:]]+at ` and `^\[eval\]:[0-9]`) with the real, dynamic output of
  * `node -e 'throw ...'`, which is non-deterministic across Node versions, so
  * this suite instead hand-authors static fixtures targeting those two arms,
- * plus one more covering the shared "Uncaught" alternative that a real Node
- * crash never exercises (verified: neither dynamic probe's output starts
- * with "Uncaught").
+ * plus one more covering the shared "Uncaught" alternative that these two
+ * probes do not exercise on the Node version this was last checked against —
+ * re-derive rather than trust a specific verdict:
+ *
+ *     node -e 'throw new Error("boom")' 2>&1 | grep -c '^Uncaught'
+ *     node -e 'throw "a bare string"' 2>&1 | grep -c '^Uncaught'
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
