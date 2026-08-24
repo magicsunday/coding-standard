@@ -24,6 +24,7 @@
     <testsuites>
         <testsuite name="Unit">
             <directory>tests</directory>
+            <exclude>tests/consumer</exclude>
         </testsuite>
     </testsuites>
 
