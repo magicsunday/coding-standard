@@ -45,12 +45,12 @@ use const JSON_THROW_ON_ERROR;
  * @license https://opensource.org/licenses/MIT
  * @link    https://github.com/magicsunday/coding-standard/
  */
-final class FixtureDirectory
+final readonly class FixtureDirectory
 {
     /**
      * The real, absolute path to this fixture's throwaway root.
      */
-    private readonly string $path;
+    private string $path;
 
     /**
      * Creates a real temporary directory with a collision-free name.
