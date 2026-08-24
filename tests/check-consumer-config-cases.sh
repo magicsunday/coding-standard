@@ -26,8 +26,9 @@ FIXTURE="$ROOT/tests/consumer"
 
 # The node-side front end for the same biome.json/tsconfig.json contract, added
 # for #32 — see bin/check-js-config.mjs's own header. Driven only by
-# assert_accepts_js/assert_rejects_js/assert_usage_error_js/assert_report_is_inert_js
-# below, alongside their PHP-only counterparts, never standalone.
+# assert_accepts_js/assert_rejects_js/assert_usage_error_js/assert_report_is_inert_js/
+# assert_reports_once_js below, alongside their PHP-only counterparts, never
+# standalone.
 NODE_GATE="$ROOT/bin/check-js-config.mjs"
 
 # `degraded` comes from tests/harness.sh. Why this harness needs it, which the
@@ -81,7 +82,7 @@ assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
 # assert_js <php-assert-fn> <decide-fn> <dir> <label> [<expected>]
 #
-# The shared dispatch skeleton behind all four _js wrappers below: run the
+# The shared dispatch skeleton behind all five _js wrappers below: run the
 # PHP-only assertion first, then the node gate via harness_run_argv, then
 # decide with the same harness_decide_* function harness.sh's own
 # php-dispatching wrapper uses, labelled "(node)". They call harness_run_argv
