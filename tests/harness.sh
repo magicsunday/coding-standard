@@ -361,6 +361,32 @@ harness_decide_reports_once() {
     harness_settle "$reason" "$label" "$out" 'reported exactly once'
 }
 
+# The same wiring gap probe_degraded_reaches_reject_decision closes for
+# harness_decide_rejects, extended to this sibling: a Node crash whose text
+# happens to contain the "- <prefix>:" needle EXACTLY ONCE, at rc=1, would
+# otherwise satisfy the count check too — degraded() has to be the reason this
+# still fails, not an accident of the count. Constructed rather than a literal
+# `throw`, because `node -e`'s crash reporter echoes the offending source
+# line verbatim, which unavoidably duplicates any message text embedded in it
+# onto a second line — undercutting the "exactly one" premise this probe
+# needs to hold without degraded()'s gate. The single `at ...` line still
+# makes this a genuine instance of the Node-crash SHAPE degraded() matches
+# (the property under test), even though it did not originate from an actual
+# uncaught exception; harness_decide_rejects' own probe above can afford a
+# literal throw only because its check has no count for a fabricated shape to
+# accidentally satisfy.
+probe_degraded_reaches_reports_once_decision() {
+    local crash
+    crash="$(node -e 'process.stderr.write("- biome.json: pretend\n    at fakeFn (/x:1:1)\n"); process.exit(1)' 2>&1)"
+
+    harness_decide_reports_once "$crash" 1 \
+        'bookkeeping self-test — a node-crash-shaped line whose text contains the must-carry prefix exactly once' \
+        'biome.json'
+}
+
+harness_probe_reporters 1 probe_degraded_reaches_reports_once_decision \
+    'harness_decide_reports_once reports a node-crash-shaped line as ok once its text happens to satisfy the count check'
+
 # harness_rejects <gate> <dir> <label> <substring the report must carry>
 #
 # The drift verdict. Exactly exit 1, not merely non-zero: 2 is the could-not-run
