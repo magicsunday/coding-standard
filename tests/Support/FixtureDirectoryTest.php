@@ -127,7 +127,14 @@ final class FixtureDirectoryTest extends TestCase
         file_put_contents(sprintf('%s/sentinel.txt', $externalDir), 'still here');
 
         $fixture = new FixtureDirectory();
-        symlink($externalDir, sprintf('%s/link', $fixture->path()));
+
+        if (!symlink($externalDir, sprintf('%s/link', $fixture->path()))) {
+            $fixture->cleanup();
+            unlink(sprintf('%s/sentinel.txt', $externalDir));
+            rmdir($externalDir);
+
+            self::markTestSkipped('This platform could not create a symlink.');
+        }
 
         try {
             // cleanup() itself is inside the try: the regression this test

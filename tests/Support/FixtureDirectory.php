@@ -89,7 +89,7 @@ final readonly class FixtureDirectory
      *
      * @return void
      *
-     * @throws RuntimeException If intermediate directories cannot be created.
+     * @throws RuntimeException If intermediate directories cannot be created or the file cannot be written.
      */
     public function writeJson(string $relativePath, array $data): void
     {
@@ -100,7 +100,9 @@ final readonly class FixtureDirectory
             throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
         }
 
-        file_put_contents($target, json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        if (file_put_contents($target, json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) === false) {
+            throw new RuntimeException(sprintf('Could not write fixture file: %s', $target));
+        }
     }
 
     /**
