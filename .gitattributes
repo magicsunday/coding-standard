@@ -8,3 +8,4 @@
 /.gitignore         export-ignore
 /tests              export-ignore
 /AGENTS.md          export-ignore
+/phpunit.xml.dist   export-ignore

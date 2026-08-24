@@ -2,7 +2,11 @@
 
 Single source of truth for the shared PHP and JS/TS tooling configuration of the
 `magicsunday/*` projects. This repository ships **configuration only** — no runtime
-library code, and no PHPUnit suite. Its correctness is proven two ways: by *consumer
+library code is distributed to consumers. It does carry its own `require-dev`-only
+PHPUnit suite (`phpunit.xml.dist`, `composer ci:test:phpunit`) for first-party
+test-support classes under `tests/` (GH-77) — a repository-internal concern, kept out
+of the distributed package via `.gitattributes` `export-ignore`, not something a
+consumer installs. Its correctness is proven two ways: by *consumer
 adoption* (a repo wires the configs and its own `composer ci:test` stays green), and
 by the fixture-driven gates under `tests/`, each of which drives the thing it certifies
 against inputs that must produce a finding — including `tests/check-js-configs.sh`,
@@ -24,6 +28,7 @@ here.
 | `rector/base.php` | importable | applies the shared rule sets/skips to a `RectorConfig`; 2nd arg is the target PHP floor (`80300`–`80600`, or null to keep the caller's) and derives the matching `UP_TO_PHP_8x` set — the `rector/rector: ^2.4` floor guarantees every mapped set exists (`UP_TO_PHP_86` landed in 2.4.0) |
 | `deptrac/layers.yaml` | importable (`imports:`) | the canonical layered-architecture ruleset (Deptrac); layers matched by namespace segment via a `directory` collector (`.*/Repository/.*`), which matches only analysed `src` classes so a referenced vendor class like `Illuminate\Support\…` falls to uncovered naturally (a `classNameRegex` cannot, because Deptrac has no path for a referenced class to exclude it); ports across repos without renaming; permissive start (only uncontroversial upward edges forbidden, domain core mutually permissive); pulled in by `require` (`deptrac/deptrac ^4.2`, 8.2+) |
 | `templates/*` | copy-and-adapt | `phpunit.xml.dist`, `infection.json5`, `phplint.yml`, `editorconfig`, `gitattributes`, `jscpd.json` (PHP + JS/TS formats), `ArchitectureTest.php` (phpat: `Abstract*` naming + `beFinal`), `deptrac.dist.yaml` (`imports` the shared layers.yaml + declares `paths`) |
+| `/phpunit.xml.dist` | root dev config, `export-ignore`d | this repository's OWN PHPUnit run (`composer ci:test:phpunit`), not a consumer-facing template — unlike `templates/phpunit.xml.dist`, its `bootstrap`/`xsi:noNamespaceSchemaLocation` point at `.build/vendor` because this repo's own `composer.json` overrides `config.vendor-dir` to `.build/vendor` (and `bin-dir` to `.build/bin`) |
 | `biome/base.json`, `tsconfig/base.json` | importable (`extends`) | the JS/TS repos |
 | `bin/check-consumer-config.php` | executable (composer `bin`) | the template lockstep gate — asserts each consumer copy's stable region (strict phpunit flags, jscpd/phplint/editorconfig invariants, the `deptrac.yaml` shared import, uniform `src`/`tests`), ignores per-repo paths; also covers `biome.json`/`biome.jsonc`/`tsconfig.json` on the narrower extends-stub contract, keyed on the consumer declaring the npm dependency (the `"//"` guard, an unopenable Biome/TypeScript config, one past the size cap and a broken `package.json` probe do not wait for adoption — the probe itself runs only where a `biome.json`, `biome.jsonc` or `tsconfig.json` exists), parsed as JSONC |
 | `bin/check-phpat-subjects.php` | executable (composer `bin`) | the phpat subject-liveness guard — parses a consumer's ArchitectureTest and asserts every `#[TestRule]` subject matches a real class (a trait-only namespace subject, the manifested vacuous-rule bug, reds); static, fails closed |

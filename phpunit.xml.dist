@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    This file is part of the package magicsunday/coding-standard.
+
+    For the full copyright and license information, please read the
+    LICENSE file that was distributed with this source code.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation=".build/vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap=".build/vendor/autoload.php"
+         cacheDirectory=".build/cache/.phpunit.cache"
+         requireCoverageMetadata="true"
+         beStrictAboutCoverageMetadata="true"
+         beStrictAboutOutputDuringTests="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
+         failOnPhpunitDeprecation="true"
+         failOnPhpunitNotice="true"
+         displayDetailsOnPhpunitDeprecations="true"
+         executionOrder="depends,defects"
+         columns="max">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <source restrictNotices="true"
+            restrictWarnings="true"
+            ignoreIndirectDeprecations="true">
+        <include>
+            <directory>tests/Support</directory>
+            <file>tests/GateTestCase.php</file>
+        </include>
+    </source>
+</phpunit>

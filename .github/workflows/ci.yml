@@ -83,6 +83,9 @@ jobs:
             - name: phpat subject-liveness self-test
               run: composer ci:test:phpat-subjects
 
+            - name: PHPUnit
+              run: composer ci:test:phpunit
+
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
             # the fixture source. This is what proves the relative `includes` in
