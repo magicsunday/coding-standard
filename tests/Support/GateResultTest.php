@@ -40,6 +40,10 @@ final class GateResultTest extends TestCase
             'PHP deprecated'              => ['Deprecated: Implicit conversion in /x on line 1'],
             'PHP uncaught type error'     => ['Uncaught TypeError: f(): Argument #1 must be of type string'],
             'Node Error stack frame'      => ["Uncaught Error: boom\n    at Object.<anonymous> (/x.js:1:1)"],
+            // Vertical-tab-led and with no "Uncaught" prefix, so this trips the
+            // `^[[:space:]]+at ` arm itself rather than the "Uncaught" alternative
+            // above — a narrowing of that arm back to `[ \t]` fails this row.
+            'Node stack frame led by a vertical tab' => ["\x0Bat Object.<anonymous> (/x.js:1:1)"],
             'Node eval-mode marker'       => ['[eval]:1'],
         ];
     }

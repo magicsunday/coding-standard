@@ -39,10 +39,15 @@ final readonly class GateResult
      * warning, notice, parse error or fatal, or a Node stack frame / eval-mode
      * marker. Such a run produced no verdict, whatever it exited with, so no
      * caller may read it as one — ported from tests/harness.sh's degraded().
-     * Both this method's `[[:space:]]` and the bash original's share the same
-     * gap: neither recognises a stack frame led by non-ASCII whitespace (NBSP,
-     * the U+2000 block) — that gap is genuine and inherited, not something
-     * this port introduced.
+     * Neither this method's `[[:space:]]` nor the bash original's recognises a
+     * stack frame led by NBSP — that gap is genuine and shared, not something
+     * this port introduced. The U+2000/U+3000 block is NOT a shared gap: PCRE's
+     * `[[:space:]]` never matches it, but whether grep's does is implementation-
+     * and locale-dependent (measured: BusyBox grep and GNU grep under `C.UTF-8`
+     * match it, GNU grep under `en_US.UTF-8` does not) — re-derive rather than
+     * trust this note:
+     *
+     *     printf '\xe2\x80\x80at x\n' | grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
      *
      * @return bool
      */

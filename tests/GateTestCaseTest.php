@@ -267,6 +267,10 @@ final class GateTestCaseTest extends GateTestCase
 
     /**
      * Verifies that assertGateReportIsInert fails when a consumer value forges a `::` workflow command.
+     *
+     * The lead byte is a vertical tab, not a plain space — bash's `[[:space:]]`
+     * admits it and this regex must too, so a narrowing back to `[ \t]` (the
+     * gap this class exists to close) fails this test instead of passing it.
      */
     #[Test]
     public function assertGateReportIsInertFailsOnAForgedWorkflowCommand(): void
@@ -274,7 +278,7 @@ final class GateTestCaseTest extends GateTestCase
         $this->expectException(AssertionFailedError::class);
 
         $this->assertGateReportIsInert(
-            ['php', '-r', 'fwrite(STDOUT, "  ::error::forged\n"); exit(1);'],
+            ['php', '-r', 'fwrite(STDOUT, "\x0B::error::forged\n"); exit(1);'],
             $this->fixture()->path(),
         );
     }
