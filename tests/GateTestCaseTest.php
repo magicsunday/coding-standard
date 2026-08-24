@@ -447,6 +447,21 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportIsInert passes on exactly four non-empty
+     * lines — the boundary itself, not just its neighbours (3 passes, 5
+     * fails), so a narrowing to assertLessThan(4, ...) fails this test
+     * instead of passing it undetected.
+     */
+    #[Test]
+    public function assertGateReportIsInertPassesOnExactlyFourNonEmptyLines(): void
+    {
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "a\nb\nc\nd\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
      * Verifies that assertGateReportIsInert fails when the report exceeds four non-empty lines.
      */
     #[Test]
