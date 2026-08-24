@@ -1248,9 +1248,10 @@ fi
 # `check-js-config` entry into node_modules/.bin. Exercised here rather than
 # further down, at the exact point $work has neither biome.json nor
 # tsconfig.json yet — the same "nothing to check" shape
-# "PHP-only repo without biome.json or tsconfig.json" already proves the
-# working-tree gate accepts, so this reuses that verdict rather than needing
-# its own fixture. Mirrors this repository's own PHP-side pattern (the
+# "PHP-only repo without biome.json or tsconfig.json" in
+# tests/check-consumer-config-cases.sh already proves the working-tree gate
+# accepts, so this reuses that verdict rather than needing its own fixture.
+# Mirrors this repository's own PHP-side pattern (the
 # Consumer smoke CI steps run .build/bin/phpstan etc. as actually installed,
 # not merely prove them present).
 if npx --no-install check-js-config . >"$work/bin-smoke.log" 2>&1; then
