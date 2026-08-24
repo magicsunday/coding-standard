@@ -15,13 +15,28 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function bin2hex;
 use function file_get_contents;
+use function file_put_contents;
 use function is_dir;
 use function json_decode;
+use function mkdir;
+use function random_bytes;
+use function rmdir;
 use function sprintf;
+use function symlink;
+use function sys_get_temp_dir;
+use function unlink;
 
 use const JSON_THROW_ON_ERROR;
 
+/**
+ * Tests for FixtureDirectory, the throwaway per-test config-fixture directory.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
+ */
 #[CoversClass(FixtureDirectory::class)]
 final class FixtureDirectoryTest extends TestCase
 {
@@ -80,5 +95,44 @@ final class FixtureDirectoryTest extends TestCase
         $fixture->cleanup();
 
         self::assertFalse(is_dir($path));
+    }
+
+    /**
+     * Verifies that cleanup tolerates being called more than once — the same
+     * tolerance tests/harness.sh's `rm -rf` EXIT trap has for an
+     * already-removed path, which this class replaces.
+     */
+    #[Test]
+    public function cleanupIsIdempotentWhenCalledTwice(): void
+    {
+        $fixture = new FixtureDirectory();
+        $fixture->cleanup();
+
+        $fixture->cleanup();
+
+        self::assertFalse(is_dir($fixture->path()));
+    }
+
+    /**
+     * Verifies that cleanup removes a symlinked entry as itself, never
+     * following it into the real directory it points at — a symlink to a
+     * directory outside the fixture must not have its contents deleted.
+     */
+    #[Test]
+    public function cleanupRemovesASymlinkWithoutFollowingItIntoItsTarget(): void
+    {
+        $externalDir = sprintf('%s/gate-fixture-symlink-target-%s', sys_get_temp_dir(), bin2hex(random_bytes(8)));
+        mkdir($externalDir, 0o700);
+        file_put_contents(sprintf('%s/sentinel.txt', $externalDir), 'still here');
+
+        $fixture = new FixtureDirectory();
+        symlink($externalDir, sprintf('%s/link', $fixture->path()));
+
+        $fixture->cleanup();
+
+        self::assertFileExists(sprintf('%s/sentinel.txt', $externalDir));
+
+        unlink(sprintf('%s/sentinel.txt', $externalDir));
+        rmdir($externalDir);
     }
 }

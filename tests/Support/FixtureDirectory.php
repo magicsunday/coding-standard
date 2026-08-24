@@ -13,16 +13,19 @@ namespace MagicSunday\CodingStandard\Test\Support;
 
 use RuntimeException;
 
+use function bin2hex;
 use function dirname;
+use function file_exists;
 use function file_put_contents;
 use function is_dir;
+use function is_link;
 use function json_encode;
 use function mkdir;
+use function random_bytes;
 use function rmdir;
 use function scandir;
 use function sprintf;
 use function sys_get_temp_dir;
-use function tempnam;
 use function unlink;
 
 use const JSON_PRETTY_PRINT;
@@ -34,6 +37,9 @@ use const JSON_THROW_ON_ERROR;
  * tests/harness.sh's harness_workdir() (mktemp -d + EXIT trap) and the
  * hand-built JSON heredocs in manifest_fixture() — PHPUnit's own tearDown()
  * lifecycle replaces the bash EXIT trap, so no signal handling is needed here.
+ * cleanup() tolerates being called more than once (directly, then again from
+ * tearDown()), the same way the trap's `rm -rf` silently no-ops on an
+ * already-removed path.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -49,26 +55,21 @@ final class FixtureDirectory
     /**
      * Creates a real temporary directory with a collision-free name.
      *
-     * @throws RuntimeException If tempnam() cannot reserve a temporary path.
+     * The path is generated locally (not reserved via tempnam()) so mkdir()
+     * is the only filesystem call that decides existence — no unlink()-then-
+     * recreate gap for a co-resident process to win a symlink race in.
+     *
      * @throws RuntimeException If mkdir() cannot create the fixture directory.
      */
     public function __construct()
     {
-        $stub = tempnam(sys_get_temp_dir(), 'gate-fixture-');
+        $path = sprintf('%s/gate-fixture-%s', sys_get_temp_dir(), bin2hex(random_bytes(16)));
 
-        if ($stub === false) {
-            throw new RuntimeException('Could not reserve a temporary path for a fixture directory.');
+        if (!mkdir($path, 0o700)) {
+            throw new RuntimeException(sprintf('Could not create fixture directory: %s', $path));
         }
 
-        // tempnam() creates a FILE at $stub; replace it with a directory of the
-        // same name so every fixture root is still guaranteed collision-free.
-        unlink($stub);
-
-        if (!mkdir($stub, 0o700) && !is_dir($stub)) {
-            throw new RuntimeException(sprintf('Could not create fixture directory: %s', $stub));
-        }
-
-        $this->path = $stub;
+        $this->path = $path;
     }
 
     /**
@@ -103,7 +104,9 @@ final class FixtureDirectory
     }
 
     /**
-     * Removes this fixture directory and everything under it.
+     * Removes this fixture directory and everything under it. A no-op when
+     * the directory no longer exists (idempotent, so a test may call this
+     * itself and still let tearDown() call it again without failing).
      *
      * @return void
      *
@@ -115,15 +118,32 @@ final class FixtureDirectory
     }
 
     /**
+     * A symlink entry is removed as itself, never followed: is_dir() and
+     * scandir() both resolve through a symlink to its target, so checking
+     * is_link() first is what keeps a symlinked entry from routing real
+     * files outside this fixture into the recursive delete below.
+     *
      * @param string $path The path to remove.
      *
      * @return void
      *
-     * @throws RuntimeException If a file or directory cannot be removed.
+     * @throws RuntimeException If a file, directory or symlink cannot be removed.
      */
     private function removeRecursively(string $path): void
     {
+        if (is_link($path)) {
+            if (!unlink($path)) {
+                throw new RuntimeException(sprintf('Could not remove symlink: %s', $path));
+            }
+
+            return;
+        }
+
         if (!is_dir($path)) {
+            if (!file_exists($path)) {
+                return;
+            }
+
             if (!unlink($path)) {
                 throw new RuntimeException(sprintf('Could not remove file: %s', $path));
             }
