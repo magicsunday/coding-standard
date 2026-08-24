@@ -235,6 +235,23 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportsOnce counts only genuine `- $filePrefix:`
+     * violation lines, not a bare mention of the file prefix inside an
+     * unrelated line's message — the needle is `"- {$filePrefix}:"`, not a
+     * plain substring search, and a mutation dropping the `- `/`:` shape
+     * would still count 1 on this fixture without this test to catch it.
+     */
+    #[Test]
+    public function assertGateReportsOncePassesWhenTheFilePrefixAppearsOnlyInAnUnrelatedMessage(): void
+    {
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: x\n  - other.json: mentions biome.json in passing\n"); exit(1);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
      * Verifies that assertGateReportsOnce fails when two lines match the same file prefix.
      */
     #[Test]
@@ -414,6 +431,24 @@ final class GateTestCaseTest extends GateTestCase
 
         $this->assertGateReportIsInert(
             ['php', '-r', 'fwrite(STDOUT, "\x0B::error::forged\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a forged `::` workflow
+     * command has NO leading whitespace at all — the regex's leading
+     * `[[:space:]]*` is zero-or-more, and the vertical-tab fixture above
+     * only proves the one-or-more case; a narrowing to `[[:space:]]+` would
+     * still admit that fixture and pass this test undetected without this one.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAForgedWorkflowCommandWithNoLeadingWhitespace(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "::error::forged\n"); exit(1);'],
             $this->fixture()->path(),
         );
     }
