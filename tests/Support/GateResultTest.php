@@ -25,6 +25,8 @@ use PHPUnit\Framework\TestCase;
 final class GateResultTest extends TestCase
 {
     /**
+     * Ported literals from tests/harness.sh's degraded() self-probe loop that a real diagnostic must trip.
+     *
      * @return array<string, array{0: string}>
      */
     public static function degradedOutputProvider(): array
@@ -43,6 +45,8 @@ final class GateResultTest extends TestCase
     }
 
     /**
+     * Report text that mentions a trigger word but is not a real diagnostic.
+     *
      * @return array<string, array{0: string}>
      */
     public static function cleanOutputProvider(): array
@@ -54,6 +58,9 @@ final class GateResultTest extends TestCase
         ];
     }
 
+    /**
+     * Asserts that a known diagnostic shape is recognised as degraded.
+     */
     #[Test]
     #[DataProvider('degradedOutputProvider')]
     public function isDegradedRecognisesADiagnostic(string $output): void
@@ -63,6 +70,9 @@ final class GateResultTest extends TestCase
         self::assertTrue($result->isDegraded(), $output);
     }
 
+    /**
+     * Asserts that ordinary report text mentioning a trigger word is not misread as degraded.
+     */
     #[Test]
     #[DataProvider('cleanOutputProvider')]
     public function isDegradedDoesNotMisreadOrdinaryReportText(string $output): void

@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test\Support;
 
+use function preg_match;
+
 /**
  * The captured outcome of one gate invocation: the combined stdout+stderr
  * text (in true chronological arrival order, matching the bash harness's
