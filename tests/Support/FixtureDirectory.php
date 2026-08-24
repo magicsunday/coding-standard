@@ -86,9 +86,9 @@ final class FixtureDirectory
      * @param string               $relativePath Path relative to this fixture's root.
      * @param array<string, mixed> $data         The data to encode as JSON.
      *
-     * @throws RuntimeException If intermediate directories cannot be created.
-     *
      * @return void
+     *
+     * @throws RuntimeException If intermediate directories cannot be created.
      */
     public function writeJson(string $relativePath, array $data): void
     {
@@ -106,6 +106,8 @@ final class FixtureDirectory
      * Removes this fixture directory and everything under it.
      *
      * @return void
+     *
+     * @throws RuntimeException If the directory or any file cannot be removed.
      */
     public function cleanup(): void
     {
@@ -115,9 +117,9 @@ final class FixtureDirectory
     /**
      * @param string $path The path to remove.
      *
-     * @throws RuntimeException If a file or directory cannot be removed.
-     *
      * @return void
+     *
+     * @throws RuntimeException If a file or directory cannot be removed.
      */
     private function removeRecursively(string $path): void
     {
