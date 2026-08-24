@@ -158,7 +158,7 @@ final class FixtureDirectory
         }
 
         foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
+            if (($entry === '.') || ($entry === '..')) {
                 continue;
             }
 
