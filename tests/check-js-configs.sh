@@ -1261,15 +1261,26 @@ fi
 
 # The negative twin, without which the control above could not fail — a swapped
 # pass/fail, an `if true`, or a stray `|| true` on the invocation would all stay
-# green forever, unnoticed. `npx --no-install` on a name node_modules/.bin never
-# linked (this repo declares exactly one bin entry, and nothing else in $work
-# names its bin this) is the discriminator the real check depends on: npm never
-# falls back to installing an unresolved package under `--no-install`.
-if npx --no-install this-bin-does-not-exist-anywhere . >"$work/bin-smoke-negative.log" 2>&1; then
-    fail "bookkeeping self-test — npx --no-install accepted a bin name node_modules/.bin never linked, so the control above cannot discriminate a broken \"bin\" mapping" "$work/bin-smoke-negative.log"
+# green forever, unnoticed. Drives the SAME `check-js-config` invocation the
+# control above does, on a malformed biome.json, rather than a different bin
+# name: a check against an unresolved name would only prove npx itself fails
+# closed, not that THIS invocation's own if/else is reachable both ways — a
+# pass/fail swap on the block above would go undetected by that weaker check,
+# since it never runs the real bin at all. `npm install <tarball>` (no
+# `--no-save`) already declared `@magicsunday/coding-standard` a dependency of
+# $work, so the malformed biome.json below is read under the ADOPTED path —
+# the one that reports a parse failure rather than silently ignoring it (see
+# "malformed biome.json in a repo that has not adopted the npm package"
+# further down, the accepting twin of this same distinction).
+printf '{\n' > biome.json
+
+if npx --no-install check-js-config . >"$work/bin-smoke-negative.log" 2>&1; then
+    fail "bookkeeping self-test — the installed npm bin entry (check-js-config) accepted a malformed biome.json, so the control above cannot discriminate a broken invocation" "$work/bin-smoke-negative.log"
 else
-    pass "bookkeeping self-test — npx --no-install correctly fails on an unresolved bin name"
+    pass "bookkeeping self-test — the installed npm bin entry (check-js-config) correctly rejects a malformed biome.json"
 fi
+
+rm -f biome.json
 
 # Prove the `files` allow-list actually shipped the configs — read from the
 # TARBALL npm produced, not from a re-implementation of npm's semantics. A walk
