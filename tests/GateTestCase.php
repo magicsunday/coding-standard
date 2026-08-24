@@ -13,6 +13,7 @@ namespace MagicSunday\CodingStandard\Test;
 
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
+use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -32,6 +33,11 @@ use function str_contains;
  * ported from tests/harness.sh's harness_decide_* functions. A failed
  * decision throws a real AssertionFailedError; there is no counter to wire
  * up and no bookkeeping self-probe to write, unlike the bash original.
+ *
+ * Deliberately named without the house `Abstract*` prefix: it extends
+ * PHPUnit's own TestCase and plays exactly the role PHPUnit's TestCase and
+ * Symfony's WebTestCase/KernelTestCase play — an abstract base every
+ * concrete test class extends — none of which carry that prefix either.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -103,10 +109,7 @@ abstract class GateTestCase extends TestCase
      */
     protected function assertGateAccepts(array $command, string $fixtureDir, string $message = ''): void
     {
-        $result = $this->gateProcess->run($command, $fixtureDir);
-
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(0, $result->exitCode, $message !== '' ? $message : "Expected accept, got exit {$result->exitCode}.\n{$result->output}");
+        $this->runAndAssertVerdict($command, $fixtureDir, 0, 'accept', $message);
     }
 
     /**
@@ -130,11 +133,9 @@ abstract class GateTestCase extends TestCase
         string $expectedSubstring,
         string $message = '',
     ): void {
-        $result = $this->gateProcess->run($command, $fixtureDir);
+        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
 
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(1, $result->exitCode, $message !== '' ? $message : "Expected the drift verdict, got exit {$result->exitCode}.\n{$result->output}");
-        self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
+        $this->assertNonEmptyMustCarry($expectedSubstring);
         self::assertStringContainsString(
             $expectedSubstring,
             $result->output,
@@ -163,11 +164,9 @@ abstract class GateTestCase extends TestCase
         string $expectedSubstring,
         string $message = '',
     ): void {
-        $result = $this->gateProcess->run($command, $fixtureDir);
+        $result = $this->runAndAssertVerdict($command, $fixtureDir, 2, 'the usage exit', $message);
 
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(2, $result->exitCode, $message !== '' ? $message : "Expected the usage exit, got exit {$result->exitCode}.\n{$result->output}");
-        self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
+        $this->assertNonEmptyMustCarry($expectedSubstring);
         self::assertStringContainsString(
             $expectedSubstring,
             $result->output,
@@ -203,11 +202,16 @@ abstract class GateTestCase extends TestCase
         ?string $expectedScrubbedSubstring = null,
         string $message = '',
     ): void {
-        $result = $this->gateProcess->run($command, $fixtureDir);
+        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
 
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(1, $result->exitCode, $message !== '' ? $message : "Expected the drift verdict, got exit {$result->exitCode}.\n{$result->output}");
         self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
+
+        // Inherits tests/harness.sh's own deliberate, documented gap (see that
+        // file, lines ~479-495): a lead byte outside ASCII whitespace — NBSP,
+        // the U+2000 block, U+3000 — is not admitted by POSIX `[[:space:]]`
+        // either, so such a payload would still reach the runner past this
+        // check. Not a regression this port introduces; closing it properly
+        // needs enumerating whole UTF-8 sequences, left open on purpose there.
         self::assertDoesNotMatchRegularExpression(
             '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
             $result->output,
@@ -221,7 +225,7 @@ abstract class GateTestCase extends TestCase
         self::assertLessThanOrEqual(4, count($nonEmptyLines), 'A consumer value split the report across too many lines.');
 
         if ($expectedScrubbedSubstring !== null) {
-            self::assertNotSame('', $expectedScrubbedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
+            $this->assertNonEmptyMustCarry($expectedScrubbedSubstring);
             self::assertStringContainsString(
                 $expectedScrubbedSubstring,
                 $result->output,
@@ -252,10 +256,7 @@ abstract class GateTestCase extends TestCase
         string $filePrefix,
         string $message = '',
     ): void {
-        $result = $this->gateProcess->run($command, $fixtureDir);
-
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(1, $result->exitCode, $message !== '' ? $message : "Expected the drift verdict, got exit {$result->exitCode}.\n{$result->output}");
+        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
 
         $needle = "- {$filePrefix}:";
         // grep -cF counts MATCHING LINES, not raw substring occurrences.
@@ -269,5 +270,58 @@ abstract class GateTestCase extends TestCase
             $matchingLines,
             $message !== '' ? $message : "Expected exactly one {$filePrefix} violation, got " . count($matchingLines) . '.',
         );
+    }
+
+    /**
+     * Runs the gate and asserts the exitCode/isDegraded precondition every
+     * decision starts from, returning the result for the caller's own
+     * remaining checks. Shared by all five assertGate* decisions so a change
+     * to this precondition is made once, not five times.
+     *
+     * @param list<string> $command          The interpreter and gate script.
+     * @param string       $fixtureDir       The directory to run the gate against.
+     * @param int          $expectedExitCode The exit code this decision expects.
+     * @param string       $exitCodeLabel    Describes the expected verdict, for the default exit-code message.
+     * @param string       $message          An optional assertion message shared by both checks.
+     *
+     * @return GateResult The captured run, for the caller's remaining checks.
+     *
+     * @throws AssertionFailedError        If the gate ran degraded or exited unexpectedly.
+     * @throws ProcessStartFailedException If the gate process could not be started.
+     * @throws ProcessTimedOutException    If the gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If the gate process was killed by a signal.
+     */
+    private function runAndAssertVerdict(
+        array $command,
+        string $fixtureDir,
+        int $expectedExitCode,
+        string $exitCodeLabel,
+        string $message,
+    ): GateResult {
+        $result = $this->gateProcess->run($command, $fixtureDir);
+
+        self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
+        self::assertSame(
+            $expectedExitCode,
+            $result->exitCode,
+            $message !== '' ? $message : "Expected {$exitCodeLabel}, got exit {$result->exitCode}.\n{$result->output}",
+        );
+
+        return $result;
+    }
+
+    /**
+     * Guards against a must-carry argument that is empty — an empty needle
+     * would make the caller's subsequent containment check assert nothing.
+     *
+     * @param string $value The must-carry substring a caller is about to assert on.
+     *
+     * @return void
+     *
+     * @throws AssertionFailedError If $value is empty.
+     */
+    private function assertNonEmptyMustCarry(string $value): void
+    {
+        self::assertNotSame('', $value, 'The must-carry argument is empty, so it would assert nothing.');
     }
 }

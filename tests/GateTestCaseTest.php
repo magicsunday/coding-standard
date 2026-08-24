@@ -28,6 +28,10 @@ use function file_put_contents;
  *
  * Every scenario drives a stub `php -r '...'` command rather than a real
  * gate — this class tests the DECISION logic, not any gate's behaviour.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateTestCase::class)]
 final class GateTestCaseTest extends GateTestCase
@@ -110,6 +114,24 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateRejects fails when the process exited with the
+     * usage code instead of the drift code, even though the report carries
+     * the expected substring — the exit-code check must fire on its own,
+     * not only as a side effect of the substring check.
+     */
+    #[Test]
+    public function assertGateRejectsFailsOnTheUsageExitCode(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(2);'],
+            $this->fixture()->path(),
+            'drift',
+        );
+    }
+
+    /**
      * Verifies that assertGateRejects fails when the process ran degraded, even though it exited 1 carrying the expected substring.
      */
     #[Test]
@@ -149,6 +171,23 @@ final class GateTestCaseTest extends GateTestCase
             ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
             $this->fixture()->path(),
             'drift',
+        );
+    }
+
+    /**
+     * Verifies that assertGateUsageError fails when the report never carries
+     * the expected reason, even though it exited 2 and is not degraded — the
+     * substring check must fire on its own, not be masked by an earlier check.
+     */
+    #[Test]
+    public function assertGateUsageErrorFailsOnTheWrongReason(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateUsageError(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: refused to run\n"); exit(2);'],
+            $this->fixture()->path(),
+            'a substring the report never prints',
         );
     }
 
@@ -211,6 +250,38 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportsOnce fails when the process ran degraded, even with exactly one matching line.
+     */
+    #[Test]
+    public function assertGateReportsOnceFailsWhenDegraded(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); fwrite(STDOUT, "  - biome.json: x\n"); exit(1);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportsOnce fails when the process exited with
+     * the wrong code, even though exactly one line matches — the exit-code
+     * check must fire on its own, not only as a side effect of the count check.
+     */
+    #[Test]
+    public function assertGateReportsOnceFailsOnTheWrongExitCode(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: x\n"); exit(2);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
      * Verifies that assertGateReportIsInert passes on a plain, unremarkable report.
      */
     #[Test]
@@ -262,6 +333,51 @@ final class GateTestCaseTest extends GateTestCase
             ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(1);'],
             $this->fixture()->path(),
             '',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the process ran
+     * degraded, even though the report itself is otherwise clean.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWhenDegraded(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the process exited
+     * with a code other than the drift verdict, even though the report is
+     * otherwise clean — the exit-code check must fire on its own.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnTheWrongExitCode(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(2);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a consumer value forges a legacy `##[…]` workflow command.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnALegacyWorkflowCommand(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: ##[error]forged\n"); exit(1);'],
+            $this->fixture()->path(),
         );
     }
 
