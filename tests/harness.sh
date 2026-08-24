@@ -106,12 +106,20 @@ harness_workdir() {
 
 # degraded <output>
 #
-# True when the interpreter emitted a diagnostic of its own — a warning, a
-# notice, a parse error or a fatal. Such a run produced no verdict, whatever it
-# exited with, so no assertion may read it as one: a crash that prints the
-# asserted substring on its way down would otherwise report `ok`.
+# True when the interpreter emitted a diagnostic of its own — a PHP warning,
+# notice, parse error or fatal, or a Node stack frame / bare-value crash
+# preamble. Such a run produced no verdict, whatever it exited with, so no
+# assertion may read it as one: a crash that prints the asserted substring on
+# its way down would otherwise report `ok` — and it is not only a
+# hypothetical for the PHP side: this function now also gates
+# harness_run_argv's node-gate callers (assert_*_js, added for #32), where an
+# uncaught Node exception exits 1, the SAME code this program's own reject
+# path uses, so the exit code cannot tell the two apart either. The Node half
+# of the pattern mirrors tests/check-js-configs.sh's own manifest_crashed —
+# copied rather than shared, because that function lives in a file this one
+# cannot source (a differential-fixture script, not a library).
 degraded() {
-    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)' <<<"$1"
+    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)|^[[:space:]]+at |^\[eval\]:[0-9]' <<<"$1"
 }
 
 # Both directions, by construction, because nothing else exercises this. No fixture
@@ -131,7 +139,9 @@ for harness_degraded_probe in \
     'Warning: Undefined array key 0 in /x on line 1' \
     'Notice: Only variables should be passed by reference in /x on line 1' \
     'Deprecated: Implicit conversion in /x on line 1' \
-    'Uncaught TypeError: f(): Argument #1 must be of type string'
+    'Uncaught TypeError: f(): Argument #1 must be of type string' \
+    "$(node -e 'throw new Error("boom")' 2>&1)" \
+    "$(node -e 'throw "a bare string"' 2>&1)"
 do
     if ! degraded "$harness_degraded_probe"; then
         printf 'FAILED  harness bookkeeping: degraded() does not recognise `%s`\n' "$harness_degraded_probe" >&2
@@ -139,12 +149,22 @@ do
     fi
 done
 
-# One negative, and it is the one the ANCHOR decides: the keyword sits mid-line, so
-# only `^` keeps it out. Three ordinary report lines stood here before and were
-# measured to discriminate nothing — under the one structural mutation of this
-# pattern, dropping the anchor, all three stay a miss.
+# One negative per alternative this pattern now carries, and each is the one its
+# own anchor decides: the keyword sits mid-line, so only `^` keeps it out. One
+# ordinary PHP report line stood here before and was measured to discriminate
+# nothing — under the one structural mutation of the PHP half, dropping the
+# anchor, it stays a miss. The two node-shaped lines are the same discriminating
+# pair tests/check-js-configs.sh's manifest_crashed is itself proven against — a
+# real gate report line can legitimately quote "at" or an `[eval]:N`-looking
+# fragment inside a value it is reporting on. `'a peerDependencies entry has no
+# devDependencies pin proving it'` stood here too, once — it contains none of
+# this pattern's trigger substrings at all, so it discriminated nothing under
+# ANY mutation of this function and was dropped rather than kept as inert
+# filler the comment above would otherwise misdescribe as proven.
 for harness_degraded_probe in \
-    '  - phpunit.xml: Warning is not a strict flag'
+    '  - phpunit.xml: Warning is not a strict flag' \
+    'INFO     peer: "   at the start"' \
+    'INFO     peer: "[eval]:1"'
 do
     if degraded "$harness_degraded_probe"; then
         printf 'FAILED  harness bookkeeping: degraded() misreads `%s` as a diagnostic\n' "$harness_degraded_probe" >&2
@@ -241,15 +261,19 @@ harness_settle() {
     printf 'ok (%s): %s\n' "$4" "$2"
 }
 
-# harness_accepts <gate> <dir> <label>
+# harness_decide_accepts <out> <rc> <label>
 #
-# The clean verdict, exit 0.
-harness_accepts() {
-    local gate="$1" dir="$2" label="$3" out rc reason=''
-    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+# The clean-verdict decision, split out of harness_accepts so a caller driving a
+# DIFFERENT interpreter (harness_run_argv, added for the node gate in #32) gets
+# the same decision without a second `php`-shaped top-level function. Added
+# alongside harness_accepts rather than in place of it: harness_accepts keeps its
+# existing <gate> <dir> <label> signature and every existing caller, and now
+# dispatches to this.
+harness_decide_accepts() {
+    local out="$1" rc="$2" label="$3" reason=''
 
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 0 ]; then
         reason="expected accept, got exit $rc"
     fi
@@ -257,19 +281,24 @@ harness_accepts() {
     harness_settle "$reason" "$label" "$out" 'accepted'
 }
 
-# harness_rejects <gate> <dir> <label> <substring the report must carry>
+# harness_accepts <gate> <dir> <label>
 #
-# The drift verdict. Exactly exit 1, not merely non-zero: 2 is the could-not-run
-# exit (harness_usage_error) and 255 a fatal, and accepting either let a crash
-# whose stack trace happened to contain the asserted substring report `ok`. Both
-# sibling harnesses were tightened for that separately, at different times, and
-# each kept a different message — which is the drift this file exists to end.
-harness_rejects() {
-    local gate="$1" dir="$2" label="$3" expected="$4" out rc reason=''
+# The clean verdict, exit 0.
+harness_accepts() {
+    local gate="$1" dir="$2" label="$3" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
+    harness_decide_accepts "$out" "$rc" "$label"
+}
+
+# harness_decide_rejects <out> <rc> <label> <expected>
+#
+# See harness_decide_accepts for why this is split out.
+harness_decide_rejects() {
+    local out="$1" rc="$2" label="$3" expected="$4" reason=''
+
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 1 ]; then
         reason="expected the drift verdict, got exit $rc"
     elif [ -z "$expected" ]; then
@@ -279,6 +308,97 @@ harness_rejects() {
     fi
 
     harness_settle "$reason" "$label" "$out" 'rejected on the tested violation'
+}
+
+# degraded() recognising the shape is not the same as harness_decide_rejects
+# ACTING on it: rc=1 is both this program's reject exit code and Node's
+# uncaught-exception exit code, and the must-carry substring is checked with a
+# plain grep — so a crash whose text happens to contain it satisfies every
+# OTHER condition harness_decide_rejects checks. Driven rather than merely
+# asserted, the same discipline tests/check-js-configs.sh's own crashing_gate
+# probe uses for the identical reason (search that file for "The crash guard,
+# driven rather than asserted"): a probe that stubs degraded() itself would
+# prove the regex again, not the wiring around it.
+probe_degraded_reaches_reject_decision() {
+    local crash
+    crash="$(node -e 'throw new Error("boom biome/base.json")' 2>&1)"
+
+    # The asserted substring is one the crash text DOES contain (biome/base.json,
+    # from the thrown message) and rc is 1 — both conditions harness_decide_rejects
+    # would otherwise read as a genuine reject verdict. Without the degraded()
+    # branch reaching this decision, the grep for the substring succeeds and the
+    # call reports ok, raising nothing — which is the false "ok" this fix exists
+    # to prevent.
+    harness_decide_rejects "$crash" 1 \
+        'bookkeeping self-test — a node crash whose text contains the must-carry substring' \
+        'biome/base.json'
+}
+
+harness_probe_reporters 1 probe_degraded_reaches_reject_decision \
+    'harness_decide_rejects reports a Node crash as ok once its text happens to contain the must-carry substring'
+
+# harness_decide_reports_once <out> <rc> <label> <file prefix>
+#
+# See harness_decide_accepts for why this is split out — added for #32's node
+# gate to reach the same "reported once, as itself" property `assert_reports_once`
+# checks on the PHP side, which `harness_decide_rejects` cannot express: that
+# helper greps for the PRESENCE of one substring, not for "and nothing further
+# was said about this file" — the property a read-failure path needs, since the
+# defect it guards against is an EXTRA fabricated violation rather than a
+# missing one.
+harness_decide_reports_once() {
+    local out="$1" rc="$2" label="$3" prefix="$4" count reason=''
+    count="$(grep -cF -- "- $prefix:" <<<"$out" || true)"
+
+    if degraded "$out"; then
+        reason='the gate ran degraded — it emitted a diagnostic'
+    elif [ "$rc" -ne 1 ]; then
+        reason="expected the drift verdict, got exit $rc"
+    elif [ "$count" -ne 1 ]; then
+        reason="expected exactly one $prefix violation, got $count"
+    fi
+
+    harness_settle "$reason" "$label" "$out" 'reported exactly once'
+}
+
+# The same wiring gap probe_degraded_reaches_reject_decision closes for
+# harness_decide_rejects, extended to this sibling: a Node crash whose text
+# happens to contain the "- <prefix>:" needle EXACTLY ONCE, at rc=1, would
+# otherwise satisfy the count check too — degraded() has to be the reason this
+# still fails, not an accident of the count. Constructed rather than a literal
+# `throw`, because `node -e`'s crash reporter echoes the offending source
+# line verbatim, which unavoidably duplicates any message text embedded in it
+# onto a second line — undercutting the "exactly one" premise this probe
+# needs to hold without degraded()'s gate. The single `at ...` line still
+# makes this a genuine instance of the Node-crash SHAPE degraded() matches
+# (the property under test), even though it did not originate from an actual
+# uncaught exception; harness_decide_rejects' own probe above can afford a
+# literal throw only because its check has no count for a fabricated shape to
+# accidentally satisfy.
+probe_degraded_reaches_reports_once_decision() {
+    local crash
+    crash="$(node -e 'process.stderr.write("- biome.json: pretend\n    at fakeFn (/x:1:1)\n"); process.exit(1)' 2>&1)"
+
+    harness_decide_reports_once "$crash" 1 \
+        'bookkeeping self-test — a node-crash-shaped line whose text contains the must-carry prefix exactly once' \
+        'biome.json'
+}
+
+harness_probe_reporters 1 probe_degraded_reaches_reports_once_decision \
+    'harness_decide_reports_once reports a node-crash-shaped line as ok once its text happens to satisfy the count check'
+
+# harness_rejects <gate> <dir> <label> <substring the report must carry>
+#
+# The drift verdict. Exactly exit 1, not merely non-zero: 2 is the could-not-run
+# exit (harness_usage_error) and 255 a fatal, and accepting either let a crash
+# whose stack trace happened to contain the asserted substring report `ok`. Both
+# sibling harnesses were tightened for that separately, at different times, and
+# each kept a different message — which is the drift this file exists to end.
+harness_rejects() {
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc
+    out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    harness_decide_rejects "$out" "$rc" "$label" "$expected"
 }
 
 # harness_fail <message>
@@ -310,17 +430,27 @@ harness_probe_reporters 1 harness_probe_fail 'harness_fail does not raise the fa
 # exists to stop exactly that, and the three had already drifted apart on stdout
 # vs stderr, `FAIL` vs `FAILED`, and branch order.
 harness_usage_error() {
-    local gate="$1" dir="$2" label="$3" expected="$4" out rc reason=''
+    local gate="$1" dir="$2" label="$3" expected="$4" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    # One report site, for the reason harness_report_is_inert states below and this
-    # function did not follow: with an increment behind each arm, the reporter probe
-    # only ever reaches the arm its own fixture takes. Measured — the probe drives a
-    # path that is not a directory, which lands in the substring arm, so deleting the
-    # increment from the exit-code arm left a real gate regression printing FAILED and
-    # the run exiting 0.
+    harness_decide_usage_error "$out" "$rc" "$label" "$expected"
+}
+
+# harness_decide_usage_error <out> <rc> <label> <expected>
+#
+# See harness_decide_accepts for why this is split out.
+#
+# One report site, for the reason harness_report_is_inert states below and this
+# function did not follow: with an increment behind each arm, the reporter probe
+# only ever reaches the arm its own fixture takes. Measured — the probe drives a
+# path that is not a directory, which lands in the substring arm, so deleting the
+# increment from the exit-code arm left a real gate regression printing FAILED and
+# the run exiting 0.
+harness_decide_usage_error() {
+    local out="$1" rc="$2" label="$3" expected="$4" reason=''
+
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 2 ]; then
         reason="expected the usage exit, got exit $rc"
     elif [ -z "$expected" ]; then
@@ -374,12 +504,25 @@ harness_usage_error() {
 # only ever reaches the arm its own fixture takes, leaving the others free to lose
 # theirs. Measured.
 harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report must carry>]
-    local gate="$1" dir="$2" label="$3" out rc lines reason=''
+    local gate="$1" dir="$2" label="$3" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
+
+    # "${@:4}" — not "$4" behind an if/else — is what carries whether a 4th
+    # argument was PASSED at all: it expands to zero words when there is none
+    # and one word when there is, so harness_decide_report_is_inert's own `$#`
+    # sees the same presence/absence its must-carry arms decide on.
+    harness_decide_report_is_inert "$out" "$rc" "$label" "${@:4}"
+}
+
+# harness_decide_report_is_inert <out> <rc> <label> [<scrubbed payload the report must carry>]
+#
+# See harness_decide_accepts for why this is split out.
+harness_decide_report_is_inert() {
+    local out="$1" rc="$2" label="$3" lines reason=''
     lines="$(grep -c . <<<"$out" || true)"
 
     if degraded "$out"; then
-        reason='the gate ran degraded — PHP emitted a diagnostic'
+        reason='the gate ran degraded — it emitted a diagnostic'
     elif [ "$rc" -ne 1 ]; then
         reason="expected the drift verdict, got exit $rc"
     elif grep -q "$(printf '\033')" <<<"$out"; then
@@ -407,6 +550,24 @@ harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report
     fi
 
     harness_settle "$reason" "$label" "$out" 'rejected, and the report stayed inert'
+}
+
+# harness_run_argv <dir> <cmd...>
+#
+# Runs <cmd...> <dir>, capturing stdout+stderr and the exit code into
+# HARNESS_OUT / HARNESS_RC. Every gate-specific assertion above hardcodes
+# `php "$gate" "$dir"`, which cannot flex to a second interpreter — added for a
+# caller driving a node-side gate (bin/check-js-config.mjs, added for #32)
+# alongside the PHP one. A caller builds its own thin accept/reject wrapper
+# around this and around the already-shared, already-probed harness_settle and
+# degraded, rather than this file growing a second `php`-shaped function family
+# per interpreter it is asked to drive — harness_accepts and friends stay
+# exactly as proven by harness_probe_assert_shapes, unmodified.
+harness_run_argv() {
+    local dir="$1"
+    shift
+    # shellcheck disable=SC2034 # read by the caller that sources this file, not by anything in it
+    HARNESS_OUT="$("$@" "$dir" 2>&1)" && HARNESS_RC=0 || HARNESS_RC=$?
 }
 
 # Every arm of the three shared assertions, driven once. Per-caller copies of this

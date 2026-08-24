@@ -15,9 +15,16 @@ declare(strict_types=1);
  * `grep -rln "^require_once .*safe-report-value" bin tests`. Anchored, and naming
  * the statement rather than the path: the bare path also matches files that only
  * MENTION it, including shell files that cannot require a PHP file at all, and
- * including this one, whose own docblock carries the pattern. The node gate
- * (tests/check-js-configs.sh) is on the same trust boundary and cannot require this
- * file; it carries its own encodeValue() for the same reason.
+ * including this one, whose own docblock carries the pattern. Node cannot require
+ * a PHP file either, and has its own ES module sibling instead
+ * (bin/support/safe-report-value.mjs, re-derive its importers with
+ * `grep -rl "from '\./support/safe-report-value.mjs'" bin`) — the consumer-facing
+ * node gate (bin/check-js-config.mjs) imports it directly, same as this file's PHP
+ * requirers import this one. tests/check-js-configs.sh's OWN embedded self-check
+ * (its `manifest_check`/peer-range JS, not the shipped gate) is on the same trust
+ * boundary as both and carries its own local `encodeValue()` instead, for the
+ * same reason neither the PHP nor the .mjs helper is reachable from a bash
+ * heredoc.
  *
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
