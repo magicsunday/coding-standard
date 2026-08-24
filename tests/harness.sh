@@ -150,16 +150,19 @@ do
 done
 
 # One negative per alternative this pattern now carries, and each is the one its
-# own anchor decides: the keyword sits mid-line, so only `^` keeps it out. Three
-# ordinary PHP report lines stood here before and were measured to discriminate
+# own anchor decides: the keyword sits mid-line, so only `^` keeps it out. One
+# ordinary PHP report line stood here before and was measured to discriminate
 # nothing — under the one structural mutation of the PHP half, dropping the
-# anchor, all three stay a miss. The two node-shaped lines are the same
-# discriminating pair tests/check-js-configs.sh's manifest_crashed is itself
-# proven against — a real gate report line can legitimately quote "at" or an
-# `[eval]:N`-looking fragment inside a value it is reporting on.
+# anchor, it stays a miss. The two node-shaped lines are the same discriminating
+# pair tests/check-js-configs.sh's manifest_crashed is itself proven against — a
+# real gate report line can legitimately quote "at" or an `[eval]:N`-looking
+# fragment inside a value it is reporting on. `'a peerDependencies entry has no
+# devDependencies pin proving it'` stood here too, once — it contains none of
+# this pattern's trigger substrings at all, so it discriminated nothing under
+# ANY mutation of this function and was dropped rather than kept as inert
+# filler the comment above would otherwise misdescribe as proven.
 for harness_degraded_probe in \
     '  - phpunit.xml: Warning is not a strict flag' \
-    'a peerDependencies entry has no devDependencies pin proving it' \
     'INFO     peer: "   at the start"' \
     'INFO     peer: "[eval]:1"'
 do
@@ -306,6 +309,33 @@ harness_decide_rejects() {
 
     harness_settle "$reason" "$label" "$out" 'rejected on the tested violation'
 }
+
+# degraded() recognising the shape is not the same as harness_decide_rejects
+# ACTING on it: rc=1 is both this program's reject exit code and Node's
+# uncaught-exception exit code, and the must-carry substring is checked with a
+# plain grep — so a crash whose text happens to contain it satisfies every
+# OTHER condition harness_decide_rejects checks. Driven rather than merely
+# asserted, the same discipline tests/check-js-configs.sh's own crashing_gate
+# probe uses for the identical reason (search that file for "The crash guard,
+# driven rather than asserted"): a probe that stubs degraded() itself would
+# prove the regex again, not the wiring around it.
+probe_degraded_reaches_reject_decision() {
+    local crash
+    crash="$(node -e 'throw new Error("boom biome/base.json")' 2>&1)"
+
+    # The asserted substring is one the crash text DOES contain (biome/base.json,
+    # from the thrown message) and rc is 1 — both conditions harness_decide_rejects
+    # would otherwise read as a genuine reject verdict. Without the degraded()
+    # branch reaching this decision, the grep for the substring succeeds and the
+    # call reports ok, raising nothing — which is the false "ok" this fix exists
+    # to prevent.
+    harness_decide_rejects "$crash" 1 \
+        'bookkeeping self-test — a node crash whose text contains the must-carry substring' \
+        'biome/base.json'
+}
+
+harness_probe_reporters 1 probe_degraded_reaches_reject_decision \
+    'harness_decide_rejects reports a Node crash as ok once its text happens to contain the must-carry substring'
 
 # harness_decide_reports_once <out> <rc> <label> <file prefix>
 #

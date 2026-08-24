@@ -1259,6 +1259,18 @@ else
     fail "the installed npm bin entry (check-js-config) did not run — package.json's \"bin\" mapping may be broken" "$work/bin-smoke.log"
 fi
 
+# The negative twin, without which the control above could not fail — a swapped
+# pass/fail, an `if true`, or a stray `|| true` on the invocation would all stay
+# green forever, unnoticed. `npx --no-install` on a name node_modules/.bin never
+# linked (this repo declares exactly one bin entry, and nothing else in $work
+# names its bin this) is the discriminator the real check depends on: npm never
+# falls back to installing an unresolved package under `--no-install`.
+if npx --no-install this-bin-does-not-exist-anywhere . >"$work/bin-smoke-negative.log" 2>&1; then
+    fail "bookkeeping self-test — npx --no-install accepted a bin name node_modules/.bin never linked, so the control above cannot discriminate a broken \"bin\" mapping" "$work/bin-smoke-negative.log"
+else
+    pass "bookkeeping self-test — npx --no-install correctly fails on an unresolved bin name"
+fi
+
 # Prove the `files` allow-list actually shipped the configs — read from the
 # TARBALL npm produced, not from a re-implementation of npm's semantics. A walk
 # over the `files` entries has to reproduce glob expansion and the default-ignore
