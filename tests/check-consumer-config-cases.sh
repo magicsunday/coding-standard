@@ -215,7 +215,7 @@ harness_probe_reporters 3 probe_report_is_inert_js_shapes \
 # assert_reports_once/harness_decide_reports_once are not covered by harness.sh's
 # own probe suite (harness_probe_assert_shapes/harness_probe_inert_shapes only drive
 # harness_decide_accepts/rejects/usage_error/report_is_inert) — and they became
-# load-bearing when the six oversize cases were written against them, seven once
+# load-bearing when the five oversize cases were written against them, six once
 # assert_reports_once_js joined for the package.json case. Measured before this:
 # replacing assert_reports_once's whole body with `pass "$2"` left the entire suite
 # green. Both arms — PHP directly below, node via assert_reports_once_js further

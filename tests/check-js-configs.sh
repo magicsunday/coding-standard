@@ -755,11 +755,13 @@ manifest_rejects "$(manifest_fixture floor-above-runtime \
 
 # engines.node used to be forbidden outright; #32 flipped that to required,
 # because bin/check-js-config.mjs now ships real code to a consumer's Node
-# (see the comment above manifest_check's engines.node arm). The four
+# (see the comment above manifest_check's engines.node arm). The six
 # fixtures below drive the REJECT side of that flip, split across the two
 # checks that arm now runs in sequence: the shape check (absent, unparseable,
-# and the OR-range whose EFFECTIVE floor a first-digit read cannot see — the
-# case CodeRabbit's PR #70 review found; the mechanics are on the shape-check
+# the OR-range whose EFFECTIVE floor a first-digit read cannot see — the
+# case CodeRabbit's PR #70 review found — plus a leading-zero component and
+# one past MAX_SAFE_INTEGER, both syntactically-invalid-semver shapes Codex's
+# PR #70 review found; the mechanics for all of these are on the shape-check
 # comment above manifest_check's engines.node arm, not restated here) and the
 # floor comparison the shape check's survivors still have to clear (too-low).
 # The ACCEPT side needs no fixture of its own — every other manifest_accepts
