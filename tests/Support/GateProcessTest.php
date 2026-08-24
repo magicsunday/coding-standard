@@ -1,0 +1,93 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/coding-standard.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\CodingStandard\Test\Support;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
+ * the fixture-directory positional argument contract and true chronological
+ * stdout/stderr interleaving.
+ */
+#[CoversClass(GateProcess::class)]
+final class GateProcessTest extends TestCase
+{
+    /**
+     * Asserts that the child process's exit code is captured unchanged.
+     */
+    #[Test]
+    public function runCapturesExitCode(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->run(['php', '-r', 'exit(7);'], '/tmp');
+
+        self::assertSame(7, $result->exitCode);
+    }
+
+    /**
+     * Asserts that text written to the child's stdout appears in the captured output.
+     */
+    #[Test]
+    public function runCapturesStdout(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->run(['php', '-r', 'fwrite(STDOUT, "hello\n");'], '/tmp');
+
+        self::assertStringContainsString('hello', $result->output);
+    }
+
+    /**
+     * Asserts that the fixture directory is passed as the sole positional argument.
+     */
+    #[Test]
+    public function runPassesTheFixtureDirectoryAsTheSolePositionalArgument(): void
+    {
+        $process = new GateProcess();
+        // $argv[0] is the script name (`Standard input code` for `php -r`); the
+        // fixture directory must land at $argv[1] — verifying this is verifying
+        // the contract every migrated suite's assertGate*() call depends on.
+        $result = $process->run(['php', '-r', 'fwrite(STDOUT, $argv[1]);'], '/a/fixture/dir');
+
+        self::assertSame('/a/fixture/dir', $result->output);
+    }
+
+    /**
+     * Asserts that stdout and stderr writes on the same run are captured in true arrival order.
+     */
+    #[Test]
+    public function runInterleavesStdoutAndStderrInTrueArrivalOrder(): void
+    {
+        $process = new GateProcess();
+        // Deliberately interleaved so a naive getOutput().getErrorOutput()
+        // concatenation (stdout-then-stderr, regardless of real timing) would
+        // produce "ACB" while the true arrival order — what this asserts —
+        // produces "ABC" only if the streaming callback is genuinely used.
+        // Both writes are on the SAME call so a flaky ordering bug shows up
+        // deterministically rather than depending on OS-level timing between
+        // two processes. The usleep() gaps are load-bearing, not decorative:
+        // Symfony's UnixPipes::readAndWrite() always drains the stdout pipe
+        // before the stderr pipe within one stream_select() cycle, so a
+        // burst of writes that all land before the first poll (verified in
+        // this repo's buildbox: a zero-delay version of this script reordered
+        // to "ACB" in the majority of 20 trials) is read back stdout-first
+        // regardless of true write order. A small delay between writes moves
+        // each one into its own poll cycle, which is what actually exercises
+        // the streaming callback's ordering rather than the reader's fixed
+        // pipe-check order.
+        $script = 'fwrite(STDOUT, "A"); usleep(5000); fwrite(STDERR, "B"); usleep(5000); fwrite(STDOUT, "C");';
+        $result = $process->run(['php', '-r', $script], '/tmp');
+
+        self::assertSame('ABC', $result->output);
+    }
+}
