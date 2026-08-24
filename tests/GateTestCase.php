@@ -209,7 +209,7 @@ abstract class GateTestCase extends TestCase
         self::assertSame(1, $result->exitCode, $message !== '' ? $message : "Expected the drift verdict, got exit {$result->exitCode}.\n{$result->output}");
         self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
         self::assertDoesNotMatchRegularExpression(
-            '/^[ \t]*::[A-Za-z0-9_-]+/m',
+            '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
             $result->output,
             'A consumer value forged a `::` workflow command.',
         );

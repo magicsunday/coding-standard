@@ -38,11 +38,11 @@ final readonly class GateResult
      * True when the interpreter emitted a diagnostic of its own — a PHP
      * warning, notice, parse error or fatal, or a Node stack frame / eval-mode
      * marker. Such a run produced no verdict, whatever it exited with, so no
-     * caller may read it as one — ported from tests/harness.sh's degraded(),
-     * including its documented gap: this only recognises an ASCII-space/tab
-     * indented stack frame, not one led by non-ASCII whitespace (NBSP, the
-     * U+2000 block); that gap was left open there on purpose and is inherited
-     * unchanged, not widened or narrowed.
+     * caller may read it as one — ported from tests/harness.sh's degraded().
+     * Both this method's `[[:space:]]` and the bash original's share the same
+     * gap: neither recognises a stack frame led by non-ASCII whitespace (NBSP,
+     * the U+2000 block) — that gap is genuine and inherited, not something
+     * this port introduced.
      *
      * @return bool
      */
@@ -50,7 +50,7 @@ final readonly class GateResult
     {
         return preg_match(
             '/^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)'
-            . '|^[ \t]+at '
+            . '|^[[:space:]]+at '
             . '|^\[eval\]:[0-9]/m',
             $this->output,
         ) === 1;
