@@ -18,7 +18,6 @@
  * @returns {string}
  */
 export function safeReportValue(value) {
-    // eslint-disable-next-line no-control-regex
     let clean = String(value).replace(/[\x00-\x1F\x7F]/g, '?');
     clean = clean.split('#[').join('#?[');
 

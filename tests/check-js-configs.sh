@@ -308,7 +308,7 @@ const asString = (value) => (typeof value === "string" ? value : "");
 const firstIntGroup = (value) => parseInt(asString(value).match(/(\d+)/)?.[1] ?? "", 10);
 
 // The floor genuinely required by code THIS package ships to a consumer: why
-// >=20 specifically is on the containsLoneSurrogate docblock in
+// >=20 specifically is on the sourceContainsLoneSurrogate docblock in
 // bin/check-js-config.mjs (String.prototype.isWellFormed), not restated here.
 // Bump this only alongside whatever new bin/ code needs a newer runtime API —
 // it tracks a different thing than devEngines.runtime.version above and the
@@ -384,7 +384,7 @@ if (have < want) {
 // `semver.validRange(">=020")` and
 // `semver.validRange(">=99999999999999999")` both return `null`, and
 // npm-install-checks checkEngine() (the function build-ideal-tree.js calls,
-// referenced on the containsLoneSurrogate docblock in
+// referenced on the sourceContainsLoneSurrogate docblock in
 // bin/check-js-config.mjs) resolves an unparseable range via
 // `semver.satisfies(nodeVersion, range)` — which is `false` for EVERY node
 // version against a range semver cannot parse. So a value shaped like a

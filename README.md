@@ -90,7 +90,7 @@ for `bin/check-js-config.mjs`: npm evaluates it on every install of this
 package and prints `EBADENGINE` in the *consumer's* log. Unlike the
 importable `biome/`/`tsconfig/` JSON, that script is real code that runs on a
 consumer's Node — why >=20 specifically, and exactly when `EBADENGINE` is a
-hard failure rather than a warning, are both on the `containsLoneSurrogate`
+hard failure rather than a warning, are both on the `sourceContainsLoneSurrogate`
 docblock in `bin/check-js-config.mjs`, not restated here. A consumer below
 that floor gets an uncaught crash instead of a clean
 gate report if nothing declares the requirement. `tests/check-js-configs.sh`
