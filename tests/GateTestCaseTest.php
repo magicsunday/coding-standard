@@ -250,6 +250,25 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportsOnce fails when zero lines match the
+     * file prefix — the assertCount(1, ...) check is an exact-one contract,
+     * not merely an upper bound, and this is the only test exercising that
+     * lower edge; assertGateReportsOnceFailsOnTwoMatchingLines alone cannot
+     * catch a regression to an at-most-one check.
+     */
+    #[Test]
+    public function assertGateReportsOnceFailsOnZeroMatchingLines(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - other.json: x\n"); exit(1);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
      * Verifies that assertGateReportsOnce fails when the process ran degraded, even with exactly one matching line.
      */
     #[Test]

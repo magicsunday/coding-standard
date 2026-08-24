@@ -34,10 +34,10 @@ use function str_contains;
  * decision throws a real AssertionFailedError; there is no counter to wire
  * up and no bookkeeping self-probe to write, unlike the bash original.
  *
- * Deliberately named without the house `Abstract*` prefix: it extends
- * PHPUnit's own TestCase and plays exactly the role PHPUnit's TestCase and
- * Symfony's WebTestCase/KernelTestCase play — an abstract base every
- * concrete test class extends — none of which carry that prefix either.
+ * Deliberately named without the house `Abstract*` prefix: it extends and
+ * plays the same role as PHPUnit's own TestCase (installed under
+ * .build/vendor/phpunit/phpunit, itself abstract) — an abstract base every
+ * concrete test class extends, without that prefix either.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -135,11 +135,11 @@ abstract class GateTestCase extends TestCase
     ): void {
         $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
 
-        $this->assertNonEmptyMustCarry($expectedSubstring);
-        self::assertStringContainsString(
+        $this->assertReportCarries(
+            $result,
             $expectedSubstring,
-            $result->output,
-            $message !== '' ? $message : "Rejected, but not for the tested reason; expected to find: {$expectedSubstring}",
+            $message,
+            "Rejected, but not for the tested reason; expected to find: {$expectedSubstring}",
         );
     }
 
@@ -166,11 +166,11 @@ abstract class GateTestCase extends TestCase
     ): void {
         $result = $this->runAndAssertVerdict($command, $fixtureDir, 2, 'the usage exit', $message);
 
-        $this->assertNonEmptyMustCarry($expectedSubstring);
-        self::assertStringContainsString(
+        $this->assertReportCarries(
+            $result,
             $expectedSubstring,
-            $result->output,
-            $message !== '' ? $message : "Refused, but not for the tested reason; expected to find: {$expectedSubstring}",
+            $message,
+            "Refused, but not for the tested reason; expected to find: {$expectedSubstring}",
         );
     }
 
@@ -206,12 +206,14 @@ abstract class GateTestCase extends TestCase
 
         self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
 
-        // Inherits tests/harness.sh's own deliberate, documented gap (see that
-        // file, lines ~479-495): a lead byte outside ASCII whitespace — NBSP,
-        // the U+2000 block, U+3000 — is not admitted by POSIX `[[:space:]]`
-        // either, so such a payload would still reach the runner past this
-        // check. Not a regression this port introduces; closing it properly
-        // needs enumerating whole UTF-8 sequences, left open on purpose there.
+        // A lead byte outside ASCII whitespace is not admitted by PCRE's
+        // `[[:space:]]`, so such a payload would still reach the runner past
+        // this check. For NBSP that gap is genuine and shared with the bash
+        // original under any locale (tests/harness.sh, lines ~479-495, left
+        // open on purpose there too). The U+2000 block and U+3000 are
+        // locale-dependent, not shared unconditionally — see
+        // GateResult::isDegraded()'s docblock for the measured detail and
+        // the re-derivation command.
         self::assertDoesNotMatchRegularExpression(
             '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
             $result->output,
@@ -225,11 +227,11 @@ abstract class GateTestCase extends TestCase
         self::assertLessThanOrEqual(4, count($nonEmptyLines), 'A consumer value split the report across too many lines.');
 
         if ($expectedScrubbedSubstring !== null) {
-            $this->assertNonEmptyMustCarry($expectedScrubbedSubstring);
-            self::assertStringContainsString(
+            $this->assertReportCarries(
+                $result,
                 $expectedScrubbedSubstring,
-                $result->output,
-                $message !== '' ? $message : 'The scrubbed value never reached the report — inert by omission, not by scrubbing.',
+                $message,
+                'The scrubbed value never reached the report — inert by omission, not by scrubbing.',
             );
         }
     }
@@ -312,16 +314,27 @@ abstract class GateTestCase extends TestCase
 
     /**
      * Guards against a must-carry argument that is empty — an empty needle
-     * would make the caller's subsequent containment check assert nothing.
+     * would make the subsequent containment check assert nothing — then
+     * asserts the report carries it. Shared by every assertGate* decision
+     * that has a must-carry substring, so the guard-then-assert pairing is
+     * made once, not at every call site.
      *
-     * @param string $value The must-carry substring a caller is about to assert on.
+     * @param GateResult $result            The captured run to check.
+     * @param string     $expectedSubstring The substring the report must carry.
+     * @param string     $message           An optional assertion message; used verbatim when non-empty.
+     * @param string     $defaultMessage    The message used when $message is empty.
      *
      * @return void
      *
-     * @throws AssertionFailedError If $value is empty.
+     * @throws AssertionFailedError If $expectedSubstring is empty, or the report does not carry it.
      */
-    private function assertNonEmptyMustCarry(string $value): void
-    {
-        self::assertNotSame('', $value, 'The must-carry argument is empty, so it would assert nothing.');
+    private function assertReportCarries(
+        GateResult $result,
+        string $expectedSubstring,
+        string $message,
+        string $defaultMessage,
+    ): void {
+        self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
+        self::assertStringContainsString($expectedSubstring, $result->output, $message !== '' ? $message : $defaultMessage);
     }
 }
