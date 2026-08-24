@@ -30,12 +30,13 @@ jobs:
                   tools: composer:v2
                   # Explicit, the way the org's reusable php-quality.yml writes it
                   # (magicsunday/.github, .github/workflows/php-quality.yml — the
-                  # `coverage:` expression, read 2026-08-15). This repository runs
-                  # no PHPUnit suite and no Infection — phpunit/phpunit IS in
-                  # `require`, as the tool consumers get — so it is always that
-                  # workflow's "every other leg" case, and leaving the input unset
-                  # makes the driver state depend on the runner image rather than on
-                  # a decision.
+                  # `coverage:` expression, read 2026-08-15). This repository's own
+                  # PHPUnit suite (composer ci:test:phpunit, GH-77) has no `src/` to
+                  # instrument — it covers tests/Support and GateTestCase's own
+                  # meta-tests, not application code — and this repo runs no
+                  # Infection either, so it is always that workflow's "every other
+                  # leg" case, and leaving the input unset would make the driver
+                  # state depend on the runner image rather than on a decision.
                   coverage: none
 
             - name: Checkout repository
