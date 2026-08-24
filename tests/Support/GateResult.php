@@ -15,8 +15,9 @@ use function preg_match;
 
 /**
  * The captured outcome of one gate invocation: the combined stdout+stderr
- * text (in true chronological arrival order, matching the bash harness's
- * `2>&1`) and the process exit code.
+ * text (in best-effort chronological arrival order — see GateProcess for the
+ * guarantee's exact limit — matching the bash harness's `2>&1`) and the
+ * process exit code.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -40,18 +41,20 @@ final readonly class GateResult
      * marker. Such a run produced no verdict, whatever it exited with, so no
      * caller may read it as one — ported from tests/harness.sh's degraded().
      * Neither this method's `[[:space:]]` nor the bash original's recognises a
-     * stack frame led by NBSP — that gap is genuine and shared, not something
-     * this port introduced. The U+2000/U+3000 block is NOT a shared gap: PCRE's
-     * `[[:space:]]` never matches it, but real grep does — BusyBox (the
-     * buildbox shell) and GNU grep (the CI runner's shell) both match it under
-     * every locale tested (`C.UTF-8`, `en_US.UTF-8`, default), so this is a
-     * genuine narrowing this port introduces relative to the bash original's
-     * real behaviour, not an inherited one. Re-derive rather than trust this
-     * note — and in a container, never on this host, whose own grep (ugrep)
-     * is Unicode-aware in a way neither of the two environments above are
-     * guaranteed to match:
+     * stack frame led by NBSP under any locale — that gap is genuine and
+     * shared, not something this port introduced. The U+2000/U+3000 block is
+     * different: PCRE's `[[:space:]]` never matches it regardless of locale,
+     * but whether grep's does is LOCALE-dependent, not implementation- or
+     * environment-dependent — under an explicit UTF-8 locale (`C.UTF-8` or
+     * `en_US.UTF-8`) both BusyBox and GNU grep match it; under the bare
+     * POSIX/`C` default (no locale set) neither does. This repo's own
+     * buildbox sets `LANG=C.UTF-8` by default (verified), so relative to
+     * THAT environment this is a genuine narrowing this port introduces —
+     * but the same command run with no locale set shows no narrowing at all.
+     * Re-derive rather than trust this note — and in a container, never on
+     * this host, whose own grep (ugrep) is Unicode-aware regardless of locale:
      *
-     *     printf '\xe2\x80\x80at x\n' | grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
+     *     printf '\xe2\x80\x80at x\n' | LC_ALL=C.UTF-8 grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
      *
      * See tests/harness.sh (~lines 479-495) for the bash side's own fuller
      * discussion of the analogous, deliberately-left-open gap in its `::`

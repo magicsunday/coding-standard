@@ -19,8 +19,8 @@ use function sys_get_temp_dir;
 
 /**
  * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
- * the fixture-directory positional argument contract and true chronological
- * stdout/stderr interleaving.
+ * the fixture-directory positional argument contract and best-effort
+ * chronological stdout/stderr interleaving.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
