@@ -1,0 +1,247 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/coding-standard.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\CodingStandard\Test;
+
+use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
+
+use function dirname;
+use function file_get_contents;
+use function file_put_contents;
+
+/**
+ * Meta-tests proving GateTestCase's own five decisions are wired correctly —
+ * the PHPUnit-native replacement for tests/harness.sh's
+ * harness_probe_assert_shapes/harness_probe_inert_shapes, which existed only
+ * because bash's manually-incremented counter needed proving; here a failed
+ * assertion is a real thrown AssertionFailedError, which IS the proof.
+ *
+ * Every scenario drives a stub `php -r '...'` command rather than a real
+ * gate — this class tests the DECISION logic, not any gate's behaviour.
+ */
+#[CoversClass(GateTestCase::class)]
+final class GateTestCaseTest extends GateTestCase
+{
+    /**
+     * Verifies that assertGateAccepts passes on a clean exit 0.
+     */
+    #[Test]
+    public function assertGateAcceptsPassesOnCleanExitZero(): void
+    {
+        $this->assertGateAccepts(['php', '-r', 'exit(0);'], $this->fixture()->path());
+    }
+
+    /**
+     * Verifies that assertGateAccepts fails on a non-zero exit code.
+     */
+    #[Test]
+    public function assertGateAcceptsFailsOnNonZeroExit(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateAccepts(['php', '-r', 'exit(1);'], $this->fixture()->path());
+    }
+
+    /**
+     * Verifies that assertGateAccepts fails when the process ran degraded, even on exit 0.
+     */
+    #[Test]
+    public function assertGateAcceptsFailsWhenDegraded(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateAccepts(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); exit(0);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateRejects passes on exit 1 carrying the expected substring.
+     */
+    #[Test]
+    public function assertGateRejectsPassesOnExitOneCarryingTheSubstring(): void
+    {
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            'drift',
+        );
+    }
+
+    /**
+     * Verifies that assertGateRejects fails when the report never carries the expected reason.
+     */
+    #[Test]
+    public function assertGateRejectsFailsOnTheWrongReason(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            'a substring the report never prints',
+        );
+    }
+
+    /**
+     * Verifies that assertGateRejects fails when the must-carry argument is an empty string.
+     */
+    #[Test]
+    public function assertGateRejectsFailsOnAnEmptyMustCarryArgument(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            '',
+        );
+    }
+
+    /**
+     * Verifies that assertGateUsageError passes on exit 2 carrying the expected substring.
+     */
+    #[Test]
+    public function assertGateUsageErrorPassesOnExitTwoCarryingTheSubstring(): void
+    {
+        $this->assertGateUsageError(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: refused to run\n"); exit(2);'],
+            $this->fixture()->path(),
+            'refused',
+        );
+    }
+
+    /**
+     * Verifies that assertGateUsageError fails when the process exited with the drift code instead of the usage code.
+     */
+    #[Test]
+    public function assertGateUsageErrorFailsOnTheDriftExitCode(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateUsageError(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            'drift',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportsOnce passes when exactly one line matches.
+     */
+    #[Test]
+    public function assertGateReportsOncePassesOnExactlyOneMatchingLine(): void
+    {
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: x\n"); exit(1);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportsOnce fails when two lines match the same file prefix.
+     */
+    #[Test]
+    public function assertGateReportsOnceFailsOnTwoMatchingLines(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: x\n  - biome.json: y\n"); exit(1);'],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert passes on a plain, unremarkable report.
+     */
+    #[Test]
+    public function assertGateReportIsInertPassesOnAPlainReport(): void
+    {
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a consumer value forges a `::` workflow command.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAForgedWorkflowCommand(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  ::error::forged\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the report exceeds four non-empty lines.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnMoreThanFourNonEmptyLines(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "a\nb\nc\nd\ne\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert tolerates blank lines when counting the non-empty-line limit.
+     */
+    #[Test]
+    public function assertGateReportIsInertToleratesBlankLinesWhenCountingTheLimit(): void
+    {
+        // grep -c . counts non-empty lines only — 3 non-empty + 3 blank must
+        // still pass, proving the PHP port did not switch to a raw line count.
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "a\n\nb\n\nc\n\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateAccepts, driven end-to-end, accepts the real
+     * PHP gate against a fixture carrying the shared canonical phpunit.xml.
+     */
+    #[Test]
+    public function assertGateAcceptsDrivesTheRealPhpGateEndToEnd(): void
+    {
+        // No suite migration happens in this issue — this is the one proof
+        // that GateProcess really invokes a real interpreter, not a stub.
+        // phpunit.xml is the sole file check-consumer-config.php declares
+        // REQUIRED (verified empirically: a plain empty fixture directory is
+        // rejected with "phpunit.xml: missing — the strict PHPUnit config is
+        // required."), so the fixture must carry a copy of the shared
+        // template for the real gate to have nothing to report on and accept.
+        $repoRoot = dirname(__DIR__);
+        $template = file_get_contents($repoRoot . '/templates/phpunit.xml.dist');
+        self::assertNotFalse($template);
+
+        file_put_contents($this->fixture()->path() . '/phpunit.xml.dist', $template);
+
+        $this->assertGateAccepts(
+            ['php', $repoRoot . '/bin/check-consumer-config.php'],
+            $this->fixture()->path(),
+        );
+    }
+}
