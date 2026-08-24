@@ -1242,6 +1242,23 @@ if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-instal
     exit 1
 fi
 
+# Everything else in this file proves the gate's LOGIC via a direct path to the
+# working-tree source (harness_run_argv's NODE_GATE). None of it proves the
+# `bin` field itself: npm's own symlinking from package.json's declared
+# `check-js-config` entry into node_modules/.bin. Exercised here rather than
+# further down, at the exact point $work has neither biome.json nor
+# tsconfig.json yet — the same "nothing to check" shape
+# "PHP-only repo without biome.json or tsconfig.json" already proves the
+# working-tree gate accepts, so this reuses that verdict rather than needing
+# its own fixture. Mirrors this repository's own PHP-side pattern (the
+# Consumer smoke CI steps run .build/bin/phpstan etc. as actually installed,
+# not merely prove them present).
+if npx --no-install check-js-config . >"$work/bin-smoke.log" 2>&1; then
+    pass "the installed npm bin entry (check-js-config) runs and accepts a repo with no JS config yet"
+else
+    fail "the installed npm bin entry (check-js-config) did not run — package.json's \"bin\" mapping may be broken" "$work/bin-smoke.log"
+fi
+
 # Prove the `files` allow-list actually shipped the configs — read from the
 # TARBALL npm produced, not from a re-implementation of npm's semantics. A walk
 # over the `files` entries has to reproduce glob expansion and the default-ignore
