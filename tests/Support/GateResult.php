@@ -43,9 +43,14 @@ final readonly class GateResult
      * Neither this method's `[[:space:]]` nor the bash original's recognises a
      * stack frame led by NBSP under any locale — that gap is genuine and
      * shared, not something this port introduced. The U+2000/U+3000 block is
-     * different: PCRE's `[[:space:]]` never matches it, full stop, regardless
-     * of locale or environment — that half is stable and is what actually
-     * governs this port's behaviour. Whether the bash original's grep also
+     * different: PCRE's `[[:space:]]` never matches it for a pattern with no
+     * `u` modifier — which is what the regex below is — regardless of locale
+     * or environment; that half is stable and is what actually governs this
+     * port's behaviour. (Adding `u` would bring PCRE's Unicode-property-aware
+     * POSIX classes into play and flip this — not this pattern's situation,
+     * but don't generalise the claim past it: `preg_match('/^[[:space:]]+at
+     * /u', "\xe2\x80\x80at x")` matches where the same pattern without `u`
+     * does not.) Whether the bash original's grep also
      * matches it is a separate question this docblock does NOT answer: three
      * independent attempts to pin a single verified verdict for "the CI
      * runner" or "the buildbox" each measured a different result (grep
