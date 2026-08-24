@@ -17,9 +17,13 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests for GateResult::isDegraded(), ported from tests/harness.sh's degraded()
- * self-probe loops (lines 135-173), which is where these exact literals came from
- * and why each one is here rather than a freshly invented example.
+ * Tests for GateResult::isDegraded(). The PHP-diagnostic fixtures in
+ * degradedOutputProvider() are ported verbatim from tests/harness.sh's
+ * degraded() self-probe loops (lines 135-173). The Node-related fixtures are
+ * NOT a literal port: tests/harness.sh probes those two arms with the real,
+ * dynamic output of `node -e 'throw ...'`, which is non-deterministic across
+ * Node versions, so this suite instead hand-authors static fixtures that
+ * target the same regex arms.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -29,7 +33,9 @@ use PHPUnit\Framework\TestCase;
 final class GateResultTest extends TestCase
 {
     /**
-     * Ported literals from tests/harness.sh's degraded() self-probe loop that a real diagnostic must trip.
+     * A real diagnostic each row must trip: verbatim ports of tests/harness.sh's
+     * degraded() PHP-diagnostic literals, plus hand-authored Node-diagnostic
+     * fixtures targeting the same regex arms as its two dynamic `node -e` probes.
      *
      * @return array<string, array{0: string}>
      */

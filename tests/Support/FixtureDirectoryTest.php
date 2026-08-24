@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 use function bin2hex;
+use function file_exists;
 use function file_get_contents;
 use function file_put_contents;
 use function is_dir;
