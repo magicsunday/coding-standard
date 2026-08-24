@@ -81,9 +81,11 @@ final class GateProcessTest extends TestCase
         // concatenation (stdout-then-stderr, regardless of real timing) would
         // produce "ACB" while the true arrival order — what this asserts —
         // produces "ABC" only if the streaming callback is genuinely used.
-        // Both writes are on the SAME call so a flaky ordering bug shows up
-        // deterministically rather than depending on OS-level timing between
-        // two processes. The usleep() gaps are load-bearing, not decorative:
+        // Both writes are on the SAME call, which is what makes a REGRESSION
+        // to that naive concatenation reliably caught — not a claim that this
+        // test itself can never flake: like GateProcess's own docblock says,
+        // the ordering guarantee is best-effort, not absolute. The usleep()
+        // gaps are load-bearing, not decorative:
         // Symfony's UnixPipes::readAndWrite() always drains the stdout pipe
         // before the stderr pipe within one stream_select() cycle, so a
         // burst of writes that all land before the first poll (verified in

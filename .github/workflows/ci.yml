@@ -30,14 +30,17 @@ jobs:
                   tools: composer:v2
                   # Explicit, the way the org's reusable php-quality.yml writes it
                   # (magicsunday/.github, .github/workflows/php-quality.yml — the
-                  # `coverage:` expression, read 2026-08-15). This repository's own
-                  # PHPUnit suite (composer ci:test:phpunit, GH-77) has no `src/` to
-                  # instrument — it covers tests/Support and GateTestCase's own
-                  # meta-tests, not application code — and this repo runs no
-                  # Infection either, so it is always that workflow's "every other
-                  # leg" case, and leaving the input unset would make the driver
-                  # state depend on the runner image rather than on a decision.
-                  coverage: none
+                  # `coverage:` expression, read 2026-08-15), except on the top
+                  # matrix leg: phpunit.xml.dist's requireCoverageMetadata /
+                  # beStrictAboutCoverageMetadata checks ("this test executed
+                  # code not listed as covered/used") only evaluate when a
+                  # coverage driver is actually collecting data — without one on
+                  # at least one leg, a regression of that class (GH-77 round 12:
+                  # every test went risky once, fixed in phpunit.xml.dist's
+                  # <source> block) would stay green here undetected. Leaving the
+                  # input unset would make the driver state depend on the runner
+                  # image rather than on a decision.
+                  coverage: ${{ matrix.php == '8.5' && 'xdebug' || 'none' }}
 
             - name: Checkout repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,7 +88,16 @@ jobs:
               run: composer ci:test:phpat-subjects
 
             - name: PHPUnit
+              if: matrix.php != '8.5'
               run: composer ci:test:phpunit
+
+            # Only this leg has a coverage driver (see the `coverage:` step
+            # above) — --coverage-text is what makes requireCoverageMetadata /
+            # beStrictAboutCoverageMetadata actually evaluate, which is the
+            # enforcement this step exists for, not a human-facing report.
+            - name: PHPUnit (with coverage)
+              if: matrix.php == '8.5'
+              run: composer ci:test:phpunit -- --coverage-text
 
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
