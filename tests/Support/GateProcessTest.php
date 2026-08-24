@@ -15,10 +15,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function sys_get_temp_dir;
+
 /**
  * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
  * the fixture-directory positional argument contract and true chronological
  * stdout/stderr interleaving.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateProcess::class)]
 final class GateProcessTest extends TestCase
@@ -30,7 +36,7 @@ final class GateProcessTest extends TestCase
     public function runCapturesExitCode(): void
     {
         $process = new GateProcess();
-        $result  = $process->run(['php', '-r', 'exit(7);'], '/tmp');
+        $result  = $process->run(['php', '-r', 'exit(7);'], sys_get_temp_dir());
 
         self::assertSame(7, $result->exitCode);
     }
@@ -42,7 +48,7 @@ final class GateProcessTest extends TestCase
     public function runCapturesStdout(): void
     {
         $process = new GateProcess();
-        $result  = $process->run(['php', '-r', 'fwrite(STDOUT, "hello\n");'], '/tmp');
+        $result  = $process->run(['php', '-r', 'fwrite(STDOUT, "hello\n");'], sys_get_temp_dir());
 
         self::assertStringContainsString('hello', $result->output);
     }
@@ -86,7 +92,7 @@ final class GateProcessTest extends TestCase
         // the streaming callback's ordering rather than the reader's fixed
         // pipe-check order.
         $script = 'fwrite(STDOUT, "A"); usleep(5000); fwrite(STDERR, "B"); usleep(5000); fwrite(STDOUT, "C");';
-        $result = $process->run(['php', '-r', $script], '/tmp');
+        $result = $process->run(['php', '-r', $script], sys_get_temp_dir());
 
         self::assertSame('ABC', $result->output);
     }

@@ -20,6 +20,10 @@ use PHPUnit\Framework\TestCase;
  * Tests for GateResult::isDegraded(), ported from tests/harness.sh's degraded()
  * self-probe loops (lines 135-173), which is where these exact literals came from
  * and why each one is here rather than a freshly invented example.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateResult::class)]
 final class GateResultTest extends TestCase
