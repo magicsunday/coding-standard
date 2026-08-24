@@ -1270,12 +1270,24 @@ fi
 # `--no-save`) already declared `@magicsunday/coding-standard` a dependency of
 # $work, so the malformed biome.json below is read under the ADOPTED path —
 # the one that reports a parse failure rather than silently ignoring it (see
-# "malformed biome.json in a repo that has not adopted the npm package"
-# further down, the accepting twin of this same distinction).
+# "malformed biome.json in a repo that has not adopted the npm package" in
+# tests/check-consumer-config-cases.sh, the accepting twin of this same
+# distinction).
 printf '{\n' > biome.json
 
-if npx --no-install check-js-config . >"$work/bin-smoke-negative.log" 2>&1; then
-    fail "bookkeeping self-test — the installed npm bin entry (check-js-config) accepted a malformed biome.json, so the control above cannot discriminate a broken invocation" "$work/bin-smoke-negative.log"
+# Exit 1 specifically, and the exact diagnostic — not "any nonzero": exit 2 is
+# the usage-error path (harness_decide_usage_error's own territory), and an
+# uncaught crash also happens to exit 1 on Node, same as this gate's own
+# reject convention. Either would pass an "any nonzero" check while proving
+# nothing about the malformed-JSON path this control exists to exercise.
+bin_smoke_negative_rc=0
+bin_smoke_negative_out="$(npx --no-install check-js-config . 2>&1)" || bin_smoke_negative_rc=$?
+printf '%s\n' "$bin_smoke_negative_out" > "$work/bin-smoke-negative.log"
+
+if [ "$bin_smoke_negative_rc" -ne 1 ]; then
+    fail "bookkeeping self-test — the installed npm bin entry (check-js-config) exited $bin_smoke_negative_rc, not the 1 a reported drift needs" "$work/bin-smoke-negative.log"
+elif ! grep -qF -- 'biome.json: not valid JSON(C).' <<<"$bin_smoke_negative_out"; then
+    fail "bookkeeping self-test — the installed npm bin entry (check-js-config) exited 1 but not for the tested reason" "$work/bin-smoke-negative.log"
 else
     pass "bookkeeping self-test — the installed npm bin entry (check-js-config) correctly rejects a malformed biome.json"
 fi
