@@ -128,15 +128,20 @@ final class FixtureDirectoryTest extends TestCase
         $fixture = new FixtureDirectory();
         symlink($externalDir, sprintf('%s/link', $fixture->path()));
 
-        $fixture->cleanup();
-
         try {
+            // cleanup() itself is inside the try: the regression this test
+            // exists to catch (removeRecursively() following the symlink)
+            // makes cleanup() THROW — rmdir() fails on the symlink's own
+            // path once its target's contents are gone — so the external
+            // fixture must still be reachable for removal on that path too,
+            // not only when the later assertion is what fails.
+            $fixture->cleanup();
+
             self::assertFileExists(sprintf('%s/sentinel.txt', $externalDir));
         } finally {
-            // A failed assertion above is exactly the regression this test
-            // exists to catch (cleanup followed the symlink and consumed the
-            // target); guard each removal so that case does not also leak
-            // the external fixture, nor mask the assertion failure with a
+            // A failure above is exactly the regression this test exists to
+            // catch; guard each removal so that case does not also leak the
+            // external fixture, nor mask the original failure with a
             // secondary warning about a file already gone.
             if (is_dir($externalDir)) {
                 if (file_exists(sprintf('%s/sentinel.txt', $externalDir))) {
