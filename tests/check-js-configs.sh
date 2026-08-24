@@ -1301,8 +1301,8 @@ while IFS= read -r entry; do
     # match, and under `set -o pipefail` the SIGPIPE that kills the upstream
     # `printf` then decides the pipeline, so a match reads as a miss once the
     # listing outgrows the pipe buffer. Measured: identical at 100 entries,
-    # spuriously absent at 1000. Latent today — `files` holds two entries — and it
-    # fails towards a false red, but the shape is the one the other harnesses
+    # spuriously absent at 1000. Latent today — `files` holds four entries — and
+    # it fails towards a false red, but the shape is the one the other harnesses
     # already avoid.
     if grep -qxF -- "$entry" <<<"$packed" \
         || grep -q -- "^$(printf '%s' "$entry" | sed 's/[][\.*^$\/]/\\&/g')/" <<<"$packed"; then
