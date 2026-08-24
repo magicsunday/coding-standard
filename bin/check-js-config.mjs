@@ -499,12 +499,13 @@ function exceedsMaxJsonDepth(buffer, maxDepth) {
 }
 
 /**
- * Walks a decoded JSONC value (object keys and string values, at any depth)
- * for a UTF-16 surrogate code unit with no matching partner — the class
- * json_decode() rejects a `\uXXXX` escape for and JSON.parse() accepts.
- * `String.prototype.isWellFormed()` answers exactly that question for one
- * string — unflagged since Node 20.0.0 (V8 11.3, re-derive with
- * `curl -s https://raw.githubusercontent.com/nodejs/node/main/doc/changelogs/CHANGELOG_V20.md \
+ * Scans raw JSON(C) source text — every `"..."` literal, key or value, in
+ * document order — for a UTF-16 surrogate code unit with no matching
+ * partner: the class json_decode() rejects a `\uXXXX` escape for and
+ * JSON.parse() accepts. `String.prototype.isWellFormed()` answers exactly
+ * that question for one string — unflagged since Node 20.0.0 (V8 11.3,
+ * re-derive with `curl -s
+ * https://raw.githubusercontent.com/nodejs/node/main/doc/changelogs/CHANGELOG_V20.md \
  *     | grep -B5 isWellFormed`), which is why this file is the floor
  * package.json's `engines.node` declares — the supported runtime floor npm
  * evaluates on a consumer's install. The warning-otherwise half is
@@ -515,28 +516,69 @@ function exceedsMaxJsonDepth(buffer, maxDepth) {
  * https://raw.githubusercontent.com/npm/cli/latest/workspaces/arborist/lib/arborist/build-ideal-tree.js \
  *     | grep -A3 engineStrict` — the `throw err` arm). Unrelated to this
  * repository's own >=24 `devEngines` floor, which governs developing this
- * package, not running it once installed. This is its recursive counterpart
- * over a whole parsed document.
+ * package, not running it once installed.
  *
- * @param {*} value
+ * Runs over the SOURCE, not JSON.parse()'s result: a duplicate object key
+ * collapses to its LAST occurrence during parsing, before any check on the
+ * parsed value ever runs — so a lone surrogate sitting only in an earlier,
+ * overwritten occurrence would go unseen by a check that walked the parsed
+ * value instead, while json_decode() validates every string token as it
+ * streams, independent of which occurrence survives. Verified with the PHP
+ * buildbox: `json_decode('{"a":"\uD800","a":"valid"}', true)` returns NULL
+ * ("Single unpaired UTF-16 surrogate in unicode escape") even though the
+ * invalid value is the one a later check on the decoded result would never
+ * see. Each literal is re-decoded through JSON.parse() in isolation (a
+ * single string token has no duplicate-key collapsing of its own) rather
+ * than hand-rolling `\uXXXX` unescaping here.
+ *
+ * @param {string} text Already comment/trailing-comma-stripped source text.
  *
  * @returns {boolean}
  */
-function containsLoneSurrogate(value) {
-    if (typeof value === 'string') {
-        return !value.isWellFormed();
-    }
+function sourceContainsLoneSurrogate(text) {
+    const n = text.length;
+    let i = 0;
 
-    if (Array.isArray(value)) {
-        return value.some((entry) => containsLoneSurrogate(entry));
-    }
-
-    if (value !== null && typeof value === 'object') {
-        for (const [key, entry] of Object.entries(value)) {
-            if (!key.isWellFormed() || containsLoneSurrogate(entry)) {
-                return true;
-            }
+    while (i < n) {
+        if (text[i] !== '"') {
+            i += 1;
+            continue;
         }
+
+        const start = i;
+        let j = i + 1;
+
+        while (j < n) {
+            if (text[j] === '\\') {
+                j += 2;
+                continue;
+            }
+
+            if (text[j] === '"') {
+                j += 1;
+                break;
+            }
+
+            j += 1;
+        }
+
+        let literal;
+
+        try {
+            literal = JSON.parse(text.slice(start, j));
+        } catch {
+            // A malformed literal here fails again, identically, once
+            // JSON.parse() runs over the whole document below — no need to
+            // duplicate that failure mode here.
+            i = j;
+            continue;
+        }
+
+        if (typeof literal === 'string' && !literal.isWellFormed()) {
+            return true;
+        }
+
+        i = j;
     }
 
     return false;
@@ -552,7 +594,7 @@ function containsLoneSurrogate(value) {
  * added to this file one at a time, at different call sites, over several
  * rounds of review — and twice, a guard added at one JSON.parse() call site
  * was found missing at the other (exceedsMaxJsonDepth, then
- * containsLoneSurrogate). Routing every caller through this single function
+ * sourceContainsLoneSurrogate). Routing every caller through this single function
  * makes that class of gap structurally impossible to reintroduce at a THIRD
  * call site: there is no longer a second copy of the pipeline for a new
  * guard to land on only one of.
@@ -584,6 +626,10 @@ function decodeJsonLikePhp(buffer) {
         return null;
     }
 
+    if (sourceContainsLoneSurrogate(text)) {
+        return null;
+    }
+
     let decoded;
 
     try {
@@ -593,17 +639,6 @@ function decodeJsonLikePhp(buffer) {
     }
 
     if (decoded === null || typeof decoded !== 'object') {
-        return null;
-    }
-
-    if (containsLoneSurrogate(decoded)) {
-        // json_decode() rejects a `\uD800`-style escape with no matching low
-        // surrogate ("Single unpaired UTF-16 surrogate in unicode escape");
-        // JSON.parse() accepts it and produces a string carrying the lone
-        // surrogate code unit. Checked on the PARSED result rather than the
-        // source text, because a \uXXXX escape is only ever meaningful once
-        // decoded — matching pairs, an escape split across concatenated
-        // string literals, etc. are all resolved by JSON.parse() first.
         return null;
     }
 

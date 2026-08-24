@@ -378,13 +378,29 @@ if (have < want) {
 // so they collapse into this one verdict too — a fixture-verified table
 // (spec-first-rule-change, #32) found no case where telling them apart
 // changes what an operator should do about it.
+// Each numeric component must also be canonical semver shape — no leading
+// zero, and within the upper bound semver itself enforces
+// (Number.MAX_SAFE_INTEGER) — rather than any digit run:
+// `semver.validRange(">=020")` and
+// `semver.validRange(">=99999999999999999")` both return `null`, and
+// npm-install-checks checkEngine() (the function build-ideal-tree.js calls,
+// referenced on the containsLoneSurrogate docblock in
+// bin/check-js-config.mjs) resolves an unparseable range via
+// `semver.satisfies(nodeVersion, range)` — which is `false` for EVERY node
+// version against a range semver cannot parse. So a value shaped like a
+// floor but outside this grammar does not go unenforced, it makes npm EBADENGINE
+// fire unconditionally, for every consumer, regardless of their installed
+// Node — the opposite of the floor it appears to declare.
 // Held once: both arms below report on the same field, and a report() call
 // site that diverges from its sibling by accident (not by design, the way
 // the peer-range arms further down each carry their own distinct payload)
 // is exactly the drift this file guards against elsewhere.
 const declaredEnginesNode = { "declared engines.node": pkg.engines?.node };
+const enginesNodeValue = asString(pkg.engines?.node);
+const enginesNodeShapeOk = /^>=(0|[1-9]\d*)(\.(0|[1-9]\d*)){0,2}$/.test(enginesNodeValue)
+    && enginesNodeValue.slice(2).split(".").every((part) => Number(part) <= Number.MAX_SAFE_INTEGER);
 
-if (!/^>=\d+(\.\d+){0,2}$/.test(asString(pkg.engines?.node))) {
+if (!enginesNodeShapeOk) {
     report(`engines.node is not a single ">=X" floor this check can verify (>=${MIN_CONSUMER_NODE} required, for String.prototype.isWellFormed())`,
         declaredEnginesNode);
     process.exit(1);
@@ -788,6 +804,14 @@ engines_node_rejects engines-too-low '{ "node": ">=18" }' \
     "manifest control — an engines.node floor below what bin/check-js-config.mjs needs is reported" \
     "$consumer_engines_sentence"
 
+engines_node_rejects engines-node-leading-zero '{ "node": ">=020" }' \
+    "manifest control — a leading-zero numeric component semver itself would refuse to parse is reported" \
+    "$consumer_engines_shape_sentence"
+
+engines_node_rejects engines-node-oversized-major '{ "node": ">=99999999999999999" }' \
+    "manifest control — a numeric component past semver's own MAX_SAFE_INTEGER bound is reported" \
+    "$consumer_engines_shape_sentence"
+
 # The asserted sentences, held once each. Every reader needs the identical bytes:
 # the controls that assert one, and the poison values that prove no fixture can
 # supply it. As separate literals they desynchronised on the first rewording, and
@@ -846,6 +870,26 @@ manifest_accepts "$(manifest_fixture peer-minor-past-nine \
        "devDependencies": { "@biomejs/biome": "2.10.0" },
        "peerDependencies": { "@biomejs/biome": "^2.9.0" } }')" \
     "manifest control — a pin whose minor is past nine satisfies a lower caret floor"
+
+# The dotted-floor accept path: the shape regex's `(\.\d+){0,2}` quantifier
+# must accept one or two dot-separated components, not just the bare-major
+# form every other manifest fixture uses (via manifest_fixture's auto-
+# injected ">=20"). A regression narrowing that quantifier (e.g. to
+# `{0,1}` or `{1,2}`) would silently reject a well-formed dotted floor with
+# no other fixture to catch it.
+manifest_accepts "$(manifest_fixture engines-node-minor-dotted \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" },
+       "engines": { "node": ">=20.1" } }')" \
+    "manifest control — an engines.node floor with a minor component is accepted"
+
+manifest_accepts "$(manifest_fixture engines-node-patch-dotted \
+    '{ "devEngines": { "runtime": { "name": "node", "version": ">=24" } },
+       "devDependencies": { "@biomejs/biome": "2.5.5" },
+       "peerDependencies": { "@biomejs/biome": "^2.5.0" },
+       "engines": { "node": ">=20.0.0" } }')" \
+    "manifest control — an engines.node floor with major.minor.patch components is accepted"
 
 manifest_rejects "$(manifest_fixture no-devengines \
     '{ "devDependencies": { "@biomejs/biome": "2.5.5" } }')" \

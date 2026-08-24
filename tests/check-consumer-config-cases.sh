@@ -1646,6 +1646,28 @@ php -r '
 assert_rejects_js "$d" "an overlong rule-group key is truncated with a marker" \
     "linter.rules.$(printf 'z%.0s' $(seq 1 64))…"
 
+# The multi-byte-safe half of the same truncation, which the fixture above
+# never reaches: every byte in it is ASCII, so the cut always lands on an
+# ordinary byte and the continuation-byte backoff loop in
+# bin/support/safe-report-value.mjs (mirroring PHP's mb_strcut) never runs.
+# This key places a 2-byte UTF-8 character ("ü") so its SECOND byte lands
+# exactly on the 64-byte cut point — 63 ASCII "z" bytes, then "ü" (bytes 63-64
+# of 0-indexed), then one more character past the cap. A working backoff
+# drops the whole "ü" and reports 63 "z"s; a naive cut-with-no-backoff would
+# instead keep the lead byte alone (an unpaired 0xC3), which decodes to a
+# replacement character rather than this exact substring. Verified against
+# the real PHP gate: `mb_strcut(str_repeat("z", 63) . "ü" . "x", 0, 64)`
+# returns the identical 63-byte "z" run.
+d="$(mk_js_case biome-overlong-rule-group-multibyte-boundary)"
+php -r '
+    file_put_contents($argv[1], json_encode([
+        "extends" => ["@magicsunday/coding-standard/biome/base.json"],
+        "linter"  => ["rules" => [str_repeat("z", 63) . "ü" . "x" => ["recommended" => false]]],
+    ]));
+' "$d/biome.json"
+assert_rejects_js "$d" "a rule-group key whose multi-byte character straddles the 64-byte cut is not split" \
+    "linter.rules.$(printf 'z%.0s' $(seq 1 63))…"
+
 # Block comments: the accept case, and the discriminating one — a multi-line
 # block carrying a quote and a `//` must be closed rather than swallow the rest
 # of the document, which would decode to an empty config that passes everything.
@@ -1742,6 +1764,19 @@ assert_rejects_js "$d" "tsconfig.json with an unpaired UTF-16 surrogate escape" 
 d="$(mk_js_case ts-paired-surrogate)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "note": "\\uD83D\\uDE00"\n}\n' > "$d/tsconfig.json"
 assert_accepts_js "$d" "tsconfig.json with a properly paired surrogate escape (an emoji)"
+
+# The DUPLICATE-KEY variant of the unpaired-surrogate case above: JSON.parse()
+# collapses a repeated key to its LAST occurrence before any check on the
+# parsed result ever runs, so an unpaired surrogate sitting only in an
+# EARLIER, overwritten occurrence would go unseen by a check that walked the
+# parsed value instead of the source text — while json_decode() validates
+# every string token as it streams, independent of which occurrence
+# survives. Verified against the PHP gate on this exact fixture: PHP rejects
+# ("Single unpaired UTF-16 surrogate in unicode escape") even though the
+# invalid value is the one the later, valid "note" overwrites.
+d="$(mk_js_case ts-unpaired-surrogate-overwritten-by-duplicate-key)"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json",\n    "note": "\\uD800",\n    "note": "valid"\n}\n' > "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json whose only unpaired surrogate sits in a duplicate key's overwritten first occurrence" "tsconfig.json: not valid JSON(C)"
 
 # json_decode()'s default $depth is 512, and it fails ("Maximum stack depth
 # exceeded") once nesting reaches that count — the outermost container counts
