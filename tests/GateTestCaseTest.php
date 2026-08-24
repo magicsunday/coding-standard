@@ -110,6 +110,21 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateRejects fails when the process ran degraded, even though it exited 1 carrying the expected substring.
+     */
+    #[Test]
+    public function assertGateRejectsFailsWhenDegraded(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            'drift',
+        );
+    }
+
+    /**
      * Verifies that assertGateUsageError passes on exit 2 carrying the expected substring.
      */
     #[Test]
@@ -134,6 +149,36 @@ final class GateTestCaseTest extends GateTestCase
             ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
             $this->fixture()->path(),
             'drift',
+        );
+    }
+
+    /**
+     * Verifies that assertGateUsageError fails when the must-carry argument is an empty string.
+     */
+    #[Test]
+    public function assertGateUsageErrorFailsOnAnEmptyMustCarryArgument(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateUsageError(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: refused to run\n"); exit(2);'],
+            $this->fixture()->path(),
+            '',
+        );
+    }
+
+    /**
+     * Verifies that assertGateUsageError fails when the process ran degraded, even though it exited 2 carrying the expected substring.
+     */
+    #[Test]
+    public function assertGateUsageErrorFailsWhenDegraded(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateUsageError(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); fwrite(STDOUT, "  - x: refused to run\n"); exit(2);'],
+            $this->fixture()->path(),
+            'refused',
         );
     }
 
@@ -178,6 +223,49 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportIsInert passes when the report genuinely carries the expected scrubbed substring.
+     */
+    #[Test]
+    public function assertGateReportIsInertPassesWhenTheExpectedScrubbedSubstringIsPresent(): void
+    {
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: contains a scrubbed-value-xyz reference\n"); exit(1);'],
+            $this->fixture()->path(),
+            'scrubbed-value-xyz',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the expected scrubbed substring never reached the report.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWhenTheExpectedScrubbedSubstringIsAbsent(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing to see here\n"); exit(1);'],
+            $this->fixture()->path(),
+            'scrubbed-value-xyz',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the must-carry argument is an empty string.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAnEmptyMustCarryArgument(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(1);'],
+            $this->fixture()->path(),
+            '',
+        );
+    }
+
+    /**
      * Verifies that assertGateReportIsInert fails when a consumer value forges a `::` workflow command.
      */
     #[Test]
@@ -187,6 +275,34 @@ final class GateTestCaseTest extends GateTestCase
 
         $this->assertGateReportIsInert(
             ['php', '-r', 'fwrite(STDOUT, "  ::error::forged\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a consumer value carries a raw ANSI escape byte.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAnEscapeByte(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: \x1B[31mred\x1B[0m\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a consumer value carries a bare carriage return.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnABareCarriageReturn(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: line one\rline two\n"); exit(1);'],
             $this->fixture()->path(),
         );
     }
