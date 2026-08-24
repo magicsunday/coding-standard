@@ -26,10 +26,12 @@ use Symfony\Component\Process\Process;
  * Process::run()'s streaming callback is used deliberately instead of
  * getOutput().getErrorOutput() concatenation, which would silently discard
  * the real interleave order. This is a best-effort ordering, not an absolute
- * guarantee: Symfony's internal UnixPipes always drains the stdout pipe
- * before the stderr pipe within one stream_select() cycle, so writes that
- * both land before the first poll are read back stdout-first regardless of
- * true write order. For the two real gates this wraps, output is always
+ * guarantee: Symfony's internal UnixPipes (@internal, no BC promise; verify
+ * against the installed symfony/process — vendor/symfony/process/Pipes/
+ * UnixPipes.php, readAndWrite()) always drains the stdout pipe before the
+ * stderr pipe within one stream_select() cycle, so writes that both land
+ * before the first poll are read back stdout-first regardless of true write
+ * order. For the two real gates this wraps, output is always
  * separated by real program execution time, so this never manifests in
  * practice — it is only reachable by a synthetic burst of writes with no
  * work between them, faster than the OS can schedule a poll in between.

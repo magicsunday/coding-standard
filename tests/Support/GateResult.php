@@ -42,12 +42,20 @@ final readonly class GateResult
      * Neither this method's `[[:space:]]` nor the bash original's recognises a
      * stack frame led by NBSP — that gap is genuine and shared, not something
      * this port introduced. The U+2000/U+3000 block is NOT a shared gap: PCRE's
-     * `[[:space:]]` never matches it, but whether grep's does is implementation-
-     * and locale-dependent (measured: BusyBox grep and GNU grep under `C.UTF-8`
-     * match it, GNU grep under `en_US.UTF-8` does not) — re-derive rather than
-     * trust this note:
+     * `[[:space:]]` never matches it, but real grep does — BusyBox (the
+     * buildbox shell) and GNU grep (the CI runner's shell) both match it under
+     * every locale tested (`C.UTF-8`, `en_US.UTF-8`, default), so this is a
+     * genuine narrowing this port introduces relative to the bash original's
+     * real behaviour, not an inherited one. Re-derive rather than trust this
+     * note — and in a container, never on this host, whose own grep (ugrep)
+     * is Unicode-aware in a way neither of the two environments above are
+     * guaranteed to match:
      *
      *     printf '\xe2\x80\x80at x\n' | grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
+     *
+     * See tests/harness.sh (~lines 479-495) for the bash side's own fuller
+     * discussion of the analogous, deliberately-left-open gap in its `::`
+     * workflow-command check.
      *
      * @return bool
      */
