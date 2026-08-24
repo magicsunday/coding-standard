@@ -46,6 +46,12 @@ final class FixtureDirectory
      */
     private readonly string $path;
 
+    /**
+     * Creates a real temporary directory with a collision-free name.
+     *
+     * @throws RuntimeException If tempnam() cannot reserve a temporary path.
+     * @throws RuntimeException If mkdir() cannot create the fixture directory.
+     */
     public function __construct()
     {
         $stub = tempnam(sys_get_temp_dir(), 'gate-fixture-');
@@ -80,6 +86,8 @@ final class FixtureDirectory
      * @param string               $relativePath Path relative to this fixture's root.
      * @param array<string, mixed> $data         The data to encode as JSON.
      *
+     * @throws RuntimeException If intermediate directories cannot be created.
+     *
      * @return void
      */
     public function writeJson(string $relativePath, array $data): void
@@ -107,12 +115,16 @@ final class FixtureDirectory
     /**
      * @param string $path The path to remove.
      *
+     * @throws RuntimeException If a file or directory cannot be removed.
+     *
      * @return void
      */
     private function removeRecursively(string $path): void
     {
         if (!is_dir($path)) {
-            @unlink($path);
+            if (!unlink($path)) {
+                throw new RuntimeException(sprintf('Could not remove file: %s', $path));
+            }
 
             return;
         }
@@ -120,7 +132,7 @@ final class FixtureDirectory
         $entries = scandir($path);
 
         if ($entries === false) {
-            return;
+            throw new RuntimeException(sprintf('Could not read directory: %s', $path));
         }
 
         foreach ($entries as $entry) {
@@ -131,6 +143,8 @@ final class FixtureDirectory
             $this->removeRecursively(sprintf('%s/%s', $path, $entry));
         }
 
-        rmdir($path);
+        if (!rmdir($path)) {
+            throw new RuntimeException(sprintf('Could not remove directory: %s', $path));
+        }
     }
 }

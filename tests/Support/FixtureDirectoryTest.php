@@ -20,6 +20,8 @@ use function is_dir;
 use function json_decode;
 use function sprintf;
 
+use const JSON_THROW_ON_ERROR;
+
 #[CoversClass(FixtureDirectory::class)]
 final class FixtureDirectoryTest extends TestCase
 {
@@ -48,7 +50,7 @@ final class FixtureDirectoryTest extends TestCase
         $written = file_get_contents(sprintf('%s/biome.json', $fixture->path()));
 
         self::assertNotFalse($written);
-        self::assertSame(['linter' => ['enabled' => true]], json_decode($written, true, flags: \JSON_THROW_ON_ERROR));
+        self::assertSame(['linter' => ['enabled' => true]], json_decode($written, true, flags: JSON_THROW_ON_ERROR));
 
         $fixture->cleanup();
     }
