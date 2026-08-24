@@ -252,6 +252,29 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportsOnce's needle requires BOTH the leading
+     * `- ` and the trailing `:` around the file prefix, not just their
+     * combination — the round-6 decoy only proves a mutation dropping BOTH
+     * halves at once is caught. A decoy sharing the prefix as a string
+     * prefix (`biome.json` inside `biome.jsonc`) kills a colon-only drop; a
+     * decoy carrying the prefix with no leading dash kills a dash-only drop.
+     * Neither half is provable by the other.
+     */
+    #[Test]
+    public function assertGateReportsOncePassesWhenTheFilePrefixNeedleShapeIsOnlyPartiallyPresentElsewhere(): void
+    {
+        $this->assertGateReportsOnce(
+            [
+                'php',
+                '-r',
+                'fwrite(STDOUT, "  - biome.json: x\n  - biome.jsonc: y\nNote: biome.json: drifted\n"); exit(1);',
+            ],
+            $this->fixture()->path(),
+            'biome.json',
+        );
+    }
+
+    /**
      * Verifies that assertGateReportsOnce fails when two lines match the same file prefix.
      */
     #[Test]
@@ -431,6 +454,48 @@ final class GateTestCaseTest extends GateTestCase
 
         $this->assertGateReportIsInert(
             ['php', '-r', 'fwrite(STDOUT, "\x0B::error::forged\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a forged `::` workflow
+     * command sits on a line AFTER the first one — every other forged-command
+     * fixture places the forgery at output offset 0, where `^` matches even
+     * without the `/m` modifier because string-start and line-start coincide
+     * there. Dropping `/m` would leave every other fixture green; only a
+     * forgery on a later line proves `^` is re-anchored per line, which is
+     * what makes this check catch a forged command anywhere in a real,
+     * multi-line report, not only as its very first bytes.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAForgedWorkflowCommandOnASubsequentLine(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: legitimate first line\n::error::forged\n"); exit(1);'],
+            $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when a forged `::` workflow
+     * command's name starts with a hyphen — the character class
+     * `[A-Za-z0-9_-]+` admits it, but every other forged-command fixture's
+     * name starts with a letter, so at least one alphanumeric character
+     * already satisfies the `+` quantifier before a hyphen is ever reached;
+     * none of them would fail if the hyphen were dropped from the class.
+     * A name that CANNOT match without the hyphen is the only fixture that
+     * proves the hyphen is actually load-bearing in the class.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnAForgedWorkflowCommandWithAHyphenLedName(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "::-mask::forged\n"); exit(1);'],
             $this->fixture()->path(),
         );
     }
