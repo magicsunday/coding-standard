@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
+use function preg_quote;
 
 /**
  * Meta-tests proving GateTestCase's own five decisions are wired correctly —
@@ -613,6 +614,91 @@ final class GateTestCaseTest extends GateTestCase
         $this->assertGateAccepts(
             ['php', $repoRoot . '/bin/check-consumer-config.php'],
             $this->fixture()->path(),
+        );
+    }
+
+    /**
+     * Verifies that fixture() caches its FixtureDirectory across calls within
+     * one test rather than creating a fresh one every time — the contract
+     * this class's own docblock documents for the private ??= assignment.
+     */
+    #[Test]
+    public function fixtureIsCachedAcrossCallsWithinTheSameTest(): void
+    {
+        self::assertSame($this->fixture()->path(), $this->fixture()->path());
+    }
+
+    /**
+     * Verifies that a custom $message overrides the generated default when
+     * assertGateAccepts fails because the process ran degraded — the shared
+     * ternary in runAndAssertVerdict() that every assertGate* decision relies on.
+     */
+    #[Test]
+    public function assertGateAcceptsFailsWhenDegradedWithACustomMessage(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom degraded message', '/') . '/');
+
+        $this->assertGateAccepts(
+            ['php', '-r', 'fwrite(STDERR, "PHP Warning:  x"); exit(0);'],
+            $this->fixture()->path(),
+            'a custom degraded message',
+        );
+    }
+
+    /**
+     * Verifies that a custom $message overrides the generated default when
+     * assertGateAccepts fails on the wrong exit code — the shared ternary in
+     * runAndAssertVerdict() that every assertGate* decision relies on.
+     */
+    #[Test]
+    public function assertGateAcceptsFailsOnNonZeroExitWithACustomMessage(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom exit-code message', '/') . '/');
+
+        $this->assertGateAccepts(
+            ['php', '-r', 'exit(1);'],
+            $this->fixture()->path(),
+            'a custom exit-code message',
+        );
+    }
+
+    /**
+     * Verifies that a custom $message overrides the generated default when
+     * assertGateRejects fails on the wrong reason — the shared ternary in
+     * assertReportCarries() that every must-carry decision relies on.
+     */
+    #[Test]
+    public function assertGateRejectsFailsOnTheWrongReasonWithACustomMessage(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom must-carry message', '/') . '/');
+
+        $this->assertGateRejects(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: a drift verdict\n"); exit(1);'],
+            $this->fixture()->path(),
+            'a substring the report never prints',
+            'a custom must-carry message',
+        );
+    }
+
+    /**
+     * Verifies that a custom $message overrides the generated default when
+     * assertGateReportsOnce fails on the wrong match count — its own inline
+     * ternary, not shared with any other decision.
+     */
+    #[Test]
+    public function assertGateReportsOnceFailsOnZeroMatchingLinesWithACustomMessage(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('a custom reports-once message', '/') . '/');
+
+        $this->assertGateReportsOnce(
+            ['php', '-r', 'fwrite(STDOUT, "  - y: unrelated\n"); exit(1);'],
+            $this->fixture()->path(),
+            'x',
+            'a custom reports-once message',
         );
     }
 }

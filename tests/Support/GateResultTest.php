@@ -20,10 +20,13 @@ use PHPUnit\Framework\TestCase;
  * Tests for GateResult::isDegraded(). The PHP-diagnostic fixtures in
  * degradedOutputProvider() are ported verbatim from tests/harness.sh's
  * degraded() self-probe loops (lines 135-173). The Node-related fixtures are
- * NOT a literal port: tests/harness.sh probes those two arms with the real,
- * dynamic output of `node -e 'throw ...'`, which is non-deterministic across
- * Node versions, so this suite instead hand-authors static fixtures that
- * target the same regex arms.
+ * NOT a literal port: tests/harness.sh probes two of this regex's arms
+ * (`^[[:space:]]+at ` and `^\[eval\]:[0-9]`) with the real, dynamic output of
+ * `node -e 'throw ...'`, which is non-deterministic across Node versions, so
+ * this suite instead hand-authors static fixtures targeting those two arms,
+ * plus one more covering the shared "Uncaught" alternative that a real Node
+ * crash never exercises (verified: neither dynamic probe's output starts
+ * with "Uncaught").
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -35,7 +38,8 @@ final class GateResultTest extends TestCase
     /**
      * A real diagnostic each row must trip: verbatim ports of tests/harness.sh's
      * degraded() PHP-diagnostic literals, plus hand-authored Node-diagnostic
-     * fixtures targeting the same regex arms as its two dynamic `node -e` probes.
+     * fixtures — two targeting the regex arms its dynamic `node -e` probes
+     * actually trip, one covering the shared "Uncaught" alternative they don't.
      *
      * @return array<string, array{0: string}>
      */
