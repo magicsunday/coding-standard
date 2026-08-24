@@ -40,30 +40,17 @@ final readonly class GateResult
      * warning, notice, parse error or fatal, or a Node stack frame / eval-mode
      * marker. Such a run produced no verdict, whatever it exited with, so no
      * caller may read it as one — ported from tests/harness.sh's degraded().
-     * Neither this method's `[[:space:]]` nor the bash original's recognises a
-     * stack frame led by NBSP under any locale — that gap is genuine and
-     * shared, not something this port introduced. The U+2000/U+3000 block is
-     * different: PCRE's `[[:space:]]` never matches it for a pattern with no
-     * `u` modifier — which is what the regex below is — regardless of locale
-     * or environment; that half is stable and is what actually governs this
-     * port's behaviour. (Adding `u` would bring PCRE's Unicode-property-aware
-     * POSIX classes into play and flip this — not this pattern's situation,
-     * but don't generalise the claim past it: `preg_match('/^[[:space:]]+at
-     * /u', "\xe2\x80\x80at x")` matches where the same pattern without `u`
-     * does not.) Whether the bash original's grep also
-     * matches it is a separate question this docblock does NOT answer: three
-     * independent attempts to pin a single verified verdict for "the CI
-     * runner" or "the buildbox" each measured a different result (grep
-     * implementation, build, ambient vs. explicit locale, and how the
-     * buildbox is invoked — its own entrypoint vs. bypassing it — all move
-     * the answer). Re-derive for your own actual invocation before relying
-     * on any claim here, including this one:
+     * This method's regex carries no `u` modifier, so its `[[:space:]]` is
+     * ASCII-only — it does not recognise a stack frame led by non-ASCII
+     * whitespace (NBSP, the U+2000 block, U+3000). Whether the bash
+     * original's `grep` recognises those bytes depends on the invocation's
+     * locale and implementation and is not settled here; tests/harness.sh
+     * (~lines 479-495) documents this as a known, deliberately-left-open gap
+     * in its analogous `::` workflow-command check, including why closing it
+     * isn't simple. Re-derive for your own actual invocation rather than
+     * trust a specific verdict:
      *
      *     printf '\xe2\x80\x80at x\n' | grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
-     *
-     * See tests/harness.sh (~lines 479-495) for the bash side's own fuller
-     * discussion of the analogous, deliberately-left-open gap in its `::`
-     * workflow-command check.
      *
      * @return bool
      */

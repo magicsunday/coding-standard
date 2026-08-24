@@ -206,14 +206,11 @@ abstract class GateTestCase extends TestCase
 
         self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
 
-        // A lead byte outside ASCII whitespace is not admitted by PCRE's
-        // `[[:space:]]`, so such a payload would still reach the runner past
-        // this check. For NBSP that gap is genuine and shared with the bash
-        // original under any locale (tests/harness.sh, lines ~479-495, left
-        // open on purpose there too). The U+2000 block and U+3000 are
-        // locale-dependent, not shared unconditionally — see
-        // GateResult::isDegraded()'s docblock for the measured detail and
-        // the re-derivation command.
+        // This regex carries no `u` modifier, so a lead byte outside ASCII
+        // whitespace is not admitted here either — the same known,
+        // deliberately-left-open gap tests/harness.sh documents for its
+        // analogous `::` check (lines ~479-495). See GateResult::isDegraded()'s
+        // docblock for the re-derivation command.
         self::assertDoesNotMatchRegularExpression(
             '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
             $result->output,
