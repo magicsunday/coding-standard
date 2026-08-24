@@ -106,12 +106,20 @@ harness_workdir() {
 
 # degraded <output>
 #
-# True when the interpreter emitted a diagnostic of its own — a warning, a
-# notice, a parse error or a fatal. Such a run produced no verdict, whatever it
-# exited with, so no assertion may read it as one: a crash that prints the
-# asserted substring on its way down would otherwise report `ok`.
+# True when the interpreter emitted a diagnostic of its own — a PHP warning,
+# notice, parse error or fatal, or a Node stack frame / bare-value crash
+# preamble. Such a run produced no verdict, whatever it exited with, so no
+# assertion may read it as one: a crash that prints the asserted substring on
+# its way down would otherwise report `ok` — and it is not only a
+# hypothetical for the PHP side: this function now also gates
+# harness_run_argv's node-gate callers (assert_*_js, added for #32), where an
+# uncaught Node exception exits 1, the SAME code this program's own reject
+# path uses, so the exit code cannot tell the two apart either. The Node half
+# of the pattern mirrors tests/check-js-configs.sh's own manifest_crashed —
+# copied rather than shared, because that function lives in a file this one
+# cannot source (a differential-fixture script, not a library).
 degraded() {
-    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)' <<<"$1"
+    grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)|^[[:space:]]+at |^\[eval\]:[0-9]' <<<"$1"
 }
 
 # Both directions, by construction, because nothing else exercises this. No fixture
@@ -131,7 +139,9 @@ for harness_degraded_probe in \
     'Warning: Undefined array key 0 in /x on line 1' \
     'Notice: Only variables should be passed by reference in /x on line 1' \
     'Deprecated: Implicit conversion in /x on line 1' \
-    'Uncaught TypeError: f(): Argument #1 must be of type string'
+    'Uncaught TypeError: f(): Argument #1 must be of type string' \
+    "$(node -e 'throw new Error("boom")' 2>&1)" \
+    "$(node -e 'throw "a bare string"' 2>&1)"
 do
     if ! degraded "$harness_degraded_probe"; then
         printf 'FAILED  harness bookkeeping: degraded() does not recognise `%s`\n' "$harness_degraded_probe" >&2
@@ -139,12 +149,19 @@ do
     fi
 done
 
-# One negative, and it is the one the ANCHOR decides: the keyword sits mid-line, so
-# only `^` keeps it out. Three ordinary report lines stood here before and were
-# measured to discriminate nothing — under the one structural mutation of this
-# pattern, dropping the anchor, all three stay a miss.
+# One negative per alternative this pattern now carries, and each is the one its
+# own anchor decides: the keyword sits mid-line, so only `^` keeps it out. Three
+# ordinary PHP report lines stood here before and were measured to discriminate
+# nothing — under the one structural mutation of the PHP half, dropping the
+# anchor, all three stay a miss. The two node-shaped lines are the same
+# discriminating pair tests/check-js-configs.sh's manifest_crashed is itself
+# proven against — a real gate report line can legitimately quote "at" or an
+# `[eval]:N`-looking fragment inside a value it is reporting on.
 for harness_degraded_probe in \
-    '  - phpunit.xml: Warning is not a strict flag'
+    '  - phpunit.xml: Warning is not a strict flag' \
+    'a peerDependencies entry has no devDependencies pin proving it' \
+    'INFO     peer: "   at the start"' \
+    'INFO     peer: "[eval]:1"'
 do
     if degraded "$harness_degraded_probe"; then
         printf 'FAILED  harness bookkeeping: degraded() misreads `%s` as a diagnostic\n' "$harness_degraded_probe" >&2
