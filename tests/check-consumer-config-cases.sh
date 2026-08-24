@@ -1924,6 +1924,27 @@ printf '\xEF\xBB\xBF' > "$d/tsconfig.json"
 cat "$FIXTURE/tsconfig.json" >> "$d/tsconfig.json"
 assert_accepts_js "$d" "tsconfig.json saved with a UTF-8 BOM"
 
+# The reject twin: a SECOND BOM, left over once the strip above already
+# consumed the first. json_decode() sees that leftover BOM as unparseable
+# JSON syntax and rejects it ("Syntax error", verified against the buildbox)
+# — while TextDecoder's default (ignoreBOM: false — the option name reads
+# backwards; false is the one that silently CONSUMES a leading BOM from its
+# decoded result) would strip the second BOM too, leaving JSON.parse()
+# nothing left to reject. Node-only: PHP's own $stripBom only ever strips
+# once, so it already rejects this without any change on that side.
+d="$(mk_js_case ts-double-bom)"
+printf '\xEF\xBB\xBF\xEF\xBB\xBF' > "$d/tsconfig.json"
+cat "$FIXTURE/tsconfig.json" >> "$d/tsconfig.json"
+assert_rejects_js "$d" "tsconfig.json with a second, leftover BOM once the first is stripped" "tsconfig.json: not valid JSON(C)"
+
+# package.json shares decodeJsonLikePhp with biome.json/tsconfig.json (see
+# that function's docblock), so the same leftover-BOM parity gap applies to
+# the npm probe's own read.
+d="$(mk_case js-package-json-double-bom)"
+printf '\xEF\xBB\xBF\xEF\xBB\xBF{\n    "name": "consumer",\n    "devDependencies": { "@magicsunday/coding-standard": "^3.0.0" }\n}\n' > "$d/package.json"
+printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
+assert_rejects_js "$d" "a package.json with a second, leftover BOM once the first is stripped is reported" "package.json: is not valid JSON"
+
 # The probe that decides whether any of this runs must not fail open: an
 # unreadable package.json would otherwise switch the entire JS/TS contract off
 # while the gate still printed OK.

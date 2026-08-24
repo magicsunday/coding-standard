@@ -178,13 +178,23 @@ function readBoundedBytes(path, maxBytes) {
  * rejects, on the same byte-identical file. `TextDecoder` with `fatal: true`
  * is the one Node primitive that fails the way `json_decode` does.
  *
+ * `ignoreBOM: true` too, for the same reason: every caller of this function
+ * already ran stripBomBytes() first, so a leading BOM reaching here is a
+ * SECOND one PHP's own $stripBom only strips once — json_decode() then sees
+ * that leftover BOM as un-parseable JSON syntax and rejects it ("Syntax
+ * error", verified against the buildbox). TextDecoder's default
+ * (ignoreBOM: false — the option NAME is misleading, false is the one that
+ * silently CONSUMES a leading BOM from the decoded result) would instead
+ * strip that second BOM too, leaving JSON.parse() nothing to reject —
+ * silently ACCEPTING a double-BOM'd config the PHP gate rejects.
+ *
  * @param {Buffer} buffer
  *
  * @returns {string|null} The decoded text, or null on invalid UTF-8.
  */
 function decodeUtf8Strict(buffer) {
     try {
-        return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
     } catch {
         return null;
     }
