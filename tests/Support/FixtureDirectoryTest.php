@@ -14,6 +14,7 @@ namespace MagicSunday\CodingStandard\Test\Support;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 use function bin2hex;
 use function file_exists;
@@ -22,6 +23,7 @@ use function file_put_contents;
 use function is_dir;
 use function json_decode;
 use function mkdir;
+use function preg_quote;
 use function random_bytes;
 use function rmdir;
 use function sprintf;
@@ -42,16 +44,29 @@ use const JSON_THROW_ON_ERROR;
 final class FixtureDirectoryTest extends TestCase
 {
     /**
+     * The fixture under test, cleaned up in tearDown() so a failed assertion
+     * never leaks a throwaway directory into the system temp dir. cleanup()
+     * tolerates being called again after a test's own explicit call, the
+     * same idempotence cleanupIsIdempotentWhenCalledTwice() below pins.
+     */
+    private ?FixtureDirectory $fixture = null;
+
+    protected function tearDown(): void
+    {
+        $this->fixture?->cleanup();
+
+        parent::tearDown();
+    }
+
+    /**
      * Verifies that the fixture path is a real, existing directory.
      */
     #[Test]
     public function pathIsARealExistingDirectory(): void
     {
-        $fixture = new FixtureDirectory();
+        $this->fixture = new FixtureDirectory();
 
-        self::assertTrue(is_dir($fixture->path()));
-
-        $fixture->cleanup();
+        self::assertTrue(is_dir($this->fixture->path()));
     }
 
     /**
@@ -60,15 +75,13 @@ final class FixtureDirectoryTest extends TestCase
     #[Test]
     public function writeJsonWritesValidJsonAtTheGivenRelativePath(): void
     {
-        $fixture = new FixtureDirectory();
-        $fixture->writeJson('biome.json', ['linter' => ['enabled' => true]]);
+        $this->fixture = new FixtureDirectory();
+        $this->fixture->writeJson('biome.json', ['linter' => ['enabled' => true]]);
 
-        $written = file_get_contents(sprintf('%s/biome.json', $fixture->path()));
+        $written = file_get_contents(sprintf('%s/biome.json', $this->fixture->path()));
 
         self::assertNotFalse($written);
         self::assertSame(['linter' => ['enabled' => true]], json_decode($written, true, flags: JSON_THROW_ON_ERROR));
-
-        $fixture->cleanup();
     }
 
     /**
@@ -77,12 +90,10 @@ final class FixtureDirectoryTest extends TestCase
     #[Test]
     public function writeJsonCreatesIntermediateDirectories(): void
     {
-        $fixture = new FixtureDirectory();
-        $fixture->writeJson('nested/dir/tsconfig.json', ['compilerOptions' => []]);
+        $this->fixture = new FixtureDirectory();
+        $this->fixture->writeJson('nested/dir/tsconfig.json', ['compilerOptions' => []]);
 
-        self::assertFileExists(sprintf('%s/nested/dir/tsconfig.json', $fixture->path()));
-
-        $fixture->cleanup();
+        self::assertFileExists(sprintf('%s/nested/dir/tsconfig.json', $this->fixture->path()));
     }
 
     /**
@@ -91,9 +102,9 @@ final class FixtureDirectoryTest extends TestCase
     #[Test]
     public function cleanupRemovesTheDirectory(): void
     {
-        $fixture = new FixtureDirectory();
-        $path    = $fixture->path();
-        $fixture->cleanup();
+        $this->fixture = new FixtureDirectory();
+        $path          = $this->fixture->path();
+        $this->fixture->cleanup();
 
         self::assertFalse(is_dir($path));
     }
@@ -106,12 +117,32 @@ final class FixtureDirectoryTest extends TestCase
     #[Test]
     public function cleanupIsIdempotentWhenCalledTwice(): void
     {
-        $fixture = new FixtureDirectory();
-        $fixture->cleanup();
+        $this->fixture = new FixtureDirectory();
+        $this->fixture->cleanup();
 
-        $fixture->cleanup();
+        $this->fixture->cleanup();
 
-        self::assertFalse(is_dir($fixture->path()));
+        self::assertFalse(is_dir($this->fixture->path()));
+    }
+
+    /**
+     * Verifies that writeJson throws when the target path cannot be written.
+     * A directory sitting at the target path makes file_put_contents() return
+     * false, exercising the same throw the truncated-write guard also covers
+     * — no test previously drove either arm of that comparison to true.
+     */
+    #[Test]
+    public function writeJsonThrowsWhenTheTargetPathCannotBeWritten(): void
+    {
+        $this->fixture = new FixtureDirectory();
+        mkdir(sprintf('%s/blocked.json', $this->fixture->path()), 0o700);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches(
+            sprintf('/^%s/', preg_quote('Could not write fixture file: ', '/'))
+        );
+
+        $this->fixture->writeJson('blocked.json', ['key' => 'value']);
     }
 
     /**
