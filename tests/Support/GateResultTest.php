@@ -19,7 +19,10 @@ use PHPUnit\Framework\TestCase;
 /**
  * Tests for GateResult::isDegraded(). The PHP-diagnostic fixtures in
  * degradedOutputProvider() are ported verbatim from tests/harness.sh's
- * degraded() self-probe loops (lines 135-173). The Node-related fixtures are
+ * degraded() self-probe loops (lines ~135-173 — that file is what this whole
+ * migration is moving suites off of, so re-derive with
+ * `grep -n "^for harness_degraded_probe\|^done$" tests/harness.sh` rather
+ * than trusting the range once it shifts). The Node-related fixtures are
  * NOT a literal port: tests/harness.sh probes two of this regex's arms
  * (`^[[:space:]]+at ` and `^\[eval\]:[0-9]`) with the real, dynamic output of
  * `node -e 'throw ...'`, which is non-deterministic across Node versions, so

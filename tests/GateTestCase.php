@@ -133,7 +133,7 @@ abstract class GateTestCase extends TestCase
         string $expectedSubstring,
         string $message = '',
     ): void {
-        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
+        $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
         $this->assertReportCarries(
             $result,
@@ -202,7 +202,7 @@ abstract class GateTestCase extends TestCase
         ?string $expectedScrubbedSubstring = null,
         string $message = '',
     ): void {
-        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
+        $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
         self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
 
@@ -255,7 +255,7 @@ abstract class GateTestCase extends TestCase
         string $filePrefix,
         string $message = '',
     ): void {
-        $result = $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
+        $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
         $needle = "- {$filePrefix}:";
         // grep -cF counts MATCHING LINES, not raw substring occurrences.
@@ -307,6 +307,28 @@ abstract class GateTestCase extends TestCase
         );
 
         return $result;
+    }
+
+    /**
+     * The drift-verdict shape shared by assertGateRejects(),
+     * assertGateReportIsInert() and assertGateReportsOnce(): exit 1, not
+     * degraded. Names the (1, 'the drift verdict') pair once instead of
+     * repeating it at all three call sites.
+     *
+     * @param list<string> $command    The interpreter and gate script.
+     * @param string       $fixtureDir The directory to run the gate against.
+     * @param string       $message    An optional assertion message.
+     *
+     * @return GateResult The captured run, for the caller's remaining checks.
+     *
+     * @throws AssertionFailedError        If the gate ran degraded or did not exit 1.
+     * @throws ProcessStartFailedException If the gate process could not be started.
+     * @throws ProcessTimedOutException    If the gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If the gate process was killed by a signal.
+     */
+    private function runAndAssertDriftVerdict(array $command, string $fixtureDir, string $message): GateResult
+    {
+        return $this->runAndAssertVerdict($command, $fixtureDir, 1, 'the drift verdict', $message);
     }
 
     /**
