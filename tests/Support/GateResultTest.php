@@ -65,6 +65,14 @@ final class GateResultTest extends TestCase
             // above — a narrowing of that arm back to `[ \t]` fails this row.
             'Node stack frame led by a vertical tab' => ["\x0Bat Object.<anonymous> (/x.js:1:1)"],
             'Node eval-mode marker'       => ['[eval]:1'],
+            // Every row above places its diagnostic at byte offset 0, so none
+            // of them proves the regex's /m modifier is load-bearing — a
+            // combined stdout+stderr capture can carry ordinary output
+            // before the diagnostic, and only isDegraded()'s own /m
+            // modifier re-anchors `^` there instead of at string-start.
+            // Dropping /m would leave every other row in this provider
+            // green; only a diagnostic on a later line proves it.
+            'stack frame on a line after other output' => ["some normal output\n    at Object.<anonymous> (/x.js:1:1)"],
         ];
     }
 
