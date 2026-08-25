@@ -249,6 +249,9 @@ final readonly class FixtureDirectory
             return;
         }
 
+        // Untested, like guard()'s own call sites: forcing scandir() to fail
+        // needs a real permission failure, which a root-run CI container
+        // bypasses the same way.
         $entries = scandir($path);
 
         if ($entries === false) {
