@@ -60,11 +60,9 @@ jobs:
                   # $collectCodeCoverage; that class carries no BC promise, so
                   # re-verify at .build/vendor/phpunit/phpunit/src/Framework/
                   # TestRunner/TestRunner.php before relying on this again.
-                  # This is what caught every test going risky when
-                  # phpunit.xml.dist's <source> block first swept the
-                  # *Test.php files themselves into the instrumented set;
-                  # without a driver on at least one leg, a regression of that
-                  # class would stay green here undetected.
+                  # Without a driver on at least one leg, a regression that
+                  # sweeps test files themselves into the instrumented
+                  # <source> set would stay green here undetected.
                   # requireCoverageMetadata ("does not define a coverage
                   # target") is unconditional and already enforced on every
                   # leg regardless of this setting. Leaving the input unset
