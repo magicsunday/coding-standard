@@ -69,7 +69,13 @@ final readonly class FixtureDirectory
     {
         $path = sprintf('%s/gate-fixture-%s', sys_get_temp_dir(), bin2hex(random_bytes(16)));
 
-        self::guard(mkdir($path, 0o700), 'create fixture directory', $path);
+        // Scoped, not @-suppressed: an unwritable temp root raises the same
+        // kind of native warning writeJson()'s calls are scoped against.
+        self::guard(
+            ok: self::withoutWarnings(static fn (): bool => mkdir($path, 0o700)),
+            verb: 'create fixture directory',
+            path: $path,
+        );
 
         $this->path = $path;
     }
@@ -146,7 +152,19 @@ final readonly class FixtureDirectory
      * Throws a RuntimeException naming $verb and $path when $ok is false.
      * Shared by every filesystem call in this class whose only failure
      * signal is a false return, so the same "could not X: path" shape is
-     * written once instead of at each call site.
+     * written once instead of at each call site. Every call site passes
+     * $verb and $path as named arguments specifically so a future
+     * transposition of the two (both are plain strings, so nothing in the
+     * type system would catch it) reads as an obvious mismatch — a literal
+     * string bound to `path:`, or a variable bound to `verb:` — rather than
+     * silently type-checking.
+     *
+     * None of this method's four current call sites are under test: this
+     * constructor's mkdir(), and removeRecursively()'s two unlink() arms
+     * plus its rmdir(). Forcing any of them needs a genuine permission
+     * failure, which a root-run CI container bypasses — the same accepted
+     * gap writeJsonThrowsWhenTheTargetPathCannotBeWritten()'s docblock
+     * documents for writeJson()'s sibling short-write arm.
      *
      * @param bool   $ok   The filesystem call's own success/failure return value.
      * @param string $verb Describes the attempted operation, e.g. "remove symlink".
@@ -192,7 +210,11 @@ final readonly class FixtureDirectory
     private function removeRecursively(string $path): void
     {
         if (is_link($path)) {
-            self::guard(unlink($path), 'remove symlink', $path);
+            self::guard(
+                ok: self::withoutWarnings(static fn (): bool => unlink($path)),
+                verb: 'remove symlink',
+                path: $path,
+            );
 
             return;
         }
@@ -202,7 +224,11 @@ final readonly class FixtureDirectory
                 return;
             }
 
-            self::guard(unlink($path), 'remove file', $path);
+            self::guard(
+                ok: self::withoutWarnings(static fn (): bool => unlink($path)),
+                verb: 'remove file',
+                path: $path,
+            );
 
             return;
         }
@@ -221,6 +247,10 @@ final readonly class FixtureDirectory
             $this->removeRecursively(sprintf('%s/%s', $path, $entry));
         }
 
-        self::guard(rmdir($path), 'remove directory', $path);
+        self::guard(
+            ok: self::withoutWarnings(static fn (): bool => rmdir($path)),
+            verb: 'remove directory',
+            path: $path,
+        );
     }
 }
