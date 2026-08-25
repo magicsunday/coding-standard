@@ -134,6 +134,25 @@ final class FixtureDirectoryTest extends TestCase
     }
 
     /**
+     * Verifies that cleanup recursively removes a real file nested inside an
+     * intermediate directory — removeRecursively()'s plain-file arm, which
+     * cleanupRemovesTheDirectory() above never exercises (that fixture is
+     * always empty, so removal there never leaves scandir()'s recursion).
+     */
+    #[Test]
+    public function cleanupRemovesNestedFilesAndDirectories(): void
+    {
+        $this->fixture = new FixtureDirectory();
+        $this->fixture->writeJson('nested/dir/tsconfig.json', ['compilerOptions' => []]);
+
+        $path = sprintf('%s/nested/dir/tsconfig.json', $this->fixture->path());
+
+        $this->fixture->cleanup();
+
+        self::assertFileDoesNotExist($path);
+    }
+
+    /**
      * Verifies that writeJson throws when the target path cannot be written.
      * A directory sitting at the target path makes file_put_contents() return
      * false, driving the guard's outright-failure arm to true. The sibling

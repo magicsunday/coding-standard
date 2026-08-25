@@ -160,11 +160,13 @@ final readonly class FixtureDirectory
      * silently type-checking.
      *
      * None of this method's call sites are under test — re-derive the
-     * current set with `grep -n 'self::guard(' tests/Support/FixtureDirectory.php`
-     * rather than trusting a count here. Forcing any of them needs a
-     * genuine permission failure, which a root-run CI container bypasses —
-     * the same accepted gap writeJsonThrowsWhenTheTargetPathCannotBeWritten()'s
-     * docblock documents for writeJson()'s sibling short-write arm.
+     * current set with `grep -n 'self::guard($' tests/Support/FixtureDirectory.php`
+     * (anchored to end-of-line so it matches only real calls, not this
+     * sentence) rather than trusting a count here. Forcing any of them
+     * needs a genuine permission failure, which a root-run CI container
+     * bypasses — the same accepted gap
+     * writeJsonThrowsWhenTheTargetPathCannotBeWritten()'s docblock
+     * documents for writeJson()'s sibling short-write arm.
      *
      * @param bool   $ok   The filesystem call's own success/failure return value.
      * @param string $verb Describes the attempted operation, e.g. "remove symlink".
