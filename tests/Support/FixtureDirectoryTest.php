@@ -170,10 +170,7 @@ final class FixtureDirectoryTest extends TestCase
         $this->fixture = new FixtureDirectory();
         mkdir(sprintf('%s/blocked.json', $this->fixture->path()), 0o700);
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches(
-            sprintf('/^%s/', preg_quote('Could not write fixture file: ', '/'))
-        );
+        $this->expectRuntimeExceptionMessageStartingWith('Could not write fixture file: ');
 
         $this->fixture->writeJson('blocked.json', ['key' => 'value']);
     }
@@ -191,12 +188,26 @@ final class FixtureDirectoryTest extends TestCase
         $this->fixture = new FixtureDirectory();
         file_put_contents(sprintf('%s/blocked', $this->fixture->path()), 'not a directory');
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches(
-            sprintf('/^%s/', preg_quote('Could not create directory: ', '/'))
-        );
+        $this->expectRuntimeExceptionMessageStartingWith('Could not create directory: ');
 
         $this->fixture->writeJson('blocked/sub.json', ['key' => 'value']);
+    }
+
+    /**
+     * Asserts a RuntimeException whose message starts with $prefix. Shared
+     * by writeJsonThrowsWhenTheTargetPathCannotBeWritten() and
+     * writeJsonThrowsWhenAnIntermediateDirectoryCannotBeCreated(), which
+     * differ only in the expected prefix, mirroring the analogous
+     * expectAssertionFailedWithMessage() helper in GateTestCaseTest.
+     *
+     * @param string $prefix The expected message's literal prefix.
+     *
+     * @return void
+     */
+    private function expectRuntimeExceptionMessageStartingWith(string $prefix): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches(sprintf('/^%s/', preg_quote($prefix, '/')));
     }
 
     /**

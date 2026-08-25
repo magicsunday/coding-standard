@@ -184,6 +184,28 @@ final readonly class FixtureDirectory
     }
 
     /**
+     * Removes $path via unlink(), scoped against its native warning and
+     * guarded the same way every other filesystem call in this class is.
+     * Shared by removeRecursively()'s symlink and plain-file arms, which
+     * differ only in $verb.
+     *
+     * @param string $path The path to unlink.
+     * @param string $verb Describes the attempted operation, e.g. "remove symlink".
+     *
+     * @return void
+     *
+     * @throws RuntimeException If unlink() fails.
+     */
+    private static function unlinkGuarded(string $path, string $verb): void
+    {
+        self::guard(
+            ok: self::withoutWarnings(static fn (): bool => unlink($path)),
+            verb: $verb,
+            path: $path,
+        );
+    }
+
+    /**
      * Removes this fixture directory and everything under it. A no-op when
      * the directory no longer exists (idempotent, so a test may call this
      * itself and still let tearDown() call it again without failing).
@@ -212,11 +234,7 @@ final readonly class FixtureDirectory
     private function removeRecursively(string $path): void
     {
         if (is_link($path)) {
-            self::guard(
-                ok: self::withoutWarnings(static fn (): bool => unlink($path)),
-                verb: 'remove symlink',
-                path: $path,
-            );
+            self::unlinkGuarded($path, 'remove symlink');
 
             return;
         }
@@ -226,11 +244,7 @@ final readonly class FixtureDirectory
                 return;
             }
 
-            self::guard(
-                ok: self::withoutWarnings(static fn (): bool => unlink($path)),
-                verb: 'remove file',
-                path: $path,
-            );
+            self::unlinkGuarded($path, 'remove file');
 
             return;
         }
