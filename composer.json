@@ -34,12 +34,20 @@
         "phpunit/phpunit": "^12.0 || ^13.0",
         "rector/rector": "^2.4"
     },
+    "require-dev": {
+        "symfony/process": "^7.2 || ^8.0"
+    },
     "suggest": {
         "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.0",
         "spaze/phpstan-disallowed-calls": "Required for the case-folding bans in phpstan/disallowed-calls.neon, included by the strict tier: ^4.13",
         "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
         "roave/backward-compatibility-check": "Public-API break detection for a library consumer: ^8.21. Install it via its OWN tools/backward-compatibility/composer.json, never into the root manifest — it requires php ~8.4.0 || ~8.5.0 and would make the root lock uninstallable on an 8.3 matrix leg (see the README)"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MagicSunday\\CodingStandard\\Test\\": "tests/"
+        }
     },
     "bin": [
         "bin/check-consumer-config.php",
@@ -67,7 +75,8 @@
         ],
         "ci:test:disallowed-calls": [
             "bash tests/check-disallowed-calls-cases.sh"
-        ]
+        ],
+        "ci:test:phpunit": "phpunit"
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
@@ -76,6 +85,7 @@
         "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
-        "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed."
+        "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed.",
+        "ci:test:phpunit": "Runs this repository's own PHPUnit suite (tests/Support and GateTestCase's meta-tests) — not the fixture-driven bash suites, which have their own ci:test:* scripts."
     }
 }
