@@ -25,15 +25,12 @@ use function json_decode;
 use function mkdir;
 use function preg_quote;
 use function random_bytes;
-use function restore_error_handler;
 use function rmdir;
-use function set_error_handler;
 use function sprintf;
 use function symlink;
 use function sys_get_temp_dir;
 use function unlink;
 
-use const E_WARNING;
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -234,14 +231,11 @@ final class FixtureDirectoryTest extends TestCase
             // Scoped, not @-suppressed: a failed symlink() raises a native
             // PHP warning that PHPUnit's zero-tolerance policy would turn
             // into a risky test before the check below ever gets to route
-            // it to markTestSkipped() instead.
-            set_error_handler(static fn (): bool => true, E_WARNING);
-
-            try {
-                $linked = symlink($externalDir, sprintf('%s/link', $this->fixture->path()));
-            } finally {
-                restore_error_handler();
-            }
+            // it to markTestSkipped() instead. Reuses FixtureDirectory's own
+            // suppress/restore helper instead of duplicating it here.
+            $linked = FixtureDirectory::withoutWarnings(
+                fn (): bool => symlink($externalDir, sprintf('%s/link', $this->fixture->path())),
+            );
 
             if (!$linked) {
                 self::markTestSkipped('This platform could not create a symlink.');

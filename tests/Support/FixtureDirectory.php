@@ -131,13 +131,16 @@ final readonly class FixtureDirectory
 
     /**
      * Runs $fn with PHP's native E_WARNING reporting suppressed, restoring
-     * the previous handler even if $fn throws.
+     * the previous handler even if $fn throws. Public because
+     * FixtureDirectoryTest reuses it to scope its own symlink() probe
+     * against the same native warning, instead of duplicating the
+     * suppress/restore pair.
      *
      * @param callable(): (int|bool) $fn The callable to run with warnings suppressed.
      *
      * @return int|bool The callable's return value.
      */
-    private static function withoutWarnings(callable $fn): int|bool
+    public static function withoutWarnings(callable $fn): int|bool
     {
         set_error_handler(static fn (): bool => true, E_WARNING);
 
