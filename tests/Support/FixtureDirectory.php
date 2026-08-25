@@ -25,6 +25,7 @@ use function random_bytes;
 use function rmdir;
 use function scandir;
 use function sprintf;
+use function strlen;
 use function sys_get_temp_dir;
 use function unlink;
 
@@ -100,7 +101,9 @@ final readonly class FixtureDirectory
             throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
         }
 
-        if (file_put_contents($target, json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) === false) {
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+
+        if (file_put_contents($target, $json) !== strlen($json)) {
             throw new RuntimeException(sprintf('Could not write fixture file: %s', $target));
         }
     }

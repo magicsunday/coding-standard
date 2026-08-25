@@ -83,18 +83,13 @@ final class GateProcessTest extends TestCase
         // produces "ABC" only if the streaming callback is genuinely used.
         // Both writes are on the SAME call, which is what makes a REGRESSION
         // to that naive concatenation reliably caught — not a claim that this
-        // test itself can never flake: like GateProcess's own docblock says,
+        // test itself can never flake: see GateProcess's own docblock for why
         // the ordering guarantee is best-effort, not absolute. The usleep()
-        // gaps are load-bearing, not decorative:
-        // Symfony's UnixPipes::readAndWrite() always drains the stdout pipe
-        // before the stderr pipe within one stream_select() cycle, so a
-        // burst of writes that all land before the first poll (verified in
-        // this repo's buildbox: a zero-delay version of this script reordered
-        // to "ACB" in the majority of 20 trials) is read back stdout-first
-        // regardless of true write order. A small delay between writes moves
-        // each one into its own poll cycle, which is what actually exercises
-        // the streaming callback's ordering rather than the reader's fixed
-        // pipe-check order.
+        // gaps are load-bearing, not decorative: they move each write into
+        // its own poll cycle, which is what actually exercises the streaming
+        // callback's ordering rather than the reader's fixed pipe-check order
+        // (verified in this repo's buildbox: a zero-delay version of this
+        // script reordered to "ACB" in the majority of 20 trials).
         $script = 'fwrite(STDOUT, "A"); usleep(5000); fwrite(STDERR, "B"); usleep(5000); fwrite(STDOUT, "C");';
         $result = $process->run(['php', '-r', $script], sys_get_temp_dir());
 

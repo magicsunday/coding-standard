@@ -35,10 +35,11 @@ jobs:
                   # executed code not listed as covered/used" check only
                   # evaluates once a driver is actually collecting data
                   # (PHPUnit\Framework\TestRunner\TestRunner::run(), gated on
-                  # $collectCodeCoverage) — that's round 12's bug class (every
-                  # test went risky once, fixed in phpunit.xml.dist's <source>
-                  # block); without a driver on at least one leg, a regression
-                  # of it would stay green here undetected.
+                  # $collectCodeCoverage) — this is what caught every test
+                  # going risky when phpunit.xml.dist's <source> block first
+                  # swept the *Test.php files themselves into the instrumented
+                  # set; without a driver on at least one leg, a regression of
+                  # that class would stay green here undetected.
                   # requireCoverageMetadata ("does not define a coverage
                   # target") is unconditional and already enforced on every
                   # leg regardless of this setting. Leaving the input unset
@@ -93,9 +94,9 @@ jobs:
 
             # Only the 8.5 leg has a coverage driver (see the `coverage:` step
             # above) — --coverage-text there is what makes
-            # beStrictAboutCoverageMetadata actually evaluate (round 12's bug
-            # class), which is the enforcement this flag exists for, not a
-            # human-facing report; the other two legs run the bare command.
+            # beStrictAboutCoverageMetadata actually evaluate, which is the
+            # enforcement this flag exists for, not a human-facing report;
+            # the other two legs run the bare command.
             - name: PHPUnit
               run: composer ci:test:phpunit${{ matrix.php == '8.5' && ' -- --coverage-text' || '' }}
 
