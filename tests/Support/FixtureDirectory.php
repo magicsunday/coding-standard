@@ -100,24 +100,14 @@ final readonly class FixtureDirectory
         $target = sprintf('%s/%s', $this->path, $relativePath);
         $dir    = dirname($target);
 
-        if (!is_dir($dir)) {
-            // Scoped, not @-suppressed: a blocked intermediate segment (e.g.
-            // a plain file already occupying that path) raises a native PHP
-            // warning here that PHPUnit's zero-tolerance policy would turn
-            // into a risky test; the check below already converts the
-            // failure into this descriptive RuntimeException, so the raw
-            // warning is redundant noise, not lost information.
-            set_error_handler(static fn (): bool => true, E_WARNING);
-
-            try {
-                $created = mkdir($dir, 0o700, true);
-            } finally {
-                restore_error_handler();
-            }
-
-            if (!$created && !is_dir($dir)) {
-                throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
-            }
+        // Scoped, not @-suppressed: a blocked intermediate segment (e.g. a
+        // plain file already occupying that path) raises a native PHP
+        // warning here that PHPUnit's zero-tolerance policy would turn into
+        // a risky test; the check below already converts the failure into
+        // this descriptive RuntimeException, so the raw warning is redundant
+        // noise, not lost information.
+        if (!is_dir($dir) && !self::withoutWarnings(static fn (): bool => mkdir($dir, 0o700, true)) && !is_dir($dir)) {
+            throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
         }
 
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
@@ -126,16 +116,27 @@ final readonly class FixtureDirectory
         // existing directory, or a permission failure) raises the same kind
         // of warning; the check below already converts every failure shape
         // — false or a short write — into this descriptive RuntimeException.
+        if (self::withoutWarnings(static fn (): int|false => file_put_contents($target, $json)) !== strlen($json)) {
+            throw new RuntimeException(sprintf('Could not write fixture file: %s', $target));
+        }
+    }
+
+    /**
+     * Runs $fn with PHP's native E_WARNING reporting suppressed, restoring
+     * the previous handler even if $fn throws.
+     *
+     * @param callable(): (int|bool) $fn The callable to run with warnings suppressed.
+     *
+     * @return int|bool The callable's return value.
+     */
+    private static function withoutWarnings(callable $fn): int|bool
+    {
         set_error_handler(static fn (): bool => true, E_WARNING);
 
         try {
-            $written = file_put_contents($target, $json);
+            return $fn();
         } finally {
             restore_error_handler();
-        }
-
-        if ($written !== strlen($json)) {
-            throw new RuntimeException(sprintf('Could not write fixture file: %s', $target));
         }
     }
 
