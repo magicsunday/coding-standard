@@ -22,13 +22,16 @@ use function is_link;
 use function json_encode;
 use function mkdir;
 use function random_bytes;
+use function restore_error_handler;
 use function rmdir;
 use function scandir;
+use function set_error_handler;
 use function sprintf;
 use function strlen;
 use function sys_get_temp_dir;
 use function unlink;
 
+use const E_WARNING;
 use const JSON_PRETTY_PRINT;
 use const JSON_THROW_ON_ERROR;
 
@@ -103,13 +106,22 @@ final readonly class FixtureDirectory
 
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
 
-        // Suppressed: an unwritable target (e.g. blocked by an existing
-        // directory, or a permission failure) raises a native PHP warning
-        // here that PHPUnit's zero-tolerance policy would turn into a risky
-        // test; the very next line already converts every failure shape —
-        // false or a short write — into this descriptive RuntimeException,
-        // so the raw warning is redundant noise, not lost information.
-        if (@file_put_contents($target, $json) !== strlen($json)) {
+        // Scoped, not @-suppressed: an unwritable target (e.g. blocked by an
+        // existing directory, or a permission failure) raises a native PHP
+        // warning here that PHPUnit's zero-tolerance policy would turn into
+        // a risky test; the check below already converts every failure
+        // shape — false or a short write — into this descriptive
+        // RuntimeException, so the raw warning is redundant noise, not lost
+        // information.
+        set_error_handler(static fn (): bool => true, E_WARNING);
+
+        try {
+            $written = file_put_contents($target, $json);
+        } finally {
+            restore_error_handler();
+        }
+
+        if ($written !== strlen($json)) {
             throw new RuntimeException(sprintf('Could not write fixture file: %s', $target));
         }
     }

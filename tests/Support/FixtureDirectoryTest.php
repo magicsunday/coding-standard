@@ -51,6 +51,11 @@ final class FixtureDirectoryTest extends TestCase
      */
     private ?FixtureDirectory $fixture = null;
 
+    /**
+     * Removes this test's fixture directory, if one was created.
+     *
+     * @return void
+     */
     protected function tearDown(): void
     {
         $this->fixture?->cleanup();
@@ -128,8 +133,13 @@ final class FixtureDirectoryTest extends TestCase
     /**
      * Verifies that writeJson throws when the target path cannot be written.
      * A directory sitting at the target path makes file_put_contents() return
-     * false, exercising the same throw the truncated-write guard also covers
-     * — no test previously drove either arm of that comparison to true.
+     * false, driving the guard's outright-failure arm to true. The sibling
+     * short-write arm (a write that starts but is truncated) is accepted as
+     * untested: forcing a genuine partial file_put_contents() write portably
+     * needs a custom stream wrapper or a filesystem quota, and every other
+     * failure branch in this class (the constructor's mkdir(), the
+     * intermediate-directory mkdir() above, every removeRecursively() branch)
+     * carries the same accepted gap for the same reason.
      */
     #[Test]
     public function writeJsonThrowsWhenTheTargetPathCannotBeWritten(): void
@@ -157,10 +167,10 @@ final class FixtureDirectoryTest extends TestCase
         mkdir($externalDir, 0o700);
         file_put_contents(sprintf('%s/sentinel.txt', $externalDir), 'still here');
 
-        $fixture = new FixtureDirectory();
+        $this->fixture = new FixtureDirectory();
 
-        if (!symlink($externalDir, sprintf('%s/link', $fixture->path()))) {
-            $fixture->cleanup();
+        if (!symlink($externalDir, sprintf('%s/link', $this->fixture->path()))) {
+            $this->fixture->cleanup();
             unlink(sprintf('%s/sentinel.txt', $externalDir));
             rmdir($externalDir);
 
@@ -173,8 +183,10 @@ final class FixtureDirectoryTest extends TestCase
             // makes cleanup() THROW — rmdir() fails on the symlink's own
             // path once its target's contents are gone — so the external
             // fixture must still be reachable for removal on that path too,
-            // not only when the later assertion is what fails.
-            $fixture->cleanup();
+            // not only when the later assertion is what fails. tearDown()'s
+            // own cleanup() call afterwards is then a no-op (idempotent),
+            // the same safety net every other test in this class relies on.
+            $this->fixture->cleanup();
 
             self::assertFileExists(sprintf('%s/sentinel.txt', $externalDir));
         } finally {
