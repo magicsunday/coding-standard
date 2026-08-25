@@ -67,6 +67,10 @@ final readonly class GateProcess
             $output .= $buffer;
         });
 
+        // Untested: run() blocks until the process terminates, so
+        // getExitCode() is null only if it never started — which throws
+        // above before reaching this line. The ?? -1 is defense-in-depth
+        // against Symfony's own nullable return type, not a reachable path.
         return new GateResult($output, $process->getExitCode() ?? -1);
     }
 }
