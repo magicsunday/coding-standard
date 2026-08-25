@@ -14,13 +14,33 @@ concurrency:
 
 jobs:
     build:
-        name: Build
+        # Explicit, naming only matrix.php: GitHub Actions otherwise composes
+        # the displayed/required-check name from EVERY matrix key, so adding
+        # the `coverage` key below without this would silently rename each
+        # check from "Build (8.3)" to "Build (8.3, none)" and desync it from
+        # the branch protection's required status checks (verified against
+        # this repo's own contexts: `gh api
+        # repos/magicsunday/coding-standard/branches/main/protection --jq
+        # '.required_status_checks.contexts[]?'` lists "Build (8.3)" etc.).
+        name: Build (${{ matrix.php }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
-                php: ['8.3', '8.4', '8.5']
+                # A named `coverage` field, not a repeated `matrix.php == '8.5'`
+                # comparison at each use site: the two use sites below (the
+                # `coverage:` input and the PHPUnit step's `--coverage-text`
+                # flag) then read the SAME source, so a future matrix edit
+                # (adding/dropping/reordering a PHP version) cannot update one
+                # site and silently leave the other on the old leg.
+                include:
+                    - php: '8.3'
+                      coverage: none
+                    - php: '8.4'
+                      coverage: none
+                    - php: '8.5'
+                      coverage: xdebug
 
         steps:
             - name: Set up PHP version ${{ matrix.php }}
@@ -31,10 +51,11 @@ jobs:
                   # Explicit, the way the org's reusable php-quality.yml writes it
                   # (magicsunday/.github, .github/workflows/php-quality.yml — the
                   # `coverage:` expression, read 2026-08-15), except on the top
-                  # matrix leg. beStrictAboutCoverageMetadata's "this test
-                  # executed code not listed as covered/used" check only
-                  # evaluates once a driver is actually collecting data —
-                  # traced against phpunit/phpunit 13.3.1's
+                  # matrix leg (see the matrix's own `coverage` field above).
+                  # beStrictAboutCoverageMetadata's "this test executed code
+                  # not listed as covered/used" check only evaluates once a
+                  # driver is actually collecting data — traced against
+                  # phpunit/phpunit 13.3.1's
                   # PHPUnit\Framework\TestRunner\TestRunner::run(), gated on
                   # $collectCodeCoverage; that class carries no BC promise, so
                   # re-verify at .build/vendor/phpunit/phpunit/src/Framework/
@@ -49,7 +70,7 @@ jobs:
                   # leg regardless of this setting. Leaving the input unset
                   # would make the driver state depend on the runner image
                   # rather than on a decision.
-                  coverage: ${{ matrix.php == '8.5' && 'xdebug' || 'none' }}
+                  coverage: ${{ matrix.coverage }}
 
             - name: Checkout repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,13 +117,13 @@ jobs:
             - name: phpat subject-liveness self-test
               run: composer ci:test:phpat-subjects
 
-            # Only the 8.5 leg has a coverage driver (see the `coverage:` step
-            # above) — --coverage-text there is what makes
-            # beStrictAboutCoverageMetadata actually evaluate, which is the
-            # enforcement this flag exists for, not a human-facing report;
-            # the other two legs run the bare command.
+            # Only the leg whose matrix `coverage` field is non-`none` has a
+            # driver active (see the `coverage:` step above) — --coverage-text
+            # there is what makes beStrictAboutCoverageMetadata actually
+            # evaluate, which is the enforcement this flag exists for, not a
+            # human-facing report; the other legs run the bare command.
             - name: PHPUnit
-              run: composer ci:test:phpunit${{ matrix.php == '8.5' && ' -- --coverage-text' || '' }}
+              run: composer ci:test:phpunit${{ matrix.coverage != 'none' && ' -- --coverage-text' || '' }}
 
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against

@@ -25,12 +25,15 @@ use function json_decode;
 use function mkdir;
 use function preg_quote;
 use function random_bytes;
+use function restore_error_handler;
 use function rmdir;
+use function set_error_handler;
 use function sprintf;
 use function symlink;
 use function sys_get_temp_dir;
 use function unlink;
 
+use const E_WARNING;
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -136,10 +139,11 @@ final class FixtureDirectoryTest extends TestCase
      * false, driving the guard's outright-failure arm to true. The sibling
      * short-write arm (a write that starts but is truncated) is accepted as
      * untested: forcing a genuine partial file_put_contents() write portably
-     * needs a custom stream wrapper or a filesystem quota, and every other
-     * failure branch in this class (the constructor's mkdir(), the
-     * intermediate-directory mkdir() above, every removeRecursively() branch)
-     * carries the same accepted gap for the same reason.
+     * needs a custom stream wrapper or a filesystem quota — unlike the
+     * intermediate-directory mkdir() branch below, a plain file placed at
+     * the path segment reliably forces mkdir() to fail regardless of
+     * permissions or process privilege, so that branch gets its own test
+     * instead of sharing this exemption.
      */
     #[Test]
     public function writeJsonThrowsWhenTheTargetPathCannotBeWritten(): void
@@ -156,6 +160,27 @@ final class FixtureDirectoryTest extends TestCase
     }
 
     /**
+     * Verifies that writeJson throws when an intermediate directory
+     * component cannot be created — a plain file already occupying that
+     * path segment makes mkdir() fail regardless of permissions or process
+     * privilege, unlike the permission-based failures this class otherwise
+     * cannot portably force under a root-run CI container.
+     */
+    #[Test]
+    public function writeJsonThrowsWhenAnIntermediateDirectoryCannotBeCreated(): void
+    {
+        $this->fixture = new FixtureDirectory();
+        file_put_contents(sprintf('%s/blocked', $this->fixture->path()), 'not a directory');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches(
+            sprintf('/^%s/', preg_quote('Could not create directory: ', '/'))
+        );
+
+        $this->fixture->writeJson('blocked/sub.json', ['key' => 'value']);
+    }
+
+    /**
      * Verifies that cleanup removes a symlinked entry as itself, never
      * following it into the real directory it points at — a symlink to a
      * directory outside the fixture must not have its contents deleted.
@@ -164,20 +189,34 @@ final class FixtureDirectoryTest extends TestCase
     public function cleanupRemovesASymlinkWithoutFollowingItIntoItsTarget(): void
     {
         $externalDir = sprintf('%s/gate-fixture-symlink-target-%s', sys_get_temp_dir(), bin2hex(random_bytes(8)));
-        mkdir($externalDir, 0o700);
-        file_put_contents(sprintf('%s/sentinel.txt', $externalDir), 'still here');
-
-        $this->fixture = new FixtureDirectory();
-
-        if (!symlink($externalDir, sprintf('%s/link', $this->fixture->path()))) {
-            $this->fixture->cleanup();
-            unlink(sprintf('%s/sentinel.txt', $externalDir));
-            rmdir($externalDir);
-
-            self::markTestSkipped('This platform could not create a symlink.');
-        }
 
         try {
+            // The external fixture setup is inside the try too: a failure
+            // here (mkdir(), the sentinel write, or FixtureDirectory's own
+            // constructor) must still reach the finally below, or it leaks
+            // $externalDir the same way an assertion failure further down
+            // would without this guard.
+            mkdir($externalDir, 0o700);
+            file_put_contents(sprintf('%s/sentinel.txt', $externalDir), 'still here');
+
+            $this->fixture = new FixtureDirectory();
+
+            // Scoped, not @-suppressed: a failed symlink() raises a native
+            // PHP warning that PHPUnit's zero-tolerance policy would turn
+            // into a risky test before the check below ever gets to route
+            // it to markTestSkipped() instead.
+            set_error_handler(static fn (): bool => true, E_WARNING);
+
+            try {
+                $linked = symlink($externalDir, sprintf('%s/link', $this->fixture->path()));
+            } finally {
+                restore_error_handler();
+            }
+
+            if (!$linked) {
+                self::markTestSkipped('This platform could not create a symlink.');
+            }
+
             // cleanup() itself is inside the try: the regression this test
             // exists to catch (removeRecursively() following the symlink)
             // makes cleanup() THROW — rmdir() fails on the symlink's own

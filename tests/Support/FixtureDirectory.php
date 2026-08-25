@@ -100,19 +100,32 @@ final readonly class FixtureDirectory
         $target = sprintf('%s/%s', $this->path, $relativePath);
         $dir    = dirname($target);
 
-        if (!is_dir($dir) && !mkdir($dir, 0o700, true) && !is_dir($dir)) {
-            throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
+        if (!is_dir($dir)) {
+            // Scoped, not @-suppressed: a blocked intermediate segment (e.g.
+            // a plain file already occupying that path) raises a native PHP
+            // warning here that PHPUnit's zero-tolerance policy would turn
+            // into a risky test; the check below already converts the
+            // failure into this descriptive RuntimeException, so the raw
+            // warning is redundant noise, not lost information.
+            set_error_handler(static fn (): bool => true, E_WARNING);
+
+            try {
+                $created = mkdir($dir, 0o700, true);
+            } finally {
+                restore_error_handler();
+            }
+
+            if (!$created && !is_dir($dir)) {
+                throw new RuntimeException(sprintf('Could not create directory: %s', $dir));
+            }
         }
 
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
 
         // Scoped, not @-suppressed: an unwritable target (e.g. blocked by an
-        // existing directory, or a permission failure) raises a native PHP
-        // warning here that PHPUnit's zero-tolerance policy would turn into
-        // a risky test; the check below already converts every failure
-        // shape — false or a short write — into this descriptive
-        // RuntimeException, so the raw warning is redundant noise, not lost
-        // information.
+        // existing directory, or a permission failure) raises the same kind
+        // of warning; the check below already converts every failure shape
+        // — false or a short write — into this descriptive RuntimeException.
         set_error_handler(static fn (): bool => true, E_WARNING);
 
         try {
