@@ -69,9 +69,7 @@ final readonly class FixtureDirectory
     {
         $path = sprintf('%s/gate-fixture-%s', sys_get_temp_dir(), bin2hex(random_bytes(16)));
 
-        if (!mkdir($path, 0o700)) {
-            throw new RuntimeException(sprintf('Could not create fixture directory: %s', $path));
-        }
+        self::guard(mkdir($path, 0o700), 'create fixture directory', $path);
 
         $this->path = $path;
     }
@@ -145,6 +143,27 @@ final readonly class FixtureDirectory
     }
 
     /**
+     * Throws a RuntimeException naming $verb and $path when $ok is false.
+     * Shared by every filesystem call in this class whose only failure
+     * signal is a false return, so the same "could not X: path" shape is
+     * written once instead of at each call site.
+     *
+     * @param bool   $ok   The filesystem call's own success/failure return value.
+     * @param string $verb Describes the attempted operation, e.g. "remove symlink".
+     * @param string $path The path the operation acted on.
+     *
+     * @return void
+     *
+     * @throws RuntimeException If $ok is false.
+     */
+    private static function guard(bool $ok, string $verb, string $path): void
+    {
+        if (!$ok) {
+            throw new RuntimeException(sprintf('Could not %s: %s', $verb, $path));
+        }
+    }
+
+    /**
      * Removes this fixture directory and everything under it. A no-op when
      * the directory no longer exists (idempotent, so a test may call this
      * itself and still let tearDown() call it again without failing).
@@ -173,9 +192,7 @@ final readonly class FixtureDirectory
     private function removeRecursively(string $path): void
     {
         if (is_link($path)) {
-            if (!unlink($path)) {
-                throw new RuntimeException(sprintf('Could not remove symlink: %s', $path));
-            }
+            self::guard(unlink($path), 'remove symlink', $path);
 
             return;
         }
@@ -185,9 +202,7 @@ final readonly class FixtureDirectory
                 return;
             }
 
-            if (!unlink($path)) {
-                throw new RuntimeException(sprintf('Could not remove file: %s', $path));
-            }
+            self::guard(unlink($path), 'remove file', $path);
 
             return;
         }
@@ -206,8 +221,6 @@ final readonly class FixtureDirectory
             $this->removeRecursively(sprintf('%s/%s', $path, $entry));
         }
 
-        if (!rmdir($path)) {
-            throw new RuntimeException(sprintf('Could not remove directory: %s', $path));
-        }
+        self::guard(rmdir($path), 'remove directory', $path);
     }
 }
