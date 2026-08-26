@@ -1611,4 +1611,29 @@ write_archtest "$d" "$MODEL_RULE
     }" '' 'use function PHPat\Test\Attributes\bar, PHPat\Test\Attributes\TestRule as X;'
 assert_accepts "$d" "a declaration-level use-function unbraced list does not mistake its alias for TestRule"
 
+# GH-58 (testing-reviewer): the mirror case of the two fixtures above — a PER-ITEM
+# `function` keyword must NOT leak past its own item's `,` and poison a genuine class
+# alias later in the SAME group. `use Ns\{function helperFn, TestRule as X};` imports
+# `helperFn` as a function and `TestRule` (aliased X) as an ORDINARY class — X must be
+# tracked normally. No fixture crossed an item boundary after a function/const item
+# before this one: mutation-removing the ','-branch reset of $isFunctionOrConstItem
+# left the whole suite green, because nothing exercised a real class item following a
+# function item in the same group.
+d="$work/function-item-does-not-poison-the-next-group-item"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function vacuousAliasedRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — a function item earlier in the group must not poison this one.');
+    }" '' 'use PHPat\Test\Attributes\{function helperFn, TestRule as X};'
+assert_rejects "$d" "a function item in a group does not poison a later real TestRule alias in the same group" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
 verdict
