@@ -123,7 +123,7 @@ write_archtest() {
             printf '%s\n\n' "$preamble"
         fi
         printf 'final class ArchitectureTest\n{\n'
-        printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+        printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
         printf '%s\n}\n' "$methods"
     } > "$dir/tests/Architecture/ArchitectureTest.php"
 }
@@ -1173,7 +1173,7 @@ write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
 write_archtest_header "$d"
 {
     printf 'final class ArchitectureTest\n{\n'
-    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
     printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
     printf '        return PHPat::rule()\n'
     printf '            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . "\033[2K\n'
@@ -1792,8 +1792,8 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest_header "$d"
 {
     printf 'final class ArchitectureTest\n{\n'
-    printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\Fake'\";\n\n"
-    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+    printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\\\Fake'\";\n\n"
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
     printf '    #[TestRule]
     public function live(): Rule
     {
@@ -1961,14 +1961,21 @@ assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it w
 # quadratic code path at any repeat count. The timing claims above are one-time,
 # manually verified measurements, not something this suite re-checks on every
 # run.
+# CodeRabbit: $resolveTestRuleAliases seeds $aliases with the literal 'TestRule'
+# regardless of whether the use-import walk finds anything, so a bare #[TestRule]
+# would still be recognised even if the walk below were completely broken — it
+# does not actually depend on "the real import is still found past the noise".
+# Aliased instead, so the assertion can only hold if the walk actually resolved
+# the real `use ... as RuleAlias;` import past the 500 unterminated keywords.
 d="$work/repeated-unterminated-use-keyword-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 manyUnterminatedUseKeywords="$(for _ in $(seq 1 500); do printf 'use '; done)"
 write_archtest_header "$d" "$manyUnterminatedUseKeywords"
 {
+    printf 'use PHPat\\Test\\Attributes\\TestRule as RuleAlias;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
-    printf '    #[TestRule]
+    printf '    #[RuleAlias]
     public function vacuous(): Rule
     {
         return PHPat::rule()
@@ -1976,7 +1983,7 @@ write_archtest_header "$d" "$manyUnterminatedUseKeywords"
             ->shouldNot()->dependOn()
             ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
             ->because(%s);
-    }\n' "'\\NoSuchNamespace'" "'\\Model\\Node'" "'Vacuous — proves the real TestRule import is still found past 500 unterminated use keywords.'"
+    }\n' "'\\NoSuchNamespace'" "'\\Model\\Node'" "'Vacuous — proves the real aliased TestRule import is still found past 500 unterminated use keywords.'"
     printf '}\n'
 } >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'use' keywords before the real imports do not prevent finding TestRule" \

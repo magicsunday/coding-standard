@@ -304,12 +304,16 @@ $nextName = static function (array $tokens, int $start, int $count, array $skipK
 //     same file would still win by source order. This needs the same second-class
 //     precondition already accepted below (nothing real produces it; PSR-1 makes it
 //     conventionally rare, not syntactically impossible).
-//   - Only the FIRST `T_CONSTANT_ENCAPSED_STRING` after `=` is read, so a value built
-//     from concatenation (`NAMESPACE_ROOT = 'Vendor' . '\Mod';`) resolves to only its
-//     first segment. The regex this walk replaced had the identical limitation (it
+//   - Only the FIRST `T_CONSTANT_ENCAPSED_STRING` after `=` is read, not the complete
+//     right-hand side, so a value built from concatenation
+//     (`NAMESPACE_ROOT = 'Vendor' . '\Mod';`) resolves to only its first segment, and
+//     a conditional expression (`NAMESPACE_ROOT = false ? 'Vendor\Fake' : 'Vendor\Real';`)
+//     resolves to whichever literal happens to appear first, not the one PHP would
+//     actually evaluate (codex-rescue, re-raised the same underlying limitation via a
+//     ternary example). The regex this walk replaced had the identical limitation (it
 //     matched only a literal immediately after `=`), so this is pre-existing behaviour,
 //     not a regression — and a namespace-root constant is, in every real consumer, a
-//     single plain string literal.
+//     single plain string literal, never a computed expression.
 $namespaceRoot  = null;
 $constantTokens = token_get_all($source);
 $constantCount  = count($constantTokens);
