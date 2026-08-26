@@ -347,19 +347,18 @@ for ($index = 0; $index < $constantCount; ++$index) {
             continue;
         }
 
-        if ($sawEquals && ($name !== null) && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)) {
-            if ($name === 'NAMESPACE_ROOT') {
-                // A single-quoted namespace literal may be written with single or
-                // escaped (`\\`) backslashes; normalise to the single-backslash form
-                // the `namespace` declarations in the class inventory always use.
-                // substr() strips the literal's own surrounding quote characters
-                // (single or double).
-                $namespaceRoot = str_replace('\\\\', '\\', substr($next[1], 1, -1));
+        if ($sawEquals
+            && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)
+            && ($name === 'NAMESPACE_ROOT')
+        ) {
+            // A single-quoted namespace literal may be written with single or
+            // escaped (`\\`) backslashes; normalise to the single-backslash form
+            // the `namespace` declarations in the class inventory always use.
+            // substr() strips the literal's own surrounding quote characters
+            // (single or double).
+            $namespaceRoot = str_replace('\\\\', '\\', substr($next[1], 1, -1));
 
-                break 2;
-            }
-
-            $name = null;
+            break 2;
         }
     }
 }

@@ -1834,9 +1834,13 @@ assert_accepts "$d" "NAMESPACE_ROOT declared as a non-first constant in a comma-
 # segment overwrote $name for the DECOY statement it belongs to, mistaking DECOY's own
 # value for a NAMESPACE_ROOT declaration and hijacking resolution — the same class of
 # bug the string-literal decoy fixture above defends against, via constant-fetch
-# syntax instead of a string literal. Written directly (a real earlier class + a decoy
-# constant referencing it) rather than via write_archtest(), which cannot express
-# either.
+# syntax instead of a string literal — the referenced `Prefix::NAMESPACE_ROOT` need
+# not exist as a real constant for this: the bug is purely tokenisation (the raw
+# T_STRING/T_DOUBLE_COLON/T_STRING sequence), so Prefix carries an unrelated
+# OTHER_CONST instead, keeping this fixture from also exercising the separate,
+# already-documented gap where a genuine earlier NAMESPACE_ROOT constant wins by
+# source order. Written directly (an earlier class + a decoy constant whose value
+# references it) rather than via write_archtest(), which cannot express either.
 d="$work/qualified-constant-reference-in-a-decoy-value-does-not-hijack-namespace-root"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 mkdir -p "$d/tests/Architecture"
