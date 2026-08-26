@@ -2061,7 +2061,12 @@ assert_rejects "$d" "many unterminated 'testN' method declarations do not cause 
 # candidates all reach the SAME faraway terminator). Only the first occurrence
 # is ever added to $ruleMethods; the unconditional skip discards the rest as
 # already-consumed noise, exactly like the `use`/`const` fixtures above discard
-# theirs.
+# theirs. Asserting on the leading `1 problem(s)` count (codex-rescue), not just
+# on `test1`'s own message, is what actually pins this: the discarded
+# conditional fix still reports `test1` (its own first violation is unaffected),
+# so a bare `test1: ...` substring alone would pass under EITHER design — only
+# the total count tells them apart (the conditional fix leaves test2..test100
+# each independently reported too).
 d="$work/repeated-unterminated-test-method-sharing-one-distant-terminator"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 mkdir -p "$d/tests/Architecture"
@@ -2073,6 +2078,6 @@ mkdir -p "$d/tests/Architecture"
     printf ';\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'testN' declarations sharing one distant terminator do not cause quadratic scanning" \
-    "test1: could not identify a subject selector"
+    "1 problem(s)"
 
 verdict

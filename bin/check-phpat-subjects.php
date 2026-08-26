@@ -736,7 +736,7 @@ $braceDelta = static function (array|string $token): int {
  *                                                                    token stream.
  *
  * @return list<string> Every local name that resolves to the TestRule attribute,
- *                       'TestRule' itself always included.
+ *                      'TestRule' itself always included.
  */
 $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta, $nextName): array {
     $aliases = ['TestRule'];
@@ -876,6 +876,108 @@ $testRuleAliases = $resolveTestRuleAliases($ruleTokens);
 $testRuleAliasesLower = array_map(strtolower(...), $testRuleAliases);
 
 /**
+ * Scans one attribute group (`#[...]`) for a name matching a TestRule alias —
+ * shared by the rule-discovery loop's own T_ATTRIBUTE handling and the
+ * body-extraction loop's inline nested-attribute tracking below, both of which
+ * need the identical bracket/paren/comma state machine and name-matching rule.
+ *
+ * T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
+ * until the bracket closes. Only the last `\`-separated segment is compared,
+ * so the qualified and imported spellings answer the same — case-insensitive,
+ * against $testRuleAliasesLower, for the same reason that set itself is: PHP
+ * resolves a class/attribute reference case-insensitively.
+ *
+ * T_NAME_RELATIVE (`namespace\TestRule`) is deliberately absent from the
+ * accepted name-token kinds. It denotes TestRule relative to the CURRENT
+ * namespace, i.e. a class in the consumer's own test namespace — not phpat's
+ * attribute — so matching it would be a false positive rather than the
+ * missing spelling it looks like.
+ *
+ * Matches the LAST segment only, not the full FQCN — an unrelated attribute
+ * class from another namespace whose own name happens to be `TestRule`
+ * (fully qualified, or imported under an alias never used for phpat's own
+ * TestRule) is indistinguishable from the real one here, and gets
+ * misattributed as a rule method. phpat itself filters by the exact FQCN
+ * (`getAttributes(TestRule::class)`), so such a method is never a real rule
+ * to phpat — this gate would instead fail closed on it (no `->classes(...)`
+ * pattern to find), a spurious CI failure a developer sees immediately, not a
+ * silent bypass. Deliberately undefended: distinguishing "the bare name
+ * `TestRule` backed by a real `use PHPat\Test\Attributes\TestRule;` import"
+ * from "any fully-qualified name merely ending in `TestRule`" needs the same
+ * per-name import-resolution this file already does for AVOIDING a false
+ * negative, applied in the opposite direction — a materially bigger change
+ * to defend a naming collision no consumer of this gate has ever written.
+ *
+ * @param list<array{0: int, 1: string, 2: int}|string> $tokens               The token stream to scan.
+ * @param int                                            $count                The token count (exclusive upper bound).
+ * @param int                                            $start                The index to start scanning from (inclusive) — the token right after T_ATTRIBUTE.
+ * @param list<string>                                   $testRuleAliasesLower Every local, lowercased name that resolves to the TestRule attribute.
+ *
+ * @return array{matched: bool, end: int} Whether a TestRule name was found, and the index one past the group's closing `]`.
+ */
+$scanAttributeGroup = static function (array $tokens, int $count, int $start, array $testRuleAliasesLower): array {
+    $depth      = 1;
+    $parens     = 0;
+    $expectName = true;
+    $matched    = false;
+    $ahead      = $start;
+
+    for (; ($ahead < $count) && ($depth > 0); ++$ahead) {
+        $inner = $tokens[$ahead];
+
+        if (!is_array($inner)) {
+            if ($inner === '[') {
+                ++$depth;
+            } elseif ($inner === ']') {
+                --$depth;
+            } elseif ($inner === '(') {
+                // From here to the matching `)` everything is an ARGUMENT, and a
+                // name there denotes nothing: `#[UsesClass(TestRule::class)]` is
+                // not a rule. Only the token in NAME position counts.
+                ++$parens;
+                $expectName = false;
+            } elseif ($inner === ')') {
+                --$parens;
+            } elseif (($inner === ',') && ($depth === 1) && ($parens === 0)) {
+                // `#[A, TestRule]` is one group holding two attributes, so a name
+                // is expected again after the comma.
+                //
+                // `$parens` is what keeps this off an ARGUMENT separator. Bracket
+                // depth alone does not: a comma between two arguments is also at
+                // depth 1, so it re-armed name position inside the list the `(`
+                // arm had just closed. Measured before the counter existed —
+                // `#[UsesClass(Node::class, X\TestRule::class)]` on an ordinary
+                // helper produced `could not identify a subject selector` and
+                // exit 1, naming a method that carries no rule.
+                $expectName = true;
+            }
+
+            continue;
+        }
+
+        if ($inner[0] === \T_WHITESPACE) {
+            continue;
+        }
+
+        $isName = ($inner[0] === \T_STRING)
+            || ($inner[0] === \T_NAME_QUALIFIED)
+            || ($inner[0] === \T_NAME_FULLY_QUALIFIED);
+
+        if ($expectName && $isName) {
+            $segments = explode('\\', $inner[1]);
+
+            if (in_array(strtolower(end($segments)), $testRuleAliasesLower, true)) {
+                $matched = true;
+            }
+        }
+
+        $expectName = false;
+    }
+
+    return ['matched' => $matched, 'end' => $ahead];
+};
+
+/**
  * True when the method whose `function` token sits at $functionIndex is NOT public —
  * `getMethods(ReflectionMethod::IS_PUBLIC)` (re-derive with the same command as
  * $resolveTestRuleAliases above) gates BOTH of phpat's discovery paths, not just the
@@ -900,13 +1002,8 @@ $testRuleAliasesLower = array_map(strtolower(...), $testRuleAliases);
  * `readonly` (on a property) already ends its own declaration in `;`, a non-array CHAR
  * token this scan already breaks on before reaching it.
  *
- * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens       The file's
- *                                                                          full token
- *                                                                          stream.
- * @param int                                                 $functionIndex The index
- *                                                                          of the
- *                                                                          `function`
- *                                                                          token.
+ * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens        The file's full token stream.
+ * @param int                                                 $functionIndex The index of the `function` token.
  *
  * @return bool True when the method is not public.
  */
@@ -950,88 +1047,11 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     $topDepth += $braceDelta($token);
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
-        // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
-        // until the bracket closes. Only the last `\`-separated segment is compared, so
-        // the qualified and imported spellings answer the same.
-        $depth      = 1;
-        $parens     = 0;
-        $expectName = true;
+        $group = $scanAttributeGroup($ruleTokens, $ruleCount, $index + 1, $testRuleAliasesLower);
 
-        for ($ahead = $index + 1; ($ahead < $ruleCount) && ($depth > 0); ++$ahead) {
-            $inner = $ruleTokens[$ahead];
-
-            if (!is_array($inner)) {
-                if ($inner === '[') {
-                    ++$depth;
-                } elseif ($inner === ']') {
-                    --$depth;
-                } elseif ($inner === '(') {
-                    // From here to the matching `)` everything is an ARGUMENT, and a
-                    // name there denotes nothing: `#[UsesClass(TestRule::class)]` is
-                    // not a rule. Only the token in NAME position counts.
-                    ++$parens;
-                    $expectName = false;
-                } elseif ($inner === ')') {
-                    --$parens;
-                } elseif (($inner === ',') && ($depth === 1) && ($parens === 0)) {
-                    // `#[A, TestRule]` is one group holding two attributes, so a name
-                    // is expected again after the comma.
-                    //
-                    // `$parens` is what keeps this off an ARGUMENT separator. Bracket
-                    // depth alone does not: a comma between two arguments is also at
-                    // depth 1, so it re-armed name position inside the list the `(`
-                    // arm had just closed. Measured before the counter existed —
-                    // `#[UsesClass(Node::class, X\TestRule::class)]` on an ordinary
-                    // helper produced `could not identify a subject selector` and
-                    // exit 1, naming a method that carries no rule.
-                    $expectName = true;
-                }
-
-                continue;
-            }
-
-            if ($inner[0] === \T_WHITESPACE) {
-                continue;
-            }
-
-            // T_NAME_RELATIVE (`namespace\TestRule`) is deliberately absent. It
-            // denotes TestRule relative to the CURRENT namespace, i.e. a class in the
-            // consumer's own test namespace — not phpat's attribute — so matching it
-            // would be a false positive rather than the missing spelling it looks like.
-            $isName = ($inner[0] === \T_STRING)
-                || ($inner[0] === \T_NAME_QUALIFIED)
-                || ($inner[0] === \T_NAME_FULLY_QUALIFIED);
-
-            if ($expectName && $isName) {
-                $segments = explode('\\', $inner[1]);
-
-                // Against $testRuleAliasesLower (built above), not the literal
-                // 'TestRule' — an aliased import (`use PHPat\Test\Attributes\TestRule
-                // as X;`) makes `#[X]` the real attribute, and `end($segments)` for
-                // that spelling is the alias, not 'TestRule'. Case-insensitive for the
-                // same reason $testRuleAliasesLower itself is.
-                if (in_array(strtolower(end($segments)), $testRuleAliasesLower, true)) {
-                    $sawTestRule = true;
-                    ++$attributeSum;
-                }
-            }
-
-            // Matches the LAST segment only, not the full FQCN — an unrelated attribute
-            // class from another namespace whose own name happens to be `TestRule`
-            // (fully qualified, or imported under an alias never used for phpat's own
-            // TestRule) is indistinguishable from the real one here, and gets
-            // misattributed as a rule method. phpat itself filters by the exact FQCN
-            // (`getAttributes(TestRule::class)`), so such a method is never a real rule
-            // to phpat — this gate would instead fail closed on it (no `->classes(...)`
-            // pattern to find), a spurious CI failure a developer sees immediately, not a
-            // silent bypass. Deliberately undefended: distinguishing "the bare name
-            // `TestRule` backed by a real `use PHPat\Test\Attributes\TestRule;` import"
-            // from "any fully-qualified name merely ending in `TestRule`" needs the same
-            // per-name import-resolution this file already does for AVOIDING a false
-            // negative, applied in the opposite direction — a materially bigger change
-            // to defend a naming collision no consumer of this gate has ever written.
-
-            $expectName = false;
+        if ($group['matched']) {
+            $sawTestRule = true;
+            ++$attributeSum;
         }
 
         // Resume AFTER the closing `]`. Without this the outer loop re-walks the
@@ -1040,7 +1060,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         // `#[TestRule]` beside it just set. Measured: `#[TestRule]` followed by
         // `#[CoversClass(Node::class)]` reported `no #[TestRule] methods found` for a
         // live rule.
-        $index = $ahead - 1;
+        $index = $group['end'] - 1;
 
         continue;
     }
@@ -1141,59 +1161,38 @@ for ($index = 0; $index < $ruleCount; ++$index) {
 
     // A #[TestRule] attribute nested inside an anonymous class within THIS body
     // must still be counted against $attributeSum (see this loop's own
-    // index-resync comment below for why) — tracked here, in the SAME single
-    // pass that already visits every token to build $body, rather than as a
-    // second scan over the same range afterward: every token here is visited
-    // exactly once regardless, so this adds no extra traversal. Mirrors the
-    // outer loop's own T_ATTRIBUTE handling above exactly (bracket/paren/comma
-    // state, last-segment case-insensitive name match against
-    // $testRuleAliasesLower) — deliberately NOT extracted into a shared helper
-    // both call, since the outer loop's version also has to ADVANCE $index past
-    // the group and set $sawTestRule/$topDepth-relative bookkeeping this inline
-    // copy has no equivalent for; the two run over disjoint token ranges within
-    // the same request, never producing the double-count a truly shared counter
-    // could risk.
-    $attrDepth      = 0;
-    $attrParens     = 0;
-    $attrExpectName = false;
-
+    // index-resync comment below for why) — via the same $scanAttributeGroup
+    // the outer loop above uses, so the two never drift apart the way the
+    // class-name/method-name lookaheads once did before $nextName existed.
+    // Unlike that outer call site, a matched group's own tokens must still be
+    // appended to $body (an attribute can legitimately sit inside a nested
+    // method this body's text needs to preserve), and $ahead must land on the
+    // group's own last token rather than one past it, since this loop's `for`
+    // advances $ahead itself on the next iteration.
     for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
         $inner = $ruleTokens[$ahead];
         $text  = is_array($inner) ? $inner[1] : $inner;
 
-        if ($attrDepth > 0) {
-            if (!is_array($inner)) {
-                if ($inner === '[') {
-                    ++$attrDepth;
-                } elseif ($inner === ']') {
-                    --$attrDepth;
-                } elseif ($inner === '(') {
-                    ++$attrParens;
-                    $attrExpectName = false;
-                } elseif ($inner === ')') {
-                    --$attrParens;
-                } elseif (($inner === ',') && ($attrDepth === 1) && ($attrParens === 0)) {
-                    $attrExpectName = true;
-                }
-            } elseif ($inner[0] !== \T_WHITESPACE) {
-                $isName = ($inner[0] === \T_STRING)
-                    || ($inner[0] === \T_NAME_QUALIFIED)
-                    || ($inner[0] === \T_NAME_FULLY_QUALIFIED);
+        if (is_array($inner) && ($inner[0] === \T_ATTRIBUTE)) {
+            $group = $scanAttributeGroup($ruleTokens, $ruleCount, $ahead + 1, $testRuleAliasesLower);
 
-                if ($attrExpectName && $isName) {
-                    $segments = explode('\\', $inner[1]);
-
-                    if (in_array(strtolower(end($segments)), $testRuleAliasesLower, true)) {
-                        ++$attributeSum;
-                    }
-                }
-
-                $attrExpectName = false;
+            if ($group['matched']) {
+                ++$attributeSum;
             }
-        } elseif (is_array($inner) && ($inner[0] === \T_ATTRIBUTE)) {
-            $attrDepth      = 1;
-            $attrParens     = 0;
-            $attrExpectName = true;
+
+            // A constant expression (an attribute's own argument list) cannot
+            // contain a bare `;`, `{` or `}` CHAR token, so appending this whole
+            // range's text in one pass — rather than letting the loop below
+            // revisit each token — cannot skip a terminator or desync $depth.
+            if ($depth > 0) {
+                for ($groupToken = $ahead; $groupToken < $group['end']; ++$groupToken) {
+                    $body .= is_array($ruleTokens[$groupToken]) ? $ruleTokens[$groupToken][1] : $ruleTokens[$groupToken];
+                }
+            }
+
+            $ahead = $group['end'] - 1;
+
+            continue;
         }
 
         if (!is_array($inner) && ($depth === 0) && ($inner === ';')) {
@@ -1223,7 +1222,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
 
     // Same index-resync fix as the NAMESPACE_ROOT constant walk and the
     // TestRule-alias `use`-import walk above — unconditional here too, now that
-    // the inline attribute tracking just above keeps $attributeSum accurate
+    // the $scanAttributeGroup call just above keeps $attributeSum accurate
     // without needing the outer loop to revisit this body's own tokens.
     //
     // An earlier version of this fix skipped ONLY when the scan ran off the true
