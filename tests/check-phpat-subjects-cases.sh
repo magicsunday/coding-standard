@@ -1947,15 +1947,20 @@ assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it w
 # `const`/`use` keyword occurrences and no terminating `;` between them (tokenises
 # fine; need not be valid PHP) made every occurrence's inner scan re-run all the
 # way to end-of-file: O(n) work times O(n) occurrences. Measured live before the
-# fix: an 8000-repetition `use` payload took ~16s, an 8000-repetition `const`
-# payload ~11s, both comfortably under the 256KB size cap — a PR-suppliable CI
+# fix: an 8000-repetition `use` payload took ~16s. The identical `const`-walk
+# defect needs an UNRESOLVABLE NAMESPACE_ROOT to manifest (`break 2` on a match
+# exits both loops after the first inner scan, regardless of how much junk
+# precedes it) — measured against that shape, an 8000-repetition payload took
+# ~11s. Both are comfortably under the 256KB size cap — a PR-suppliable CI
 # denial of service (re-derive: apply the fix, re-run the same payload, confirm
 # sub-second). This harness has no per-fixture timeout, so a moderate repeat
 # count here is a functional sanity check on the fix's control flow (the real
-# import/constant past the noise is still found correctly) — not, on its own, a
-# regression guard against the O(n) fix being reverted, since these fixture sizes
-# stay fast either way. The timing claim above is a one-time, manually verified
-# measurement, not something this suite re-checks on every run.
+# import/constant past the noise is still found correctly), not a regression
+# guard against the O(n) fix being reverted — the `const` fixture below in
+# particular, needing `assert_accepts` to hold, structurally cannot reach the
+# quadratic code path at any repeat count. The timing claims above are one-time,
+# manually verified measurements, not something this suite re-checks on every
+# run.
 d="$work/repeated-unterminated-use-keyword-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 mkdir -p "$d/tests/Architecture"
@@ -2006,5 +2011,26 @@ mkdir -p "$d/tests/Architecture"
     printf '}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "many unterminated 'const' keywords before the real declaration do not prevent resolving NAMESPACE_ROOT"
+
+# GH-58 (codex-rescue): the rule-method body-extraction loop has the identical
+# unbounded-inner-scan shape as the two fixes above — a `public function testN`
+# declaration with neither a `{` nor a `;` still qualifies as a candidate rule
+# method via the test*-name path (still at $topDepth === 1, since none of them
+# ever open a brace), so its body-extraction scan runs to end-of-file looking for
+# a terminator that never comes. Measured live before the fix: 4000 such
+# declarations under the 256KB cap took ~36s. Written directly (write_archtest()
+# always closes each method it's given, which this shape deliberately omits).
+d="$work/repeated-unterminated-test-method-does-not-cause-quadratic-scanning"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    for i in $(seq 1 100); do printf 'public function test%d ' "$i"; done
+    printf '\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "many unterminated 'testN' method declarations do not cause quadratic scanning" \
+    "could not identify a subject selector"
 
 verdict

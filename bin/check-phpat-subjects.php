@@ -389,13 +389,25 @@ for ($index = 0; $index < $constantCount; ++$index) {
     // Advances the OUTER loop past everything the inner one just scanned — without
     // this, a file consisting of many `const` keywords with no terminating `;`
     // between them (tokenises fine; need not be valid PHP) makes every occurrence
-    // re-scan all the way to end-of-file, O(n) work times O(n) occurrences. Measured
-    // live: an 8000-repetition payload under the 256KB size cap took ~11s; a
-    // near-cap payload did not finish in two minutes. ArchitectureTest.php is
-    // consumer PR content this gate already treats as adversarial (the size cap
-    // above exists for exactly that reason), so a CPU-time bound matters here the
-    // same way the byte bound does. Mirrors the same fix the attribute-group scan
-    // below already applies for the identical reason.
+    // re-scan all the way to end-of-file, O(n) work times O(n) occurrences — but
+    // ONLY when NAMESPACE_ROOT is never actually found: `break 2` on a match exits
+    // both loops on the FIRST occurrence, so a payload that ALSO carries a real,
+    // resolvable NAMESPACE_ROOT constant (the shape the regression fixture below
+    // uses, needing `assert_accepts` to hold) never reaches more than one inner
+    // scan regardless of how many junk `const` keywords precede it — the fixture
+    // proves the real constant is still found past the noise, not the quadratic
+    // blowup itself, which needs an UNRESOLVABLE payload to manifest. Measured
+    // live against that unresolvable shape: an 8000-repetition payload under the
+    // 256KB size cap took ~11s; a near-cap payload did not finish in two minutes.
+    // ArchitectureTest.php is consumer PR content this gate already treats as
+    // adversarial (the size cap above exists for exactly that reason), so a
+    // CPU-time bound matters here the same way the byte bound does. The same fix
+    // repeats at three other sites in
+    // this file with the identical shape (an inner "scan to a terminator" loop
+    // whose outer loop never skipped past it): the pre-existing attribute-group
+    // scan below, the TestRule-alias `use`-import walk, and the rule-method
+    // body-extraction loop — each of the latter two points back here rather than
+    // repeating this rationale.
     $index = $ahead - 1;
 }
 
@@ -847,16 +859,10 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta, $nex
             }
         }
 
-        // Advances the OUTER loop past everything this `use` statement's own inner
-        // scan just consumed — without this, a file consisting of many `use`
-        // keywords with no terminating `;` between them (tokenises fine; need not
-        // be valid PHP) makes every occurrence re-scan all the way to end-of-file,
-        // O(n) work times O(n) occurrences. Measured live: an 8000-repetition
-        // payload under the 256KB size cap took ~19s. ArchitectureTest.php is
-        // consumer PR content this gate already treats as adversarial (the size
-        // cap above exists for exactly that reason). Mirrors the identical fix
-        // applied to the NAMESPACE_ROOT constant walk and the pre-existing
-        // attribute-group scan further below.
+        // Same index-resync fix as the NAMESPACE_ROOT constant walk above — see its
+        // comment for the mechanism and why it matters here. Measured live: an
+        // 8000-repetition `use` payload took ~16s under the 256KB cap, sub-second
+        // after this fix.
         $index = $ahead - 1;
     }
 
@@ -1160,6 +1166,39 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         if ($depth > 0) {
             $body .= $text;
         }
+    }
+
+    // A NARROWER version of the index-resync fix applied to the NAMESPACE_ROOT
+    // constant walk and the TestRule-alias `use`-import walk above — conditional,
+    // unlike either of them, because this loop cannot uniformly skip its consumed
+    // range the way theirs can.
+    //
+    // A body that closes NORMALLY (found its own matching `}` or, for an
+    // abstract/interface method, its `;`) must NOT be skipped: the outer loop
+    // visiting every token even inside an already-recognised rule's own body is
+    // how a `#[TestRule]` attribute nested inside an anonymous class within that
+    // body is still found and counted against $attributeSum, despite being
+    // invisible to phpat's own reflection ($topDepth > 1 there) — a deliberate
+    // feature, pinned by its own fixture, that a blanket skip silently breaks
+    // (verified live: it stopped being found at all, and the misattachment check
+    // that depends on seeing it never fired). Reprocessing a normally-closed
+    // body's tokens is at most a second linear pass over that body — bounded by
+    // the body's own size, not by how much of the FILE remains, so it does not
+    // reintroduce the quadratic cost this fix exists to remove.
+    //
+    // Only a body that runs off the end of the token stream WITHOUT ever closing
+    // — `$ahead === $ruleCount` is exactly that case, since a `break` above can
+    // only happen while `$ahead < $ruleCount` still held — is safe to skip:
+    // nothing valid can follow true end-of-file, so nothing is lost. That is
+    // also the ONLY shape the CPU-time exploit needs: many `public function
+    // testN` declarations with neither a `{` nor a `;` between them (each still
+    // qualifies as a candidate rule method via the test*-name path, at
+    // $topDepth === 1 the whole time since none of them ever open a brace) make
+    // every occurrence's own body-extraction scan run to end-of-file — measured
+    // live, 4000 such declarations under the 256KB cap took ~36s, sub-second
+    // after this fix, with the nested-attribute fixture still passing.
+    if ($ahead === $ruleCount) {
+        $index = $ahead;
     }
 
     $ruleMethods[] = [$name, $body];
