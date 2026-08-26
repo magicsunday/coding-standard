@@ -471,7 +471,11 @@ $attributeResolvedCount = 0;
 //     which returns nothing today.
 //   - A SECOND top-level class or trait declared in the same file also opens its body
 //     at depth 1, so a `test*`-named public method on IT would be misattributed to
-//     ArchitectureTest's rule set. PSR-1 is what makes this unreachable in practice.
+//     ArchitectureTest's rule set. PSR-1 is a STYLE convention, not something that
+//     makes this syntactically unreachable — nothing here checks or enforces one
+//     class per file, so this gap is real, just conventionally rare: re-derive with
+//     `grep -c '^\(final \)\?\(class\|trait\|interface\|enum\) ' <file>` on any
+//     consumer's ArchitectureTest.php (>1 means this gap is live there).
 // Defending either would need tracking which depth the ArchitectureTest class's OWN
 // body opened at (and that it IS `ArchitectureTest`), rather than assuming 1 for
 // whichever class comes first — a materially bigger change than tokenising one file,
@@ -535,9 +539,13 @@ $braceDelta = static function (array|string $token): int {
  * not $topDepth) and can be read and tested on its own, same rationale as
  * $braceDelta being pulled out of the loop it serves.
  *
- * `T_FUNCTION`/`T_CONST` are skipped inside a group (`use A\{function f, TestRule}`)
- * without being read as a name — neither can ever be an alias target for a CLASS
- * import, so treating them as ordinary noise between commas is correct, not a gap.
+ * A `function`/`const` group item (`use A\{function f, TestRule}`) imports from a
+ * DIFFERENT namespace than classes/attributes — `use A\{function TestRule as X};`
+ * imports a namespaced FUNCTION named TestRule, and `#[X]` never resolves to it, no
+ * matter how it reads. Verified live (token_get_all()): T_FUNCTION/T_CONST arrive as
+ * their own token immediately after `{`/`,`, before the name — this scan marks that
+ * item and excludes it from $aliases even if its name ends in `\TestRule`, rather
+ * than treating the keyword as ordinary noise between commas.
  *
  * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens The file's full
  *                                                                    token stream.
@@ -562,8 +570,9 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
             continue;
         }
 
-        $groupPrefix = null;
-        $importName  = null;
+        $groupPrefix           = null;
+        $importName            = null;
+        $isFunctionOrConstItem = false;
 
         for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
             $next = $tokens[$ahead];
@@ -576,7 +585,8 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 if ($next === ',') {
                     // A new item starts — inside a group if $groupPrefix is set, else
                     // the next import on the same `use` line.
-                    $importName = null;
+                    $importName            = null;
+                    $isFunctionOrConstItem = false;
 
                     continue;
                 }
@@ -584,15 +594,17 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 if ($next === '{') {
                     // The name gathered so far becomes the prefix every item inside
                     // the group is relative to.
-                    $groupPrefix = $importName;
-                    $importName  = null;
+                    $groupPrefix           = $importName;
+                    $importName            = null;
+                    $isFunctionOrConstItem = false;
 
                     continue;
                 }
 
                 if ($next === '}') {
-                    $groupPrefix = null;
-                    $importName  = null;
+                    $groupPrefix           = null;
+                    $importName            = null;
+                    $isFunctionOrConstItem = false;
 
                     continue;
                 }
@@ -600,11 +612,17 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 break;
             }
 
-            if (($next[0] === \T_WHITESPACE)
-                || ($next[0] === \T_NS_SEPARATOR)
-                || ($next[0] === \T_FUNCTION)
-                || ($next[0] === \T_CONST)
-            ) {
+            if ($next[0] === \T_NS_SEPARATOR) {
+                continue;
+            }
+
+            if (($next[0] === \T_FUNCTION) || ($next[0] === \T_CONST)) {
+                $isFunctionOrConstItem = true;
+
+                continue;
+            }
+
+            if ($next[0] === \T_WHITESPACE) {
                 continue;
             }
 
@@ -633,7 +651,8 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                         continue;
                     }
 
-                    if (is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
+                    if (!$isFunctionOrConstItem
+                        && is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
                         && (($importNameLower === 'testrule') || str_ends_with($importNameLower, '\testrule'))
                     ) {
                         $aliases[] = $aliasToken[1];
@@ -653,11 +672,8 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
 $testRuleAliases = $resolveTestRuleAliases($ruleTokens);
 
 // Lowercased once, compared against a lowercased segment at the recognition site below
-// — PHP resolves a class/attribute reference case-insensitively (verified: `#[testrule]`
-// still resolves to `TestRule::class` via `getAttributes(TestRule::class)`, the same
-// call phpat's own TestParser makes), so a case-SENSITIVE membership check here missed
-// any non-canonical casing on either the literal name or an alias.
-$testRuleAliasesLower = array_map('strtolower', $testRuleAliases);
+// — case-insensitivity rationale at $resolveTestRuleAliases's T_AS branch above.
+$testRuleAliasesLower = array_map(strtolower(...), $testRuleAliases);
 
 /**
  * True when the method whose `function` token sits at $functionIndex is NOT public —
@@ -984,23 +1000,44 @@ if ($attributeSum > $attributeResolvedCount) {
 
 foreach ($ruleMethods as [$ruleName, $methodBody]) {
 
-    // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) after
-    // PHPat::rule(). Slice up to the first ->should/->shouldNot within the method.
+    // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) found
+    // ANYWHERE in $methodBody's text — NOT anchored to a `PHPat::rule()` call (there is
+    // no such anchor in the code below; a prior version of this comment claimed one that
+    // was never implemented). Slice up to the first ->should/->shouldNot within the
+    // method.
     //
-    // Known, deliberately undefended gap in the same family as $topDepth's two above:
-    // a #[TestRule]-attributed method NESTED inside another rule's own body (via a
-    // closure or anonymous class) is correctly excluded from $ruleMethods and from
-    // $attributeResolvedCount, but its text is still part of $methodBody for the
-    // ENCLOSING rule — because the body-extraction loop bounds by brace depth alone,
-    // with no awareness of a nested function's own scope. If the nested rule's own
-    // ->classes(...)->should(Not)? call appears earlier in the text than the enclosing
-    // rule's, this scan misattributes the nested rule's subject to the enclosing rule's
-    // name in the printed violation. This is a NAMING defect only, not a fail-open one:
-    // the misattachment check above already reds the run for the nested attribute
-    // regardless, and nesting one rule inside another's own body is the same class of
-    // pathological, PSR-1-adjacent shape as the other two documented gaps — no real
-    // ArchitectureTest does this. Pinned (not merely documented) by the
-    // nested-testrule-not-counted-as-resolved fixture's must-carry check.
+    // Two known, deliberately undefended gaps follow from scanning unanchored text:
+    //
+    //   - A #[TestRule]-attributed method NESTED inside another rule's own body (via a
+    //     closure or anonymous class) is correctly excluded from $ruleMethods and from
+    //     $attributeResolvedCount, but its text is still part of $methodBody for the
+    //     ENCLOSING rule — the body-extraction loop bounds by brace depth alone, with no
+    //     awareness of a nested function's own scope. If the nested rule's own
+    //     ->classes(...)->should(Not)? call appears earlier in the text than the
+    //     enclosing rule's, this scan misattributes the nested rule's subject to the
+    //     enclosing rule's name in the printed violation. NAMING only, not fail-open:
+    //     the misattachment check above already reds the run for the nested attribute
+    //     regardless. Pinned by the nested-testrule-not-counted-as-resolved fixture's
+    //     must-carry check.
+    //   - The same unanchored scan can be defeated in the OTHER, fail-OPEN direction by a
+    //     decoy: unattributed helper code inside the method body that happens to contain
+    //     its own, textually-earlier ->classes(Selector::live(...))->should(Not)? chain
+    //     would have ITS live subject picked up and reported in place of the enclosing
+    //     rule's actual (possibly vacuous) one. Deliberately undefended — this needs
+    //     hand-authored code shaped like a second phpat rule chain that never runs as
+    //     one, not something written by accident; no real ArchitectureTest does this
+    //     (same disposition class as $topDepth's two documented gaps above). Fixing it
+    //     would mean anchoring the scan to the actual `PHPat::rule()`/`$this->{name}()`
+    //     call the rule builder starts from, a materially bigger parse than this file
+    //     otherwise needs.
+    //
+    // A separate, unrelated limitation: phpat accepts a rule method returning an
+    // `iterable` of multiple rules (TestParser.php: `is_iterable($ruleBuilder)`), each
+    // checked independently. This gate reads only the FIRST ->classes(...) in the whole
+    // method and has no notion of "the next rule" at all — a second, later rule yielded
+    // by the same method is never inspected. Out of scope for GH-58 (which added the
+    // test*-name discovery path, not multi-rule-per-method support); tracked as its own
+    // follow-up rather than folded into this already-large change.
     $stop = preg_match('/->should(?:Not)?\s*\(/', $methodBody, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($methodBody);
     $head = substr($methodBody, 0, $stop);
 

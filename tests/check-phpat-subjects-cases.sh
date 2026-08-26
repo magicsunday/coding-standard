@@ -1541,4 +1541,30 @@ write_archtest "$d" "$MODEL_RULE
 assert_rejects "$d" "a TestRule import spelled in a different case is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
+# GH-58 (codex-rescue): `use PHPat\Test\Attributes\{function TestRule as X};` imports a
+# namespaced FUNCTION named TestRule (a completely different symbol table from
+# classes/attributes) — `#[X]` never resolves to the class attribute no matter how it
+# reads. Before this fix, T_FUNCTION was skipped as ordinary noise, so this item was
+# treated exactly like an ordinary class import and `X` was added as a TestRule alias —
+# a FALSE POSITIVE (reporting a violation on a method phpat never treats as a rule at
+# all), the opposite direction from every other fixture in this file but still wrong.
+# ACCEPT is the only correct verdict: `#[X]` must NOT be recognised as TestRule, so
+# notARealRule() is not a rule, and the one genuine rule (MODEL_RULE) is what the run
+# is judged on.
+d="$work/function-import-alias-is-not-mistaken-for-testrule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function notARealRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
+    }" '' 'use PHPat\Test\Attributes\{function TestRule as X};'
+assert_accepts "$d" "a function-imported alias spelled like TestRule is not mistaken for the class attribute"
+
 verdict
