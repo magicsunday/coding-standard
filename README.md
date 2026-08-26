@@ -47,42 +47,31 @@ config directories with no tooling of their own, so it installs no `biome`/
 is a deliberate, separate exception, further down):
 
 ```shell
-npm install --save-dev @biomejs/biome@^2.5.0 typescript@^5.6.0
+npm install --save-dev @biomejs/biome@^2.5.0 typescript@^7.0.2
 ```
 
 The versions the shared configs are proven against are declared as **optional**
-`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^5.6.0`. Optional, because
+`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^7.0.2`. Optional, because
 a repository adopting only the Biome config should not be warned about a missing
 TypeScript, and vice versa; npm still validates the range of whichever one is
 installed.
 
-**The ranges track the current major, they are not a compatibility promise** — with one
-deliberate exception. A tool release is normally adopted here and the floor moves up
-with it, rather than accumulating old majors a green CI never exercises, so a consumer
-on an older Biome or TypeScript updates its tools together with this package. TypeScript
-is the exception: its peer floor intentionally lags `latest` until real consumers have
-actually moved onto the declared range (#59) — as of 2026-08-26 that gap is two majors
-(this package's floor is 5.x; TypeScript shipped a 6.x major and `latest` is now 7.x,
-GA'd 2026-07-08, re-derive with `npm view typescript "time[7.0.2]"`), because jumping
-straight to a newly-cut major would trade one working install for another, broken
-one. `@biomejs/biome` carries no such lag: as of 2026-08-26 it has shipped three majors
-(`0`, `1`, `2`, re-derive with `npm view @biomejs/biome versions --json | jq -r '[.[] |
-split(".")[0]] | unique'`), and — as observed on that same date — this repository's
-history carries no record of a Biome bump breaking a consumer's install on release day.
-That
-is the same bargain as the PHP side, where the toolchain versions are pinned here once
-for every repository; only the mechanism differs, because npm cannot deliver
-the tools.
+**The ranges track the current major, they are not a compatibility promise.** A tool
+release is adopted here and the floor moves up with it, rather than accumulating old
+majors a green CI never exercises — so a consumer on an older Biome or TypeScript
+updates its tools together with this package, not independently of it. That is the
+same bargain as the PHP side, where the toolchain versions are pinned here once for
+every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
-`typescript 5.9.3`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
+`typescript 7.0.2`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
 what the tools themselves demand — derive them rather than trusting these numbers:
 `node -p "require('@biomejs/biome/package.json').engines.node"` and the same for
-`typescript` (14.21.3 and 14.17 as of 2026-08-26): those floors are years behind the maintained release lines, so meeting
+`typescript` (14.21.3 and 16.20.0 as of 2026-08-26): those floors are years behind the maintained release lines, so meeting
 them says nothing about a repository being current.
 
 `devEngines` and `engines` point at two different audiences and do not move
@@ -745,7 +734,7 @@ contradiction until the measurements are written down, so here they are:
 
 | File | `"//"` | Because |
 |---|---|---|
-| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 5.9.3, the config loads and compiles |
+| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
 | `templates/jscpd.json` | **yes** | jscpd reads JSON5 and ignores it; the smoke runs the template verbatim, note key and all |
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
