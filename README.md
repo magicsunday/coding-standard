@@ -47,21 +47,26 @@ config directories with no tooling of their own, so it installs no `biome`/
 is a deliberate, separate exception, further down):
 
 ```shell
-npm install --save-dev @biomejs/biome@^2.5.0 typescript@^5.4.0
+npm install --save-dev @biomejs/biome@^2.5.0 typescript@^5.6.0
 ```
 
 The versions the shared configs are proven against are declared as **optional**
-`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^5.4.0`. Optional, because
+`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^5.6.0`. Optional, because
 a repository adopting only the Biome config should not be warned about a missing
 TypeScript, and vice versa; npm still validates the range of whichever one is
 installed.
 
-**The ranges track the current major, they are not a compatibility promise.** A tool
-release is adopted here and the floor moves up with it, rather than accumulating old
-majors a green CI never exercises — so a consumer on an older Biome or TypeScript
-updates its tools together with this package, not independently of it. That is the
-same bargain as the PHP side, where the toolchain versions are pinned here once for
-every repository; only the mechanism differs, because npm cannot deliver the tools.
+**The ranges track the current major, they are not a compatibility promise** — with one
+deliberate exception. A tool release is normally adopted here and the floor moves up
+with it, rather than accumulating old majors a green CI never exercises, so a consumer
+on an older Biome or TypeScript updates its tools together with this package. TypeScript
+is the exception: its peer floor intentionally lags `latest` by one major until real
+consumers have actually moved onto it (#59) — jumping the floor to a major days old
+would trade one working install for another, broken one. `@biomejs/biome` carries no
+such lag, because a Biome major has never broken every consumer's install on the day it
+lands. That is the same bargain as the PHP side, where the toolchain versions are pinned
+here once for every repository; only the mechanism differs, because npm cannot deliver
+the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
 `typescript 5.9.3`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
