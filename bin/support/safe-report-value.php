@@ -29,7 +29,7 @@ declare(strict_types=1);
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
  * value they read out of a repository file — a JSON key, an XML attribute value, a
- * phpat subject expression — comes from whoever opened the PR. Their findings go to
+ * selector expression — comes from whoever opened the PR. Their findings go to
  * STDERR and their summaries to STDOUT, and the runner scans BOTH for workflow
  * commands (src/Runner.Worker/Handlers/ScriptHandler.cs wires each stream to its own
  * OutputManager; read 2026-08-19).

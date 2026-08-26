@@ -8,7 +8,6 @@
         "php-cs-fixer",
         "phpstan",
         "rector",
-        "phpat",
         "phpunit",
         "static-analysis"
     ],
@@ -26,7 +25,6 @@
         "deptrac/deptrac": "^4.2",
         "friendsofphp/php-cs-fixer": "^3.50",
         "overtrue/phplint": "^9.0",
-        "phpat/phpat": "^0.12.4",
         "phpstan/phpstan": "^2.0",
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
@@ -50,8 +48,7 @@
         }
     },
     "bin": [
-        "bin/check-consumer-config.php",
-        "bin/check-phpat-subjects.php"
+        "bin/check-consumer-config.php"
     ],
     "config": {
         "bin-dir": ".build/bin",
@@ -70,9 +67,6 @@
         "ci:test:templates": [
             "bash tests/check-consumer-config-cases.sh"
         ],
-        "ci:test:phpat-subjects": [
-            "bash tests/check-phpat-subjects-cases.sh"
-        ],
         "ci:test:disallowed-calls": [
             "bash tests/check-disallowed-calls-cases.sh"
         ],
@@ -84,7 +78,6 @@
         "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",
         "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
-        "ci:test:phpat-subjects": "Fixture-driven cases proving the phpat subject-liveness guard rejects a vacuous rule subject.",
         "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed.",
         "ci:test:phpunit": "Runs this repository's own PHPUnit suite (tests/Support and GateTestCase's meta-tests) — not the fixture-driven bash suites, which have their own ci:test:* scripts."
     }

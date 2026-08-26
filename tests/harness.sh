@@ -15,8 +15,8 @@
 # directory, the failure counter, the degraded-run guard, the verdict, and the
 # probes that prove the counter reaches the exit code.
 #
-# It exists because the copies had already drifted apart. tests/
-# check-phpat-subjects-cases.sh still carried `assert_rejects` on the loose
+# It exists because the copies had already drifted apart. One case file (since
+# removed with the phpat scaffolding) still carried `assert_rejects` on the loose
 # `[ "$rc" -eq 0 ]` contract while its siblings had been tightened to
 # `[ "$rc" -ne 1 ]`, and two of the five harnesses had no bookkeeping probe at
 # all — so dropping one `fails=$((fails + 1))` in either left every case
@@ -425,7 +425,7 @@ harness_probe_reporters 1 harness_probe_fail 'harness_fail does not raise the fa
 #
 # The could-not-run verdict, exit 2. Kept apart from the drift verdict because a
 # helper that accepts "any non-zero" lets a setup failure count as a caught
-# violation — which is what tightening the phpat harness first surfaced. Three
+# violation — which is what tightening one of the case harnesses first surfaced. Three
 # harnesses had grown their own copy of this within two rounds of the file that
 # exists to stop exactly that, and the three had already drifted apart on stdout
 # vs stderr, `FAIL` vs `FAILED`, and branch order.
