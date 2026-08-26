@@ -1139,9 +1139,62 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     $body  = '';
     $depth = 0;
 
+    // A #[TestRule] attribute nested inside an anonymous class within THIS body
+    // must still be counted against $attributeSum (see this loop's own
+    // index-resync comment below for why) — tracked here, in the SAME single
+    // pass that already visits every token to build $body, rather than as a
+    // second scan over the same range afterward: every token here is visited
+    // exactly once regardless, so this adds no extra traversal. Mirrors the
+    // outer loop's own T_ATTRIBUTE handling above exactly (bracket/paren/comma
+    // state, last-segment case-insensitive name match against
+    // $testRuleAliasesLower) — deliberately NOT extracted into a shared helper
+    // both call, since the outer loop's version also has to ADVANCE $index past
+    // the group and set $sawTestRule/$topDepth-relative bookkeeping this inline
+    // copy has no equivalent for; the two run over disjoint token ranges within
+    // the same request, never producing the double-count a truly shared counter
+    // could risk.
+    $attrDepth      = 0;
+    $attrParens     = 0;
+    $attrExpectName = false;
+
     for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
         $inner = $ruleTokens[$ahead];
         $text  = is_array($inner) ? $inner[1] : $inner;
+
+        if ($attrDepth > 0) {
+            if (!is_array($inner)) {
+                if ($inner === '[') {
+                    ++$attrDepth;
+                } elseif ($inner === ']') {
+                    --$attrDepth;
+                } elseif ($inner === '(') {
+                    ++$attrParens;
+                    $attrExpectName = false;
+                } elseif ($inner === ')') {
+                    --$attrParens;
+                } elseif (($inner === ',') && ($attrDepth === 1) && ($attrParens === 0)) {
+                    $attrExpectName = true;
+                }
+            } elseif ($inner[0] !== \T_WHITESPACE) {
+                $isName = ($inner[0] === \T_STRING)
+                    || ($inner[0] === \T_NAME_QUALIFIED)
+                    || ($inner[0] === \T_NAME_FULLY_QUALIFIED);
+
+                if ($attrExpectName && $isName) {
+                    $segments = explode('\\', $inner[1]);
+
+                    if (in_array(strtolower(end($segments)), $testRuleAliasesLower, true)) {
+                        ++$attributeSum;
+                    }
+                }
+
+                $attrExpectName = false;
+            }
+        } elseif (is_array($inner) && ($inner[0] === \T_ATTRIBUTE)) {
+            $attrDepth      = 1;
+            $attrParens     = 0;
+            $attrExpectName = true;
+        }
 
         if (!is_array($inner) && ($depth === 0) && ($inner === ';')) {
             break;
@@ -1168,38 +1221,24 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         }
     }
 
-    // A NARROWER version of the index-resync fix applied to the NAMESPACE_ROOT
-    // constant walk and the TestRule-alias `use`-import walk above — conditional,
-    // unlike either of them, because this loop cannot uniformly skip its consumed
-    // range the way theirs can.
+    // Same index-resync fix as the NAMESPACE_ROOT constant walk and the
+    // TestRule-alias `use`-import walk above — unconditional here too, now that
+    // the inline attribute tracking just above keeps $attributeSum accurate
+    // without needing the outer loop to revisit this body's own tokens.
     //
-    // A body that closes NORMALLY (found its own matching `}` or, for an
-    // abstract/interface method, its `;`) must NOT be skipped: the outer loop
-    // visiting every token even inside an already-recognised rule's own body is
-    // how a `#[TestRule]` attribute nested inside an anonymous class within that
-    // body is still found and counted against $attributeSum, despite being
-    // invisible to phpat's own reflection ($topDepth > 1 there) — a deliberate
-    // feature, pinned by its own fixture, that a blanket skip silently breaks
-    // (verified live: it stopped being found at all, and the misattachment check
-    // that depends on seeing it never fired). Reprocessing a normally-closed
-    // body's tokens is at most a second linear pass over that body — bounded by
-    // the body's own size, not by how much of the FILE remains, so it does not
-    // reintroduce the quadratic cost this fix exists to remove.
-    //
-    // Only a body that runs off the end of the token stream WITHOUT ever closing
-    // — `$ahead === $ruleCount` is exactly that case, since a `break` above can
-    // only happen while `$ahead < $ruleCount` still held — is safe to skip:
-    // nothing valid can follow true end-of-file, so nothing is lost. That is
-    // also the ONLY shape the CPU-time exploit needs: many `public function
-    // testN` declarations with neither a `{` nor a `;` between them (each still
-    // qualifies as a candidate rule method via the test*-name path, at
-    // $topDepth === 1 the whole time since none of them ever open a brace) make
-    // every occurrence's own body-extraction scan run to end-of-file — measured
-    // live, 4000 such declarations under the 256KB cap took ~36s, sub-second
-    // after this fix, with the nested-attribute fixture still passing.
-    if ($ahead === $ruleCount) {
-        $index = $ahead;
-    }
+    // An earlier version of this fix skipped ONLY when the scan ran off the true
+    // end of the token stream, leaving a normally-closed body fully reprocessed —
+    // reasoned (wrongly) to be safe since a single body's own size bounds that
+    // reprocessing. Measured live that this reasoning missed a real case: many
+    // `public function testN` candidates, none with their OWN terminator, that
+    // all share ONE real `;` placed late in the file each "close normally" on
+    // that SAME shared terminator, so each one's own scan still spans nearly the
+    // whole remaining file — O(n) work per candidate, O(n) candidates, the
+    // identical O(n²) this fix exists to remove, just needing one extra
+    // character to reach instead of zero. Unconditionally skipping to $ahead
+    // closes this completely: the range from $index+1 to $ahead can never be
+    // independently re-entered by a later candidate, well-formed or not.
+    $index = $ahead;
 
     $ruleMethods[] = [$name, $body];
 }

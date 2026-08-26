@@ -2012,14 +2012,32 @@ mkdir -p "$d/tests/Architecture"
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "many unterminated 'const' keywords before the real declaration do not prevent resolving NAMESPACE_ROOT"
 
-# GH-58 (codex-rescue): the rule-method body-extraction loop has the identical
-# unbounded-inner-scan shape as the two fixes above — a `public function testN`
-# declaration with neither a `{` nor a `;` still qualifies as a candidate rule
-# method via the test*-name path (still at $topDepth === 1, since none of them
-# ever open a brace), so its body-extraction scan runs to end-of-file looking for
-# a terminator that never comes. Measured live before the fix: 4000 such
-# declarations under the 256KB cap took ~36s. Written directly (write_archtest()
-# always closes each method it's given, which this shape deliberately omits).
+# GH-58 (codex-rescue, performance-reviewer): the rule-method body-extraction
+# loop has the identical unbounded-inner-scan shape as the two fixes above — a
+# `public function testN` declaration with neither a `{` nor a `;` still
+# qualifies as a candidate rule method via the test*-name path (still at
+# $topDepth === 1, since none of them ever open a brace), so its
+# body-extraction scan runs to end-of-file looking for a terminator that never
+# comes. Measured live before any fix: 4000 such declarations under the 256KB
+# cap took ~36s. Written directly (write_archtest() always closes each method
+# it's given, which this shape deliberately omits).
+#
+# An EARLIER version of this fix only skipped the outer loop's index when the
+# scan reached true end-of-file, reasoning that a normally-closed body's own
+# reprocessing was bounded by its own size — measured wrong: performance-reviewer
+# found that many such candidates sharing ONE real, distant `;` each "close
+# normally" on that SAME shared terminator, reproducing the identical O(n²) with
+# one extra character instead of zero. The final fix skips unconditionally, and
+# a #[TestRule] nested inside an already-recognised rule's own body (the reason
+# the conditional existed) is now tracked inline within the SAME single pass
+# that builds the body, rather than by letting the outer loop revisit it — see
+# that tracking's own comment above the body-extraction loop.
+#
+# Like the `use`/`const` fixtures above, this harness has no per-fixture
+# timeout, so the 100-repetition count here is a functional sanity check on the
+# fix's control flow (the run still fails closed, correctly, past the noise) —
+# not a regression guard against the O(n) fix being reverted, since it stays
+# fast (and would stay fast even fully unfixed) at this size.
 d="$work/repeated-unterminated-test-method-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 mkdir -p "$d/tests/Architecture"
@@ -2032,5 +2050,29 @@ mkdir -p "$d/tests/Architecture"
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'testN' method declarations do not cause quadratic scanning" \
     "could not identify a subject selector"
+
+# GH-58 (performance-reviewer): unlike the fixture above (whose scans all run to
+# true end-of-file, so the discarded conditional fix and the final unconditional
+# one behave identically), THIS shape is the one that actually distinguishes
+# them — many unterminated `testN` declarations sharing ONE real, distant `;`.
+# Every occurrence "closes normally" on that same shared terminator, which the
+# conditional fix left unskipped (reasoning, wrongly, that a normally-closed
+# body's own reprocessing is bounded by its own size — it isn't, when many
+# candidates all reach the SAME faraway terminator). Only the first occurrence
+# is ever added to $ruleMethods; the unconditional skip discards the rest as
+# already-consumed noise, exactly like the `use`/`const` fixtures above discard
+# theirs.
+d="$work/repeated-unterminated-test-method-sharing-one-distant-terminator"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    for i in $(seq 1 100); do printf 'public function test%d() ' "$i"; done
+    printf ';\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "many unterminated 'testN' declarations sharing one distant terminator do not cause quadratic scanning" \
+    "test1: could not identify a subject selector"
 
 verdict
