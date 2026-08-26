@@ -404,7 +404,7 @@ $namespaceHasClass = static function (array $inventory, string $namespace): bool
     return false;
 };
 
-// --- Extract each #[TestRule] method's subject selector ---
+// --- Extract each rule method's subject selector (both of phpat's discovery paths) ---
 
 // Each rule method, found by walking TOKENS rather than by matching text.
 //
@@ -425,21 +425,43 @@ $namespaceHasClass = static function (array $inventory, string $namespace): bool
 // else.
 //
 // The walk is the same tokeniser the class inventory uses. For each attribute group
-// whose LAST name segment is `TestRule`, it takes the next `function`, its name, and
-// the body between the matching braces. Brace counting over tokens is what bounds the
-// body — a `{` inside a string or a heredoc is one token, not a delimiter — so a
-// malformed rule cannot run past its own method and adopt a following helper's
+// whose LAST name segment is `TestRule`, OR for each PUBLIC method whose name matches
+// phpat's own test*-name regex (see $isTestNamed below), it takes the `function`, its
+// name, and the body between the matching braces. Brace counting over tokens is what
+// bounds the body — a `{` inside a string or a heredoc is one token, not a delimiter —
+// so a malformed rule cannot run past its own method and adopt a following helper's
 // selector.
-$ruleMethods  = [];
-$ruleTokens   = token_get_all($source);
-$ruleCount    = count($ruleTokens);
+$ruleMethods            = [];
+$ruleTokens             = token_get_all($source);
+$ruleCount              = count($ruleTokens);
 $sawTestRule            = false;
-$sawNonPublic           = false;
 $attributeSum           = 0;
 $attributeResolvedCount = 0;
 
+// Brace depth over the WHOLE file, not just within one method's body (that is the
+// separate, inner $depth further down). phpat's TestParser finds rule methods by
+// reflecting the ONE extracted ArchitectureTest class (`getMethods()` on a single
+// `$reflected`), so a `test*`-named method nested inside a closure or an anonymous
+// class within another method's body is invisible to phpat — this gate must not treat
+// it as a rule either, or a name this common (unlike the deliberate `#[TestRule]`
+// attribute) turns any such nested helper into a false vacuous-rule report, or worse,
+// a false accept that hides a real ArchitectureTest with zero actual rules. A rule
+// method is only ever a DIRECT member of the top-level class body, i.e. depth 1 at
+// the point `T_FUNCTION` is seen (its own opening brace has not been counted yet).
+$topDepth = 0;
+
 for ($index = 0; $index < $ruleCount; ++$index) {
     $token = $ruleTokens[$index];
+
+    if (is_array($token)) {
+        if (($token[0] === \T_CURLY_OPEN) || ($token[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) {
+            ++$topDepth;
+        }
+    } elseif ($token === '{') {
+        ++$topDepth;
+    } elseif ($token === '}') {
+        --$topDepth;
+    }
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
         // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
@@ -517,27 +539,10 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         continue;
     }
 
-    // phpat's OTHER discovery path (PHPat\Test\TestParser): a method whose name
-    // matches `/^(test)[A-Za-z0-9_\x80-\xff]*/` needs no attribute at all. That parser
-    // only reflects PUBLIC methods (`getMethods(ReflectionMethod::IS_PUBLIC)`), so a
-    // `private`/`protected` method named `testFoo` is invisible to phpat and must stay
-    // invisible here too — otherwise a genuine, non-rule helper the class author
-    // happened to name with a `test` prefix would be fail-closed as an unparseable
-    // rule. Visibility is default-public in PHP, so only an EXPLICIT non-public
-    // modifier flips this.
-    if (is_array($token) && (($token[0] === \T_PRIVATE) || ($token[0] === \T_PROTECTED))) {
-        $sawNonPublic = true;
-
-        continue;
-    }
-
     // A TestRule attribute attaches to the declaration that FOLLOWS it. Any other
     // declaration keyword ends its reach, so an attribute written on a property or a
     // class cannot be carried forward onto the next method — which would make that
     // method a rule it is not, and hide the misplaced attribute from the count below.
-    // The same barrier resets the visibility tracked above, for the same reason: a
-    // `private` seen before an unrelated property or class must not leak onto the next
-    // method's modifiers.
     if (is_array($token)
         && (($token[0] === \T_CLASS)
             || ($token[0] === \T_TRAIT)
@@ -546,8 +551,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
             || ($token[0] === \T_CONST)
             || ($token[0] === \T_VARIABLE))
     ) {
-        $sawTestRule  = false;
-        $sawNonPublic = false;
+        $sawTestRule = false;
 
         continue;
     }
@@ -591,17 +595,66 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     // not just the name-based one — a `private`/`protected` method carrying
     // `#[TestRule]` is invisible to phpat too, and this gate would otherwise fail-close
     // on a rule phpat never runs.
-    $isRuleMethod = ($sawTestRule || $isTestNamed) && !$sawNonPublic;
+    //
+    // Visibility is read by looking BACKWARD from `function` over its own immediately
+    // preceding, contiguous modifier run — not by a flag carried FORWARD from wherever
+    // a `T_PRIVATE`/`T_PROTECTED` token last appeared. The forward form was tried first
+    // and was wrong: PHP's trait-conflict-resolution syntax (`use Helper { someMethod
+    // as private; }`) emits a bare T_PRIVATE/T_PROTECTED token with no following
+    // T_FUNCTION/T_VARIABLE/T_CONST to reset it, so that trait-adaptation line silently
+    // poisoned the NEXT real, genuinely public rule method into looking non-public —
+    // defeating the fail-closed guarantee on a rule phpat actually runs. Verified:
+    // reverting to the forward form reproduces exit 0 on such a fixture where this
+    // lookback correctly reds it. Mirrors the `Foo::class`/`new class` lookback already
+    // used above for the same reason — bounded to the immediate run, nothing outside
+    // it can poison the read.
+    $isNonPublic = false;
 
-    if (($name === null) || !$isRuleMethod) {
-        $sawTestRule  = false;
-        $sawNonPublic = false;
+    for ($back = $index - 1; $back >= 0; --$back) {
+        $previous = $ruleTokens[$back];
 
-        continue;
+        // A non-array token here is always the attribute group's closing `]` (or a
+        // `;`/`{` from something else entirely) — either way, the modifier run ends.
+        if (!is_array($previous)) {
+            break;
+        }
+
+        if ($previous[0] === \T_WHITESPACE) {
+            continue;
+        }
+
+        if (($previous[0] === \T_PRIVATE) || ($previous[0] === \T_PROTECTED)) {
+            $isNonPublic = true;
+
+            continue;
+        }
+
+        if (($previous[0] === \T_PUBLIC)
+            || ($previous[0] === \T_STATIC)
+            || ($previous[0] === \T_ABSTRACT)
+            || ($previous[0] === \T_FINAL)
+            || ($previous[0] === \T_READONLY)
+        ) {
+            continue;
+        }
+
+        break;
     }
 
-    $sawTestRule  = false;
-    $sawNonPublic = false;
+    // `$topDepth === 1` is the same "invisible to phpat's reflection" idea applied to
+    // NESTING: a method declared inside a closure or an anonymous class within another
+    // method's body is equally invisible to phpat's `getMethods()` on the ONE extracted
+    // ArchitectureTest class.
+    $isRuleMethod = ($sawTestRule || $isTestNamed) && !$isNonPublic && ($topDepth === 1);
+
+    // Unconditional: both the taken and the not-taken branch below reset this to the
+    // same value, and $isTestNamed/$isRuleMethod above already read the pre-reset
+    // state, so hoisting the reset above the branch is behavior-preserving.
+    $sawTestRule = false;
+
+    if (($name === null) || !$isRuleMethod) {
+        continue;
+    }
 
     // The body, by brace depth over DELIMITER tokens only.
     //

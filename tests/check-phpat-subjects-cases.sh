@@ -1149,4 +1149,84 @@ write_archtest "$d" "$CONFIG_RULE
 $PROTECTED_TESTRULE_IGNORED"
 assert_accepts "$d" "a protected #[TestRule] method is not picked up as a rule"
 
+# ACCEPT: a test*-named method NESTED inside an anonymous class within a rule's own
+# body must not be picked up either — phpat's TestParser reflects the ONE extracted
+# ArchitectureTest class only, so a method that deep is as invisible to it as a
+# private one. Its body has no ->classes(Selector::…), so if the depth scoping were
+# dropped this would fail closed and flip to a reject.
+d="$work/test-named-nested-in-anonymous-class-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$(cat <<'RULE'
+    public function testConfigurationIsALeaf(): Rule
+    {
+        $probe = new class {
+            public function testShouldNotBeARule(): string
+            {
+                return 'nested, not a rule';
+            }
+        };
+
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Configuration is a leaf.');
+    }
+RULE
+)"
+assert_accepts "$d" "a test-prefixed method nested inside an anonymous class is not picked up as a rule"
+
+# REJECT (fail-closed): phpat's own regex is case-sensitive — a `Test…`-named method
+# does not qualify. Standalone, so this discriminates the case-sensitivity of the
+# regex directly: with a case-INsensitive match this would be picked up (and pass,
+# since its subject is live), so the assertion would silently flip to accept instead.
+d="$work/pascal-case-test-name-not-a-rule"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$(cat <<'RULE'
+    public function TestConfigurationIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Configuration is a leaf.');
+    }
+RULE
+)"
+assert_rejects "$d" "a PascalCase Test-named method does not qualify (phpat's regex is case-sensitive)" \
+    "no #[TestRule] or test*-named public rule methods found"
+
+# REJECT: a bare T_PRIVATE token with no declaration of its own must not poison the
+# NEXT method's visibility. PHP's trait-conflict-resolution syntax
+# (`use Helper { someMethod as private; }`) emits exactly that: a T_PRIVATE token
+# followed by `;` and `}`, never by a function/property/const declaration. A
+# forward-carried "have I seen private/protected" flag, reset only on a fixed set of
+# declaration-keyword barriers, is not reset by that `;`/`}` and silently marks the
+# REAL rule method right after it as non-public — hiding its vacuous subject instead
+# of reporting it. This fixture's rule targets a namespace with no class in it, so it
+# must still be REJECTED for its subject, exactly as it would be with the `use`
+# statement removed.
+d="$work/trait-adaptation-private-does-not-poison-next-method"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'trait Helper\n{\n    public function someMethod(): void\n    {\n    }\n}\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
+    printf '    use Helper { someMethod as private; }\n\n'
+    printf '    #[TestRule]\n    public function modelIsALeaf(): Rule\n    {\n'
+    printf '        return PHPat::rule()\n'
+    printf "            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Traits'))\n"
+    printf '            ->shouldNot()->dependOn()\n'
+    printf "            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))\n"
+    printf "            ->because('Model is a leaf.');\n"
+    printf '    }\n}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does not poison the next method's visibility" \
+    "matches no class"
+
 verdict
