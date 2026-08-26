@@ -1575,15 +1575,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[X]
-    public function notARealRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
-    }" '' 'use function PHPat\Test\Attributes\{TestRule as X};'
+$(as_not_a_real_rule notARealRule 'Not a real TestRule — X aliases a FUNCTION import, not a class.')" '' 'use function PHPat\Test\Attributes\{TestRule as X};'
 assert_accepts "$d" "a declaration-level use-function group import does not mistake its alias for TestRule"
 
 # GH-58 (security-reviewer): the same declaration-level keyword also governs a
@@ -1596,15 +1588,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[X]
-    public function notARealRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
-    }" '' 'use function PHPat\Test\Attributes\bar, PHPat\Test\Attributes\TestRule as X;'
+$(as_not_a_real_rule notARealRule 'Not a real TestRule — X aliases a FUNCTION import, not a class.')" '' 'use function PHPat\Test\Attributes\bar, PHPat\Test\Attributes\TestRule as X;'
 assert_accepts "$d" "a declaration-level use-function unbraced list does not mistake its alias for TestRule"
 
 # GH-58 (testing-reviewer): the mirror case of the two fixtures above — a PER-ITEM
@@ -1648,15 +1632,7 @@ write_archtest "$d" "    use Helper { TestRule as X; }
 
 $MODEL_RULE
 
-    #[X]
-    public function notARealRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Not a real TestRule — X renames a trait method, not an import.');
-    }" \
+$(as_not_a_real_rule notARealRule 'Not a real TestRule — X renames a trait method, not an import.')" \
     'trait Helper
 {
     public function TestRule(): void
@@ -1676,15 +1652,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[X]
-    public function notARealRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Not a real TestRule — X aliases a CONST import, not a class.');
-    }" '' 'use const PHPat\Test\Attributes\{TestRule as X};'
+$(as_not_a_real_rule notARealRule 'Not a real TestRule — X aliases a CONST import, not a class.')" '' 'use const PHPat\Test\Attributes\{TestRule as X};'
 assert_accepts "$d" "a declaration-level use-const group import does not mistake its alias for TestRule"
 
 # GH-58 (testing-reviewer): the bare `$importNameLower === 'testrule'` exact-match
@@ -1698,15 +1666,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[X]
-    public function bareAliasedVacuousRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a bare, unqualified import.');
-    }" '' 'use TestRule as X;'
+$(as_vacuous_alias_rule X bareAliasedVacuousRule Rule 'Vacuous — must never hide behind a bare, unqualified import.')" '' 'use TestRule as X;'
 assert_rejects "$d" "a bare, unqualified TestRule import alias is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1723,15 +1683,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[Alias]
-    public function hidden(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a same-line comment in the alias.');
-    }" '' 'use PHPat\Test\Attributes\TestRule as/**/Alias;'
+$(as_vacuous_alias_rule Alias hidden Rule 'Vacuous — must never hide behind a same-line comment in the alias.')" '' 'use PHPat\Test\Attributes\TestRule as/**/Alias;'
 assert_rejects "$d" "a same-line comment between 'as' and an alias name does not hide the alias" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1784,5 +1736,63 @@ write_archtest "$d" "    #[TestRule]
     }"
 assert_rejects "$d" "a same-line comment after 'namespace' does not hide the namespace from the class inventory" \
     "classname(Node) matches no class"
+
+# GH-58 (test-quality-reviewer): the class-inventory walk's class-name lookahead
+# (the loop scanning forward from T_CLASS for the T_STRING it names) only ever
+# skipped T_WHITESPACE. A same-line comment between `class` and the name is
+# neither T_WHITESPACE nor T_STRING, so the lookahead's single non-whitespace peek
+# landed on the comment, found no name, and dropped the class from the inventory
+# entirely — a genuinely LIVE class then reads as `classname()` matches nothing.
+# Written directly rather than via write_class(), which never emits a comment
+# between `class` and the name.
+d="$work/comment-between-class-keyword-and-class-name-does-not-hide-the-class"
+mkdir -p "$d/src" "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod;\n\n'
+    printf 'final class/* comment */Node\n{\n}\n'
+} > "$d/src/Node.php"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Node'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\NoSuchClass'))
+            ->because('Live — Node exists despite the comment between class and its name.');
+    }"
+assert_accepts "$d" "a same-line comment between 'class' and the class name does not hide the class from the inventory"
+
+# GH-58 (codex-rescue): NAMESPACE_ROOT used to be extracted by an
+# unanchored `preg_match('/const\s+string\s+NAMESPACE_ROOT\s*=\s*\'([^\']+)\'/', ...)`
+# over the WHOLE stripped source — a substring search, not a declaration lookup. A
+# `DECOY` class constant declared BEFORE the real one, whose STRING VALUE happens to
+# read `const string NAMESPACE_ROOT = 'Vendor\Fake'`, matched first and resolved the
+# gate's own namespace root to a namespace that does not exist, silently rejecting a
+# genuinely live rule as vacuous. Written directly rather than via write_archtest(),
+# whose fixed constant placement cannot put a decoy before the real declaration.
+d="$work/decoy-namespace-root-string-literal-does-not-hijack-the-real-constant"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\\\Fake'\";\n\n"
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf '    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under the real NAMESPACE_ROOT, not the decoy.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_accepts "$d" "a decoy string literal reading like a NAMESPACE_ROOT declaration does not hijack the real constant"
 
 verdict

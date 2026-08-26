@@ -114,8 +114,9 @@ if (!is_dir($srcDir)) {
  *
  * This is not only needed for the NAMESPACE_ROOT regex below: $ruleTokens further down
  * is `token_get_all()` of THIS function's OWN output, so a bug here reaches rule
- * discovery and alias resolution too — the class inventory walk is the one consumer
- * that does NOT go through this closure (it tokenises each `src/*.php` file directly).
+ * discovery and alias resolution too, and the class inventory walk tokenises each
+ * `src/*.php` file through this same closure as well — a bug here is not confined to
+ * ArchitectureTest.php.
  *
  * A comment spanning ZERO newlines must contribute a real character, not an empty
  * string: two token TEXTS either side of such a comment otherwise concatenate into ONE
@@ -129,8 +130,10 @@ if (!is_dir($srcDir)) {
  * test*-name discovery path. A single space — never itself a valid substring of another
  * token, so it can only ever ADD a boundary, never remove one the real source didn't
  * already have — is inserted whenever the comment carries no newline; a multi-line
- * comment still contributes only its own newlines, so the `^`-anchored NAMESPACE_ROOT
- * pattern's line numbers are unaffected.
+ * comment still contributes only its own newlines. That newline count is cosmetic —
+ * nothing in this file reads a token's line offset — kept only so the stripped
+ * output's line count matches the original source for anyone reading it while
+ * debugging.
  *
  * @param string $code The raw PHP source.
  *
@@ -144,10 +147,10 @@ $stripComments = static function (string $code): string {
             if (($token[0] === \T_COMMENT) || ($token[0] === \T_DOC_COMMENT)) {
                 $newlineCount = substr_count($token[1], "\n");
 
-                // A multi-line comment still contributes only its own newlines, so
-                // line numbers and the `^`-anchored patterns are unaffected; a
-                // same-line comment gets a single space instead of nothing, so it
-                // cannot glue its neighbouring tokens together.
+                // A multi-line comment still contributes only its own newlines
+                // (cosmetic — kept for line-count parity with the source, see the
+                // docblock above); a same-line comment gets a single space instead
+                // of nothing, so it cannot glue its neighbouring tokens together.
                 $result .= ($newlineCount > 0) ? str_repeat("\n", $newlineCount) : ' ';
 
                 continue;
@@ -223,13 +226,71 @@ if (strlen($sourceRaw) > MAX_SOURCE_BYTES) {
 $source = $stripComments($sourceRaw);
 
 // --- Resolve the module root namespace (the NAMESPACE_ROOT constant) ---
-$namespaceRoot = null;
+//
+// Tokens, not a substring search over the whole file — the same reason the class
+// inventory further below is token-based rather than a regex. A `preg_match` here
+// matches the same-looking text ANYWHERE in $source, including inside an unrelated
+// string literal: verified live, a decoy class constant whose STRING VALUE happens to
+// read `const string NAMESPACE_ROOT = '...'`, declared before the real one, resolved
+// every subject in the file against the decoy's value instead — a rule targeting the
+// REAL namespace (which has no matching class) was silently certified live because the
+// decoy's value named a DIFFERENT namespace that does. `$stripComments` closes the
+// comment variant of this same class of bug elsewhere in this file; it cannot close
+// this one, since the decoy text lives inside a real string token, not a comment.
+//
+// `Type` in `const Type NAME = value;` and the constant's own NAME both tokenise as
+// T_STRING (the lexer does not know one is a type and the other a name); whichever one
+// is LAST before the `=` is the real name, so $name is overwritten on every T_STRING
+// seen rather than fixed on the first.
+$namespaceRoot  = null;
+$constantTokens = token_get_all($source);
+$constantCount  = count($constantTokens);
 
-if (preg_match('/const\s+string\s+NAMESPACE_ROOT\s*=\s*\'([^\']+)\'/', $source, $m) === 1) {
-    // A single-quoted namespace literal may be written with single or escaped
-    // (`\\`) backslashes; normalise to the single-backslash form the `namespace`
-    // declarations in the class inventory always use.
-    $namespaceRoot = str_replace('\\\\', '\\', $m[1]);
+for ($index = 0; $index < $constantCount; ++$index) {
+    if (!is_array($constantTokens[$index]) || ($constantTokens[$index][0] !== \T_CONST)) {
+        continue;
+    }
+
+    $name  = null;
+    $value = null;
+
+    for ($ahead = $index + 1; $ahead < $constantCount; ++$ahead) {
+        $next = $constantTokens[$ahead];
+
+        if (!is_array($next)) {
+            if ($next === ';') {
+                break;
+            }
+
+            continue;
+        }
+
+        if ($next[0] === \T_WHITESPACE) {
+            continue;
+        }
+
+        if ($next[0] === \T_STRING) {
+            $name = $next[1];
+
+            continue;
+        }
+
+        if (($name !== null) && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)) {
+            $value = $next[1];
+
+            break;
+        }
+    }
+
+    if (($name === 'NAMESPACE_ROOT') && ($value !== null)) {
+        // A single-quoted namespace literal may be written with single or escaped
+        // (`\\`) backslashes; normalise to the single-backslash form the `namespace`
+        // declarations in the class inventory always use. substr() strips the
+        // literal's own surrounding quote characters (single or double).
+        $namespaceRoot = str_replace('\\\\', '\\', substr($value, 1, -1));
+
+        break;
+    }
 }
 
 // --- Build the class inventory of src/ (FQCN => kind) ---
@@ -287,10 +348,13 @@ foreach ($directory as $file) {
 
     // Through $stripComments (declared above, already hardened for the ArchitectureTest
     // path): the size cap above already ran against the RAW $sourceFile, so stripping
-    // here does not change what counts against it. Without this, a same-line comment
-    // between `namespace` and its name, between a modifier/keyword and `class`, or
-    // between `class` and its name, glues adjacent token text together on
-    // re-tokenisation the same way it does in $stripComments's own docblock — verified
+    // here does not change what counts against it. Without this, the namespace-name
+    // and class-name lookaheads below — which only ever skipped T_WHITESPACE — gave up
+    // the moment a comment sat between `namespace`/a modifier/`class` and the name that
+    // follows, since a bare, un-skipped T_COMMENT token satisfies neither the "keep
+    // scanning" nor the "found the name" branch. This is a DIFFERENT failure shape than
+    // $stripComments's own re-tokenisation-gluing bug (there is only ever one
+    // tokenisation of $sourceFile here, not a strip-then-retokenise step) — verified
     // live: `namespace /* c */ Vendor\Mod\Model;` left $namespace empty, so a class
     // genuinely declared in Vendor\Mod\Model was inventoried under its bare name
     // instead, certifying a `classname()` subject targeting that bare name as live
