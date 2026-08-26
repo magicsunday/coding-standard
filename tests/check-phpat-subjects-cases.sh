@@ -1321,14 +1321,15 @@ write_archtest "$d" "    protected abstract function testConfigurationIsALeaf():
 assert_rejects "$d" "a protected abstract test-prefixed method is not picked up as a rule (T_ABSTRACT does not mask T_PROTECTED)" \
     "no #[TestRule] or test*-named public rule methods found"
 
-# GH-58: a return-by-reference declaration inserts a
+# GH-58 (testing-reviewer): a return-by-reference declaration inserts a
 # T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG token the name-extraction loop must
-# skip to reach the method name. Before the fix this rule was entirely invisible
-# (not merely fail-closed to "no rule methods found" — it would have silently
-# vanished from $ruleMethods while the run still printed OK, since nothing else in
-# this file requires a rule to be found for a run to pass). Standalone with a
-# vacuous subject, so this can only pass if the return-by-reference rule is
-# genuinely recognised and its subject genuinely checked.
+# skip to reach the method name. This STANDALONE shape only proves the rule is
+# recognised and its subject checked at all — reverting the fix here still rejects
+# (correctly, "no #[TestRule] or test*-named public rule methods found"), just for an
+# unrelated reason ($ruleMethods stays empty), not because a vacuous subject was
+# inspected. The genuinely dangerous shape — silently printing OK — needs a SECOND,
+# live rule in the same file to keep $ruleMethods non-empty; see the mixed fixture
+# below, which is the one that actually discriminates that failure mode.
 d="$work/return-by-reference-vacuous"
 write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
@@ -1342,6 +1343,30 @@ write_archtest "$d" "    public function &testModelIsALeaf(): Rule
     }"
 assert_rejects "$d" "a return-by-reference test-prefixed rule with a vacuous subject is analysed, not skipped" \
     "matches no class"
+
+# GH-58 (testing-reviewer): the actual danger the fix above closes — silently printing
+# OK — only manifests when $ruleMethods stays non-empty, i.e. the return-by-reference
+# rule coexists with one other genuine rule. This fixture has a LIVE #[TestRule] rule
+# (CONFIG_RULE) plus the same return-by-reference test*-named rule with a vacuous
+# subject as the standalone fixture above. Reverting the ampersand-skip fix makes this
+# one print OK (exit 0) — the vacuous rule silently vanishes from $ruleMethods while
+# CONFIG_RULE alone satisfies every other check — which is the one thing the standalone
+# fixture cannot prove.
+d="$work/return-by-reference-vacuous-mixed-with-live-rule"
+write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$CONFIG_RULE
+
+    public function &testModelIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Model is a leaf.');
+    }"
+assert_rejects "$d" "a return-by-reference rule mixed with another live rule is still analysed, not silently masked" \
+    "inNamespace(Vendor\\Mod\\Traits) matches no class"
 
 # GH-58: $attributeResolvedCount was incremented for
 # ANY #[TestRule]-attached function, including one nested inside a closure or
