@@ -68,7 +68,9 @@ directory that matches how it is consumed, never at the root for convenience.
   `biome`/`typescript` toolchain the way `require` does for PHP — each consumer
   installs `@biomejs/biome` and `typescript` itself. (`bin/check-js-config.mjs` is
   a deliberate, separate exception — see the Node-floor bullet below.)
-  **Node tool versions track the current major — always pin forward.** The peer
+  **Node tool versions track the current major — always pin forward, with one named
+  exception: TypeScript's floor deliberately lags `latest` until real consumers have
+  moved onto the declared range (#59).** The peer
   ranges never span a major CI does not exercise — read them rather than trusting a
   copy here (`jq -r '.peerDependencies' package.json`), and note that
   `tests/check-js-configs.sh` asserts each against the exact pin it installs; moving one

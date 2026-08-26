@@ -1266,8 +1266,8 @@ if ($adopted && is_file($tsconfigFile)) {
         //
         // The family matters because each member may be written back
         // individually: TypeScript treats the specific option as an override of
-        // the umbrella, so pinning only `strict` pins nothing. Measured with the
-        // tsc this package proves against (7.0.2):
+        // the umbrella, so pinning only `strict` pins nothing. Measured with tsc
+        // 7.0.2:
         //
         //     printf 'export function len(s: string|null): number { return s.length; }' > src/index.ts
         //     # {"strict":true}                            -> error TS18047: 's' is possibly 'null'
