@@ -992,8 +992,8 @@ if (adopted && tsconfigFileExists) {
 
         // The nine after `strict` are the family `strict` switches on as a
         // group; the five after those are not implied by `strict` at all —
-        // see the PHP gate's comment for the derivation and the measured
-        // 7.0.2 counter-example this pins.
+        // see the PHP gate's comment for the derivation and the tsc 7.0.2
+        // counter-example that measured it.
         const pinnedFlags = [
             'strict',
             'alwaysStrict',
