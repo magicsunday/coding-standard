@@ -55,15 +55,24 @@ as_test_named_rule() {
     sed -e '/#\[TestRule\]/d' -e "s/public function $2(/public function $3(/" <<<"$1"
 }
 
-# write_archtest <dir> <rule-methods-block>
+# write_archtest <dir> <rule-methods-block> [preamble]
+#
+# <preamble>, when given, is written between the `use` imports and the
+# `final class ArchitectureTest` declaration — for a top-level declaration
+# (e.g. a trait) that a fixture needs in the SAME file this gate tokenises,
+# and that the <rule-methods-block> argument (already inside the class body)
+# cannot express.
 write_archtest() {
-    local dir="$1" methods="$2"
+    local dir="$1" methods="$2" preamble="${3:-}"
     mkdir -p "$dir/tests/Architecture"
     {
         printf '<?php\n\ndeclare(strict_types=1);\n\n'
         printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
         printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
         printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+        if [ -n "$preamble" ]; then
+            printf '%s\n\n' "$preamble"
+        fi
         printf 'final class ArchitectureTest\n{\n'
         printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
         printf '%s\n}\n' "$methods"
@@ -1198,24 +1207,15 @@ assert_rejects "$d" "a PascalCase Test-named method does not qualify (phpat's re
 # statement removed.
 d="$work/trait-adaptation-private-does-not-poison-next-method"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
-mkdir -p "$d/tests/Architecture"
+write_archtest "$d" "    use Helper { someMethod as private; }
+
+$MODEL_RULE_ON_TRAITS" \
+    'trait Helper
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
-    printf 'trait Helper\n{\n    public function someMethod(): void\n    {\n    }\n}\n\n'
-    printf 'final class ArchitectureTest\n{\n'
-    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
-    printf '    use Helper { someMethod as private; }\n\n'
-    printf '    #[TestRule]\n    public function modelIsALeaf(): Rule\n    {\n'
-    printf '        return PHPat::rule()\n'
-    printf "            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Traits'))\n"
-    printf '            ->shouldNot()->dependOn()\n'
-    printf "            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))\n"
-    printf "            ->because('Model is a leaf.');\n"
-    printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+    public function someMethod(): void
+    {
+    }
+}'
 assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does not poison the next method's visibility" \
     "matches no class"
 
