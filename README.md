@@ -80,7 +80,7 @@ widened by hand once a bump is green.
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
 what the tools themselves demand — derive them rather than trusting these numbers:
 `node -p "require('@biomejs/biome/package.json').engines.node"` and the same for
-`typescript` (14.21.3 and 16.20.0 as of 2026-07-28): those floors are years behind the maintained release lines, so meeting
+`typescript` (14.21.3 and 14.17 as of 2026-08-26): those floors are years behind the maintained release lines, so meeting
 them says nothing about a repository being current.
 
 `devEngines` and `engines` point at two different audiences and do not move
