@@ -1225,23 +1225,28 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         }
     }
 
-    // The scan above can end with $depth still nonzero: an unclosed brace inside
-    // this method's own body (accidental malformed source, or a deliberately
-    // crafted attempt to hide a later rule from this loop) runs the scan all the
-    // way to end-of-file without ever seeing $depth return to 0. Verified live: a
-    // #[TestRule] method with one unclosed `{` in its body, followed by a second,
-    // genuinely vacuous test*-named method, printed OK — the second method's own
-    // T_FUNCTION token falls inside $index+1..$ahead, the range this loop is
-    // about to jump the OUTER loop's index past, so it is never independently
-    // visited and its vacuous subject is never checked. Skipping this jump
-    // instead of failing closed does not help: the outer loop's own $topDepth
-    // would then walk through this same unclosed brace itself and stay
-    // permanently inflated for the rest of the file, excluding every later
-    // method via the $topDepth === 1 nesting gate just as silently. Once brace
-    // balance is violated, nothing after this point in the file can be reliably
-    // attributed to any rule — fail closed for THIS rule and stop scanning
-    // rather than risk the identical silent skip for whatever candidate comes
-    // next.
+    // The scan above can end with $depth still nonzero: an unclosed brace
+    // anywhere in this method's own body runs the scan all the way to
+    // end-of-file without ever seeing $depth return to 0. A fixture built this
+    // way against the pre-this-guard gate did print OK, silently skipping a
+    // genuinely vacuous test*-named method declared after the malformed one —
+    // but that fixture, checked afterward, is itself invalid PHP (`php -l`:
+    // "unexpected token \"public\""), and every construction found so far that
+    // reproduces the skip is invalid PHP the same way: for the local depth
+    // count to still be nonzero at true end-of-file while the OVERALL file
+    // still compiles, a later class member's own `public`/`protected`/etc.
+    // keyword would need to sit lexically inside the still-open method body,
+    // which is not valid syntax there. So this specific "swallow a real
+    // sibling method" shape is likely NOT constructible in any ArchitectureTest
+    // that could actually load for phpat/PHPUnit to run — the same disposition
+    // as the decoy-interpolation case a few lines below, just not as cleanly
+    // provable (a nested, modifier-less `function` declaration IS legal to
+    // write here, but is then a plain conditionally-declared function, not a
+    // reflectable class method, so phpat would never run it as a rule either).
+    // Kept as free, harmless defense-in-depth regardless — it fails closed only
+    // on an already-malformed body and never misfires on valid input, so
+    // there is no cost to keeping it even if the scenario it guards turns out
+    // to be unreachable.
     if ($depth !== 0) {
         $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', safeReportValue($name));
 
