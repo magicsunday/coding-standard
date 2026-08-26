@@ -1036,16 +1036,12 @@ assert_rejects "$d" "a malformed rule does not adopt a non-ASCII-named helper's 
 # reporting the subject at all.
 d="$work/report-injection"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 
 # Built with printf rather than a second interpreter: the buildbox ships PHP, not
 # python3. A raw ESC and raw newlines inside a PHP single-quoted string are legal,
 # and the gate's own `[^)]*` / `[^\']+` captures do not exclude either.
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
     printf '        return PHPat::rule()\n'
@@ -1057,7 +1053,7 @@ mkdir -p "$d/tests/Architecture"
     printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
     printf "            ->because('Injected subject.');\n"
     printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 
 assert_report_is_inert "$d" 'a classname subject carrying control characters' \
     'Nope?[2K?::error title=Architecture'
@@ -1069,13 +1065,9 @@ assert_report_is_inert "$d" 'a classname subject carrying control characters' \
 # stated motivation went unpinned. The sibling gate's overlong-key case is the shape.
 d="$work/report-length-rule-name"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 long_name="$(printf 'z%.0s' $(seq 1 400))"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf '    #[TestRule]\n    public function %s(): Rule\n    {\n' "$long_name"
     printf '        return PHPat::rule()\n'
@@ -1084,7 +1076,7 @@ long_name="$(printf 'z%.0s' $(seq 1 400))"
     printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
     printf "            ->because('Long rule name.');\n"
     printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 
 assert_rejects "$d" "an overlong rule name is truncated with a marker" \
     "$(printf 'z%.0s' $(seq 1 64))…"
@@ -1094,12 +1086,8 @@ assert_rejects "$d" "an overlong rule name is truncated with a marker" \
 # measured: the scrubbed value reached 70 bytes before the payload began.
 d="$work/report-injection-legacy-prefix"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
     printf '        return PHPat::rule()\n'
@@ -1108,7 +1096,7 @@ mkdir -p "$d/tests/Architecture"
     printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
     printf "            ->because('Injected subject.');\n"
     printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 
 assert_report_is_inert "$d" 'a classname subject opening with the legacy prefix' \
     'classname(##?[error]forged clean run)'
@@ -1125,12 +1113,8 @@ assert_report_is_inert "$d" 'a classname subject opening with the legacy prefix'
 # which is the amplification the 64-byte cap exists against.
 d="$work/report-injection-namespace"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
     printf '        return PHPat::rule()\n'
@@ -1141,7 +1125,7 @@ mkdir -p "$d/tests/Architecture"
     printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
     printf "            ->because('Injected subject.');\n"
     printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 
 assert_report_is_inert "$d" 'an inNamespace subject carrying control characters' \
     'Nope?[2K?::error title=Architecture'
@@ -1150,12 +1134,8 @@ assert_report_is_inert "$d" 'an inNamespace subject carrying control characters'
 # and a concatenation is exactly what reaches it.
 d="$work/report-injection-argument"
 write_class "$d" 'Model/Person.php' 'Vendor\Mod\Model' class Person
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
     printf '    #[TestRule]\n    public function injected(): Rule\n    {\n'
@@ -1167,7 +1147,7 @@ mkdir -p "$d/tests/Architecture"
     printf "            ->classes(Selector::classname('Vendor\\Mod\\Model\\Person'))\n"
     printf "            ->because('Injected subject.');\n"
     printf '    }\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 
 assert_report_is_inert "$d" 'an unresolvable argument carrying control characters' \
     '?[2K?::error title=Architecture'
