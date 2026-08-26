@@ -63,20 +63,31 @@ as_modifier_variant() {
     sed "s/public function/$2 function/" <<<"$1"
 }
 
-# write_archtest <dir> <rule-methods-block> [preamble]
+# write_archtest <dir> <rule-methods-block> [preamble] [test-rule-alias]
 #
 # <preamble>, when given, is written between the `use` imports and the
 # `final class ArchitectureTest` declaration — for a top-level declaration
 # (e.g. a trait) that a fixture needs in the SAME file this gate tokenises,
 # and that the <rule-methods-block> argument (already inside the class body)
 # cannot express.
+#
+# <test-rule-alias>, when given, imports the TestRule attribute
+# `as <test-rule-alias>` instead of under its own name — for a fixture proving the
+# gate follows an aliased import (`#[<test-rule-alias>]`) the same as the literal
+# `#[TestRule]`, which real consumer code is free to write on an ordinary name
+# collision with another `TestRule`-named symbol.
 write_archtest() {
-    local dir="$1" methods="$2" preamble="${3:-}"
+    local dir="$1" methods="$2" preamble="${3:-}" testRuleAlias="${4:-}"
     mkdir -p "$dir/tests/Architecture"
     {
         printf '<?php\n\ndeclare(strict_types=1);\n\n'
         printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-        printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+        printf 'use PHPat\\Selector\\Selector;\n'
+        if [ -n "$testRuleAlias" ]; then
+            printf 'use PHPat\\Test\\Attributes\\TestRule as %s;\n' "$testRuleAlias"
+        else
+            printf 'use PHPat\\Test\\Attributes\\TestRule;\n'
+        fi
         printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
         if [ -n "$preamble" ]; then
             printf '%s\n\n' "$preamble"
@@ -237,18 +248,10 @@ RULE
 # public is equally invisible to phpat. Its subject is deliberately vacuous
 # (inNamespace(Traits), no Traits class in this fixture) so that if the visibility
 # guard were dropped, the fixture using this would flip from accept to reject.
-PROTECTED_TESTRULE_IGNORED="$(cat <<'RULE'
-    #[TestRule]
-    protected function protectedRuleIsIgnored(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Should never run.');
-    }
-RULE
-)"
+# Derived from MODEL_RULE_ON_TRAITS (same selector shape) rather than hand-typed, so
+# the two cannot silently drift apart — same rationale as as_test_named_rule() above.
+PROTECTED_TESTRULE_IGNORED="$(sed -e 's/public function modelIsALeaf/protected function protectedRuleIsIgnored/' \
+    -e "s/Model is a leaf\./Should never run./" <<<"$MODEL_RULE_ON_TRAITS")"
 
 # A malformed #[TestRule] (delegating, no ->classes(Selector) in its own body) followed
 # by a helper method that DOES have one — the search must stop at the helper's declaration
@@ -1381,5 +1384,43 @@ RULE
 )"
 assert_rejects "$d" "a #[TestRule] nested inside an anonymous class within a live rule's body is not silently counted as resolved" \
     "attribute(s) found but only"
+
+# GH-58 round-9 (testing-reviewer): the subject-extraction scan is documented (at its
+# own declaration site) as misattributing the nested rule's subject text to the
+# ENCLOSING rule's name in this exact shape — a naming defect, not a fail-open one (the
+# misattachment check above already reds the run regardless). Pinning the current text
+# here, not just documenting it, so a future change to the extraction logic cannot
+# silently alter or worsen it without this suite noticing.
+out="$(php "$GATE" "$d" 2>&1)" || true
+if ! grep -qF -- "live: subject inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class" <<<"$out"; then
+    harness_fail "the documented subject-misattribution for a nested #[TestRule] changed shape — update the comment at the subject-extraction site"
+fi
+
+# GH-58 round-9 (security-reviewer): `use PHPat\Test\Attributes\TestRule as Rule2;`
+# makes `#[Rule2]` the real attribute — PHP resolves it via ordinary import-alias
+# resolution, and phpat's own TestParser filters by FQCN, not by the literal text
+# `TestRule`. Before the fix, the attribute-recognition scan compared only the literal
+# segment `TestRule`, so an aliased rule's attribute never counted toward $attributeSum
+# and never entered $ruleMethods — its vacuous subject was never inspected at all, as
+# long as the file also had one other, non-aliased rule. This fixture has exactly that
+# shape: one genuine #[TestRule] rule with a live subject, plus one #[Rule2]-aliased
+# rule with a deliberately vacuous inNamespace() subject. It can only be rejected if
+# the alias is tracked and treated the same as the literal attribute name.
+d="$work/aliased-testrule-attribute-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[Rule2]
+    public function aliasedVacuousRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind an import alias.');
+    }" '' 'Rule2'
+assert_rejects "$d" "a #[TestRule] attribute imported under an alias is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
 verdict

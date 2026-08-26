@@ -489,7 +489,7 @@ $attributeResolvedCount = 0;
  *
  * @param array{0: int, 1: string, 2: int}|string $token A token from token_get_all().
  *
- * @return int -1, 0 or 1.
+ * @return int Returns -1, 0 or 1.
  */
 $braceDelta = static function (array|string $token): int {
     if (is_array($token)) {
@@ -505,10 +505,73 @@ $braceDelta = static function (array|string $token): int {
 
 $topDepth = 0;
 
+// A `use PHPat\Test\Attributes\TestRule as X;` import makes `#[X]` the real attribute —
+// PHP resolves it via ordinary import-alias resolution, and phpat's own TestParser
+// filters by FQCN (`getAttributes(TestRule::class)`, same re-derivation command as
+// above), not by the literal text `TestRule`. Without tracking this, an aliased rule's
+// attribute never matched the literal comparison below, so it never incremented
+// $attributeSum and never entered $ruleMethods — its subject, vacuous or not, was never
+// inspected, while the run stayed green as long as the file also had one other,
+// non-aliased rule. Verified live: a fixture with one aliased, deliberately vacuous rule
+// alongside one genuine rule printed OK. `TestRule` itself is always a member: it is
+// what every non-aliased spelling (bare, qualified, fully-qualified) already resolves
+// to at the comparison site.
+$testRuleAliases = ['TestRule'];
+
 for ($index = 0; $index < $ruleCount; ++$index) {
     $token = $ruleTokens[$index];
 
     $topDepth += $braceDelta($token);
+
+    // Bounded to $topDepth === 0 (before the class body opens): PHP's tokenizer emits
+    // the identical T_USE for an IMPORT and for trait-adaptation `use Trait { … }`
+    // inside a class body, and only the import form is a candidate for aliasing this
+    // attribute — a trait-adaptation `use` never introduces a class-level alias.
+    if (is_array($token) && ($token[0] === \T_USE) && ($topDepth === 0)) {
+        $importName = null;
+
+        for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
+            $next = $ruleTokens[$ahead];
+
+            if (!is_array($next)) {
+                break;
+            }
+
+            if ($next[0] === \T_WHITESPACE) {
+                continue;
+            }
+
+            if (($importName === null)
+                && (($next[0] === \T_STRING) || ($next[0] === \T_NAME_QUALIFIED) || ($next[0] === \T_NAME_FULLY_QUALIFIED))
+            ) {
+                $importName = $next[1];
+
+                continue;
+            }
+
+            if (($next[0] === \T_AS) && ($importName !== null)) {
+                for ($aliasAhead = $ahead + 1; $aliasAhead < $ruleCount; ++$aliasAhead) {
+                    $aliasToken = $ruleTokens[$aliasAhead];
+
+                    if (is_array($aliasToken) && ($aliasToken[0] === \T_WHITESPACE)) {
+                        continue;
+                    }
+
+                    if (is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
+                        && (($importName === 'TestRule') || str_ends_with($importName, '\TestRule'))
+                    ) {
+                        $testRuleAliases[] = $aliasToken[1];
+                    }
+
+                    break;
+                }
+            }
+
+            break;
+        }
+
+        continue;
+    }
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
         // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
@@ -566,7 +629,11 @@ for ($index = 0; $index < $ruleCount; ++$index) {
             if ($expectName && $isName) {
                 $segments = explode('\\', $inner[1]);
 
-                if (end($segments) === 'TestRule') {
+                // Against $testRuleAliases (built above), not the literal 'TestRule' —
+                // an aliased import (`use PHPat\Test\Attributes\TestRule as X;`) makes
+                // `#[X]` the real attribute, and `end($segments)` for that spelling is
+                // the alias, not 'TestRule'.
+                if (in_array(end($segments), $testRuleAliases, true)) {
                     $sawTestRule = true;
                     ++$attributeSum;
                 }
@@ -808,6 +875,21 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
 
     // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) after
     // PHPat::rule(). Slice up to the first ->should/->shouldNot within the method.
+    //
+    // Known, deliberately undefended gap in the same family as $topDepth's two above:
+    // a #[TestRule]-attributed method NESTED inside another rule's own body (via a
+    // closure or anonymous class) is correctly excluded from $ruleMethods and from
+    // $attributeResolvedCount, but its text is still part of $methodBody for the
+    // ENCLOSING rule — because the body-extraction loop bounds by brace depth alone,
+    // with no awareness of a nested function's own scope. If the nested rule's own
+    // ->classes(...)->should(Not)? call appears earlier in the text than the enclosing
+    // rule's, this scan misattributes the nested rule's subject to the enclosing rule's
+    // name in the printed violation. This is a NAMING defect only, not a fail-open one:
+    // the misattachment check above already reds the run for the nested attribute
+    // regardless, and nesting one rule inside another's own body is the same class of
+    // pathological, PSR-1-adjacent shape as the other two documented gaps — no real
+    // ArchitectureTest does this. Pinned (not merely documented) by the
+    // nested-testrule-not-counted-as-resolved fixture's must-carry check.
     $stop = preg_match('/->should(?:Not)?\s*\(/', $methodBody, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($methodBody);
     $head = substr($methodBody, 0, $stop);
 
