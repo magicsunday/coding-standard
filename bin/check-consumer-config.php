@@ -358,7 +358,8 @@ if ($phpunitFile === null) {
         }
 
         // The test suite must run `tests` and exclude `tests/Architecture` when
-        // that directory exists — a PHPStan rule class there is not a PHPUnit test.
+        // that directory exists — everything there is a rule class (PHPStan or
+        // otherwise), never a PHPUnit test, unconditionally.
         $suiteDirs    = [];
         $suiteExcl    = [];
 

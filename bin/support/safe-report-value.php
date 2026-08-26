@@ -29,7 +29,7 @@ declare(strict_types=1);
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
  * value they read out of a repository file — a JSON key, an XML attribute value, a
- * selector expression — comes from whoever opened the PR. Their findings go to
+ * pinned tag — comes from whoever opened the PR. Their findings go to
  * STDERR and their summaries to STDOUT, and the runner scans BOTH for workflow
  * commands (src/Runner.Worker/Handlers/ScriptHandler.cs wires each stream to its own
  * OutputManager; read 2026-08-19).
@@ -101,10 +101,11 @@ function safeReportValue(int|string $value): string
     // applies unconditionally, so no such count is load-bearing here.
     //
     // `::` is deliberately left alone: the v2 parser needs it at line start (it
-    // TrimStart()s first, so leading whitespace does not protect a line), while
-    // `Selector::classname` is legitimate report content that scrubbing would
-    // mangle on every run. The property that makes this safe is that no report line
-    // puts a consumer value where the runner's TrimStart() leaves `::` at the front.
+    // TrimStart()s first, so leading whitespace does not protect a line), while a
+    // namespaced identifier (`Vendor\Package::method`) is legitimate report content
+    // that scrubbing would mangle on every run. The property that makes this safe is
+    // that no report line puts a consumer value where the runner's TrimStart() leaves
+    // `::` at the front.
     //
     // That property is ASSERTED, not argued: harness_report_is_inert in
     // tests/harness.sh greps every gate's real output for `^[[:space:]]*::` and for

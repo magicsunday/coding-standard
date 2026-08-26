@@ -158,8 +158,11 @@ its finder.
 `base.neon` sets `level: max`, `treatPhpDocTypesAsCertain: false`, and pulls in the
 rule extensions (phpstan-strict-rules, deprecation-rules, phpstan-phpunit)
 through explicit relative `includes`. That is deliberate: `phpstan/extension-installer`
-does not reach Rector's bundled PHPStan, so a base relying on it makes `rector.php`'s
-`phpstanConfig` fail on an unknown parameter.
+does not reach Rector's bundled PHPStan, so a base relying on it for its rule packs
+loses them silently there instead of failing — the opt-in `disallowed-calls.neon`
+sets an extension-owned parameter (`disallowedFunctionCalls`) and would instead fail
+loudly with an unknown-parameter error, since that parameter has no meaning without
+its own explicit `includes`.
 
 ```neon
 # phpstan.neon
@@ -450,10 +453,13 @@ the run; `--fail-on-uncovered` is left off because every external dependency is
 uncovered.
 
 This supersedes the older per-repo phpat layer rules. phpat and its
-subject-liveness guard were removed from this package in 1.9.0; a consumer still
-carrying phpat rules migrates them to Deptrac (layer dependencies) or to its own
-check (the `Abstract*`/`final` structural rules, which Deptrac cannot express —
-its collectors have no notion of a class modifier).
+subject-liveness guard have been removed from this package; a consumer still
+carrying phpat rules migrates the layer-dependency ones to Deptrac and re-homes
+the `Abstract*`/`final` structural rules itself — as a PHPStan rule, or a PHPUnit
+test **outside** `tests/Architecture/`, which the shipped `phpunit.xml.dist`
+template excludes from the suite unconditionally. Deptrac cannot express either
+structural rule itself: its collectors model `classLike`/`class`/`interface`/
+`trait` and have no notion of a class modifier.
 
 ## Templates (copy-and-adapt)
 

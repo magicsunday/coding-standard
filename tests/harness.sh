@@ -15,12 +15,9 @@
 # directory, the failure counter, the degraded-run guard, the verdict, and the
 # probes that prove the counter reaches the exit code.
 #
-# It exists because the copies had already drifted apart. One case file (since
-# removed with the phpat scaffolding) still carried `assert_rejects` on the loose
-# `[ "$rc" -eq 0 ]` contract while its siblings had been tightened to
-# `[ "$rc" -ne 1 ]`, and two of the five harnesses had no bookkeeping probe at
-# all — so dropping one `fails=$((fails + 1))` in either left every case
-# printing FAILED at exit 0. One definition cannot drift from itself.
+# It exists because the copies had already drifted apart on the same contract in
+# more than one direction — dropping one `fails=$((fails + 1))` anywhere left
+# every case printing FAILED at exit 0. One definition cannot drift from itself.
 
 # Guard against a second source. Not because of the trap — sourcing arms none, the
 # `trap … EXIT` lives inside harness_workdir and a second source only redefines the
@@ -425,10 +422,8 @@ harness_probe_reporters 1 harness_probe_fail 'harness_fail does not raise the fa
 #
 # The could-not-run verdict, exit 2. Kept apart from the drift verdict because a
 # helper that accepts "any non-zero" lets a setup failure count as a caught
-# violation — which is what tightening one of the case harnesses first surfaced. Three
-# harnesses had grown their own copy of this within two rounds of the file that
-# exists to stop exactly that, and the three had already drifted apart on stdout
-# vs stderr, `FAIL` vs `FAILED`, and branch order.
+# violation, and because the harnesses had already grown their own copy of this
+# and drifted apart on stdout vs stderr, `FAIL` vs `FAILED`, and branch order.
 harness_usage_error() {
     local gate="$1" dir="$2" label="$3" expected="$4" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
