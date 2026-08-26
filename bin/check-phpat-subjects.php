@@ -448,6 +448,16 @@ $attributeResolvedCount = 0;
 // a false accept that hides a real ArchitectureTest with zero actual rules. A rule
 // method is only ever a DIRECT member of the top-level class body, i.e. depth 1 at
 // the point `T_FUNCTION` is seen (its own opening brace has not been counted yet).
+//
+// This assumes the unbracketed `namespace X;` form every fixture and this whole
+// codebase uses, and one class per file (PSR-1). A bracketed `namespace X { … }`
+// declaration would add a brace level, shifting `ArchitectureTest`'s own methods to
+// depth 2 and hiding them — deliberately not defended against: it is unreachable for
+// a real consumer of a PSR-4/Composer-autoloaded package (which this one requires
+// consumers to be), and no fixture, template or example anywhere in this repository
+// uses it. Defending it would need tracking which depth the ArchitectureTest class's
+// OWN body opened at, rather than assuming 1 — a bigger change for a shape nothing
+// real ever produces.
 $topDepth = 0;
 
 for ($index = 0; $index < $ruleCount; ++$index) {

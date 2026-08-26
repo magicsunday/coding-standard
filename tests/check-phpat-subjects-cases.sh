@@ -1229,4 +1229,30 @@ mkdir -p "$d/tests/Architecture"
 assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does not poison the next method's visibility" \
     "matches no class"
 
+# The backward-lookback modifier whitelist added in this same commit includes
+# T_STATIC — a brand-new branch the forward-flag version it replaced never
+# special-cased at all. phpat's own getMethods(IS_PUBLIC) does not exclude static
+# methods, so `public static function test*` must still be recognised as a rule.
+STATIC_TEST_NAMED_RULE_ON_TRAITS="$(cat <<'RULE'
+    public static function testModelIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Model is a leaf.');
+    }
+RULE
+)"
+
+# REJECT: a public static test*-named rule with a vacuous subject is still analysed —
+# if T_STATIC fell out of the modifier whitelist, the method would be misread as
+# non-public and silently excluded, flipping this to accept.
+d="$work/static-test-named-vacuous"
+write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$STATIC_TEST_NAMED_RULE_ON_TRAITS"
+assert_rejects "$d" "a public static test-prefixed rule with a vacuous subject is analysed, not skipped" \
+    "matches no class"
+
 verdict
