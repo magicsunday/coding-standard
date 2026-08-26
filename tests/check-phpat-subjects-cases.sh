@@ -1780,8 +1780,8 @@ mkdir -p "$d/tests/Architecture"
     printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
     printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
-    printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\\\Fake'\";\n\n"
-    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\Fake'\";\n\n"
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
     printf '    #[TestRule]
     public function live(): Rule
     {
@@ -1794,5 +1794,72 @@ mkdir -p "$d/tests/Architecture"
     printf '}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "a decoy string literal reading like a NAMESPACE_ROOT declaration does not hijack the real constant"
+
+# GH-58 (correctness-reviewer, testing-reviewer): a single T_CONST token covers a
+# WHOLE comma-separated multi-constant statement (`const A = 'x', NAMESPACE_ROOT =
+# 'y';`). Checking only the first name/value pair per T_CONST left NAMESPACE_ROOT
+# unresolved whenever it was not the first constant in such a statement — verified
+# live before the fix: this exact fixture failed closed on every subject in the
+# file, reporting "could not resolve the ... argument", despite the constant being
+# declared, spelled correctly, and never hidden by a decoy. Written directly rather
+# than via write_archtest(), whose auto-inserted NAMESPACE_ROOT declaration is
+# always its own single-constant statement.
+d="$work/namespace-root-in-a-comma-separated-multi-constant-statement-is-resolved"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string OTHER = 'unrelated', NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf '    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under NAMESPACE_ROOT, which is not the first constant in its statement.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_accepts "$d" "NAMESPACE_ROOT declared as a non-first constant in a comma-separated statement is still resolved"
+
+# GH-58 (codex-rescue): the constant's own NAME is the last T_STRING seen BEFORE its
+# `=`, but a T_STRING can also appear AFTER `=`, inside the value expression itself —
+# the `NAMESPACE_ROOT` segment of an unrelated constant's own qualified-constant-fetch
+# value (`Prefix::NAMESPACE_ROOT`). Without gating name-tracking to stop at `=`, that
+# segment overwrote $name for the DECOY statement it belongs to, mistaking DECOY's own
+# value for a NAMESPACE_ROOT declaration and hijacking resolution — the same class of
+# bug the string-literal decoy fixture above defends against, via constant-fetch
+# syntax instead of a string literal. Written directly (a real earlier class + a decoy
+# constant referencing it) rather than via write_archtest(), which cannot express
+# either.
+d="$work/qualified-constant-reference-in-a-decoy-value-does-not-hijack-namespace-root"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class Prefix\n{\n    public const string OTHER_CONST = %s;\n}\n\n' "'irrelevant'"
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    private const string DECOY = Prefix::NAMESPACE_ROOT . %s;\n\n' "'Vendor\\\\Fake'"
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf '    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under the real NAMESPACE_ROOT, not the decoy value.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_accepts "$d" "a qualified constant reference inside a decoy value does not hijack NAMESPACE_ROOT resolution"
 
 verdict

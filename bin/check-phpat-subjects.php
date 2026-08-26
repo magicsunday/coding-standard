@@ -225,6 +225,39 @@ if (strlen($sourceRaw) > MAX_SOURCE_BYTES) {
 
 $source = $stripComments($sourceRaw);
 
+/**
+ * Returns the first `T_STRING` name reached while scanning forward from a token
+ * index, skipping only the given token kinds — null once a non-skipped,
+ * non-`T_STRING` token is reached, since that means no name follows.
+ *
+ * Shared by the class inventory's class-name lookahead and the rule-discovery
+ * method-name lookahead further below, so the accepted skip-set lives in exactly
+ * one place per caller rather than each carrying its own copy of the same
+ * "skip whitespace, take the first T_STRING" loop — the two drifted apart once
+ * already when only one of them grew a second skip-kind (return-by-reference's
+ * T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG).
+ *
+ * @param list<array{0: int, 1: string, 2: int}|string> $tokens    The token stream to scan.
+ * @param int                                           $start     The index to start scanning from (inclusive).
+ * @param int                                           $count     The token count (exclusive upper bound).
+ * @param list<int>                                     $skipKinds Token kinds to skip past before the name.
+ *
+ * @return string|null The name, or null when none follows.
+ */
+$nextName = static function (array $tokens, int $start, int $count, array $skipKinds): ?string {
+    for ($ahead = $start; $ahead < $count; ++$ahead) {
+        $next = $tokens[$ahead];
+
+        if (is_array($next) && in_array($next[0], $skipKinds, true)) {
+            continue;
+        }
+
+        return (is_array($next) && ($next[0] === \T_STRING)) ? $next[1] : null;
+    }
+
+    return null;
+};
+
 // --- Resolve the module root namespace (the NAMESPACE_ROOT constant) ---
 //
 // Tokens, not a substring search over the whole file — the same reason the class
@@ -241,7 +274,35 @@ $source = $stripComments($sourceRaw);
 // `Type` in `const Type NAME = value;` and the constant's own NAME both tokenise as
 // T_STRING (the lexer does not know one is a type and the other a name); whichever one
 // is LAST before the `=` is the real name, so $name is overwritten on every T_STRING
-// seen rather than fixed on the first.
+// seen — but only up to the `=`. A T_STRING appearing in the VALUE expression itself
+// (e.g. the `NAMESPACE_ROOT` segment of a qualified constant fetch,
+// `Prefix::NAMESPACE_ROOT`, inside an unrelated constant's own value) must never
+// overwrite $name after that point — verified live: without the `$sawEquals` guard,
+// `private const string DECOY = Prefix::NAMESPACE_ROOT . 'Vendor\Fake';`, declared
+// before the real constant, mistook DECOY's own value expression for a NAMESPACE_ROOT
+// declaration and hijacked resolution, the same failure this rewrite otherwise closes.
+//
+// A single `T_CONST` token covers the WHOLE statement, including a comma-separated
+// list of several constants (`const A = 'x', NAMESPACE_ROOT = 'y';`) — verified live:
+// checking only the first name/value pair per T_CONST left NAMESPACE_ROOT unresolved
+// whenever it was not the first constant in such a list. Each `,` inside the
+// statement starts a new name/value pair, so $name and $sawEquals reset there and
+// every pair is checked, not just the first.
+//
+// Two narrower gaps remain, deliberately undefended, the same disposition as the
+// bracketed-namespace and second-top-level-class gaps documented further below:
+//   - This walk takes the FIRST `T_CONST` named NAMESPACE_ROOT anywhere in the file,
+//     with no check on which class/trait it belongs to — a genuine (not decoy-string)
+//     `const NAMESPACE_ROOT` in an earlier, unrelated top-level declaration in the
+//     same file would still win by source order. This needs the same second-class
+//     precondition already accepted below (nothing real produces it; PSR-1 makes it
+//     conventionally rare, not syntactically impossible).
+//   - Only the FIRST `T_CONSTANT_ENCAPSED_STRING` after `=` is read, so a value built
+//     from concatenation (`NAMESPACE_ROOT = 'Vendor' . '\Mod';`) resolves to only its
+//     first segment. The regex this walk replaced had the identical limitation (it
+//     matched only a literal immediately after `=`), so this is pre-existing behaviour,
+//     not a regression — and a namespace-root constant is, in every real consumer, a
+//     single plain string literal.
 $namespaceRoot  = null;
 $constantTokens = token_get_all($source);
 $constantCount  = count($constantTokens);
@@ -251,8 +312,8 @@ for ($index = 0; $index < $constantCount; ++$index) {
         continue;
     }
 
-    $name  = null;
-    $value = null;
+    $name      = null;
+    $sawEquals = false;
 
     for ($ahead = $index + 1; $ahead < $constantCount; ++$ahead) {
         $next = $constantTokens[$ahead];
@@ -262,6 +323,17 @@ for ($index = 0; $index < $constantCount; ++$index) {
                 break;
             }
 
+            if ($next === ',') {
+                $name      = null;
+                $sawEquals = false;
+
+                continue;
+            }
+
+            if ($next === '=') {
+                $sawEquals = true;
+            }
+
             continue;
         }
 
@@ -269,27 +341,26 @@ for ($index = 0; $index < $constantCount; ++$index) {
             continue;
         }
 
-        if ($next[0] === \T_STRING) {
+        if (!$sawEquals && ($next[0] === \T_STRING)) {
             $name = $next[1];
 
             continue;
         }
 
-        if (($name !== null) && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)) {
-            $value = $next[1];
+        if ($sawEquals && ($name !== null) && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)) {
+            if ($name === 'NAMESPACE_ROOT') {
+                // A single-quoted namespace literal may be written with single or
+                // escaped (`\\`) backslashes; normalise to the single-backslash form
+                // the `namespace` declarations in the class inventory always use.
+                // substr() strips the literal's own surrounding quote characters
+                // (single or double).
+                $namespaceRoot = str_replace('\\\\', '\\', substr($next[1], 1, -1));
 
-            break;
+                break 2;
+            }
+
+            $name = null;
         }
-    }
-
-    if (($name === 'NAMESPACE_ROOT') && ($value !== null)) {
-        // A single-quoted namespace literal may be written with single or escaped
-        // (`\\`) backslashes; normalise to the single-backslash form the `namespace`
-        // declarations in the class inventory always use. substr() strips the
-        // literal's own surrounding quote characters (single or double).
-        $namespaceRoot = str_replace('\\\\', '\\', substr($value, 1, -1));
-
-        break;
     }
 }
 
@@ -447,21 +518,7 @@ foreach ($directory as $file) {
             continue;
         }
 
-        $name = null;
-
-        for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
-            $next = $tokens[$ahead];
-
-            if (is_array($next) && ($next[0] === \T_WHITESPACE)) {
-                continue;
-            }
-
-            if (is_array($next) && ($next[0] === \T_STRING)) {
-                $name = $next[1];
-            }
-
-            break;
-        }
+        $name = $nextName($tokens, $index + 1, $count, [\T_WHITESPACE]);
 
         if ($name === null) {
             $modifiers = [];
@@ -975,23 +1032,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     // a no-attribute `&testFoo` mixed with any OTHER correctly-recognised rule left
     // `$ruleMethods` non-empty, so the whole run could print OK with this method's
     // subject — vacuous or not — never checked.
-    $name = null;
-
-    for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
-        $next = $ruleTokens[$ahead];
-
-        if (is_array($next)
-            && (($next[0] === \T_WHITESPACE) || ($next[0] === \T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG))
-        ) {
-            continue;
-        }
-
-        if (is_array($next) && ($next[0] === \T_STRING)) {
-            $name = $next[1];
-        }
-
-        break;
-    }
+    $name = $nextName($ruleTokens, $index + 1, $ruleCount, [\T_WHITESPACE, \T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG]);
 
     // The attribute DID attach to a real function here, regardless of what happens
     // next — counted separately from $ruleMethods below, which the visibility filter
