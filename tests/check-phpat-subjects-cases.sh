@@ -128,6 +128,32 @@ write_archtest() {
     } > "$dir/tests/Architecture/ArchitectureTest.php"
 }
 
+# write_archtest_header <dir> [before-imports]
+#
+# Writes the byte-identical opening every one of these fixtures needs (`<?php`
+# through the four real `use` imports) and truncates the fixture file to it —
+# for a fixture that needs a preceding sibling class, a raw multi-method body,
+# or injected junk tokens, none of which write_archtest()'s single-method
+# template can express. The caller appends the rest with `>>`.
+#
+# <before-imports>, when given, is written between the `namespace` declaration
+# and the real imports, followed by a blank line — for a fixture that needs
+# junk BEFORE the imports (write_archtest()'s own <preamble> hook only covers
+# content AFTER them).
+write_archtest_header() {
+    local dir="$1" beforeImports="${2:-}"
+    mkdir -p "$dir/tests/Architecture"
+    {
+        printf '<?php\n\ndeclare(strict_types=1);\n\n'
+        printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+        if [ -n "$beforeImports" ]; then
+            printf '%s\n\n' "$beforeImports"
+        fi
+        printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+        printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    } > "$dir/tests/Architecture/ArchitectureTest.php"
+}
+
 # Rule-method templates. Quoted heredocs → literal content, so the single backslashes
 # in the selector suffixes are written exactly as a real ArchitectureTest carries them.
 MODEL_RULE="$(cat <<'RULE'
@@ -1773,12 +1799,8 @@ assert_accepts "$d" "a same-line comment between 'class' and the class name does
 # whose fixed constant placement cannot put a decoy before the real declaration.
 d="$work/decoy-namespace-root-string-literal-does-not-hijack-the-real-constant"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf "    private const string DECOY = \"const string NAMESPACE_ROOT = 'Vendor\\Fake'\";\n\n"
     printf "    private const string NAMESPACE_ROOT = 'Vendor\\Mod';\n\n"
@@ -1792,7 +1814,7 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under the real NAMESPACE_ROOT, not the decoy.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "a decoy string literal reading like a NAMESPACE_ROOT declaration does not hijack the real constant"
 
 # GH-58 (correctness-reviewer, testing-reviewer): a single T_CONST token covers a
@@ -1806,12 +1828,8 @@ assert_accepts "$d" "a decoy string literal reading like a NAMESPACE_ROOT declar
 # always its own single-constant statement.
 d="$work/namespace-root-in-a-comma-separated-multi-constant-statement-is-resolved"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf "    private const string OTHER = 'unrelated', NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
     printf '    #[TestRule]
@@ -1824,7 +1842,7 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under NAMESPACE_ROOT, which is not the first constant in its statement.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "NAMESPACE_ROOT declared as a non-first constant in a comma-separated statement is still resolved"
 
 # GH-58 (codex-rescue): the constant's own NAME is the last T_STRING seen BEFORE its
@@ -1843,12 +1861,8 @@ assert_accepts "$d" "NAMESPACE_ROOT declared as a non-first constant in a comma-
 # references it) rather than via write_archtest(), which cannot express either.
 d="$work/qualified-constant-reference-in-a-decoy-value-does-not-hijack-namespace-root"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class Prefix\n{\n    public const string OTHER_CONST = %s;\n}\n\n' "'irrelevant'"
     printf 'final class ArchitectureTest\n{\n'
     printf '    private const string DECOY = Prefix::NAMESPACE_ROOT . %s;\n\n' "'Vendor\\\\Fake'"
@@ -1863,7 +1877,7 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — Model exists under the real NAMESPACE_ROOT, not the decoy value.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "a qualified constant reference inside a decoy value does not hijack NAMESPACE_ROOT resolution"
 
 # GH-58 (codex-rescue): phpat's own Classname/ClassNamespace selectors strip a
@@ -1919,12 +1933,8 @@ assert_accepts "$d" "a trailing backslash on a bare literal classname() argument
 # to prove the gate does not use it, not under the decoded value.
 d="$work/double-quoted-namespace-root-value-is-not-decoded-as-raw-text"
 write_class "$d" "Model/Node.php" "Vendor\\node\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf '    private const string NAMESPACE_ROOT = "Vendor\\node";\n\n'
     printf '    #[TestRule]
@@ -1937,7 +1947,7 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\Model'" "'\\NoSuchClass'" "'Vacuous either way — NAMESPACE_ROOT must fail to resolve, not silently decode.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it were the raw, undecoded literal text" \
     "could not resolve"
 
@@ -1963,14 +1973,9 @@ assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it w
 # run.
 d="$work/repeated-unterminated-use-keyword-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+manyUnterminatedUseKeywords="$(for _ in $(seq 1 500); do printf 'use '; done)"
+write_archtest_header "$d" "$manyUnterminatedUseKeywords"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    for _ in $(seq 1 500); do printf 'use '; done
-    printf '\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
     printf '    #[TestRule]
@@ -1983,18 +1988,14 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\NoSuchNamespace'" "'\\Model\\Node'" "'Vacuous — proves the real TestRule import is still found past 500 unterminated use keywords.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'use' keywords before the real imports do not prevent finding TestRule" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
 d="$work/repeated-unterminated-const-keyword-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_header "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
-    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
     printf 'final class ArchitectureTest\n{\n'
     for _ in $(seq 1 500); do printf 'const '; done
     printf '\n\n'
@@ -2009,7 +2010,7 @@ mkdir -p "$d/tests/Architecture"
             ->because(%s);
     }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — proves the real NAMESPACE_ROOT is still found past 500 unterminated const keywords.'"
     printf '}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "many unterminated 'const' keywords before the real declaration do not prevent resolving NAMESPACE_ROOT"
 
 # GH-58 (codex-rescue, performance-reviewer): the rule-method body-extraction
