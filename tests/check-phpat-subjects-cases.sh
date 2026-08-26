@@ -1425,8 +1425,7 @@ write_archtest "$d" "$MODEL_RULE
 assert_rejects "$d" "a #[TestRule] attribute imported under an alias is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
-# GH-58 (correctness-reviewer, security-reviewer, php-reviewer — round 3, independently):
-# the alias-tracking fix above only handled ONE name per `use` statement. A
+# GH-58: the alias-tracking fix above only handled ONE name per `use` statement. A
 # comma-separated multi-import on the same line (`use A, B\TestRule as X;`) broke the
 # forward scan at the first `,`, so the second import's alias was never tracked — the
 # exact same invisibility bug the single-import fix above closed, reopened by a
@@ -1450,8 +1449,7 @@ write_archtest "$d" "$MODEL_RULE
 assert_rejects "$d" "a #[TestRule] alias imported on a comma-separated use line is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
-# GH-58 (correctness-reviewer, security-reviewer, php-reviewer — round 3, independently):
-# same bug class again, for a brace-grouped import (`use Ns\{TestRule as X};`) — the
+# GH-58: same bug class again, for a brace-grouped import (`use Ns\{TestRule as X};`) — the
 # forward scan captured the group PREFIX as $importName, then broke on the following
 # T_NS_SEPARATOR/`{` before ever descending into the group. This fixture imports
 # TestRule ONLY through a group, aliased, with a deliberately vacuous subject.

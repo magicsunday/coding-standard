@@ -524,9 +524,11 @@ $braceDelta = static function (array|string $token): int {
  * its own trailing T_NS_SEPARATOR, then the `{` CHAR. A doubly-nested group
  * (`use A\{B\{TestRule as X}}`) is NOT handled — $groupPrefix holds only one level, so
  * a nested group's items would resolve against the OUTER prefix alone. Deliberately
- * undefended, same disposition as the two other documented gaps at $topDepth below:
- * nothing in this codebase's own consumers or fixtures writes a nested group import,
- * and PHP developers overwhelmingly do not either.
+ * undefended, same disposition as the two other documented gaps at $topDepth below —
+ * but stronger than either of them: this shape is not merely unwritten, it is not
+ * syntactically valid PHP at all (confirmed live with `php -l`, re-derive with:
+ * `php -l <(printf '<?php\nuse A\{B\{C}};\n')`), so no fixture is needed to prove it
+ * unreachable.
  *
  * A dedicated FORWARD pre-pass over the whole token stream, not part of the main
  * rule-discovery loop below — it shares no mutable state with it (its own $depth,
@@ -870,23 +872,8 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     // grep -n 'preg_match\|getMethods' .build/vendor/phpat/phpat/src/Test/TestParser.php
     $isTestNamed = ($name !== null) && (preg_match('/^(test)[A-Za-z0-9_\x80-\xff]*/', $name) === 1);
 
-    // `getMethods(ReflectionMethod::IS_PUBLIC)` (same grep command above) gates BOTH of
-    // phpat's discovery paths, not just the name-based one — a `private`/`protected`
-    // method carrying `#[TestRule]` is invisible to phpat too, and this gate would
-    // otherwise fail-close on a rule phpat never runs.
-    //
-    // Visibility is read by looking BACKWARD from `function` over its own immediately
-    // preceding, contiguous modifier run — not by a flag carried FORWARD from wherever
-    // a `T_PRIVATE`/`T_PROTECTED` token last appeared. The forward form was tried first
-    // and was wrong: PHP's trait-conflict-resolution syntax (`use Helper { someMethod
-    // as private; }`) emits a bare T_PRIVATE/T_PROTECTED token with no following
-    // T_FUNCTION/T_VARIABLE/T_CONST to reset it, so that trait-adaptation line silently
-    // poisoned the NEXT real, genuinely public rule method into looking non-public —
-    // defeating the fail-closed guarantee on a rule phpat actually runs. Verified:
-    // reverting to the forward form reproduces exit 0 on such a fixture where this
-    // lookback correctly reds it. Mirrors the `Foo::class`/`new class` lookback already
-    // used above for the same reason — bounded to the immediate run, nothing outside
-    // it can poison the read.
+    // See $isNonPublicMethod's own docblock above for why this reads backward rather
+    // than a flag carried forward.
     $isNonPublic = $isNonPublicMethod($ruleTokens, $index);
 
     // `$topDepth === 1` is the same "invisible to phpat's reflection" idea (re-derivation
