@@ -631,8 +631,11 @@ nothing while looking active — both PHPStan and PHPUnit stay green. This bit a
 module once: a rule whose subject was a `Traits` namespace was a silent no-op, because
 phpat resolves a subject through PHPStan's `InClassNode`, which never fires for a trait.
 
-This guard parses a consumer's `ArchitectureTest`, extracts each `#[TestRule]` method's
-subject selector, and asserts it matches at least one real class in `src/`:
+This guard parses a consumer's `ArchitectureTest`, extracts each rule method's subject
+selector, and asserts it matches at least one real class in `src/`. phpat itself finds a
+rule method two ways — a `#[TestRule]` attribute, or (equally, no attribute needed) a
+public method named `test*` — and this guard recognises both, so a repository writing
+its rules in the `test*` style is not told to add attributes it does not need:
 `Selector::inNamespace(NS)` needs a non-trait class in `NS` (a trait-only namespace, the
 manifested bug, reds here); `Selector::classname(FQCN)` needs that class to exist (a
 renamed or mistyped target reds); `Selector::isAbstract()` is a conditional naming guard
