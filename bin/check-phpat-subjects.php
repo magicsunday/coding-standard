@@ -230,16 +230,18 @@ $source = $stripComments($sourceRaw);
  * skipping only the given token kinds — null once a non-skipped, non-name token is
  * reached, since that means no name follows.
  *
- * Shared by the class inventory's namespace-name and class-name lookaheads and the
- * rule-discovery method-name lookahead further below, so the accepted skip-set lives
- * in exactly one place per caller rather than each carrying its own copy of the same
- * "skip a set of kinds, take the first name token" loop — two of those call sites
- * drifted apart once already when only one of them grew a second skip-kind
- * (return-by-reference's T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG), and a fourth
- * call site (the namespace-name lookahead) went unconsolidated for a further round
- * because its accepted name-kind set differs (T_STRING or T_NAME_QUALIFIED, since a
- * namespace segment can be a single identifier or an already-qualified one) — hence
- * $nameKinds, defaulted to the plain-identifier-only case every other caller needs.
+ * Four callers share this closure: the class inventory's namespace-name and
+ * class-name lookaheads, the TestRule-alias-name lookahead in
+ * $resolveTestRuleAliases, and the rule-discovery method-name lookahead further
+ * below — so the accepted skip-set lives in exactly one place per caller rather
+ * than each carrying its own copy of the same "skip a set of kinds, take the first
+ * name token" loop. Two of those call sites drifted apart once already when only
+ * one of them grew a second skip-kind (return-by-reference's
+ * T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG), and the namespace-name lookahead went
+ * unconsolidated for a further round because its accepted name-kind set differs
+ * (T_STRING or T_NAME_QUALIFIED, since a namespace segment can be a single
+ * identifier or an already-qualified one) — hence $nameKinds, defaulted to the
+ * plain-identifier-only case every other caller needs.
  *
  * @param list<array{0: int, 1: string, 2: int}|string> $tokens    The token stream to scan.
  * @param int                                           $start     The index to start scanning from (inclusive).
@@ -428,8 +430,11 @@ foreach ($directory as $file) {
     // the moment a comment sat between `namespace`/a modifier/`class` and the name that
     // follows, since a bare, un-skipped T_COMMENT token satisfies neither the "keep
     // scanning" nor the "found the name" branch. This is a DIFFERENT failure shape than
-    // $stripComments's own re-tokenisation-gluing bug (there is only ever one
-    // tokenisation of $sourceFile here, not a strip-then-retokenise step) — verified
+    // $stripComments's own re-tokenisation-gluing bug — that one is about what a
+    // ZERO-newline comment contributes to the STRIPPED text, not about whether this
+    // line retokenises (it does: $stripComments already runs token_get_all() once
+    // internally, and this line's own token_get_all() retokenises its output, the
+    // identical strip-then-retokenise shape the ArchitectureTest path uses) — verified
     // live: `namespace /* c */ Vendor\Mod\Model;` left $namespace empty, so a class
     // genuinely declared in Vendor\Mod\Model was inventoried under its bare name
     // instead, certifying a `classname()` subject targeting that bare name as live
