@@ -1636,4 +1636,82 @@ write_archtest "$d" "$MODEL_RULE
 assert_rejects "$d" "a function item in a group does not poison a later real TestRule alias in the same group" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
+# GH-58 (testing-reviewer): the $depth === 0 bound on T_USE recognition (mutation-
+# verified to have no covering fixture) exists so a trait-adaptation `use Trait {
+# method as newName; }` INSIDE the class body is never read as an import. Without it,
+# `use Helper { TestRule as X; }` — a real, valid trait adaptation renaming Helper's
+# own `TestRule`-named method to `X` — would tokenise exactly like a grouped import
+# (`{` opens a group, `TestRule` becomes an item, `as X` aliases it), incorrectly
+# adding X to $testRuleAliases. ACCEPT is the only correct verdict: X must stay an
+# ordinary renamed trait method, not a TestRule alias, so notARealRule() below is not
+# a rule at all.
+d="$work/trait-adaptation-testrule-rename-is-not-mistaken-for-an-alias"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    use Helper { TestRule as X; }
+
+$MODEL_RULE
+
+    #[X]
+    public function notARealRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Not a real TestRule — X renames a trait method, not an import.');
+    }" \
+    'trait Helper
+{
+    public function TestRule(): void
+    {
+    }
+}'
+assert_accepts "$d" "a trait-adaptation rename of a method literally named TestRule is not mistaken for an import alias"
+
+# GH-58 (testing-reviewer): the T_CONST disjunct in the per-item function/const
+# detection (mutation-verified to have no covering fixture) — mirrors the existing
+# declaration-level `function` group fixture, but for `const`. `use const
+# PHPat\Test\Attributes\{TestRule as X};` imports a namespaced CONSTANT named
+# TestRule, a third symbol table distinct from both classes and functions — `#[X]`
+# never resolves to the class attribute.
+d="$work/declaration-level-const-import-group-is-not-mistaken-for-testrule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function notARealRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Not a real TestRule — X aliases a CONST import, not a class.');
+    }" '' 'use const PHPat\Test\Attributes\{TestRule as X};'
+assert_accepts "$d" "a declaration-level use-const group import does not mistake its alias for TestRule"
+
+# GH-58 (testing-reviewer): the bare `$importNameLower === 'testrule'` exact-match
+# disjunct (mutation-verified to have no covering fixture — every existing alias
+# fixture goes through the `str_ends_with(..., '\testrule')` branch instead, since
+# all of them import through a qualified path). `use TestRule as X;` — no namespace
+# segment at all — imports a global-namespace `TestRule` class, exercising the exact-
+# match branch specifically. Must still be tracked normally.
+d="$work/bare-unqualified-testrule-import-alias-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function bareAliasedVacuousRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a bare, unqualified import.');
+    }" '' 'use TestRule as X;'
+assert_rejects "$d" "a bare, unqualified TestRule import alias is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
 verdict

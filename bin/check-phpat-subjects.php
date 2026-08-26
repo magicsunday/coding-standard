@@ -605,28 +605,19 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                     break;
                 }
 
-                if ($next === ',') {
-                    // A new item starts — inside a group if $groupPrefix is set, else
-                    // the next import on the same `use` line. Falls back to the
-                    // declaration-level keyword rather than hard-`false`.
-                    $importName            = null;
-                    $isFunctionOrConstItem = $declarationIsFunctionOrConst;
+                if (($next === ',') || ($next === '{') || ($next === '}')) {
+                    // A new item starts at each of these — inside a group if
+                    // $groupPrefix is set, else the next import on the same `use`
+                    // line. All three fall back to the declaration-level keyword
+                    // rather than hard-`false`.
+                    if ($next === '{') {
+                        // The name gathered so far becomes the prefix every item
+                        // inside the group is relative to.
+                        $groupPrefix = $importName;
+                    } elseif ($next === '}') {
+                        $groupPrefix = null;
+                    }
 
-                    continue;
-                }
-
-                if ($next === '{') {
-                    // The name gathered so far becomes the prefix every item inside
-                    // the group is relative to.
-                    $groupPrefix           = $importName;
-                    $importName            = null;
-                    $isFunctionOrConstItem = $declarationIsFunctionOrConst;
-
-                    continue;
-                }
-
-                if ($next === '}') {
-                    $groupPrefix           = null;
                     $importName            = null;
                     $isFunctionOrConstItem = $declarationIsFunctionOrConst;
 
