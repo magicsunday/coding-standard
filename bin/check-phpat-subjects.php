@@ -909,7 +909,7 @@ $testRuleAliasesLower = array_map(strtolower(...), $testRuleAliases);
  * negative, applied in the opposite direction — a materially bigger change
  * to defend a naming collision no consumer of this gate has ever written.
  *
- * @param list<array{0: int, 1: string, 2: int}|string> $tokens               The token stream to scan.
+ * @param list<array{0: int, 1: string, 2: int}|string>  $tokens               The token stream to scan.
  * @param int                                            $count                The token count (exclusive upper bound).
  * @param int                                            $start                The index to start scanning from (inclusive) — the token right after T_ATTRIBUTE.
  * @param list<string>                                   $testRuleAliasesLower Every local, lowercased name that resolves to the TestRule attribute.
