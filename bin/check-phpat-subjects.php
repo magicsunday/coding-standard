@@ -1328,16 +1328,15 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     //     would mean anchoring the scan to the actual `PHPat::rule()`/`$this->{name}()`
     //     call the rule builder starts from, a materially bigger parse than this file
     //     otherwise needs.
-    //   - The body-extraction loop's brace-depth count (via $braceDelta above) also
-    //     counts T_CURLY_OPEN/T_DOLLAR_OPEN_CURLY_BRACES, by design, to keep a
-    //     `"{$expr}"` interpolation from cutting a body short. The same mechanism can
-    //     be turned around: a decoy `"{$x}"` interpolation placed BEFORE the method's
-    //     own opening brace (e.g. inside a parameter's default value) opens and closes
-    //     depth back to 0 there, ending extraction before the real body is ever
-    //     reached — the same fail-open direction as the two gaps above, via a third
-    //     token path. Deliberately undefended for the identical reason: this needs a
-    //     hand-authored parameter default shaped to smuggle a decoy live subject past
-    //     the real body, not something written by accident.
+    //
+    // A decoy `"{$x}"`/`${x}` interpolation BEFORE a method's own opening brace (e.g. in
+    // a parameter default, to close the brace-depth counter back to 0 before the real
+    // body is reached) is NOT a third gap here: PHP requires a parameter default (and an
+    // attribute argument) to be a constant expression, and string interpolation is
+    // categorically non-constant — verified live (`php -l`) that such a file is a
+    // compile-time fatal ("Constant expression contains invalid operations"), so it can
+    // never load for phpat/PHPUnit to run in the first place. Considered and rejected as
+    // non-manifesting, not merely undefended.
     //
     // A separate, unrelated limitation: phpat accepts a rule method returning an
     // `iterable` of multiple rules (TestParser.php: `is_iterable($ruleBuilder)`), each
