@@ -1470,4 +1470,50 @@ write_archtest "$d" "$MODEL_RULE
 assert_rejects "$d" "a #[TestRule] alias imported through a brace-grouped use line is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
+# GH-58 (security-reviewer): PHP resolves a class/attribute reference
+# CASE-INSENSITIVELY — `#[testrule]` still resolves to the real TestRule class via
+# phpat's own `getAttributes(TestRule::class)` call. A case-SENSITIVE literal compare
+# missed any non-canonical casing, so a rule attributed with any other case (lowercase,
+# here) had its vacuous subject never inspected, as long as the file also had one
+# other genuine rule. Standalone with the ordinary `#[TestRule]` import (no alias, no
+# grouping) — this fixture isolates casing alone as the discriminator.
+d="$work/lowercase-testrule-attribute-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[testrule]
+    public function lowercaseAttributeVacuousRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a differently-cased attribute.');
+    }"
+assert_rejects "$d" "a #[testrule] attribute written in a different case is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (security-reviewer): the same case-insensitivity applies to the IMPORT side —
+# `use phpat\test\attributes\testrule as Rule5;` (the imported name lowercased) still
+# imports the real TestRule class, so `#[Rule5]` must be recognised the same as any
+# other alias. This isolates casing on the IMPORT's class-name segment, distinct from
+# the fixture above which cases the ATTRIBUTE USAGE itself.
+d="$work/lowercase-import-testrule-alias-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[Rule5]
+    public function lowercaseImportAliasedVacuousRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a differently-cased import.');
+    }" '' 'use phpat\test\attributes\testrule as Rule5;'
+assert_rejects "$d" "a TestRule import spelled in a different case is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
 verdict

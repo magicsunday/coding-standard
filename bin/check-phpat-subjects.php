@@ -617,6 +617,15 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
             }
 
             if (($next[0] === \T_AS) && ($importName !== null)) {
+                // PHP resolves a class/attribute reference CASE-INSENSITIVELY — verified
+                // live: `#[testrule]` on a method still resolves to `TestRule::class`
+                // via `getAttributes(TestRule::class)`, the same call phpat's own
+                // TestParser makes. A case-SENSITIVE compare here missed an import whose
+                // name or alias used any other casing, letting that rule's vacuous
+                // subject escape undetected — the same class of gap the literal-string
+                // compare this closure replaced already had for aliasing itself.
+                $importNameLower = strtolower($importName);
+
                 for ($aliasAhead = $ahead + 1; $aliasAhead < $count; ++$aliasAhead) {
                     $aliasToken = $tokens[$aliasAhead];
 
@@ -625,7 +634,7 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                     }
 
                     if (is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
-                        && (($importName === 'TestRule') || str_ends_with($importName, '\TestRule'))
+                        && (($importNameLower === 'testrule') || str_ends_with($importNameLower, '\testrule'))
                     ) {
                         $aliases[] = $aliasToken[1];
                     }
@@ -642,6 +651,13 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
 };
 
 $testRuleAliases = $resolveTestRuleAliases($ruleTokens);
+
+// Lowercased once, compared against a lowercased segment at the recognition site below
+// — PHP resolves a class/attribute reference case-insensitively (verified: `#[testrule]`
+// still resolves to `TestRule::class` via `getAttributes(TestRule::class)`, the same
+// call phpat's own TestParser makes), so a case-SENSITIVE membership check here missed
+// any non-canonical casing on either the literal name or an alias.
+$testRuleAliasesLower = array_map('strtolower', $testRuleAliases);
 
 /**
  * True when the method whose `function` token sits at $functionIndex is NOT public —
@@ -773,11 +789,12 @@ for ($index = 0; $index < $ruleCount; ++$index) {
             if ($expectName && $isName) {
                 $segments = explode('\\', $inner[1]);
 
-                // Against $testRuleAliases (built above), not the literal 'TestRule' —
-                // an aliased import (`use PHPat\Test\Attributes\TestRule as X;`) makes
-                // `#[X]` the real attribute, and `end($segments)` for that spelling is
-                // the alias, not 'TestRule'.
-                if (in_array(end($segments), $testRuleAliases, true)) {
+                // Against $testRuleAliasesLower (built above), not the literal
+                // 'TestRule' — an aliased import (`use PHPat\Test\Attributes\TestRule
+                // as X;`) makes `#[X]` the real attribute, and `end($segments)` for
+                // that spelling is the alias, not 'TestRule'. Case-insensitive for the
+                // same reason $testRuleAliasesLower itself is.
+                if (in_array(strtolower(end($segments)), $testRuleAliasesLower, true)) {
                     $sawTestRule = true;
                     ++$attributeSum;
                 }
