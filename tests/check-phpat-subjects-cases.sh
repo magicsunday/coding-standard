@@ -1255,6 +1255,35 @@ write_archtest "$d" "$STATIC_TEST_NAMED_RULE_LIVE"
 assert_rejects "$d" "a private static test-prefixed method is not picked up as a rule (T_STATIC does not mask T_PRIVATE)" \
     "no #[TestRule] or test*-named public rule methods found"
 
+# The same ordering argument as T_STATIC above, for T_FINAL: `protected final
+# function` meets `final` BEFORE `protected` in the backward scan, so only
+# continuing past `final` reaches the `protected` behind it. No existing fixture
+# places `final` immediately before `function` with a non-public modifier behind
+# it, so deleting the T_FINAL arm was a silent no-op against the rest of this
+# suite. Verified by mutation: deleting it turns this fixture's expected reject
+# into an accept.
+PROTECTED_FINAL_TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
+    protected final function testConfigurationIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Configuration is a leaf.');
+    }
+RULE
+)"
+
+# REJECT (as "no rule methods found", not "matches no class"): a PROTECTED final
+# test*-named method must stay invisible — combined with no other rule, so the only
+# way this can pass is if it is genuinely excluded rather than treated as a live
+# rule that happens to pass.
+d="$work/protected-final-test-named-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$PROTECTED_FINAL_TEST_NAMED_RULE_LIVE"
+assert_rejects "$d" "a protected final test-prefixed method is not picked up as a rule (T_FINAL does not mask T_PROTECTED)" \
+    "no #[TestRule] or test*-named public rule methods found"
+
 # The NEW $topDepth counter (spanning the WHOLE file, not just one method's body like
 # the existing curly-interpolation fixture above) must also balance across the two
 # interpolation openers — otherwise a desync inside one rule's body would silently
