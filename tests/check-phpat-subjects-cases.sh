@@ -1887,4 +1887,22 @@ write_archtest "$d" "    #[TestRule]
     }"
 assert_accepts "$d" "a leading backslash on a bare literal classname() argument does not hide a live class"
 
+# GH-58 (test-quality-reviewer): the fix trims BOTH ends (trim(), matching phpat's
+# own rtrim(ltrim($name, '\\'), '\\')), but the fixture above only exercises the
+# leading direction — a trailing backslash was left unguarded by any fixture,
+# mutation-verified: reverting the fix to ltrim() only (dropping the trailing
+# half) left the suite fully green.
+d="$work/trailing-backslash-on-a-bare-literal-argument-is-resolved"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname('Vendor\\\\Mod\\\\Model\\\\Node\\\\'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname('Vendor\\\\Mod\\\\NoSuchClass'))
+            ->because('Live — Node exists despite the trailing backslash on the argument.');
+    }"
+assert_accepts "$d" "a trailing backslash on a bare literal classname() argument does not hide a live class"
+
 verdict

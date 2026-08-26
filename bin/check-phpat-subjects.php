@@ -226,25 +226,30 @@ if (strlen($sourceRaw) > MAX_SOURCE_BYTES) {
 $source = $stripComments($sourceRaw);
 
 /**
- * Returns the first `T_STRING` name reached while scanning forward from a token
- * index, skipping only the given token kinds — null once a non-skipped,
- * non-`T_STRING` token is reached, since that means no name follows.
+ * Returns the first name token reached while scanning forward from a token index,
+ * skipping only the given token kinds — null once a non-skipped, non-name token is
+ * reached, since that means no name follows.
  *
- * Shared by the class inventory's class-name lookahead and the rule-discovery
- * method-name lookahead further below, so the accepted skip-set lives in exactly
- * one place per caller rather than each carrying its own copy of the same
- * "skip whitespace, take the first T_STRING" loop — the two drifted apart once
- * already when only one of them grew a second skip-kind (return-by-reference's
- * T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG).
+ * Shared by the class inventory's namespace-name and class-name lookaheads and the
+ * rule-discovery method-name lookahead further below, so the accepted skip-set lives
+ * in exactly one place per caller rather than each carrying its own copy of the same
+ * "skip a set of kinds, take the first name token" loop — two of those call sites
+ * drifted apart once already when only one of them grew a second skip-kind
+ * (return-by-reference's T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG), and a fourth
+ * call site (the namespace-name lookahead) went unconsolidated for a further round
+ * because its accepted name-kind set differs (T_STRING or T_NAME_QUALIFIED, since a
+ * namespace segment can be a single identifier or an already-qualified one) — hence
+ * $nameKinds, defaulted to the plain-identifier-only case every other caller needs.
  *
  * @param list<array{0: int, 1: string, 2: int}|string> $tokens    The token stream to scan.
  * @param int                                           $start     The index to start scanning from (inclusive).
  * @param int                                           $count     The token count (exclusive upper bound).
  * @param list<int>                                     $skipKinds Token kinds to skip past before the name.
+ * @param list<int>                                     $nameKinds Token kinds accepted as the name itself.
  *
  * @return string|null The name, or null when none follows.
  */
-$nextName = static function (array $tokens, int $start, int $count, array $skipKinds): ?string {
+$nextName = static function (array $tokens, int $start, int $count, array $skipKinds, array $nameKinds = [\T_STRING]): ?string {
     for ($ahead = $start; $ahead < $count; ++$ahead) {
         $next = $tokens[$ahead];
 
@@ -252,7 +257,7 @@ $nextName = static function (array $tokens, int $start, int $count, array $skipK
             continue;
         }
 
-        return (is_array($next) && ($next[0] === \T_STRING)) ? $next[1] : null;
+        return (is_array($next) && in_array($next[0], $nameKinds, true)) ? $next[1] : null;
     }
 
     return null;
@@ -450,27 +455,7 @@ foreach ($directory as $file) {
         }
 
         if ($token[0] === \T_NAMESPACE) {
-            $namespace = '';
-
-            for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
-                $next = $tokens[$ahead];
-
-                if (!is_array($next)) {
-                    break;
-                }
-
-                if ($next[0] === \T_WHITESPACE) {
-                    continue;
-                }
-
-                if (($next[0] !== \T_STRING) && ($next[0] !== \T_NAME_QUALIFIED)) {
-                    break;
-                }
-
-                $namespace = $next[1];
-
-                break;
-            }
+            $namespace = $nextName($tokens, $index + 1, $count, [\T_WHITESPACE], [\T_STRING, \T_NAME_QUALIFIED]) ?? '';
 
             $modifiers = [];
 
