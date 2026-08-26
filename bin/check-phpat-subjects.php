@@ -473,9 +473,14 @@ $attributeResolvedCount = 0;
 //     at depth 1, so a `test*`-named public method on IT would be misattributed to
 //     ArchitectureTest's rule set. PSR-1 is a STYLE convention, not something that
 //     makes this syntactically unreachable — nothing here checks or enforces one
-//     class per file, so this gap is real, just conventionally rare: re-derive with
-//     `grep -c '^\(final \)\?\(class\|trait\|interface\|enum\) ' <file>` on any
-//     consumer's ArchitectureTest.php (>1 means this gap is live there).
+//     class per file, so this gap is real, just conventionally rare. No re-derivation
+//     command here (unlike the bracketed-namespace gap above): a line-anchored regex
+//     over a consumer's file cannot reliably answer "is a second declaration present"
+//     — a modifier this gate does not enumerate (`abstract class`, `readonly class`)
+//     false-negatives, and a `class `-looking line inside a heredoc or string
+//     false-positives, exactly the class of trap this gate's own inventory walk
+//     switched off regex for. Checking by eye (or with the same token-based approach
+//     this file already uses) is the only reliable answer.
 // Defending either would need tracking which depth the ArchitectureTest class's OWN
 // body opened at (and that it IS `ArchitectureTest`), rather than assuming 1 for
 // whichever class comes first — a materially bigger change than tokenising one file,
@@ -574,6 +579,24 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
         $importName            = null;
         $isFunctionOrConstItem = false;
 
+        // A declaration-level `use function …`/`use const …` keyword — the ONLY
+        // position PHP allows one at top level (`php -l` on `use A, function B;`
+        // fails to parse) — applies to EVERY item in the statement, brace-grouped or
+        // not: `use function A\{B as X};` and `use function A\bar, A\TestRule as X;`
+        // both bind ALL their items as function imports. $isFunctionOrConstItem alone
+        // cannot carry this: it is reset at every `,`/`{`/`}` boundary to start each
+        // GROUP item fresh (correct for `use A\{function f, TestRule}`, where the
+        // keyword genuinely is per-item), which also erased a declaration-level
+        // keyword the moment the next item began. Verified live (two independent
+        // reproductions): `use function A\{TestRule as X};` and
+        // `use function A\bar, A\TestRule as X;` each still tracked X as a TestRule
+        // alias with only the per-item flag. Seeded once, from the FIRST significant
+        // token only, and never reset — the grammar guarantees no later token in the
+        // same statement can be this keyword unless it already governs everything
+        // before it.
+        $declarationIsFunctionOrConst = false;
+        $isFirstSignificantToken      = true;
+
         for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
             $next = $tokens[$ahead];
 
@@ -584,9 +607,10 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
 
                 if ($next === ',') {
                     // A new item starts — inside a group if $groupPrefix is set, else
-                    // the next import on the same `use` line.
+                    // the next import on the same `use` line. Falls back to the
+                    // declaration-level keyword rather than hard-`false`.
                     $importName            = null;
-                    $isFunctionOrConstItem = false;
+                    $isFunctionOrConstItem = $declarationIsFunctionOrConst;
 
                     continue;
                 }
@@ -596,7 +620,7 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                     // the group is relative to.
                     $groupPrefix           = $importName;
                     $importName            = null;
-                    $isFunctionOrConstItem = false;
+                    $isFunctionOrConstItem = $declarationIsFunctionOrConst;
 
                     continue;
                 }
@@ -604,7 +628,7 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 if ($next === '}') {
                     $groupPrefix           = null;
                     $importName            = null;
-                    $isFunctionOrConstItem = false;
+                    $isFunctionOrConstItem = $declarationIsFunctionOrConst;
 
                     continue;
                 }
@@ -616,15 +640,23 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 continue;
             }
 
-            if (($next[0] === \T_FUNCTION) || ($next[0] === \T_CONST)) {
-                $isFunctionOrConstItem = true;
-
-                continue;
-            }
-
             if ($next[0] === \T_WHITESPACE) {
                 continue;
             }
+
+            if (($next[0] === \T_FUNCTION) || ($next[0] === \T_CONST)) {
+                $isFunctionOrConstItem = true;
+
+                if ($isFirstSignificantToken) {
+                    $declarationIsFunctionOrConst = true;
+                }
+
+                $isFirstSignificantToken = false;
+
+                continue;
+            }
+
+            $isFirstSignificantToken = false;
 
             if (($importName === null)
                 && (($next[0] === \T_STRING) || ($next[0] === \T_NAME_QUALIFIED) || ($next[0] === \T_NAME_FULLY_QUALIFIED))

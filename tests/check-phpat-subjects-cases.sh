@@ -1567,4 +1567,48 @@ write_archtest "$d" "$MODEL_RULE
     }" '' 'use PHPat\Test\Attributes\{function TestRule as X};'
 assert_accepts "$d" "a function-imported alias spelled like TestRule is not mistaken for the class attribute"
 
+# GH-58 (codex-rescue): a DECLARATION-level `use function …\{…};` keyword — the ONLY
+# position PHP allows one at the top of a group (`function`/`const` mid-list is a
+# parse error) — applies to EVERY item in the group, not just the one immediately
+# after it. The per-item $isFunctionOrConstItem flag was reset to false at `{`, which
+# erased the declaration-level keyword the moment the group opened, so this exact
+# shape still tracked X as a TestRule alias. Standalone reproduction of the fixture
+# above with `function` moved before the group instead of before the item.
+d="$work/declaration-level-function-import-group-is-not-mistaken-for-testrule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function notARealRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
+    }" '' 'use function PHPat\Test\Attributes\{TestRule as X};'
+assert_accepts "$d" "a declaration-level use-function group import does not mistake its alias for TestRule"
+
+# GH-58 (security-reviewer): the same declaration-level keyword also governs a
+# top-level, UNGROUPED multi-import list (`use function A, B as X;` — PHP allows no
+# braces here at all). The per-item flag was reset to false at every `,`, so this
+# shape ALSO still tracked X as a TestRule alias — a third reset site (this one, not
+# `{`) losing the same declaration-level fact.
+d="$work/declaration-level-function-import-list-is-not-mistaken-for-testrule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[X]
+    public function notARealRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
+    }" '' 'use function PHPat\Test\Attributes\bar, PHPat\Test\Attributes\TestRule as X;'
+assert_accepts "$d" "a declaration-level use-function unbraced list does not mistake its alias for TestRule"
+
 verdict
