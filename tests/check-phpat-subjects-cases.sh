@@ -1866,4 +1866,25 @@ mkdir -p "$d/tests/Architecture"
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_accepts "$d" "a qualified constant reference inside a decoy value does not hijack NAMESPACE_ROOT resolution"
 
+# GH-58 (codex-rescue): phpat's own Classname/ClassNamespace selectors strip a
+# leading and trailing `\` before comparing (trimSeparators() in phpat's
+# helpers.php), so a fully-qualified-style bare literal argument
+# (`Selector::classname('\Vendor\Mod\Model\Node')`) is live in phpat. This gate's
+# inventory is keyed WITHOUT a leading `\` (built from `namespace X;`
+# declarations, which never start with one), so without trimming the resolved
+# argument the same way, the lookup missed and a genuinely live rule was reported
+# vacuous.
+d="$work/leading-backslash-on-a-bare-literal-argument-is-resolved"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname('\\\\Vendor\\\\Mod\\\\Model\\\\Node'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname('\\\\Vendor\\\\Mod\\\\NoSuchClass'))
+            ->because('Live — Node exists despite the leading backslash on the argument.');
+    }"
+assert_accepts "$d" "a leading backslash on a bare literal classname() argument does not hide a live class"
+
 verdict

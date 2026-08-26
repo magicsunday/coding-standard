@@ -112,11 +112,11 @@ if (!is_dir($srcDir)) {
 /**
  * Strips comments and doc-comments from the ArchitectureTest source.
  *
- * This is not only needed for the NAMESPACE_ROOT regex below: $ruleTokens further down
- * is `token_get_all()` of THIS function's OWN output, so a bug here reaches rule
- * discovery and alias resolution too, and the class inventory walk tokenises each
- * `src/*.php` file through this same closure as well — a bug here is not confined to
- * ArchitectureTest.php.
+ * This is not only needed for the NAMESPACE_ROOT constant-name token walk below:
+ * $ruleTokens further down is `token_get_all()` of THIS function's OWN output, so a
+ * bug here reaches rule discovery and alias resolution too, and the class inventory
+ * walk tokenises each `src/*.php` file through this same closure as well — a bug
+ * here is not confined to ArchitectureTest.php.
  *
  * A comment spanning ZERO newlines must contribute a real character, not an empty
  * string: two token TEXTS either side of such a comment otherwise concatenate into ONE
@@ -706,7 +706,7 @@ $braceDelta = static function (array|string $token): int {
  * @return list<string> Every local name that resolves to the TestRule attribute,
  *                       'TestRule' itself always included.
  */
-$resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): array {
+$resolveTestRuleAliases = static function (array $tokens) use ($braceDelta, $nextName): array {
     $aliases = ['TestRule'];
     $count   = count($tokens);
     $depth   = 0;
@@ -814,23 +814,13 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                 // subject escape undetected — the same class of gap the literal-string
                 // compare this closure replaced already had for aliasing itself.
                 $importNameLower = strtolower($importName);
+                $aliasName       = $nextName($tokens, $ahead + 1, $count, [\T_WHITESPACE]);
 
-                for ($aliasAhead = $ahead + 1; $aliasAhead < $count; ++$aliasAhead) {
-                    $aliasToken = $tokens[$aliasAhead];
-
-                    if (is_array($aliasToken) && ($aliasToken[0] === \T_WHITESPACE)) {
-                        continue;
-                    }
-
-                    if (!$isFunctionOrConstItem
-                        && is_array($aliasToken)
-                        && ($aliasToken[0] === \T_STRING)
-                        && (($importNameLower === 'testrule') || str_ends_with($importNameLower, '\testrule'))
-                    ) {
-                        $aliases[] = $aliasToken[1];
-                    }
-
-                    break;
+                if (!$isFunctionOrConstItem
+                    && ($aliasName !== null)
+                    && (($importNameLower === 'testrule') || str_ends_with($importNameLower, '\testrule'))
+                ) {
+                    $aliases[] = $aliasName;
                 }
 
                 continue;
@@ -987,6 +977,21 @@ for ($index = 0; $index < $ruleCount; ++$index) {
                     ++$attributeSum;
                 }
             }
+
+            // Matches the LAST segment only, not the full FQCN — an unrelated attribute
+            // class from another namespace whose own name happens to be `TestRule`
+            // (fully qualified, or imported under an alias never used for phpat's own
+            // TestRule) is indistinguishable from the real one here, and gets
+            // misattributed as a rule method. phpat itself filters by the exact FQCN
+            // (`getAttributes(TestRule::class)`), so such a method is never a real rule
+            // to phpat — this gate would instead fail closed on it (no `->classes(...)`
+            // pattern to find), a spurious CI failure a developer sees immediately, not a
+            // silent bypass. Deliberately undefended: distinguishing "the bare name
+            // `TestRule` backed by a real `use PHPat\Test\Attributes\TestRule;` import"
+            // from "any fully-qualified name merely ending in `TestRule`" needs the same
+            // per-name import-resolution this file already does for AVOIDING a false
+            // negative, applied in the opposite direction — a materially bigger change
+            // to defend a naming collision no consumer of this gate has ever written.
 
             $expectName = false;
         }
@@ -1233,6 +1238,15 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
 
         continue;
     }
+
+    // phpat's own Classname/ClassNamespace selectors strip a leading and trailing
+    // `\` before comparing (`trimSeparators()` in phpat's helpers.php, `rtrim(ltrim($name,
+    // '\\'), '\\')`) — verified live: `Selector::classname('\Vendor\Mod\Model\Node')`
+    // matches the class phpat resolves as `Vendor\Mod\Model\Node`. Without this, a
+    // fully-qualified-style argument (a common authoring convention) never matches this
+    // gate's inventory, which is keyed WITHOUT a leading `\` (built from `namespace X;`
+    // declarations, which never start with one) — a genuinely live rule reported vacuous.
+    $resolved = trim($resolved, '\\');
 
     // A subject is judged against the inventory, so a short inventory can only
     // produce "not found" — which this gate would otherwise print as "matches no
