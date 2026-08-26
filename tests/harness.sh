@@ -624,7 +624,7 @@ harness_probe_reporters 10 harness_probe_assert_shapes \
 # The shape arms above cannot be reached from the fixtures. With the scrub intact no
 # fixture's report matches any of them — the `::` arm needs the sequence at column 0
 # after leading blanks, and a scrubbed value never puts it there — so deleting any
-# one of them leaves all three suites green. Measured. They are driven here instead,
+# one of them leaves every suite that calls it green. Measured. They are driven here instead,
 # one crafted report per grammar. The shape calls pass three arguments so the count
 # stays one increment per arm; the two that drive the must-carry arms pass four.
 #
