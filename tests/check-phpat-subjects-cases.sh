@@ -1905,4 +1905,40 @@ write_archtest "$d" "    #[TestRule]
     }"
 assert_accepts "$d" "a trailing backslash on a bare literal classname() argument does not hide a live class"
 
+# GH-58 (codex-rescue): a double-quoted NAMESPACE_ROOT value is not read as raw
+# text the way every other token this gate reads is — PHP decodes `\n`, `\t` and
+# friends in a double-quoted string, so `"Vendor\node"` evaluates at RUNTIME to
+# `Vendor` + an actual newline + `ode`, not the literal text between the quotes.
+# Reading the raw token bytes (as this gate does for every other value) would
+# silently accept a namespace argument phpat's own evaluation of the SAME
+# constant never produces. Restricting to single-quoted values (the only shape
+# the preg_match this walk replaced ever accepted) means a double-quoted
+# NAMESPACE_ROOT falls through to the fail-closed report instead — verified live
+# the value the gate would otherwise have derived does not exist as a namespace,
+# so this fixture's class deliberately lives under the LITERAL (undecoded) text
+# to prove the gate does not use it, not under the decoded value.
+d="$work/double-quoted-namespace-root-value-is-not-decoded-as-raw-text"
+write_class "$d" "Model/Node.php" "Vendor\\node\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf '    private const string NAMESPACE_ROOT = "Vendor\\node";\n\n'
+    printf '    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\Model'" "'\\NoSuchClass'" "'Vacuous either way — NAMESPACE_ROOT must fail to resolve, not silently decode.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it were the raw, undecoded literal text" \
+    "could not resolve"
+
 verdict

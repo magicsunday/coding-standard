@@ -357,12 +357,29 @@ for ($index = 0; $index < $constantCount; ++$index) {
         if ($sawEquals
             && ($next[0] === \T_CONSTANT_ENCAPSED_STRING)
             && ($name === 'NAMESPACE_ROOT')
+            && ($next[1][0] === "'")
         ) {
+            // Single-quoted only — a double-quoted literal is NOT read as raw text
+            // the way this token's own text otherwise is: PHP decodes `\n`, `\t`,
+            // `\xNN` and friends in a double-quoted string, so `"Vendor\node"`
+            // evaluates at runtime to `Vendor` + a real newline + `ode`, not the
+            // literal text between the quotes — verified live (`php -r
+            // 'var_dump("Vendor\node");'` prints a 10-byte string containing an
+            // actual newline). Reading the raw token text as this gate does
+            // everywhere else would silently accept a namespace argument that
+            // does not match what phpat's own runtime evaluation of the SAME
+            // constant produces, precisely the class of divergence this rewrite
+            // exists to close. Single-quoted PHP strings have no such ambiguity
+            // (only `\\` and `\'` are escapes), so restricting to them — the only
+            // shape the `preg_match` this walk replaced ever accepted — keeps
+            // this gate's reading and PHP's own evaluation in agreement; a
+            // double-quoted NAMESPACE_ROOT value falls through to the fail-closed
+            // "could not resolve" report below instead of being misread.
+            //
             // A single-quoted namespace literal may be written with single or
             // escaped (`\\`) backslashes; normalise to the single-backslash form
             // the `namespace` declarations in the class inventory always use.
-            // substr() strips the literal's own surrounding quote characters
-            // (single or double).
+            // substr() strips the literal's own surrounding quote characters.
             $namespaceRoot = str_replace('\\\\', '\\', substr($next[1], 1, -1));
 
             break 2;
@@ -630,9 +647,10 @@ $attributeResolvedCount = 0;
  * ordinary CHAR `}` — `{$a}` opens with T_CURLY_OPEN, `${a}` with
  * T_DOLLAR_OPEN_CURLY_BRACES, and skipping them leaves that `}` decrementing against
  * nothing (measured: cut a live rule's body short and reported it as unparseable).
- * Shared by every depth counter below so this recognition rule lives in exactly one
- * place — $topDepth and the per-method body-extraction loop both call it rather than
- * each carrying their own copy of the same four-way token check.
+ * Shared by every depth counter in this file so this recognition rule lives in
+ * exactly one place — $resolveTestRuleAliases's own pre-pass depth, $topDepth, and
+ * the per-method body-extraction loop all call it rather than each carrying their
+ * own copy of the same four-way token check.
  *
  * @param array{0: int, 1: string, 2: int}|string $token A token from token_get_all().
  *
