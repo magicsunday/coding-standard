@@ -196,7 +196,7 @@ verdict() {
 # The direction that can fail silently, proven before any case runs. A subshell, so
 # the `exit` cannot end the caller and the counter cannot be touched. The other
 # direction needs no probe: were `verdict` to stop exiting 0 on a clean counter,
-# every green run of all five harnesses would go red first.
+# every green run of every harness that sources this file would go red first.
 if ( fails=1; verdict ) >/dev/null 2>&1; then
     printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
     exit 1
