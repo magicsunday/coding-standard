@@ -132,9 +132,12 @@ write_archtest() {
 #
 # Writes the byte-identical opening every one of these fixtures needs (`<?php`
 # through the four real `use` imports) and truncates the fixture file to it —
-# for a fixture that needs a preceding sibling class, a raw multi-method body,
-# or injected junk tokens, none of which write_archtest()'s single-method
-# template can express. The caller appends the rest with `>>`.
+# for a fixture that needs something write_archtest()'s fixed single-
+# NAMESPACE_ROOT-then-$methods template can't express: a custom NAMESPACE_ROOT
+# constant (a decoy, a comma-separated statement, a double-quoted value), a
+# preceding sibling class, or rule-body content built with raw printf (control
+# bytes, embedded ESC sequences) rather than passed as a shell argument. The
+# caller appends the rest with `>>`.
 #
 # <before-imports>, when given, is written between the `namespace` declaration
 # and the real imports, followed by a blank line — for a fixture that needs
