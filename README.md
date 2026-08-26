@@ -61,11 +61,13 @@ deliberate exception. A tool release is normally adopted here and the floor move
 with it, rather than accumulating old majors a green CI never exercises, so a consumer
 on an older Biome or TypeScript updates its tools together with this package. TypeScript
 is the exception: its peer floor intentionally lags `latest` until real consumers have
-actually moved onto the declared range (#59) — right now that gap is two majors (this
-package's floor is 5.x; TypeScript shipped a 6.x major and `latest` is now 7.x), because
-jumping straight to a major days old would trade one working install for another,
-broken one. `@biomejs/biome` carries no such lag: as of 2026-08-26 it has shipped three
-majors (`0`, `1`, `2`) and none of those bumps has broken installs on release day. That
+actually moved onto the declared range (#59) — as of 2026-08-26 that gap is two majors
+(this package's floor is 5.x; TypeScript shipped a 6.x major and `latest` is now 7.x,
+GA'd 2026-07-08, re-derive with `npm view typescript time.7.0.2`), because jumping
+straight to a newly-cut major would trade one working install for another, broken
+one. `@biomejs/biome` carries no such lag: as of 2026-08-26 it has shipped three
+majors (`0`, `1`, `2`), and this package has no record of a Biome bump breaking a
+consumer's install on release day. That
 is the same bargain as the PHP side, where the toolchain versions are pinned here once
 for every repository; only the mechanism differs, because npm cannot deliver
 the tools.
