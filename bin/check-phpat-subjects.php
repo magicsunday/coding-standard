@@ -397,11 +397,12 @@ for ($index = 0; $index < $constantCount; ++$index) {
     // scan regardless of how many junk `const` keywords precede it — the fixture
     // proves the real constant is still found past the noise, not the quadratic
     // blowup itself, which needs an UNRESOLVABLE payload to manifest. Measured
-    // live against that unresolvable shape: an 8000-repetition payload under the
-    // 256KB size cap took ~11s; a near-cap payload did not finish in two minutes.
-    // ArchitectureTest.php is consumer PR content this gate already treats as
-    // adversarial (the size cap above exists for exactly that reason), so a
-    // CPU-time bound matters here the same way the byte bound does. The same fix
+    // live against that unresolvable shape, BEFORE this fix: an 8000-repetition
+    // payload under the 256KB size cap took ~11s; a near-cap payload did not
+    // finish in two minutes. ArchitectureTest.php is consumer PR content this
+    // gate already treats as adversarial (the size cap above exists for exactly
+    // that reason), so a CPU-time bound matters here the same way the byte
+    // bound does. The same fix
     // repeats at three other sites in
     // this file with the identical shape (an inner "scan to a terminator" loop
     // whose outer loop never skipped past it): the pre-existing attribute-group
