@@ -1328,6 +1328,16 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     //     would mean anchoring the scan to the actual `PHPat::rule()`/`$this->{name}()`
     //     call the rule builder starts from, a materially bigger parse than this file
     //     otherwise needs.
+    //   - The body-extraction loop's brace-depth count (via $braceDelta above) also
+    //     counts T_CURLY_OPEN/T_DOLLAR_OPEN_CURLY_BRACES, by design, to keep a
+    //     `"{$expr}"` interpolation from cutting a body short. The same mechanism can
+    //     be turned around: a decoy `"{$x}"` interpolation placed BEFORE the method's
+    //     own opening brace (e.g. inside a parameter's default value) opens and closes
+    //     depth back to 0 there, ending extraction before the real body is ever
+    //     reached — the same fail-open direction as the two gaps above, via a third
+    //     token path. Deliberately undefended for the identical reason: this needs a
+    //     hand-authored parameter default shaped to smuggle a decoy live subject past
+    //     the real body, not something written by accident.
     //
     // A separate, unrelated limitation: phpat accepts a rule method returning an
     // `iterable` of multiple rules (TestParser.php: `is_iterable($ruleBuilder)`), each
