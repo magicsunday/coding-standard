@@ -2066,7 +2066,10 @@ assert_rejects "$d" "many unterminated 'testN' method declarations do not cause 
 # conditional fix still reports `test1` (its own first violation is unaffected),
 # so a bare `test1: ...` substring alone would pass under EITHER design — only
 # the total count tells them apart (the conditional fix leaves test2..test100
-# each independently reported too).
+# each independently reported too). Anchored with the `check-phpat-subjects: `
+# prefix (test-quality-reviewer) — an unanchored `1 problem(s)` is a substring
+# of `11 problem(s)`, `21 problem(s)`, etc. too, so a later edit changing the
+# repeat count to anything ending in 1 would silently stop discriminating.
 d="$work/repeated-unterminated-test-method-sharing-one-distant-terminator"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 mkdir -p "$d/tests/Architecture"
@@ -2078,6 +2081,6 @@ mkdir -p "$d/tests/Architecture"
     printf ';\n}\n'
 } > "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'testN' declarations sharing one distant terminator do not cause quadratic scanning" \
-    "1 problem(s)"
+    "check-phpat-subjects: 1 problem(s)"
 
 verdict
