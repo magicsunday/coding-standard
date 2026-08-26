@@ -1941,4 +1941,70 @@ mkdir -p "$d/tests/Architecture"
 assert_rejects "$d" "a double-quoted NAMESPACE_ROOT value is not read as if it were the raw, undecoded literal text" \
     "could not resolve"
 
+# GH-58 (security-reviewer): neither the NAMESPACE_ROOT constant walk nor
+# $resolveTestRuleAliases's `use`-import walk advanced the OUTER token loop past
+# what its own inner "scan to `;`" loop had just consumed — a file with many
+# `const`/`use` keyword occurrences and no terminating `;` between them (tokenises
+# fine; need not be valid PHP) made every occurrence's inner scan re-run all the
+# way to end-of-file: O(n) work times O(n) occurrences. Measured live before the
+# fix: an 8000-repetition `use` payload took ~16s, an 8000-repetition `const`
+# payload ~11s, both comfortably under the 256KB size cap — a PR-suppliable CI
+# denial of service (re-derive: apply the fix, re-run the same payload, confirm
+# sub-second). This harness has no per-fixture timeout, so a moderate repeat
+# count here is a functional sanity check on the fix's control flow (the real
+# import/constant past the noise is still found correctly) — not, on its own, a
+# regression guard against the O(n) fix being reverted, since these fixture sizes
+# stay fast either way. The timing claim above is a one-time, manually verified
+# measurement, not something this suite re-checks on every run.
+d="$work/repeated-unterminated-use-keyword-does-not-cause-quadratic-scanning"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    for _ in $(seq 1 500); do printf 'use '; done
+    printf '\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf '    #[TestRule]
+    public function vacuous(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\NoSuchNamespace'" "'\\Model\\Node'" "'Vacuous — proves the real TestRule import is still found past 500 unterminated use keywords.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_rejects "$d" "many unterminated 'use' keywords before the real imports do not prevent finding TestRule" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+d="$work/repeated-unterminated-const-keyword-does-not-cause-quadratic-scanning"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+mkdir -p "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+    printf 'use PHPat\\Selector\\Selector;\nuse PHPat\\Test\\Attributes\\TestRule;\n'
+    printf 'use PHPat\\Test\\Builder\\Rule;\nuse PHPat\\Test\\PHPat;\n\n'
+    printf 'final class ArchitectureTest\n{\n'
+    for _ in $(seq 1 500); do printf 'const '; done
+    printf '\n\n'
+    printf "    private const string NAMESPACE_ROOT = 'Vendor\\\\Mod';\n\n"
+    printf '    #[TestRule]
+    public function live(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . %s))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . %s))
+            ->because(%s);
+    }\n' "'\\Model'" "'\\NoSuchClass'" "'Live — proves the real NAMESPACE_ROOT is still found past 500 unterminated const keywords.'"
+    printf '}\n'
+} > "$d/tests/Architecture/ArchitectureTest.php"
+assert_accepts "$d" "many unterminated 'const' keywords before the real declaration do not prevent resolving NAMESPACE_ROOT"
+
 verdict

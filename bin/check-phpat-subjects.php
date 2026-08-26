@@ -385,6 +385,18 @@ for ($index = 0; $index < $constantCount; ++$index) {
             break 2;
         }
     }
+
+    // Advances the OUTER loop past everything the inner one just scanned — without
+    // this, a file consisting of many `const` keywords with no terminating `;`
+    // between them (tokenises fine; need not be valid PHP) makes every occurrence
+    // re-scan all the way to end-of-file, O(n) work times O(n) occurrences. Measured
+    // live: an 8000-repetition payload under the 256KB size cap took ~11s; a
+    // near-cap payload did not finish in two minutes. ArchitectureTest.php is
+    // consumer PR content this gate already treats as adversarial (the size cap
+    // above exists for exactly that reason), so a CPU-time bound matters here the
+    // same way the byte bound does. Mirrors the same fix the attribute-group scan
+    // below already applies for the identical reason.
+    $index = $ahead - 1;
 }
 
 // --- Build the class inventory of src/ (FQCN => kind) ---
@@ -834,6 +846,18 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta, $nex
                 continue;
             }
         }
+
+        // Advances the OUTER loop past everything this `use` statement's own inner
+        // scan just consumed — without this, a file consisting of many `use`
+        // keywords with no terminating `;` between them (tokenises fine; need not
+        // be valid PHP) makes every occurrence re-scan all the way to end-of-file,
+        // O(n) work times O(n) occurrences. Measured live: an 8000-repetition
+        // payload under the 256KB size cap took ~19s. ArchitectureTest.php is
+        // consumer PR content this gate already treats as adversarial (the size
+        // cap above exists for exactly that reason). Mirrors the identical fix
+        // applied to the NAMESPACE_ROOT constant walk and the pre-existing
+        // attribute-group scan further below.
+        $index = $ahead - 1;
     }
 
     return $aliases;
