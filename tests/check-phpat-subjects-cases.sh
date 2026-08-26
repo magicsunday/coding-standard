@@ -1233,17 +1233,7 @@ assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does
 # it. Verified by mutation: deleting the T_STATIC arm turns this fixture's expected
 # reject into an accept (the scan stops at `static`, never sees `private`, and
 # $isNonPublic stays false).
-STATIC_TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
-    private static function testConfigurationIsALeaf(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
-            ->because('Configuration is a leaf.');
-    }
-RULE
-)"
+STATIC_TEST_NAMED_RULE_LIVE="$(sed 's/public function/private static function/' <<<"$TEST_NAMED_RULE_LIVE")"
 
 # REJECT (as "no rule methods found", not "matches no class"): a PRIVATE static
 # test*-named method must stay invisible — combined with no other rule, so the only
@@ -1262,17 +1252,7 @@ assert_rejects "$d" "a private static test-prefixed method is not picked up as a
 # it, so deleting the T_FINAL arm was a silent no-op against the rest of this
 # suite. Verified by mutation: deleting it turns this fixture's expected reject
 # into an accept.
-PROTECTED_FINAL_TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
-    protected final function testConfigurationIsALeaf(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
-            ->because('Configuration is a leaf.');
-    }
-RULE
-)"
+PROTECTED_FINAL_TEST_NAMED_RULE_LIVE="$(sed 's/public function/protected final function/' <<<"$TEST_NAMED_RULE_LIVE")"
 
 # REJECT (as "no rule methods found", not "matches no class"): a PROTECTED final
 # test*-named method must stay invisible — combined with no other rule, so the only
@@ -1309,6 +1289,44 @@ write_archtest "$d" "    #[TestRule]
 
 $MODEL_RULE_ON_TRAITS"
 assert_rejects "$d" "a rule after an earlier one containing interpolation is still found and checked" \
+    "matches no class"
+
+# The same order-sensitivity class as T_STATIC/T_FINAL above, for T_ABSTRACT: a
+# body-less `protected abstract function test*` needs the scan to continue past
+# `abstract` to reach `protected` behind it. The existing body-less fixture
+# further up ($work/attribute-on-a-bodyless-method: `abstract public function
+# declaredOnly()`) never discriminates this — `public` there is already whitelisted
+# and sits closer to `function` than `abstract`, so the scan never needs to get past
+# `abstract` to see the correct visibility. Verified by mutation: deleting the
+# T_ABSTRACT arm still rejects this fixture, but for the WRONG reason ("could not
+# identify a subject selector" instead of "no rule methods found") — the asserted
+# exact substring is what actually discriminates.
+d="$work/abstract-protected-test-named-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    protected abstract function testConfigurationIsALeaf(): Rule;"
+assert_rejects "$d" "a protected abstract test-prefixed method is not picked up as a rule (T_ABSTRACT does not mask T_PROTECTED)" \
+    "no #[TestRule] or test*-named public rule methods found"
+
+# GH-58 round-8 (codex-rescue): a return-by-reference declaration inserts a
+# T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG token the name-extraction loop must
+# skip to reach the method name. Before the fix this rule was entirely invisible
+# (not merely fail-closed to "no rule methods found" — it would have silently
+# vanished from $ruleMethods while the run still printed OK, since nothing else in
+# this file requires a rule to be found for a run to pass). Standalone with a
+# vacuous subject, so this can only pass if the return-by-reference rule is
+# genuinely recognised and its subject genuinely checked.
+d="$work/return-by-reference-vacuous"
+write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "    public function &testModelIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Traits'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because('Model is a leaf.');
+    }"
+assert_rejects "$d" "a return-by-reference test-prefixed rule with a vacuous subject is analysed, not skipped" \
     "matches no class"
 
 verdict

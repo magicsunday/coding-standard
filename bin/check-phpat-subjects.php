@@ -473,20 +473,39 @@ $attributeResolvedCount = 0;
 // body opened at (and that it IS `ArchitectureTest`), rather than assuming 1 for
 // whichever class comes first — a materially bigger change than tokenising one file,
 // to defend shapes this codebase has never seen written.
+/**
+ * Classifies a token's effect on brace depth: +1 for an opener, -1 for a closer, 0 for
+ * neither. A bare CHAR `{`/`}` is the usual case; the two string-interpolation openers
+ * are the exception that must also count as +1, because their CLOSING brace is an
+ * ordinary CHAR `}` — `{$a}` opens with T_CURLY_OPEN, `${a}` with
+ * T_DOLLAR_OPEN_CURLY_BRACES, and skipping them leaves that `}` decrementing against
+ * nothing (measured: cut a live rule's body short and reported it as unparseable).
+ * Shared by every depth counter below so this recognition rule lives in exactly one
+ * place — $topDepth and the per-method body-extraction loop both call it rather than
+ * each carrying their own copy of the same four-way token check.
+ *
+ * @param array{0: int, 1: string, 2: int}|string $token A token from token_get_all().
+ *
+ * @return int -1, 0 or 1.
+ */
+$braceDelta = static function (array|string $token): int {
+    if (is_array($token)) {
+        return (($token[0] === \T_CURLY_OPEN) || ($token[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) ? 1 : 0;
+    }
+
+    return match ($token) {
+        '{'     => 1,
+        '}'     => -1,
+        default => 0,
+    };
+};
+
 $topDepth = 0;
 
 for ($index = 0; $index < $ruleCount; ++$index) {
     $token = $ruleTokens[$index];
 
-    if (is_array($token)) {
-        if (($token[0] === \T_CURLY_OPEN) || ($token[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) {
-            ++$topDepth;
-        }
-    } elseif ($token === '{') {
-        ++$topDepth;
-    } elseif ($token === '}') {
-        --$topDepth;
-    }
+    $topDepth += $braceDelta($token);
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
         // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
@@ -585,19 +604,22 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         continue;
     }
 
-    // Known, deliberately unhandled gap: a return-by-reference declaration
-    // (`function &testFoo()`) inserts a `&` CHAR token here that this loop does not
-    // skip, so `$name` stays null and the method is not recognised as a rule — failing
-    // CLOSED (a false "no rule methods found"), not open onto a silently-passing
-    // vacuous rule. No known consumer writes phpat rules this way (a rule method
-    // returns a `Rule`/`iterable`, never something meant to be referenced), so this is
-    // deferred rather than fixed.
+    // A return-by-reference declaration (`function &testFoo()`) inserts a token here
+    // this loop must also skip past to reach the name — verified (php -r against
+    // token_get_all()) as T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG, an ARRAY token,
+    // not a bare `&` CHAR. Without this, `$name` stayed null and the method was not
+    // recognised as a rule — which is NOT reliably fail-closed the way it first looks:
+    // a no-attribute `&testFoo` mixed with any OTHER correctly-recognised rule left
+    // `$ruleMethods` non-empty, so the whole run could print OK with this method's
+    // subject — vacuous or not — never checked.
     $name = null;
 
     for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
         $next = $ruleTokens[$ahead];
 
-        if (is_array($next) && ($next[0] === \T_WHITESPACE)) {
+        if (is_array($next)
+            && (($next[0] === \T_WHITESPACE) || ($next[0] === \T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG))
+        ) {
             continue;
         }
 
@@ -619,14 +641,17 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         ++$attributeResolvedCount;
     }
 
-    // Re-derive rather than trusting this: phpat/src/Test/TestParser.php's own regex,
-    // reproduced verbatim (case-sensitive — a `Test…`-named method does not qualify).
+    // phpat/src/Test/TestParser.php's own regex, reproduced verbatim (case-sensitive —
+    // a `Test…`-named method does not qualify). phpat is vendored in THIS repository,
+    // not just described — a version bump inside the ^0.12.4 constraint could change
+    // it, so re-derive rather than trusting this comment:
+    // grep -n 'preg_match\|getMethods' .build/vendor/phpat/phpat/src/Test/TestParser.php
     $isTestNamed = ($name !== null) && (preg_match('/^(test)[A-Za-z0-9_\x80-\xff]*/', $name) === 1);
 
-    // `getMethods(ReflectionMethod::IS_PUBLIC)` gates BOTH of phpat's discovery paths,
-    // not just the name-based one — a `private`/`protected` method carrying
-    // `#[TestRule]` is invisible to phpat too, and this gate would otherwise fail-close
-    // on a rule phpat never runs.
+    // `getMethods(ReflectionMethod::IS_PUBLIC)` (same grep command above) gates BOTH of
+    // phpat's discovery paths, not just the name-based one — a `private`/`protected`
+    // method carrying `#[TestRule]` is invisible to phpat too, and this gate would
+    // otherwise fail-close on a rule phpat never runs.
     //
     // Visibility is read by looking BACKWARD from `function` over its own immediately
     // preceding, contiguous modifier run — not by a flag carried FORWARD from wherever
@@ -692,21 +717,16 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         continue;
     }
 
-    // The body, by brace depth over DELIMITER tokens only.
+    // The body, by brace depth over $braceDelta (declared above) rather than a
+    // hand-rolled copy of the same classification.
     //
-    // A real delimiter is always a single-character CHAR token. Reading `$inner[1]` of
-    // an array token as well was wrong in both directions, measured on the shipped
-    // binary: `"$a{"` lexes the brace as T_ENCAPSED_AND_WHITESPACE whose text is
-    // exactly `{`, so one added character inside a string made a vacuous rule's body
-    // run past its own method and adopt the following helper's live subject — the gate
-    // printed OK. The mirror, `"a $what}"`, cut a correct body short and reported a
-    // live rule as unparseable.
-    //
-    // The two interpolation openers are the exception and must still count, because
-    // their CLOSING brace is an ordinary CHAR token: `{$a}` opens with T_CURLY_OPEN
-    // and `${a}` with T_DOLLAR_OPEN_CURLY_BRACES, both carrying text that is not a
-    // bare `{`. Counting only CHAR tokens without them leaves the `}` decrementing
-    // against nothing.
+    // Reading `$inner[1]` of an array token for the delimiter text was wrong in both
+    // directions, measured on the shipped binary: `"$a{"` lexes the brace as
+    // T_ENCAPSED_AND_WHITESPACE whose text is exactly `{`, so one added character
+    // inside a string made a vacuous rule's body run past its own method and adopt the
+    // following helper's live subject — the gate printed OK. The mirror, `"a $what}"`,
+    // cut a correct body short and reported a live rule as unparseable. $braceDelta
+    // sidesteps this by classifying the TOKEN, never its text.
     //
     // An abstract or interface method ends on a CHAR `;` before any `{` and carries no
     // subject to read.
@@ -717,19 +737,19 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         $inner = $ruleTokens[$ahead];
         $text  = is_array($inner) ? $inner[1] : $inner;
 
-        if (is_array($inner)) {
-            if (($inner[0] === \T_CURLY_OPEN) || ($inner[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) {
-                ++$depth;
-            }
-        } elseif (($depth === 0) && ($inner === ';')) {
+        if (!is_array($inner) && ($depth === 0) && ($inner === ';')) {
             break;
-        } elseif ($inner === '{') {
+        }
+
+        $delta = $braceDelta($inner);
+
+        if ($delta === 1) {
             ++$depth;
 
             if ($depth === 1) {
                 continue;
             }
-        } elseif ($inner === '}') {
+        } elseif ($delta === -1) {
             --$depth;
 
             if ($depth === 0) {
