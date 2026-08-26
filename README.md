@@ -47,11 +47,11 @@ config directories with no tooling of their own, so it installs no `biome`/
 is a deliberate, separate exception, further down):
 
 ```shell
-npm install --save-dev @biomejs/biome@^2.5.0 typescript@^7.0.2
+npm install --save-dev @biomejs/biome@^2.5.0 typescript@^5.4.0
 ```
 
 The versions the shared configs are proven against are declared as **optional**
-`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^7.0.2`. Optional, because
+`peerDependencies` — `@biomejs/biome ^2.5.0` and `typescript ^5.4.0`. Optional, because
 a repository adopting only the Biome config should not be warned about a missing
 TypeScript, and vice versa; npm still validates the range of whichever one is
 installed.
@@ -64,7 +64,7 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.5`,
-`typescript 7.0.2`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
+`typescript 5.9.3`, `jscpd 5.0.14`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
@@ -734,7 +734,7 @@ contradiction until the measurements are written down, so here they are:
 
 | File | `"//"` | Because |
 |---|---|---|
-| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
+| `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 5.9.3, the config loads and compiles |
 | `templates/jscpd.json` | **yes** | jscpd reads JSON5 and ignores it; the smoke runs the template verbatim, note key and all |
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
