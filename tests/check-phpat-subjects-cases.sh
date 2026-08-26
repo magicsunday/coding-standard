@@ -157,6 +157,39 @@ write_archtest_header() {
     } > "$dir/tests/Architecture/ArchitectureTest.php"
 }
 
+# write_archtest_bare_open <dir>
+#
+# Writes the `<?php` through `final class ArchitectureTest\n{\n` opening for a
+# fixture that needs NO `use` imports at all (its rule methods never reference
+# PHPat/Selector) — write_archtest_header() always emits the four imports, so
+# it doesn't fit here. Truncates the fixture file; the caller appends the rest
+# with `>>`.
+write_archtest_bare_open() {
+    local dir="$1"
+    mkdir -p "$dir/tests/Architecture"
+    {
+        printf '<?php\n\ndeclare(strict_types=1);\n\n'
+        printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
+        printf 'final class ArchitectureTest\n{\n'
+    } > "$dir/tests/Architecture/ArchitectureTest.php"
+}
+
+# write_class_raw <file> <namespace-line> <class-line>
+#
+# Writes a `src/*.php` file with a caller-supplied `namespace` statement and
+# class-declaration line verbatim — for a fixture that needs a same-line
+# comment spliced into one of them, which write_class()'s fixed template
+# cannot express.
+write_class_raw() {
+    local file="$1" nsLine="$2" classLine="$3"
+    mkdir -p "$(dirname "$file")"
+    {
+        printf '<?php\n\ndeclare(strict_types=1);\n\n'
+        printf '%s\n\n' "$nsLine"
+        printf '%s\n{\n}\n' "$classLine"
+    } > "$file"
+}
+
 # Rule-method templates. Quoted heredocs → literal content, so the single backslashes
 # in the selector suffixes are written exactly as a real ArchitectureTest carries them.
 MODEL_RULE="$(cat <<'RULE'
@@ -1728,12 +1761,7 @@ assert_rejects "$d" "a same-line comment between 'function' and a test*-prefixed
 # `Node`. Written directly rather than via write_class(), which never emits a
 # same-line comment in the namespace declaration.
 d="$work/comment-after-namespace-keyword-does-not-hide-the-namespace"
-mkdir -p "$d/src/Model" "$d/tests/Architecture"
-{
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace /* comment */ Vendor\\Mod\\Model;\n\n'
-    printf 'final class Node\n{\n}\n'
-} > "$d/src/Model/Node.php"
+write_class_raw "$d/src/Model/Node.php" 'namespace /* comment */ Vendor\Mod\Model;' 'final class Node'
 write_archtest "$d" "    #[TestRule]
     public function vacuous(): Rule
     {
@@ -1755,12 +1783,7 @@ assert_rejects "$d" "a same-line comment after 'namespace' does not hide the nam
 # Written directly rather than via write_class(), which never emits a comment
 # between `class` and the name.
 d="$work/comment-between-class-keyword-and-class-name-does-not-hide-the-class"
-mkdir -p "$d/src" "$d/tests/Architecture"
-{
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod;\n\n'
-    printf 'final class/* comment */Node\n{\n}\n'
-} > "$d/src/Node.php"
+write_class_raw "$d/src/Node.php" 'namespace Vendor\Mod;' 'final class/* comment */Node'
 write_archtest "$d" "    #[TestRule]
     public function live(): Rule
     {
@@ -2024,14 +2047,11 @@ assert_accepts "$d" "many unterminated 'const' keywords before the real declarat
 # fast (and would stay fast even fully unfixed) at this size.
 d="$work/repeated-unterminated-test-method-does-not-cause-quadratic-scanning"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_bare_open "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'final class ArchitectureTest\n{\n'
     for i in $(seq 1 100); do printf 'public function test%d ' "$i"; done
     printf '\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'testN' method declarations do not cause quadratic scanning" \
     "could not identify a subject selector"
 
@@ -2056,14 +2076,11 @@ assert_rejects "$d" "many unterminated 'testN' method declarations do not cause 
 # repeat count to anything ending in 1 would silently stop discriminating.
 d="$work/repeated-unterminated-test-method-sharing-one-distant-terminator"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
-mkdir -p "$d/tests/Architecture"
+write_archtest_bare_open "$d"
 {
-    printf '<?php\n\ndeclare(strict_types=1);\n\n'
-    printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
-    printf 'final class ArchitectureTest\n{\n'
     for i in $(seq 1 100); do printf 'public function test%d() ' "$i"; done
     printf ';\n}\n'
-} > "$d/tests/Architecture/ArchitectureTest.php"
+} >> "$d/tests/Architecture/ArchitectureTest.php"
 assert_rejects "$d" "many unterminated 'testN' declarations sharing one distant terminator do not cause quadratic scanning" \
     "check-phpat-subjects: 1 problem(s)"
 
