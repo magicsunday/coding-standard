@@ -503,55 +503,120 @@ $braceDelta = static function (array|string $token): int {
     };
 };
 
-$topDepth = 0;
+/**
+ * Resolves every local name that resolves to the TestRule attribute — the literal
+ * name plus every `as`-alias a `use` import establishes for it. A `use
+ * PHPat\Test\Attributes\TestRule as X;` import makes `#[X]` the real attribute — PHP
+ * resolves it via ordinary import-alias resolution, and phpat's own TestParser filters
+ * by FQCN (`getAttributes(TestRule::class)`, re-derive with:
+ * grep -n 'getMethods\|reflectTest' .build/vendor/phpat/phpat/src/Test/Test{Parser,Extractor}.php),
+ * not by the literal text `TestRule`. Without tracking an alias, that rule's attribute
+ * never matches the comparison at the attribute-recognition site, so it never
+ * increments $attributeSum and never enters $ruleMethods — its subject, vacuous or
+ * not, is never inspected, while the run stays green as long as the file also has one
+ * other, non-aliased rule. Verified live: a fixture with one aliased, deliberately
+ * vacuous rule alongside one genuine rule printed OK.
+ *
+ * Handles a single import (`use A\TestRule as X;`), a comma-separated list on one
+ * `use` line (`use A, B\TestRule as X;`), and a brace-grouped list
+ * (`use A\{TestRule as X, B};`) — verified against token_get_all() output for all
+ * three shapes: the group prefix arrives as one T_NAME_QUALIFIED token, followed by
+ * its own trailing T_NS_SEPARATOR, then the `{` CHAR. A doubly-nested group
+ * (`use A\{B\{TestRule as X}}`) is NOT handled — $groupPrefix holds only one level, so
+ * a nested group's items would resolve against the OUTER prefix alone. Deliberately
+ * undefended, same disposition as the two other documented gaps at $topDepth below:
+ * nothing in this codebase's own consumers or fixtures writes a nested group import,
+ * and PHP developers overwhelmingly do not either.
+ *
+ * A dedicated FORWARD pre-pass over the whole token stream, not part of the main
+ * rule-discovery loop below — it shares no mutable state with it (its own $depth,
+ * not $topDepth) and can be read and tested on its own, same rationale as
+ * $braceDelta being pulled out of the loop it serves.
+ *
+ * `T_FUNCTION`/`T_CONST` are skipped inside a group (`use A\{function f, TestRule}`)
+ * without being read as a name — neither can ever be an alias target for a CLASS
+ * import, so treating them as ordinary noise between commas is correct, not a gap.
+ *
+ * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens The file's full
+ *                                                                    token stream.
+ *
+ * @return list<string> Every local name that resolves to the TestRule attribute,
+ *                       'TestRule' itself always included.
+ */
+$resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): array {
+    $aliases = ['TestRule'];
+    $count   = count($tokens);
+    $depth   = 0;
 
-// A `use PHPat\Test\Attributes\TestRule as X;` import makes `#[X]` the real attribute —
-// PHP resolves it via ordinary import-alias resolution, and phpat's own TestParser
-// filters by FQCN (`getAttributes(TestRule::class)`, same re-derivation command as
-// above), not by the literal text `TestRule`. Without tracking this, an aliased rule's
-// attribute never matched the literal comparison below, so it never incremented
-// $attributeSum and never entered $ruleMethods — its subject, vacuous or not, was never
-// inspected, while the run stayed green as long as the file also had one other,
-// non-aliased rule. Verified live: a fixture with one aliased, deliberately vacuous rule
-// alongside one genuine rule printed OK. `TestRule` itself is always a member: it is
-// what every non-aliased spelling (bare, qualified, fully-qualified) already resolves
-// to at the comparison site.
-$testRuleAliases = ['TestRule'];
+    for ($index = 0; $index < $count; ++$index) {
+        $token = $tokens[$index];
+        $depth += $braceDelta($token);
 
-for ($index = 0; $index < $ruleCount; ++$index) {
-    $token = $ruleTokens[$index];
+        // Bounded to $depth === 0 (before the class body opens): PHP's tokenizer
+        // emits the identical T_USE for an IMPORT and for trait-adaptation
+        // `use Trait { … }` inside a class body, and only the import form is a
+        // candidate for aliasing this attribute.
+        if (!is_array($token) || ($token[0] !== \T_USE) || ($depth !== 0)) {
+            continue;
+        }
 
-    $topDepth += $braceDelta($token);
+        $groupPrefix = null;
+        $importName  = null;
 
-    // Bounded to $topDepth === 0 (before the class body opens): PHP's tokenizer emits
-    // the identical T_USE for an IMPORT and for trait-adaptation `use Trait { … }`
-    // inside a class body, and only the import form is a candidate for aliasing this
-    // attribute — a trait-adaptation `use` never introduces a class-level alias.
-    if (is_array($token) && ($token[0] === \T_USE) && ($topDepth === 0)) {
-        $importName = null;
-
-        for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
-            $next = $ruleTokens[$ahead];
+        for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
+            $next = $tokens[$ahead];
 
             if (!is_array($next)) {
+                if ($next === ';') {
+                    break;
+                }
+
+                if ($next === ',') {
+                    // A new item starts — inside a group if $groupPrefix is set, else
+                    // the next import on the same `use` line.
+                    $importName = null;
+
+                    continue;
+                }
+
+                if ($next === '{') {
+                    // The name gathered so far becomes the prefix every item inside
+                    // the group is relative to.
+                    $groupPrefix = $importName;
+                    $importName  = null;
+
+                    continue;
+                }
+
+                if ($next === '}') {
+                    $groupPrefix = null;
+                    $importName  = null;
+
+                    continue;
+                }
+
                 break;
             }
 
-            if ($next[0] === \T_WHITESPACE) {
+            if (($next[0] === \T_WHITESPACE)
+                || ($next[0] === \T_NS_SEPARATOR)
+                || ($next[0] === \T_FUNCTION)
+                || ($next[0] === \T_CONST)
+            ) {
                 continue;
             }
 
             if (($importName === null)
                 && (($next[0] === \T_STRING) || ($next[0] === \T_NAME_QUALIFIED) || ($next[0] === \T_NAME_FULLY_QUALIFIED))
             ) {
-                $importName = $next[1];
+                $importName = ($groupPrefix !== null) ? ($groupPrefix . '\\' . $next[1]) : $next[1];
 
                 continue;
             }
 
             if (($next[0] === \T_AS) && ($importName !== null)) {
-                for ($aliasAhead = $ahead + 1; $aliasAhead < $ruleCount; ++$aliasAhead) {
-                    $aliasToken = $ruleTokens[$aliasAhead];
+                for ($aliasAhead = $ahead + 1; $aliasAhead < $count; ++$aliasAhead) {
+                    $aliasToken = $tokens[$aliasAhead];
 
                     if (is_array($aliasToken) && ($aliasToken[0] === \T_WHITESPACE)) {
                         continue;
@@ -560,18 +625,95 @@ for ($index = 0; $index < $ruleCount; ++$index) {
                     if (is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
                         && (($importName === 'TestRule') || str_ends_with($importName, '\TestRule'))
                     ) {
-                        $testRuleAliases[] = $aliasToken[1];
+                        $aliases[] = $aliasToken[1];
                     }
 
                     break;
                 }
-            }
 
+                continue;
+            }
+        }
+    }
+
+    return $aliases;
+};
+
+$testRuleAliases = $resolveTestRuleAliases($ruleTokens);
+
+/**
+ * True when the method whose `function` token sits at $functionIndex is NOT public —
+ * `getMethods(ReflectionMethod::IS_PUBLIC)` (re-derive with the same command as
+ * $resolveTestRuleAliases above) gates BOTH of phpat's discovery paths, not just the
+ * name-based one, so a `private`/`protected` method is invisible to phpat too and this
+ * gate would otherwise fail-close on a rule phpat never runs.
+ *
+ * Reads BACKWARD from `function` over its own immediately preceding, contiguous
+ * modifier run — not a flag carried FORWARD from wherever a `T_PRIVATE`/`T_PROTECTED`
+ * token last appeared. The forward form was tried first and was wrong: PHP's
+ * trait-conflict-resolution syntax (`use Helper { someMethod as private; }`) emits a
+ * bare T_PRIVATE/T_PROTECTED token with no following T_FUNCTION/T_VARIABLE/T_CONST to
+ * reset it, so that trait-adaptation line silently poisoned the NEXT real, genuinely
+ * public rule method into looking non-public — defeating the fail-closed guarantee on
+ * a rule phpat actually runs. Verified: reverting to the forward form reproduces exit
+ * 0 on such a fixture where this lookback correctly reds it. Mirrors the
+ * `Foo::class`/`new class` lookback used elsewhere in this file for the same reason —
+ * bounded to the immediate run, nothing outside it can poison the read.
+ *
+ * No T_READONLY in the whitelist below: `readonly` is a property/promoted-parameter
+ * modifier, never a method one — `readonly function` is not valid PHP — so a real
+ * ArchitectureTest can never place it directly before `function`. Any earlier
+ * `readonly` (on a property) already ends its own declaration in `;`, a non-array CHAR
+ * token this scan already breaks on before reaching it.
+ *
+ * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens       The file's
+ *                                                                          full token
+ *                                                                          stream.
+ * @param int                                                 $functionIndex The index
+ *                                                                          of the
+ *                                                                          `function`
+ *                                                                          token.
+ *
+ * @return bool True when the method is not public.
+ */
+$isNonPublicMethod = static function (array $tokens, int $functionIndex): bool {
+    for ($back = $functionIndex - 1; $back >= 0; --$back) {
+        $previous = $tokens[$back];
+
+        // A non-array token here is always the attribute group's closing `]` (or a
+        // `;`/`{` from something else entirely) — either way, the modifier run ends.
+        if (!is_array($previous)) {
             break;
         }
 
-        continue;
+        if ($previous[0] === \T_WHITESPACE) {
+            continue;
+        }
+
+        if (($previous[0] === \T_PRIVATE) || ($previous[0] === \T_PROTECTED)) {
+            return true;
+        }
+
+        if (($previous[0] === \T_PUBLIC)
+            || ($previous[0] === \T_STATIC)
+            || ($previous[0] === \T_ABSTRACT)
+            || ($previous[0] === \T_FINAL)
+        ) {
+            continue;
+        }
+
+        break;
     }
+
+    return false;
+};
+
+$topDepth = 0;
+
+for ($index = 0; $index < $ruleCount; ++$index) {
+    $token = $ruleTokens[$index];
+
+    $topDepth += $braceDelta($token);
 
     if (is_array($token) && ($token[0] === \T_ATTRIBUTE)) {
         // T_ATTRIBUTE is the opening `#[` alone; the names follow as ordinary tokens
@@ -745,42 +887,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     // lookback correctly reds it. Mirrors the `Foo::class`/`new class` lookback already
     // used above for the same reason — bounded to the immediate run, nothing outside
     // it can poison the read.
-    $isNonPublic = false;
-
-    for ($back = $index - 1; $back >= 0; --$back) {
-        $previous = $ruleTokens[$back];
-
-        // A non-array token here is always the attribute group's closing `]` (or a
-        // `;`/`{` from something else entirely) — either way, the modifier run ends.
-        if (!is_array($previous)) {
-            break;
-        }
-
-        if ($previous[0] === \T_WHITESPACE) {
-            continue;
-        }
-
-        if (($previous[0] === \T_PRIVATE) || ($previous[0] === \T_PROTECTED)) {
-            $isNonPublic = true;
-
-            continue;
-        }
-
-        // No T_READONLY here: `readonly` is a property/promoted-parameter modifier,
-        // never a method one — `readonly function` is not valid PHP — so a real
-        // ArchitectureTest can never place it directly before `function`. Any earlier
-        // `readonly` (on a property) already ends its own declaration in `;`, a
-        // non-array CHAR token this scan already breaks on before reaching it.
-        if (($previous[0] === \T_PUBLIC)
-            || ($previous[0] === \T_STATIC)
-            || ($previous[0] === \T_ABSTRACT)
-            || ($previous[0] === \T_FINAL)
-        ) {
-            continue;
-        }
-
-        break;
-    }
+    $isNonPublic = $isNonPublicMethod($ruleTokens, $index);
 
     // `$topDepth === 1` is the same "invisible to phpat's reflection" idea (re-derivation
     // command at $topDepth's own declaration above) applied to NESTING: a method declared

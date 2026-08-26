@@ -63,7 +63,7 @@ as_modifier_variant() {
     sed "s/public function/$2 function/" <<<"$1"
 }
 
-# write_archtest <dir> <rule-methods-block> [preamble] [test-rule-alias]
+# write_archtest <dir> <rule-methods-block> [preamble] [test-rule-import-line]
 #
 # <preamble>, when given, is written between the `use` imports and the
 # `final class ArchitectureTest` declaration — for a top-level declaration
@@ -71,20 +71,22 @@ as_modifier_variant() {
 # and that the <rule-methods-block> argument (already inside the class body)
 # cannot express.
 #
-# <test-rule-alias>, when given, imports the TestRule attribute
-# `as <test-rule-alias>` instead of under its own name — for a fixture proving the
-# gate follows an aliased import (`#[<test-rule-alias>]`) the same as the literal
-# `#[TestRule]`, which real consumer code is free to write on an ordinary name
-# collision with another `TestRule`-named symbol.
+# <test-rule-import-line>, when given, REPLACES the plain `use
+# PHPat\Test\Attributes\TestRule;` line verbatim — for a fixture proving the gate
+# follows an import shape other than one-name-per-`use`-statement the same as the
+# literal `#[TestRule]`: a single alias (`use ...\TestRule as X;`), a comma-separated
+# multi-import (`use ...\Rule as Y, ...\TestRule as X;`), or a brace-grouped import
+# (`use ...\Attributes\{TestRule as X};`) — all of which real consumer code is free to
+# write on an ordinary name collision with another `TestRule`-named symbol.
 write_archtest() {
-    local dir="$1" methods="$2" preamble="${3:-}" testRuleAlias="${4:-}"
+    local dir="$1" methods="$2" preamble="${3:-}" testRuleImportLine="${4:-}"
     mkdir -p "$dir/tests/Architecture"
     {
         printf '<?php\n\ndeclare(strict_types=1);\n\n'
         printf 'namespace Vendor\\Mod\\Test\\Architecture;\n\n'
         printf 'use PHPat\\Selector\\Selector;\n'
-        if [ -n "$testRuleAlias" ]; then
-            printf 'use PHPat\\Test\\Attributes\\TestRule as %s;\n' "$testRuleAlias"
+        if [ -n "$testRuleImportLine" ]; then
+            printf '%s\n' "$testRuleImportLine"
         else
             printf 'use PHPat\\Test\\Attributes\\TestRule;\n'
         fi
@@ -1319,7 +1321,7 @@ write_archtest "$d" "    protected abstract function testConfigurationIsALeaf():
 assert_rejects "$d" "a protected abstract test-prefixed method is not picked up as a rule (T_ABSTRACT does not mask T_PROTECTED)" \
     "no #[TestRule] or test*-named public rule methods found"
 
-# GH-58 round-8 (codex-rescue): a return-by-reference declaration inserts a
+# GH-58: a return-by-reference declaration inserts a
 # T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG token the name-extraction loop must
 # skip to reach the method name. Before the fix this rule was entirely invisible
 # (not merely fail-closed to "no rule methods found" — it would have silently
@@ -1341,7 +1343,7 @@ write_archtest "$d" "    public function &testModelIsALeaf(): Rule
 assert_rejects "$d" "a return-by-reference test-prefixed rule with a vacuous subject is analysed, not skipped" \
     "matches no class"
 
-# GH-58 round-8 (correctness-reviewer): $attributeResolvedCount was incremented for
+# GH-58: $attributeResolvedCount was incremented for
 # ANY #[TestRule]-attached function, including one nested inside a closure or
 # anonymous class — a method $topDepth === 1 already excludes from $ruleMethods for
 # being invisible to phpat's reflection. As long as the file also contained one other
@@ -1385,7 +1387,7 @@ RULE
 assert_rejects "$d" "a #[TestRule] nested inside an anonymous class within a live rule's body is not silently counted as resolved" \
     "attribute(s) found but only"
 
-# GH-58 round-9 (testing-reviewer): the subject-extraction scan is documented (at its
+# GH-58: the subject-extraction scan is documented (at its
 # own declaration site) as misattributing the nested rule's subject text to the
 # ENCLOSING rule's name in this exact shape — a naming defect, not a fail-open one (the
 # misattachment check above already reds the run regardless). Pinning the current text
@@ -1396,7 +1398,7 @@ if ! grep -qF -- "live: subject inNamespace(Vendor\\Mod\\NoSuchNamespace) matche
     harness_fail "the documented subject-misattribution for a nested #[TestRule] changed shape — update the comment at the subject-extraction site"
 fi
 
-# GH-58 round-9 (security-reviewer): `use PHPat\Test\Attributes\TestRule as Rule2;`
+# GH-58: `use PHPat\Test\Attributes\TestRule as Rule2;`
 # makes `#[Rule2]` the real attribute — PHP resolves it via ordinary import-alias
 # resolution, and phpat's own TestParser filters by FQCN, not by the literal text
 # `TestRule`. Before the fix, the attribute-recognition scan compared only the literal
@@ -1419,8 +1421,55 @@ write_archtest "$d" "$MODEL_RULE
             ->shouldNot()->dependOn()
             ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
             ->because('Vacuous — must never hide behind an import alias.');
-    }" '' 'Rule2'
+    }" '' 'use PHPat\Test\Attributes\TestRule as Rule2;'
 assert_rejects "$d" "a #[TestRule] attribute imported under an alias is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (correctness-reviewer, security-reviewer, php-reviewer — round 3, independently):
+# the alias-tracking fix above only handled ONE name per `use` statement. A
+# comma-separated multi-import on the same line (`use A, B\TestRule as X;`) broke the
+# forward scan at the first `,`, so the second import's alias was never tracked — the
+# exact same invisibility bug the single-import fix above closed, reopened by a
+# different, equally ordinary spelling. This fixture combines TWO real imports
+# (Rule and TestRule) onto one `use` line, both aliased, with the TestRule alias
+# second and its subject deliberately vacuous.
+d="$work/comma-separated-testrule-alias-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[Rule3]
+    public function commaAliasedVacuousRule(): RuleX
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a comma-separated import.');
+    }" '' 'use PHPat\Test\Builder\Rule as RuleX, PHPat\Test\Attributes\TestRule as Rule3;'
+assert_rejects "$d" "a #[TestRule] alias imported on a comma-separated use line is analysed, not invisible" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (correctness-reviewer, security-reviewer, php-reviewer — round 3, independently):
+# same bug class again, for a brace-grouped import (`use Ns\{TestRule as X};`) — the
+# forward scan captured the group PREFIX as $importName, then broke on the following
+# T_NS_SEPARATOR/`{` before ever descending into the group. This fixture imports
+# TestRule ONLY through a group, aliased, with a deliberately vacuous subject.
+d="$work/grouped-testrule-alias-is-not-invisible"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[Rule4]
+    public function groupedAliasedVacuousRule(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a grouped import.');
+    }" '' 'use PHPat\Test\Attributes\{TestRule as Rule4};'
+assert_rejects "$d" "a #[TestRule] alias imported through a brace-grouped use line is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
 verdict
