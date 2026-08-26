@@ -18,9 +18,14 @@ declare(strict_types=1);
  * silent no-op, because phpat resolves a subject through PHPStan's `InClassNode`,
  * which never fires for a trait.
  *
- * This checker parses a consumer's `ArchitectureTest`, extracts each `#[TestRule]`
- * method's subject selector, and asserts the subject matches at least one real class
- * in `src/`:
+ * This checker parses a consumer's `ArchitectureTest`, extracts each rule method's
+ * subject selector, and asserts the subject matches at least one real class in `src/`.
+ * phpat itself discovers a rule method two ways — `PHPat\Test\TestParser` accepts a
+ * PUBLIC method carrying the `#[TestRule]` attribute OR one whose name starts with
+ * `test` (the exact regex is reproduced, and re-derived rather than trusted, at its
+ * own comment below) — and this gate recognises both, or a repository writing its
+ * rules in the `test*` naming style would get a false "no rule methods found" while
+ * phpat runs those rules perfectly well:
  *   - `Selector::inNamespace(NS)`  → at least one non-trait, non-interface, non-enum
  *                                     class exists in NS (a trait-only namespace, the
  *                                     manifested bug, fails here);
@@ -33,8 +38,8 @@ declare(strict_types=1);
  *
  * It is a STATIC check — it does not run PHPStan — so it verifies the one invariant the
  * vacuous-rule trap violates (the subject is non-empty), not the full rule mechanics.
- * It fails CLOSED: every `#[TestRule]` method must yield a classifiable subject, or the
- * run reds.
+ * It fails CLOSED: every rule method, found either way, must yield a classifiable
+ * subject, or the run reds.
  *
  * Usage (from a consumer repo root, wired as a `ci:test:php:phpat-subjects` script):
  *
@@ -428,8 +433,10 @@ $namespaceHasClass = static function (array $inventory, string $namespace): bool
 $ruleMethods  = [];
 $ruleTokens   = token_get_all($source);
 $ruleCount    = count($ruleTokens);
-$sawTestRule  = false;
-$attributeSum = 0;
+$sawTestRule            = false;
+$sawNonPublic           = false;
+$attributeSum           = 0;
+$attributeResolvedCount = 0;
 
 for ($index = 0; $index < $ruleCount; ++$index) {
     $token = $ruleTokens[$index];
@@ -510,10 +517,27 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         continue;
     }
 
+    // phpat's OTHER discovery path (PHPat\Test\TestParser): a method whose name
+    // matches `/^(test)[A-Za-z0-9_\x80-\xff]*/` needs no attribute at all. That parser
+    // only reflects PUBLIC methods (`getMethods(ReflectionMethod::IS_PUBLIC)`), so a
+    // `private`/`protected` method named `testFoo` is invisible to phpat and must stay
+    // invisible here too — otherwise a genuine, non-rule helper the class author
+    // happened to name with a `test` prefix would be fail-closed as an unparseable
+    // rule. Visibility is default-public in PHP, so only an EXPLICIT non-public
+    // modifier flips this.
+    if (is_array($token) && (($token[0] === \T_PRIVATE) || ($token[0] === \T_PROTECTED))) {
+        $sawNonPublic = true;
+
+        continue;
+    }
+
     // A TestRule attribute attaches to the declaration that FOLLOWS it. Any other
     // declaration keyword ends its reach, so an attribute written on a property or a
     // class cannot be carried forward onto the next method — which would make that
     // method a rule it is not, and hide the misplaced attribute from the count below.
+    // The same barrier resets the visibility tracked above, for the same reason: a
+    // `private` seen before an unrelated property or class must not leak onto the next
+    // method's modifiers.
     if (is_array($token)
         && (($token[0] === \T_CLASS)
             || ($token[0] === \T_TRAIT)
@@ -522,7 +546,8 @@ for ($index = 0; $index < $ruleCount; ++$index) {
             || ($token[0] === \T_CONST)
             || ($token[0] === \T_VARIABLE))
     ) {
-        $sawTestRule = false;
+        $sawTestRule  = false;
+        $sawNonPublic = false;
 
         continue;
     }
@@ -547,13 +572,36 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         break;
     }
 
-    if (($name === null) || !$sawTestRule) {
-        $sawTestRule = false;
+    // The attribute DID attach to a real function here, regardless of what happens
+    // next — counted separately from $ruleMethods below, which the visibility filter
+    // still has to shrink. Comparing $attributeSum against THIS count (not against
+    // count($ruleMethods)) keeps the misattachment check answering only "did the
+    // attribute reach a method", not "is that method one phpat will run" — a
+    // non-public #[TestRule] method is the latter, not the former, and reporting it
+    // as an attribute that "did not resolve to a method" would name the wrong cause.
+    if ($sawTestRule && ($name !== null)) {
+        ++$attributeResolvedCount;
+    }
+
+    // Re-derive rather than trusting this: phpat/src/Test/TestParser.php's own regex,
+    // reproduced verbatim (case-sensitive — a `Test…`-named method does not qualify).
+    $isTestNamed = ($name !== null) && (preg_match('/^(test)[A-Za-z0-9_\x80-\xff]*/', $name) === 1);
+
+    // `getMethods(ReflectionMethod::IS_PUBLIC)` gates BOTH of phpat's discovery paths,
+    // not just the name-based one — a `private`/`protected` method carrying
+    // `#[TestRule]` is invisible to phpat too, and this gate would otherwise fail-close
+    // on a rule phpat never runs.
+    $isRuleMethod = ($sawTestRule || $isTestNamed) && !$sawNonPublic;
+
+    if (($name === null) || !$isRuleMethod) {
+        $sawTestRule  = false;
+        $sawNonPublic = false;
 
         continue;
     }
 
-    $sawTestRule = false;
+    $sawTestRule  = false;
+    $sawNonPublic = false;
 
     // The body, by brace depth over DELIMITER tokens only.
     //
@@ -609,7 +657,7 @@ for ($index = 0; $index < $ruleCount; ++$index) {
 }
 
 if (count($ruleMethods) === 0) {
-    $violations[] = 'no #[TestRule] methods found — the ArchitectureTest defines no rules.';
+    $violations[] = 'no #[TestRule] or test*-named public rule methods found — the ArchitectureTest defines no rules.';
 }
 
 // The emptiness check above asks whether the RECOGNISED set is empty, which is not
@@ -618,11 +666,19 @@ if (count($ruleMethods) === 0) {
 // it — and the count says so rather than passing over it. Only TestRule attributes are
 // counted: totalling every attribute would red an ArchitectureTest carrying an ordinary
 // `#[CoversNothing]` beside its rules.
-if ($attributeSum > count($ruleMethods)) {
+//
+// Compared against $attributeResolvedCount, not count($ruleMethods): the latter is
+// additionally shrunk by the visibility filter above, and a #[TestRule] on a
+// non-public method DID attach to a method — it is excluded from $ruleMethods for an
+// unrelated reason (phpat will never run it), not because this gate could not find
+// what the attribute was on. Comparing against count($ruleMethods) instead reported a
+// perfectly-attached protected method as an attribute "this gate cannot attach to a
+// method", naming the wrong cause.
+if ($attributeSum > $attributeResolvedCount) {
     $violations[] = sprintf(
         '%d #[TestRule] attribute(s) found but only %d resolved to a method — an attribute this gate cannot attach to a method is a rule it cannot check.',
         $attributeSum,
-        count($ruleMethods)
+        $attributeResolvedCount
     );
 }
 

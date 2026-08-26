@@ -182,6 +182,67 @@ NON_RULE_METHOD="$(cat <<'RULE'
 RULE
 )"
 
+# phpat's OTHER discovery path (GH-58): PHPat\Test\TestParser also accepts a public
+# method named `test*`, no attribute required. This carries no #[TestRule] on purpose —
+# a repository writing its rules this way must get the same vacuous-subject rejection
+# as the attribute style, not "no rule methods found".
+TEST_NAMED_RULE_ON_TRAITS="$(cat <<'RULE'
+    public function testModelIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Model is a leaf.');
+    }
+RULE
+)"
+
+# The accepting twin: a test*-named rule (still no attribute) whose subject is live.
+TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
+    public function testConfigurationIsALeaf(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Configuration is a leaf.');
+    }
+RULE
+)"
+
+# A test*-named method phpat itself would never run: TestParser only reflects
+# `ReflectionMethod::IS_PUBLIC` methods, so this PRIVATE one is not a rule under
+# EITHER discovery path. Its body carries no ->classes(Selector::…) at all, so if this
+# gate wrongly picked it up it would fail closed with "could not identify a subject
+# selector" — the fixture that uses this asserts ACCEPT, which only holds if the
+# helper is correctly ignored.
+TEST_NAMED_PRIVATE_HELPER="$(cat <<'RULE'
+    private function testHelperNotARule(): string
+    {
+        return 'not a rule';
+    }
+RULE
+)"
+
+# The mirror case on the ATTRIBUTE path: `getMethods(IS_PUBLIC)` gates BOTH of phpat's
+# discovery paths, not just the name-based one, so a #[TestRule] method that is not
+# public is equally invisible to phpat. Its subject is deliberately vacuous
+# (inNamespace(Traits), no Traits class in this fixture) so that if the visibility
+# guard were dropped, the fixture using this would flip from accept to reject.
+PROTECTED_TESTRULE_IGNORED="$(cat <<'RULE'
+    #[TestRule]
+    protected function protectedRuleIsIgnored(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Should never run.');
+    }
+RULE
+)"
+
 # A malformed #[TestRule] (delegating, no ->classes(Selector) in its own body) followed
 # by a helper method that DOES have one — the search must stop at the helper's declaration
 # and fail closed, not adopt the helper's selector.
@@ -603,7 +664,7 @@ write_archtest "$d" "    public function notARule(): string
 CODE;
     }"
 assert_rejects "$d" "a rule inside a heredoc is not counted as one" \
-    "no #[TestRule] methods found"
+    "no #[TestRule] or test*-named public rule methods found"
 # --- REJECT: a class named only inside a heredoc is not in the inventory ---
 # The inventory used to be a line-anchored regex over comment-stripped text, which
 # cannot tell a declaration from a string that looks like one. A `class Node` inside
@@ -809,7 +870,7 @@ fi
 d="$work/no-testrule"
 write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_archtest "$d" "$NON_RULE_METHOD"
-assert_rejects "$d" "no #[TestRule] methods" "no #[TestRule] methods found"
+assert_rejects "$d" "no #[TestRule] or test*-named methods" "no #[TestRule] or test*-named public rule methods found"
 
 # --- REJECT (exit 2): an ArchitectureTest present but no src/ directory ---
 d="$work/no-src"
@@ -1044,5 +1105,48 @@ mkdir -p "$d/tests/Architecture"
 
 assert_report_is_inert "$d" 'an unresolvable argument carrying control characters' \
     '?[2K?::error title=Architecture'
+
+# --- GH-58: phpat's SECOND discovery path (a test*-named public method, no attribute) ---
+
+# REJECT: a test-prefixed rule with a vacuous subject, mixed in the SAME file with an
+# attribute-based rule — proves the vacuous one is flagged (not silently skipped) and
+# that mixing the two styles does not make either one invisible to the other.
+d="$work/test-named-vacuous-mixed-with-attribute"
+write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$TEST_NAMED_RULE_ON_TRAITS
+
+$CONFIG_RULE"
+assert_rejects "$d" "a test-prefixed rule (no #[TestRule] attribute) with a vacuous subject is rejected for its subject" \
+    "matches no class"
+
+# ACCEPT: a standalone test-prefixed rule with a live subject.
+d="$work/test-named-live"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$TEST_NAMED_RULE_LIVE"
+assert_accepts "$d" "a test-prefixed rule method with a live subject is accepted"
+
+# ACCEPT: a PRIVATE test-prefixed method must NOT be picked up as a rule — phpat's own
+# TestParser reflects PUBLIC methods only. Combined with one genuine live rule so the
+# overall run only stays green if the private helper was correctly ignored; if it were
+# wrongly treated as a rule, its body (no ->classes(Selector::…) at all) would fail
+# closed and flip this to a reject.
+d="$work/test-named-private-helper-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$TEST_NAMED_RULE_LIVE
+
+$TEST_NAMED_PRIVATE_HELPER"
+assert_accepts "$d" "a private test-prefixed method is not picked up as a rule"
+
+# ACCEPT: the same PUBLIC-only gate applies to the ATTRIBUTE path too — a #[TestRule]
+# method that is not public is equally invisible to phpat. Its subject is deliberately
+# vacuous (inNamespace(Traits), no Traits class here), so if the visibility guard were
+# dropped this would flip to reject.
+d="$work/testrule-protected-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$CONFIG_RULE
+
+$PROTECTED_TESTRULE_IGNORED"
+assert_accepts "$d" "a protected #[TestRule] method is not picked up as a rule"
 
 verdict
