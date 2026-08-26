@@ -37,8 +37,8 @@
         "ci:test:js": "bash tests/check-js-configs.sh"
     },
     "devDependencies": {
-        "@biomejs/biome": "2.5.5",
-        "jscpd": "5.0.14",
+        "@biomejs/biome": "2.5.9",
+        "jscpd": "5.0.16",
         "typescript": "7.0.2"
     },
     "peerDependencies": {
