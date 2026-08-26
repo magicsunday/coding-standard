@@ -1233,26 +1233,63 @@ assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does
 # T_STATIC — a brand-new branch the forward-flag version it replaced never
 # special-cased at all. phpat's own getMethods(IS_PUBLIC) does not exclude static
 # methods, so `public static function test*` must still be recognised as a rule.
-STATIC_TEST_NAMED_RULE_ON_TRAITS="$(cat <<'RULE'
-    public static function testModelIsALeaf(): Rule
+#
+# Ordering matters for what actually discriminates T_STATIC: in `public static
+# function`, the backward scan meets `static` before `public`, and $isNonPublic is
+# already false at that point regardless of whether T_STATIC is in the whitelist —
+# dropping it only makes the scan stop one token earlier at a modifier that was never
+# going to flip anything. `private static function` is the shape where it matters: the
+# scan meets `static` FIRST, and only continuing past it reaches the `private` behind
+# it. Verified by mutation: deleting the T_STATIC arm turns this fixture's expected
+# reject into an accept (the scan stops at `static`, never sees `private`, and
+# $isNonPublic stays false).
+STATIC_TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
+    private static function testConfigurationIsALeaf(): Rule
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
-            ->shouldNot()->dependOn()
             ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Model is a leaf.');
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Configuration is a leaf.');
     }
 RULE
 )"
 
-# REJECT: a public static test*-named rule with a vacuous subject is still analysed —
-# if T_STATIC fell out of the modifier whitelist, the method would be misread as
-# non-public and silently excluded, flipping this to accept.
-d="$work/static-test-named-vacuous"
+# REJECT (as "no rule methods found", not "matches no class"): a PRIVATE static
+# test*-named method must stay invisible — combined with no other rule, so the only
+# way this can pass is if the private+static method is genuinely excluded rather than
+# treated as a live rule that happens to pass.
+d="$work/static-private-test-named-ignored"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$STATIC_TEST_NAMED_RULE_LIVE"
+assert_rejects "$d" "a private static test-prefixed method is not picked up as a rule (T_STATIC does not mask T_PRIVATE)" \
+    "no #[TestRule] or test*-named public rule methods found"
+
+# The NEW $topDepth counter (spanning the WHOLE file, not just one method's body like
+# the existing curly-interpolation fixture above) must also balance across the two
+# interpolation openers — otherwise a desync inside one rule's body would silently
+# offset every rule method FOUND AFTER it. A live rule with interpolation, followed
+# by a second, vacuous one: the second can only be found and flagged at all if
+# $topDepth correctly returned to 1 once the first rule's body closed.
+d="$work/topdepth-survives-interpolation-in-earlier-rule"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Traits/ModuleTrait.php" "Vendor\\Mod\\Traits" "trait" "ModuleTrait"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
-write_archtest "$d" "$STATIC_TEST_NAMED_RULE_ON_TRAITS"
-assert_rejects "$d" "a public static test-prefixed rule with a vacuous subject is analysed, not skipped" \
+write_archtest "$d" "    #[TestRule]
+    public function live(): Rule
+    {
+        \$what = 'x';
+        \$note = \"a {\$what} and \${what}\";
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\\Configuration'))
+            ->because(\$note);
+    }
+
+$MODEL_RULE_ON_TRAITS"
+assert_rejects "$d" "a rule after an earlier one containing interpolation is still found and checked" \
     "matches no class"
 
 verdict

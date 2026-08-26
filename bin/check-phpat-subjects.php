@@ -25,7 +25,12 @@ declare(strict_types=1);
  * `test` (the exact regex is reproduced, and re-derived rather than trusted, at its
  * own comment below) — and this gate recognises both, or a repository writing its
  * rules in the `test*` naming style would get a false "no rule methods found" while
- * phpat runs those rules perfectly well:
+ * phpat runs those rules perfectly well. Both paths are read from this ONE file only:
+ * a rule method phpat picks up via reflection from an inherited base class or a `use`d
+ * trait — real by either discovery path, just declared somewhere else — is invisible
+ * to this gate, which tokenises `ArchitectureTest.php` alone. Pre-existing for the
+ * attribute path; carried over unchanged for the name-based one, not a new gap this
+ * adds:
  *   - `Selector::inNamespace(NS)`  → at least one non-trait, non-interface, non-enum
  *                                     class exists in NS (a trait-only namespace, the
  *                                     manifested bug, fails here);
@@ -450,14 +455,16 @@ $attributeResolvedCount = 0;
 // the point `T_FUNCTION` is seen (its own opening brace has not been counted yet).
 //
 // This assumes the unbracketed `namespace X;` form every fixture and this whole
-// codebase uses, and one class per file (PSR-1). A bracketed `namespace X { … }`
-// declaration would add a brace level, shifting `ArchitectureTest`'s own methods to
-// depth 2 and hiding them — deliberately not defended against: it is unreachable for
-// a real consumer of a PSR-4/Composer-autoloaded package (which this one requires
-// consumers to be), and no fixture, template or example anywhere in this repository
-// uses it. Defending it would need tracking which depth the ArchitectureTest class's
-// OWN body opened at, rather than assuming 1 — a bigger change for a shape nothing
-// real ever produces.
+// codebase uses, and one class per file. A bracketed `namespace X { … }` declaration
+// would add a brace level, shifting `ArchitectureTest`'s own methods to depth 2 and
+// hiding them — deliberately not defended against. This gate does not itself require
+// or check PSR-4/Composer autoloading (it locates the file by two hardcoded
+// conventional paths, not an autoload map), and PSR-4 would not preclude the
+// bracketed form regardless — the actual, narrower reason is that nothing real
+// produces it: re-derive with `grep -rn 'namespace .*{' --include=ArchitectureTest.php`
+// across any consumer, which returns nothing today. Defending it would need tracking
+// which depth the ArchitectureTest class's OWN body opened at, rather than assuming
+// 1 — a bigger change for a shape this codebase has never seen written.
 $topDepth = 0;
 
 for ($index = 0; $index < $ruleCount; ++$index) {
