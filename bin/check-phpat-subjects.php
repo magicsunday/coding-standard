@@ -455,16 +455,24 @@ $attributeResolvedCount = 0;
 // the point `T_FUNCTION` is seen (its own opening brace has not been counted yet).
 //
 // This assumes the unbracketed `namespace X;` form every fixture and this whole
-// codebase uses, and one class per file. A bracketed `namespace X { … }` declaration
-// would add a brace level, shifting `ArchitectureTest`'s own methods to depth 2 and
-// hiding them — deliberately not defended against. This gate does not itself require
-// or check PSR-4/Composer autoloading (it locates the file by two hardcoded
-// conventional paths, not an autoload map), and PSR-4 would not preclude the
-// bracketed form regardless — the actual, narrower reason is that nothing real
-// produces it: re-derive with `grep -rn 'namespace .*{' --include=ArchitectureTest.php`
-// across any consumer, which returns nothing today. Defending it would need tracking
-// which depth the ArchitectureTest class's OWN body opened at, rather than assuming
-// 1 — a bigger change for a shape this codebase has never seen written.
+// codebase uses, and ONE class per file (PSR-1 — a near-universal PHP convention,
+// though this gate neither checks nor enforces it). Two ways that assumption can be
+// wrong, both deliberately not defended against:
+//   - A bracketed `namespace X { … }` declaration adds a brace level, shifting
+//     `ArchitectureTest`'s own methods to depth 2 and hiding them. This gate does not
+//     itself require or check PSR-4/Composer autoloading (it locates the file by two
+//     hardcoded conventional paths, not an autoload map), and PSR-4 would not preclude
+//     the bracketed form regardless — the actual, narrower reason is that nothing real
+//     produces it: re-derive with
+//     `grep -rn 'namespace .*{' --include=ArchitectureTest.php` across any consumer,
+//     which returns nothing today.
+//   - A SECOND top-level class or trait declared in the same file also opens its body
+//     at depth 1, so a `test*`-named public method on IT would be misattributed to
+//     ArchitectureTest's rule set. PSR-1 is what makes this unreachable in practice.
+// Defending either would need tracking which depth the ArchitectureTest class's OWN
+// body opened at (and that it IS `ArchitectureTest`), rather than assuming 1 for
+// whichever class comes first — a materially bigger change than tokenising one file,
+// to defend shapes this codebase has never seen written.
 $topDepth = 0;
 
 for ($index = 0; $index < $ruleCount; ++$index) {
@@ -646,11 +654,15 @@ for ($index = 0; $index < $ruleCount; ++$index) {
             continue;
         }
 
+        // No T_READONLY here: `readonly` is a property/promoted-parameter modifier,
+        // never a method one — `readonly function` is not valid PHP — so a real
+        // ArchitectureTest can never place it directly before `function`. Any earlier
+        // `readonly` (on a property) already ends its own declaration in `;`, a
+        // non-array CHAR token this scan already breaks on before reaching it.
         if (($previous[0] === \T_PUBLIC)
             || ($previous[0] === \T_STATIC)
             || ($previous[0] === \T_ABSTRACT)
             || ($previous[0] === \T_FINAL)
-            || ($previous[0] === \T_READONLY)
         ) {
             continue;
         }

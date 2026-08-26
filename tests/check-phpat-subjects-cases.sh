@@ -47,6 +47,14 @@ write_class() {
     } > "$dir/src/$rel"
 }
 
+# Derives a test*-named (no-attribute) rule body from an existing #[TestRule]-attributed
+# one, so the two discovery-path fixtures that must prove IDENTICAL subject-selector
+# behaviour share one body instead of two independently-maintained copies that could
+# drift. <rule-body> <old-method-name> <new-test-method-name>
+as_test_named_rule() {
+    sed -e '/#\[TestRule\]/d' -e "s/public function $2(/public function $3(/" <<<"$1"
+}
+
 # write_archtest <dir> <rule-methods-block>
 write_archtest() {
     local dir="$1" methods="$2"
@@ -185,31 +193,13 @@ RULE
 # phpat's OTHER discovery path (GH-58): PHPat\Test\TestParser also accepts a public
 # method named `test*`, no attribute required. This carries no #[TestRule] on purpose —
 # a repository writing its rules this way must get the same vacuous-subject rejection
-# as the attribute style, not "no rule methods found".
-TEST_NAMED_RULE_ON_TRAITS="$(cat <<'RULE'
-    public function testModelIsALeaf(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Model is a leaf.');
-    }
-RULE
-)"
+# as the attribute style, not "no rule methods found". Derived from the existing
+# attribute-style bodies (same selectors, same vacuous/live split) rather than
+# duplicated, so the two discovery-path fixtures cannot silently drift apart.
+TEST_NAMED_RULE_ON_TRAITS="$(as_test_named_rule "$MODEL_RULE_ON_TRAITS" modelIsALeaf testModelIsALeaf)"
 
 # The accepting twin: a test*-named rule (still no attribute) whose subject is live.
-TEST_NAMED_RULE_LIVE="$(cat <<'RULE'
-    public function testConfigurationIsALeaf(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
-            ->because('Configuration is a leaf.');
-    }
-RULE
-)"
+TEST_NAMED_RULE_LIVE="$(as_test_named_rule "$CONFIG_RULE" configurationIsALeaf testConfigurationIsALeaf)"
 
 # A test*-named method phpat itself would never run: TestParser only reflects
 # `ReflectionMethod::IS_PUBLIC` methods, so this PRIVATE one is not a rule under
