@@ -1553,15 +1553,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[testrule]
-    public function lowercaseAttributeVacuousRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a differently-cased attribute.');
-    }"
+$(as_vacuous_alias_rule testrule lowercaseAttributeVacuousRule Rule 'Vacuous — must never hide behind a differently-cased attribute.')"
 assert_rejects "$d" "a #[testrule] attribute written in a different case is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1575,15 +1567,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[Rule5]
-    public function lowercaseImportAliasedVacuousRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a differently-cased import.');
-    }" '' 'use phpat\test\attributes\testrule as Rule5;'
+$(as_vacuous_alias_rule Rule5 lowercaseImportAliasedVacuousRule Rule 'Vacuous — must never hide behind a differently-cased import.')" '' 'use phpat\test\attributes\testrule as Rule5;'
 assert_rejects "$d" "a TestRule import spelled in a different case is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
