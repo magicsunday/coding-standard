@@ -55,6 +55,14 @@ as_test_named_rule() {
     sed -e '/#\[TestRule\]/d' -e "s/public function $2(/public function $3(/" <<<"$1"
 }
 
+# Derives a modifier-variant rule body from an existing one, keeping the method name —
+# the narrower sibling of as_test_named_rule() above for the T_STATIC/T_FINAL/T_ABSTRACT
+# order-sensitivity fixtures, which need neither the attribute stripped nor the name
+# renamed. <rule-body> <replacement-modifiers>
+as_modifier_variant() {
+    sed "s/public function/$2 function/" <<<"$1"
+}
+
 # write_archtest <dir> <rule-methods-block> [preamble]
 #
 # <preamble>, when given, is written between the `use` imports and the
@@ -1150,9 +1158,10 @@ assert_accepts "$d" "a protected #[TestRule] method is not picked up as a rule"
 
 # ACCEPT: a test*-named method NESTED inside an anonymous class within a rule's own
 # body must not be picked up either — phpat's TestParser reflects the ONE extracted
-# ArchitectureTest class only, so a method that deep is as invisible to it as a
-# private one. Its body has no ->classes(Selector::…), so if the depth scoping were
-# dropped this would fail closed and flip to a reject.
+# ArchitectureTest class only (re-derivation command at bin/check-phpat-subjects.php's
+# $topDepth declaration), so a method that deep is as invisible to it as a private
+# one. Its body has no ->classes(Selector::…), so if the depth scoping were dropped
+# this would fail closed and flip to a reject.
 d="$work/test-named-nested-in-anonymous-class-ignored"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$(cat <<'RULE'
@@ -1233,7 +1242,7 @@ assert_rejects "$d" "a bare T_PRIVATE from trait-conflict-resolution syntax does
 # it. Verified by mutation: deleting the T_STATIC arm turns this fixture's expected
 # reject into an accept (the scan stops at `static`, never sees `private`, and
 # $isNonPublic stays false).
-STATIC_TEST_NAMED_RULE_LIVE="$(sed 's/public function/private static function/' <<<"$TEST_NAMED_RULE_LIVE")"
+STATIC_TEST_NAMED_RULE_LIVE="$(as_modifier_variant "$TEST_NAMED_RULE_LIVE" "private static")"
 
 # REJECT (as "no rule methods found", not "matches no class"): a PRIVATE static
 # test*-named method must stay invisible — combined with no other rule, so the only
@@ -1252,7 +1261,7 @@ assert_rejects "$d" "a private static test-prefixed method is not picked up as a
 # it, so deleting the T_FINAL arm was a silent no-op against the rest of this
 # suite. Verified by mutation: deleting it turns this fixture's expected reject
 # into an accept.
-PROTECTED_FINAL_TEST_NAMED_RULE_LIVE="$(sed 's/public function/protected final function/' <<<"$TEST_NAMED_RULE_LIVE")"
+PROTECTED_FINAL_TEST_NAMED_RULE_LIVE="$(as_modifier_variant "$TEST_NAMED_RULE_LIVE" "protected final")"
 
 # REJECT (as "no rule methods found", not "matches no class"): a PROTECTED final
 # test*-named method must stay invisible — combined with no other rule, so the only
@@ -1328,5 +1337,49 @@ write_archtest "$d" "    public function &testModelIsALeaf(): Rule
     }"
 assert_rejects "$d" "a return-by-reference test-prefixed rule with a vacuous subject is analysed, not skipped" \
     "matches no class"
+
+# GH-58 round-8 (correctness-reviewer): $attributeResolvedCount was incremented for
+# ANY #[TestRule]-attached function, including one nested inside a closure or
+# anonymous class — a method $topDepth === 1 already excludes from $ruleMethods for
+# being invisible to phpat's reflection. As long as the file also contained one other
+# genuine top-level rule (keeping $ruleMethods non-empty), neither the "no rule
+# methods found" check nor the "$attributeSum > $attributeResolvedCount" misattachment
+# check fired, and the nested rule's subject — vacuous or not — was never inspected at
+# all; the gate printed OK. This fixture has a LIVE top-level rule plus a #[TestRule]
+# method nested inside `new class { ... }` within that rule's own body, whose subject
+# is a plain, indisputably vacuous inNamespace(). It can only be rejected if the
+# nested attribute is excluded from $attributeResolvedCount the same way it is
+# already excluded from $ruleMethods — reject as a misattachment (2 attributes found,
+# 1 resolved), not as "matches no class" for the nested one, since that subject is
+# never reached at all.
+d="$work/nested-testrule-not-counted-as-resolved"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$(cat <<'RULE'
+    #[TestRule]
+    public function live(): Rule
+    {
+        $probe = new class {
+            #[TestRule]
+            public function nestedVacuousRule(): Rule
+            {
+                return PHPat::rule()
+                    ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+                    ->shouldNot()->dependOn()
+                    ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+                    ->because('Vacuous — must never be silently counted as resolved.');
+            }
+        };
+
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Model is a leaf.');
+    }
+RULE
+)"
+assert_rejects "$d" "a #[TestRule] nested inside an anonymous class within a live rule's body is not silently counted as resolved" \
+    "attribute(s) found but only"
 
 verdict

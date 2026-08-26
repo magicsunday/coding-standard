@@ -446,7 +446,10 @@ $attributeResolvedCount = 0;
 // Brace depth over the WHOLE file, not just within one method's body (that is the
 // separate, inner $depth further down). phpat's TestParser finds rule methods by
 // reflecting the ONE extracted ArchitectureTest class (`getMethods()` on a single
-// `$reflected`), so a `test*`-named method nested inside a closure or an anonymous
+// `$reflected` — re-derive rather than trusting this comment, same reason as the
+// regex/IS_PUBLIC note further down:
+// grep -n 'getMethods\|reflectTest' .build/vendor/phpat/phpat/src/Test/Test{Parser,Extractor}.php),
+// so a `test*`-named method nested inside a closure or an anonymous
 // class within another method's body is invisible to phpat — this gate must not treat
 // it as a rule either, or a name this common (unlike the deliberate `#[TestRule]`
 // attribute) turns any such nested helper into a false vacuous-rule report, or worse,
@@ -637,7 +640,17 @@ for ($index = 0; $index < $ruleCount; ++$index) {
     // attribute reach a method", not "is that method one phpat will run" — a
     // non-public #[TestRule] method is the latter, not the former, and reporting it
     // as an attribute that "did not resolve to a method" would name the wrong cause.
-    if ($sawTestRule && ($name !== null)) {
+    //
+    // $topDepth === 1 IS required here, unlike the visibility filter: a non-public
+    // method is still a real member of ArchitectureTest that phpat's getMethods()
+    // enumerates (IS_PUBLIC only filters it afterwards), so counting it as "resolved"
+    // names the right cause for its exclusion. A method nested inside a closure or
+    // anonymous class is not a member of ArchitectureTest's method list AT ALL — counting
+    // it here let a nested #[TestRule] with a vacuous subject escape both the emptiness
+    // check and the misattachment check whenever the file also contained one other
+    // genuine top-level rule (measured: the gate printed OK on such a fixture with this
+    // condition absent).
+    if ($sawTestRule && ($name !== null) && ($topDepth === 1)) {
         ++$attributeResolvedCount;
     }
 
@@ -702,10 +715,10 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         break;
     }
 
-    // `$topDepth === 1` is the same "invisible to phpat's reflection" idea applied to
-    // NESTING: a method declared inside a closure or an anonymous class within another
-    // method's body is equally invisible to phpat's `getMethods()` on the ONE extracted
-    // ArchitectureTest class.
+    // `$topDepth === 1` is the same "invisible to phpat's reflection" idea (re-derivation
+    // command at $topDepth's own declaration above) applied to NESTING: a method declared
+    // inside a closure or an anonymous class within another method's body is equally
+    // invisible to phpat's reflection.
     $isRuleMethod = ($sawTestRule || $isTestNamed) && !$isNonPublic && ($topDepth === 1);
 
     // Unconditional: both the taken and the not-taken branch below reset this to the
