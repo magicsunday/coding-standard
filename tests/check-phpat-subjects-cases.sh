@@ -63,6 +63,34 @@ as_modifier_variant() {
     sed "s/public function/$2 function/" <<<"$1"
 }
 
+# Builds a #[<attribute>]-attributed rule method whose subject is the fixed, vacuous
+# inNamespace(...NoSuchNamespace)/classname(...Configuration) chain the whole GH-58
+# alias-tracking fixture cluster shares — only the attribute token, method name,
+# return type and rejection message actually vary per fixture (aliasing shape, casing,
+# import form). <attribute-token> <method-name> <return-type> <because-message>
+as_vacuous_alias_rule() {
+    cat <<RULE
+    #[$1]
+    public function $2(): $3
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('$4');
+    }
+RULE
+}
+
+# The ACCEPT-side mirror of as_vacuous_alias_rule() above: a #[X]-attributed method
+# whose subject is the SAME fixed chain, for the fixtures proving X must NOT be
+# recognised as TestRule at all (a function/const/trait-adaptation import, never a
+# class alias) — the subject is never reached if the fix holds, so its content only
+# needs to look plausible. <method-name> <because-message>
+as_not_a_real_rule() {
+    as_vacuous_alias_rule 'X' "$1" 'Rule' "$2"
+}
+
 # write_archtest <dir> <rule-methods-block> [preamble] [test-rule-import-line]
 #
 # <preamble>, when given, is written between the `use` imports and the
@@ -1438,15 +1466,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[Rule2]
-    public function aliasedVacuousRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind an import alias.');
-    }" '' 'use PHPat\Test\Attributes\TestRule as Rule2;'
+$(as_vacuous_alias_rule Rule2 aliasedVacuousRule Rule 'Vacuous — must never hide behind an import alias.')" '' 'use PHPat\Test\Attributes\TestRule as Rule2;'
 assert_rejects "$d" "a #[TestRule] attribute imported under an alias is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1462,15 +1482,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[Rule3]
-    public function commaAliasedVacuousRule(): RuleX
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a comma-separated import.');
-    }" '' 'use PHPat\Test\Builder\Rule as RuleX, PHPat\Test\Attributes\TestRule as Rule3;'
+$(as_vacuous_alias_rule Rule3 commaAliasedVacuousRule RuleX 'Vacuous — must never hide behind a comma-separated import.')" '' 'use PHPat\Test\Builder\Rule as RuleX, PHPat\Test\Attributes\TestRule as Rule3;'
 assert_rejects "$d" "a #[TestRule] alias imported on a comma-separated use line is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1483,15 +1495,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[Rule4]
-    public function groupedAliasedVacuousRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Vacuous — must never hide behind a grouped import.');
-    }" '' 'use PHPat\Test\Attributes\{TestRule as Rule4};'
+$(as_vacuous_alias_rule Rule4 groupedAliasedVacuousRule Rule 'Vacuous — must never hide behind a grouped import.')" '' 'use PHPat\Test\Attributes\{TestRule as Rule4};'
 assert_rejects "$d" "a #[TestRule] alias imported through a brace-grouped use line is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
 
@@ -1556,15 +1560,7 @@ write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
 write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
 write_archtest "$d" "$MODEL_RULE
 
-    #[X]
-    public function notARealRule(): Rule
-    {
-        return PHPat::rule()
-            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
-            ->shouldNot()->dependOn()
-            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
-            ->because('Not a real TestRule — X aliases a FUNCTION import, not a class.');
-    }" '' 'use PHPat\Test\Attributes\{function TestRule as X};'
+$(as_not_a_real_rule notARealRule 'Not a real TestRule — X aliases a FUNCTION import, not a class.')" '' 'use PHPat\Test\Attributes\{function TestRule as X};'
 assert_accepts "$d" "a function-imported alias spelled like TestRule is not mistaken for the class attribute"
 
 # GH-58 (codex-rescue): a DECLARATION-level `use function …\{…};` keyword — the ONLY
@@ -1713,5 +1709,80 @@ write_archtest "$d" "$MODEL_RULE
     }" '' 'use TestRule as X;'
 assert_rejects "$d" "a bare, unqualified TestRule import alias is analysed, not invisible" \
     "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (codex-rescue): $stripComments deleted a comment spanning ZERO newlines with
+# NOTHING replacing it, not even the single space its own docblock claimed to
+# preserve. Two token TEXTS either side of such a comment then concatenate into ONE
+# token on re-tokenisation: `as/**/Alias` (a same-line comment between `as` and an
+# alias name) stripped to `asAlias`, destroying the T_AS token the alias-resolution
+# scan depends on — verified live before the fix: this exact fixture printed OK
+# despite the vacuous #[Alias] rule. A single space instead of nothing keeps the two
+# tokens apart on re-tokenisation.
+d="$work/comment-between-as-and-alias-does-not-hide-the-alias"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    #[Alias]
+    public function hidden(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a same-line comment in the alias.');
+    }" '' 'use PHPat\Test\Attributes\TestRule as/**/Alias;'
+assert_rejects "$d" "a same-line comment between 'as' and an alias name does not hide the alias" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (codex-rescue): the identical $stripComments mechanism, for the test*-name
+# discovery path instead of the attribute path — `function/**/testHidden` collapses
+# to `functiontestHidden`, losing the T_FUNCTION token the name-extraction loop
+# depends on entirely (not merely the method's own recognition, since the loop never
+# even reaches the point of reading a name). Verified live before the fix: this exact
+# fixture printed OK.
+d="$work/comment-between-function-and-test-name-does-not-hide-the-method"
+write_class "$d" "Model/Node.php" "Vendor\\Mod\\Model" "final class" "Node"
+write_class "$d" "Configuration.php" "Vendor\\Mod" "final class" "Configuration"
+write_archtest "$d" "$MODEL_RULE
+
+    public function/**/testHidden(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\NoSuchNamespace'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+            ->because('Vacuous — must never hide behind a same-line comment in the name.');
+    }"
+assert_rejects "$d" "a same-line comment between 'function' and a test*-prefixed name does not hide the method" \
+    "inNamespace(Vendor\\Mod\\NoSuchNamespace) matches no class"
+
+# GH-58 (codex-rescue): the class-inventory walk tokenises each src/*.php file
+# DIRECTLY, never through $stripComments — its own namespace-name lookahead only
+# skipped T_WHITESPACE, not T_COMMENT, so `namespace /* c */ Vendor\Mod\Model;` left
+# $namespace empty and the real class was inventoried under its BARE name instead.
+# Node genuinely lives in Vendor\Mod\Model, so `classname('Node')` (the bare,
+# unqualified name) must be REJECTED as vacuous — before the fix it was certified
+# live because the botched namespace extraction put it in the inventory as bare
+# `Node`. Written directly rather than via write_class(), which never emits a
+# same-line comment in the namespace declaration.
+d="$work/comment-after-namespace-keyword-does-not-hide-the-namespace"
+mkdir -p "$d/src/Model" "$d/tests/Architecture"
+{
+    printf '<?php\n\ndeclare(strict_types=1);\n\n'
+    printf 'namespace /* comment */ Vendor\\Mod\\Model;\n\n'
+    printf 'final class Node\n{\n}\n'
+} > "$d/src/Model/Node.php"
+write_archtest "$d" "    #[TestRule]
+    public function vacuous(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::classname('Node'))
+            ->shouldNot()->dependOn()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'))
+            ->because('Vacuous — Node lives in Vendor\Mod\Model, not the global namespace.');
+    }"
+assert_rejects "$d" "a same-line comment after 'namespace' does not hide the namespace from the class inventory" \
+    "classname(Node) matches no class"
 
 verdict

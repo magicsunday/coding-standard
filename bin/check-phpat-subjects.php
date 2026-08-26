@@ -112,10 +112,25 @@ if (!is_dir($srcDir)) {
 /**
  * Strips comments and doc-comments from the ArchitectureTest source.
  *
- * Only the NAMESPACE_ROOT regex below still needs this; the rule scan and the class
- * inventory walk tokens, and `token_get_all` emits no T_ATTRIBUTE for a commented-out
- * example anyway (measured on 8.5). Whitespace is preserved so the line-anchored
- * pattern still behaves.
+ * This is not only needed for the NAMESPACE_ROOT regex below: $ruleTokens further down
+ * is `token_get_all()` of THIS function's OWN output, so a bug here reaches rule
+ * discovery and alias resolution too — the class inventory walk is the one consumer
+ * that does NOT go through this closure (it tokenises each `src/*.php` file directly).
+ *
+ * A comment spanning ZERO newlines must contribute a real character, not an empty
+ * string: two token TEXTS either side of such a comment otherwise concatenate into ONE
+ * token on re-tokenisation. `as/**\/Alias` (a same-line comment between `as` and an
+ * alias name) stripped to nothing there becomes `asAlias`, destroying the `T_AS` token
+ * the alias-resolution scan depends on — verified live: `use Foo\Bar as/**\/Alias;`
+ * re-tokenises with no `T_AS` at all, so `Alias` is never added to $testRuleAliases,
+ * and a #[Alias]-attributed vacuous rule escapes detection whenever the file also has
+ * one other genuine rule. The identical mechanism (`function/**\/testFoo` collapsing to
+ * `functiontestFoo`, losing the `T_FUNCTION` token entirely) also hides a rule from the
+ * test*-name discovery path. A single space — never itself a valid substring of another
+ * token, so it can only ever ADD a boundary, never remove one the real source didn't
+ * already have — is inserted whenever the comment carries no newline; a multi-line
+ * comment still contributes only its own newlines, so the `^`-anchored NAMESPACE_ROOT
+ * pattern's line numbers are unaffected.
  *
  * @param string $code The raw PHP source.
  *
@@ -127,9 +142,13 @@ $stripComments = static function (string $code): string {
     foreach (token_get_all($code) as $token) {
         if (is_array($token)) {
             if (($token[0] === \T_COMMENT) || ($token[0] === \T_DOC_COMMENT)) {
-                // Keep the newlines a multi-line comment spanned so line numbers and
-                // the `^`-anchored patterns are unaffected.
-                $result .= str_repeat("\n", substr_count($token[1], "\n"));
+                $newlineCount = substr_count($token[1], "\n");
+
+                // A multi-line comment still contributes only its own newlines, so
+                // line numbers and the `^`-anchored patterns are unaffected; a
+                // same-line comment gets a single space instead of nothing, so it
+                // cannot glue its neighbouring tokens together.
+                $result .= ($newlineCount > 0) ? str_repeat("\n", $newlineCount) : ' ';
 
                 continue;
             }
@@ -237,12 +256,11 @@ foreach ($directory as $file) {
         continue;
     }
 
-    // Tokens, not a line-anchored pattern over comment-stripped text. Two defects
-    // the text form had, both silent and both fail-OPEN for the liveness check it
-    // feeds: a line reading `class Fake` inside a string literal or a heredoc
-    // registered a class that does not exist, so a vacuous `classname(Fake)`
-    // subject was certified live; and `preg_match` took the FIRST declaration per
-    // file only, so a second class in one file was invisible.
+    // Tokens, not a line-anchored REGEX. Two defects the regex form had, both silent
+    // and both fail-OPEN for the liveness check this feeds: a line reading `class Fake`
+    // inside a string literal or a heredoc registered a class that does not exist, so a
+    // vacuous `classname(Fake)` subject was certified live; and `preg_match` took the
+    // FIRST declaration per file only, so a second class in one file was invisible.
     //
     // The tokeniser answers both by construction — a string is one token, and the
     // loop does not stop at the first hit. Re-derive the token names rather than
@@ -267,7 +285,17 @@ foreach ($directory as $file) {
         continue;
     }
 
-    $tokens    = token_get_all($sourceFile);
+    // Through $stripComments (declared above, already hardened for the ArchitectureTest
+    // path): the size cap above already ran against the RAW $sourceFile, so stripping
+    // here does not change what counts against it. Without this, a same-line comment
+    // between `namespace` and its name, between a modifier/keyword and `class`, or
+    // between `class` and its name, glues adjacent token text together on
+    // re-tokenisation the same way it does in $stripComments's own docblock — verified
+    // live: `namespace /* c */ Vendor\Mod\Model;` left $namespace empty, so a class
+    // genuinely declared in Vendor\Mod\Model was inventoried under its bare name
+    // instead, certifying a `classname()` subject targeting that bare name as live
+    // when the real class does not exist there.
+    $tokens    = token_get_all($stripComments($sourceFile));
     $namespace = '';
     $modifiers = [];
     $count     = count($tokens);
@@ -518,7 +546,7 @@ $braceDelta = static function (array|string $token): int {
  * PHPat\Test\Attributes\TestRule as X;` import makes `#[X]` the real attribute — PHP
  * resolves it via ordinary import-alias resolution, and phpat's own TestParser filters
  * by FQCN (`getAttributes(TestRule::class)`, re-derive with:
- * grep -n 'getMethods\|reflectTest' .build/vendor/phpat/phpat/src/Test/Test{Parser,Extractor}.php),
+ * grep -n 'getAttributes\|preg_match' .build/vendor/phpat/phpat/src/Test/TestParser.php),
  * not by the literal text `TestRule`. Without tracking an alias, that rule's attribute
  * never matches the comparison at the attribute-recognition site, so it never
  * increments $attributeSum and never enters $ruleMethods — its subject, vacuous or
@@ -675,7 +703,8 @@ $resolveTestRuleAliases = static function (array $tokens) use ($braceDelta): arr
                     }
 
                     if (!$isFunctionOrConstItem
-                        && is_array($aliasToken) && ($aliasToken[0] === \T_STRING)
+                        && is_array($aliasToken)
+                        && ($aliasToken[0] === \T_STRING)
                         && (($importNameLower === 'testrule') || str_ends_with($importNameLower, '\testrule'))
                     ) {
                         $aliases[] = $aliasToken[1];
