@@ -28,8 +28,9 @@
     <testsuites>
         <testsuite name="Unit">
             <directory>tests</directory>
-            <!-- The phpat ArchitectureTest is a PHPStan rule class, not a PHPUnit
-                 test — exclude it so PHPUnit does not warn on a non-TestCase. -->
+            <!-- tests/Architecture holds rule classes (PHPStan or otherwise),
+                 never a PHPUnit test — exclude it unconditionally so PHPUnit
+                 does not warn on a non-TestCase. -->
             <exclude>tests/Architecture</exclude>
         </testsuite>
     </testsuites>

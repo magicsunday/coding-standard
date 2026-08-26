@@ -357,8 +357,9 @@ if ($phpunitFile === null) {
             }
         }
 
-        // The test suite must run `tests` and exclude the phpat Architecture dir
-        // when that directory exists (a phpat rule class is not a PHPUnit test).
+        // The test suite must run `tests` and exclude `tests/Architecture` when
+        // that directory exists — everything there is a rule class (PHPStan or
+        // otherwise), never a PHPUnit test, unconditionally.
         $suiteDirs    = [];
         $suiteExcl    = [];
 
@@ -377,7 +378,7 @@ if ($phpunitFile === null) {
         }
 
         if (is_dir($repoRoot . '/tests/Architecture') && !in_array('tests/Architecture', $suiteExcl, true)) {
-            $fail($violations, 'phpunit.xml', 'the phpat `tests/Architecture` directory must be excluded from the suite.');
+            $fail($violations, 'phpunit.xml', 'the `tests/Architecture` directory must be excluded from the suite.');
         }
     }
 }

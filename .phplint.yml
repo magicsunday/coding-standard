@@ -1,6 +1,6 @@
-# Lints this package's own PHP: the config factories, the phpat template and the
-# CI fixture. Path-driven rather than a hand-kept file list, so a file added later
-# is linted without anybody remembering to register it.
+# Lints this package's own PHP: the config factories, the gates and the CI
+# fixture. Path-driven rather than a hand-kept file list, so a file added later
+# under any of these paths is linted without anybody remembering to register it.
 path:
     - ./bin
     - ./php-cs-fixer

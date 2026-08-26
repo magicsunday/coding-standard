@@ -15,7 +15,7 @@ composer require --dev magicsunday/coding-standard
 ```
 
 This single dev dependency pulls in the whole PHP toolchain transitively —
-php-cs-fixer, PHPStan and its rule packs, Rector, phplint, phpat **and PHPUnit**
+php-cs-fixer, PHPStan and its rule packs, Rector, phplint **and PHPUnit**
 (`^12.0 || ^13.0`). A consumer on the **base** tier therefore declares nothing
 else in `require-dev`; the runner and every analysis tool are version-pinned
 here, in one place, and bumped once for all repositories. The opt-in strict
@@ -156,10 +156,13 @@ its finder.
 ### PHPStan — `phpstan/base.neon`, `phpstan/strict.neon`
 
 `base.neon` sets `level: max`, `treatPhpDocTypesAsCertain: false`, and pulls in the
-rule extensions (phpstan-strict-rules, deprecation-rules, phpstan-phpunit, phpat)
+rule extensions (phpstan-strict-rules, deprecation-rules, phpstan-phpunit)
 through explicit relative `includes`. That is deliberate: `phpstan/extension-installer`
-does not reach Rector's bundled PHPStan, so a base relying on it makes `rector.php`'s
-`phpstanConfig` fail on an unknown parameter.
+does not reach Rector's bundled PHPStan, so a base relying on it for its rule packs
+loses them silently there instead of failing — the opt-in `disallowed-calls.neon`
+sets an extension-owned parameter (`disallowedFunctionCalls`) and would instead fail
+loudly with an unknown-parameter error, since that parameter has no meaning without
+its own explicit `includes`.
 
 ```neon
 # phpstan.neon
@@ -173,12 +176,6 @@ parameters:
     paths:
         - src
         - tests
-
-services:
-    -
-        class: Vendor\Namespace\Test\Architecture\ArchitectureTest
-        tags:
-            - phpat.test
 ```
 
 State `phpVersion` as a **`min`/`max` range** whenever the repository supports a
@@ -455,9 +452,14 @@ layer (the framework, webtrees core) are reported as "uncovered" but do not fail
 the run; `--fail-on-uncovered` is left off because every external dependency is
 uncovered.
 
-This supersedes the older per-repo phpat layer rules and the
-`check-phpat-subjects.php` subject-liveness guard below; the guard stays until
-every consumer has migrated its layer rules to Deptrac.
+This supersedes the older per-repo phpat layer rules. phpat and its
+subject-liveness guard have been removed from this package; a consumer still
+carrying phpat rules migrates the layer-dependency ones to Deptrac and re-homes
+the `Abstract*`/`final` structural rules itself — as a PHPStan rule, or a PHPUnit
+test **outside** `tests/Architecture/`, which the shipped `phpunit.xml.dist`
+template excludes from the suite unconditionally. Deptrac cannot express either
+structural rule itself: its collectors model `classLike`/`class`/`interface`/
+`trait` and have no notion of a class modifier.
 
 ## Templates (copy-and-adapt)
 
@@ -473,7 +475,6 @@ from drifting from this package.
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
-| `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | phpat layering + `Abstract*` naming + `beFinal` |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 
 ### Lockstep gate — `bin/check-consumer-config.php`
@@ -623,27 +624,6 @@ PHP side.
 Everything the "What it does not do" note above says about `bin/check-consumer-config.php`
 — a drift detector, not a bypass guard, and blind to a later `extends` entry or an
 individually named rule — applies here identically, since it is the same contract.
-
-### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
-
-phpat rules run inside PHPStan, and a rule whose **subject matches nothing** enforces
-nothing while looking active — both PHPStan and PHPUnit stay green. This bit a chart
-module once: a rule whose subject was a `Traits` namespace was a silent no-op, because
-phpat resolves a subject through PHPStan's `InClassNode`, which never fires for a trait.
-
-This guard parses a consumer's `ArchitectureTest`, extracts each rule method's subject
-selector, and asserts it matches at least one real class in `src/`. phpat itself finds a
-rule method two ways — a `#[TestRule]` attribute, or (equally, no attribute needed) a
-public method named `test*` — and this guard recognises both, so a repository writing
-its rules in the `test*` style is not told to add attributes it does not need:
-`Selector::inNamespace(NS)` needs a non-trait class in `NS` (a trait-only namespace, the
-manifested bug, reds here); `Selector::classname(FQCN)` needs that class to exist (a
-renamed or mistyped target reds); `Selector::isAbstract()` is a conditional naming guard
-that legitimately matches nothing until an abstract class is added, so it is not
-liveness-checked. It is a **static** check — it does not run PHPStan — and fails closed:
-every rule method must yield a classifiable subject. A repo with no `ArchitectureTest` is
-skipped. Wire it as a consumer `ci:test:php:phpat-subjects` script
-(`["check-phpat-subjects.php ."]`), rolled out the same script-first way.
 
 ## Releasing this package
 

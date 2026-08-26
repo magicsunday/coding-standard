@@ -82,10 +82,10 @@ probe_reporters() {
 
 harness_probe_reporters 1 probe_reporters
 
-# The gate's own output, asserted the way the three PHP suites assert theirs.
+# The gate's own output, asserted the way the PHP suites assert theirs.
 #
 # This file had no such control and twenty report sites; the PHP side has roughly
-# twenty controls between three gates. Both halves of the gap were reachable, and both
+# ten controls between two gates. Both halves of the gap were reachable, and both
 # were reproduced end to end: a devDependency name forged a `::error::` at column 0
 # through the tools line, and a `files` entry forged the legacy `##[` form.
 #
@@ -1378,7 +1378,7 @@ done <<<"$declared"
 # .gitattributes — the copy that bit, not the template.
 #
 # bin/support/safe-report-value.php is in the list for the Composer side of the same
-# question: both shipped gates `require_once` it, and nothing else asserts it survives
+# question: the shipped gate `require_once`s it, and nothing else asserts it survives
 # into the dist archive.
 # The list is DERIVED from `files` — the same allow-list the tarball check above
 # reads — plus package.json itself and the Composer side's shared helper, neither of

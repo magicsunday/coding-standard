@@ -15,12 +15,9 @@
 # directory, the failure counter, the degraded-run guard, the verdict, and the
 # probes that prove the counter reaches the exit code.
 #
-# It exists because the copies had already drifted apart. tests/
-# check-phpat-subjects-cases.sh still carried `assert_rejects` on the loose
-# `[ "$rc" -eq 0 ]` contract while its siblings had been tightened to
-# `[ "$rc" -ne 1 ]`, and two of the five harnesses had no bookkeeping probe at
-# all — so dropping one `fails=$((fails + 1))` in either left every case
-# printing FAILED at exit 0. One definition cannot drift from itself.
+# It exists because the copies had already drifted apart on the same contract in
+# more than one direction — dropping one `fails=$((fails + 1))` anywhere left
+# every case printing FAILED at exit 0. One definition cannot drift from itself.
 
 # Guard against a second source. Not because of the trap — sourcing arms none, the
 # `trap … EXIT` lives inside harness_workdir and a second source only redefines the
@@ -199,7 +196,7 @@ verdict() {
 # The direction that can fail silently, proven before any case runs. A subshell, so
 # the `exit` cannot end the caller and the counter cannot be touched. The other
 # direction needs no probe: were `verdict` to stop exiting 0 on a clean counter,
-# every green run of all five harnesses would go red first.
+# every green run of every harness that sources this file would go red first.
 if ( fails=1; verdict ) >/dev/null 2>&1; then
     printf 'FAILED  harness bookkeeping: a non-zero counter does not reach the exit code\n' >&2
     exit 1
@@ -425,10 +422,8 @@ harness_probe_reporters 1 harness_probe_fail 'harness_fail does not raise the fa
 #
 # The could-not-run verdict, exit 2. Kept apart from the drift verdict because a
 # helper that accepts "any non-zero" lets a setup failure count as a caught
-# violation — which is what tightening the phpat harness first surfaced. Three
-# harnesses had grown their own copy of this within two rounds of the file that
-# exists to stop exactly that, and the three had already drifted apart on stdout
-# vs stderr, `FAIL` vs `FAILED`, and branch order.
+# violation, and because the harnesses had already grown their own copy of this
+# and drifted apart on stdout vs stderr, `FAIL` vs `FAILED`, and branch order.
 harness_usage_error() {
     local gate="$1" dir="$2" label="$3" expected="$4" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
@@ -629,7 +624,7 @@ harness_probe_reporters 10 harness_probe_assert_shapes \
 # The shape arms above cannot be reached from the fixtures. With the scrub intact no
 # fixture's report matches any of them — the `::` arm needs the sequence at column 0
 # after leading blanks, and a scrubbed value never puts it there — so deleting any
-# one of them leaves all three suites green. Measured. They are driven here instead,
+# one of them leaves every suite that calls it green. Measured. They are driven here instead,
 # one crafted report per grammar. The shape calls pass three arguments so the count
 # stays one increment per arm; the two that drive the must-carry arms pass four.
 #
