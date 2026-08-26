@@ -585,6 +585,13 @@ for ($index = 0; $index < $ruleCount; ++$index) {
         continue;
     }
 
+    // Known, deliberately unhandled gap: a return-by-reference declaration
+    // (`function &testFoo()`) inserts a `&` CHAR token here that this loop does not
+    // skip, so `$name` stays null and the method is not recognised as a rule — failing
+    // CLOSED (a false "no rule methods found"), not open onto a silently-passing
+    // vacuous rule. No known consumer writes phpat rules this way (a rule method
+    // returns a `Rule`/`iterable`, never something meant to be referenced), so this is
+    // deferred rather than fixed.
     $name = null;
 
     for ($ahead = $index + 1; $ahead < $ruleCount; ++$ahead) {
