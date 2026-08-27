@@ -1741,7 +1741,10 @@ declare -A expected_target=(
     [cts]=cjs
 )
 
-mappings="$(ROOT="$root" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
+# Read from $archive_dir, same reason as $declared above: this table decides
+# what gets tested against the installed (archived) package, so it has to
+# describe that same package, not whatever the live working tree currently has.
+mappings="$(ROOT="$archive_dir" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
     .linter.rules.correctness.useImportExtensions.options.extensionMappings;
 process.stdout.write(Object.entries(m).map(([from, to]) => from + " " + to).join("\n"))')" || true
 
