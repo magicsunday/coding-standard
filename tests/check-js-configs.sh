@@ -1700,12 +1700,13 @@ done <<<"$declared"
 # loop above; an export-ignored package.json fails earlier still, at the
 # pack step itself ("npm pack produced no tarball"). What neither reaches is
 # bin/support/safe-report-value.php and bin/support/read-quietly.php (the
-# Composer-side shared helpers, neither in `files`) and the whole
-# `templates/` directory — README-documented as
+# Composer-side shared helpers, neither in `files`), composer.json and the
+# Composer-only importable directories (phpstan/, rector/, php-cs-fixer/,
+# deptrac/), and the whole `templates/` directory — README-documented as
 # copy-and-adapt for PHP and JS/TS alike, reaching consumers via a
-# git-archive-based copy, not `npm install`, so it isn't in `files` either.
-# An export-ignore on any of these has no `declared` entry and no pack
-# failure to trip. This control catches those, and names the cause.
+# git-archive-based copy, not `npm install`, so none of these are in `files`
+# either. An export-ignore on any of these has no `declared` entry and no
+# pack failure to trip. This control catches those, and names the cause.
 #
 # The verdict reads `$archive_dir` — the same extraction the pack step
 # built — rather than a second, independently-timed `git check-attr` query
@@ -1716,24 +1717,66 @@ done <<<"$declared"
 # this directory. The diagnostic below still walks the chain, because it
 # still asks `check-attr` a leaf at a time.
 #
-# The list is DERIVED — from `files` (the same allow-list the tarball check
-# above reads), from the archived tree for the copy-and-adapt set, and the
-# one Composer-only path neither of those covers. A hand-kept list would
-# drift the moment an entry is added on either side. `ls-tree "$archive_tree"`,
-# not `ls-files`: the latter reads the live index, which can gain or lose an
-# entry after the snapshot above was taken, the same drift `$declared` and
-# `$mappings` were fixed against.
-if ! templates_paths="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- templates)"; then
-    fail "git ls-tree on templates/ failed — the export-ignore control did not run for it"
+# GH-60 direction 1: a bare directory name (the old `biome`/`tsconfig`
+# entries straight out of `$declared`) checked with
+# `[ -e "$archive_dir/$name" ]` passes as long as the directory exists at
+# all, even empty. gitattributes(5): a pattern matching only a directory's
+# CONTENTS (`biome/** export-ignore`) does not also match the directory
+# itself, so `git archive` still writes an empty `biome/` entry — verified
+# in a throwaway repo: `archive/biome` exists and is empty while
+# `archive/biome/base.json` is gone, so the bare-name check cannot see the
+# loss. Every directory-shaped entry is therefore expanded to its real
+# LEAVES below, the same way `templates/` already was, rather than checked
+# bare.
+#
+# GH-60 direction 2: Composer has no `files` allow-list to derive a check
+# from, so `phpstan/`, `rector/`, `php-cs-fixer/` and `deptrac/` — every
+# directory a Composer consumer's `includes:`/`paths` references and npm
+# never ships — are a hand-kept list here. Each is paired with the same
+# non-empty-`ls-tree` anchor `templates/` already had: reading
+# `$archive_tree` (built by `write-tree` BEFORE `git archive` applies
+# export-ignore) means a renamed or deleted directory reports zero leaves
+# and fails LOUDLY here, rather than the loop further below silently
+# iterating nothing for it.
+directory_leaves=""
+
+for leaf_dir in biome tsconfig templates phpstan rector php-cs-fixer deptrac; do
+    if ! leaves="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- "$leaf_dir")"; then
+        fail "git ls-tree on $leaf_dir/ failed — the export-ignore control did not run for it"
+        exit 1
+    fi
+
+    if [ -z "$leaves" ]; then
+        fail "$leaf_dir/ is empty or no longer exists in the archived tree — the export-ignore checks did not run for it"
+        exit 1
+    fi
+
+    directory_leaves="$(printf '%s\n%s\n' "$directory_leaves" "$leaves")"
+done
+
+# composer.json's own `bin` array is Composer's equivalent of the npm
+# `files` allow-list for this one path shape — read it instead of
+# hand-keeping the entry, so a future addition to `bin` is covered without
+# anybody remembering to update this control too. Read from `$archive_dir`,
+# same reason as `$declared` above: a live `$root` read could check a path
+# that was never actually archived.
+composer_bin_entries=""
+composer_bin_entries="$(ROOT="$archive_dir" node -e '
+const bin = require(process.env.ROOT + "/composer.json").bin;
+process.stdout.write((Array.isArray(bin) ? bin : [bin]).join("\n"));
+')" || true
+
+if [ -z "$composer_bin_entries" ]; then
+    fail "could not read composer.json's \"bin\" entries — the Composer bin export-ignore check did not run"
     exit 1
 fi
 
-if [ -z "$templates_paths" ]; then
-    fail "templates/ is empty in the archived tree — the copy-and-adapt export-ignore checks did not run"
-    exit 1
-fi
+# `biome` and `tsconfig` are dropped from `$declared` here: the loop above
+# already expanded both into real leaves. The remaining `$declared` entries
+# (the `.mjs` files) are already leaves and pass through unchanged.
+declared_leaf_files="$(comm -23 <(printf '%s\n' "$declared" | sort) <(printf '%s\n' biome tsconfig | sort))"
 
-exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php bin/support/read-quietly.php "$templates_paths" | sort -u)"
+exported_paths="$(printf '%s\n' "$declared_leaf_files" package.json composer.json bin/support/safe-report-value.php bin/support/read-quietly.php "$composer_bin_entries" "$directory_leaves" | sort -u)"
 
 while IFS= read -r exported; do
     [ -n "$exported" ] || continue
