@@ -202,42 +202,31 @@ where it holds across the whole span, instead of being asserted from the floor
 alone. That is the reason to prefer the range on a multi-version repository;
 it does not extend deprecation coverage to the ceiling.
 
-A deprecation modeled as a symbol-level `@deprecated` marker, introduced AT
-OR BELOW the floor, is already caught statically by the deprecation rule
-described above, whether or not a test executes the call. One introduced
-ABOVE the floor is invisible to that rule, but is covered separately whenever
-a test actually executes it and does not itself opt out (PHPUnit's
-`#[IgnoreDeprecations]`/`#[WithoutErrorHandler]` attributes exist for exactly
-that) — `templates/phpunit.xml.dist` sets `failOnDeprecation="true"` and
+A real runtime deprecation is generally caught separately from the PHPStan
+pin: `templates/phpunit.xml.dist` sets `failOnDeprecation="true"` and
 `bin/check-consumer-config.php` requires it (re-derive: `grep -n
 "failOnDeprecation" templates/phpunit.xml.dist
-bin/check-consumer-config.php`), so an un-opted-out call fails the build
-regardless of what the PHPStan pin targets, provided the CI matrix runs an
-interpreter new enough to trigger it. A deprecation introduced above the
-floor, in code no test executes (or whose test opts out), is missed by both
-mechanisms.
+bin/check-consumer-config.php`), so a deprecated call a test executes
+normally fails the build, on a CI leg whose interpreter is new enough to
+trigger it. That is independent of what the PHPStan pin targets — including
+a deprecation introduced above the floor, which PHPStan's own deprecation
+rule misses per the range explanation above (it resolves to the floor
+either way).
 
-`chr()` illustrates a DIFFERENT gap neither mechanism above covers, because
-its PHP 8.5 deprecation is not modeled as a symbol-level marker at all: PHP
-8.5.0 deprecates passing it an integer outside 0-255, and PHPStan's stub
-signature encodes that by narrowing its `ascii` PARAMETER to `int<0, 255>` in
-the 8.5 stubs, plain `int` below it — the return type stays
-`non-empty-string` at both (re-derive: `grep -a -B2 "'chr' =>
-\['non-empty-string', 'ascii'=>'int"
-.build/vendor/phpstan/phpstan/phpstan.phar`, which also prints one unrelated,
-unlabelled base-map entry ahead of the labelled `'new'`/8.5 and
-`'old'`/pre-8.5 ones). This is an argument-TYPE check, not the deprecation
-rule above: `phpstan-deprecation-rules` only flags a whole symbol marked
-`@deprecated`, never an argument-value narrowing (re-derive: `grep -n
-isDeprecated
-.build/vendor/phpstan/phpstan-deprecation-rules/src/Rules/Deprecations/RestrictedDeprecatedFunctionUsageExtension.php`,
-which `chr()` itself never satisfies). The fallout differs by floor: pinned
-BELOW 8.5, PHPStan applies no narrowing and stays silent on a `chr()` call
-regardless of whether the argument is actually in range. Pinned AT OR ABOVE
-8.5, it can flag a call whose argument is provably in range by construction
-— e.g. `hexdec()` over a regex-guaranteed two-hex-digit capture, which can
-only produce 0-255 — even though the PHP 8.5 deprecation can never actually
-fire for it: a static-only false positive, not a real defect.
+PHPStan's `chr()` stub illustrates a risk in the OPPOSITE direction: its
+`ascii` PARAMETER narrows to `int<0, 255>` in the 8.5 stubs, plain `int`
+below it — the return type stays `non-empty-string` at both (re-derive:
+`grep -a -B2 "'chr' => \['non-empty-string', 'ascii'=>'int"
+.build/vendor/phpstan/phpstan/phpstan.phar`, which also prints one
+unrelated, unlabelled base-map entry ahead of the labelled `'new'`/8.5 and
+`'old'`/pre-8.5 ones). PHP 8.5.0 itself deprecates passing `chr()` an
+out-of-range integer, so the narrowing tracks a real behaviour change, not a
+phantom one. But PHPStan applies the narrower type unconditionally, so it
+can also flag a call whose argument is provably in range by construction —
+e.g. `hexdec()` over a regex-guaranteed two-hex-digit capture, which can only
+produce 0-255 — even though no deprecation could ever fire for that specific
+call: a static-only false positive to triage on its own merits, not evidence
+that the pin is missing something.
 
 ### The two tiers
 
