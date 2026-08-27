@@ -207,6 +207,47 @@ harness_assert_no_stray_increments 1
 biome_ci() { npx --no-install biome ci --error-on-warnings --colors=off . >"$1" 2>&1; }
 run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
+# Same reason, for the two `--ignore-scripts` calls below and the regression
+# probe further down that proves they hold: routed through one definition
+# each, a flag dropped from either function reds both the real run and the
+# probe, instead of the probe holding its own copy that a real regression
+# would leave untouched.
+npm_pack_ignoring_scripts()    { npm pack --ignore-scripts --pack-destination "$1" --loglevel=error; }
+npm_install_ignoring_scripts() { npm install --no-audit --no-fund --ignore-scripts "$@"; }
+
+# Same reason again, for the devDependencies-to-npm-argument build below and
+# its own regression probe: a devDependencies KEY or VALUE is exactly as
+# PR-controlled as the tarball, and either one reaching this call unchecked
+# can inject a second argument onto the same npm command line that carries
+# `--ignore-scripts` — REJECT (not sanitise) a value or name shaped so it
+# could be read as anything other than one inert npm argument: whitespace in
+# either half (a newline defeats `mapfile`'s line-based read regardless of
+# quoting; a bare space no longer can, now that `$tools` is an array, but is
+# rejected anyway since no legitimate name/version grammar contains one), a
+# leading "-" (npm-flag-shaped), empty, a NUL byte, or simply not a string
+# (JSON permits number/boolean/null/array/object here). Each shape, and why
+# it was reproduced rather than assumed, is recorded next to the fixture
+# that proves it in harness_probe_build_tools_rejects_unsafe_devdependencies
+# below — not repeated here, so the reproduction detail lives once, at the
+# site that can still prove it if the checks ever change.
+build_tools_from_devdependencies() {
+    ROOT="$1" node -e '
+const d = require(process.env.ROOT + "/package.json").devDependencies;
+const entries = Object.entries(d);
+const unsafeAsArgument = (s) => typeof s !== "string" || s === "" || /\s/.test(s) || s.includes("\0") || s.startsWith("-");
+const bad = entries.filter(([n, v]) => unsafeAsArgument(n) || unsafeAsArgument(v));
+if (bad.length) {
+    for (const [n, v] of bad) {
+        console.error("devDependencies entry is not safe to pass to npm as an argument: " + JSON.stringify({ [n]: v }));
+    }
+    process.exit(1);
+}
+for (const [n, v] of entries) {
+    console.log(n + "@" + v);
+}
+'
+}
+
 # --- pack and install exactly as a consumer receives the package -------------
 
 # Pack the artefact a consumer actually gets, not the raw working tree: the
@@ -239,7 +280,17 @@ fi
 # the install would then be handed a directory and fail as a misleading
 # "check package.json files". `--loglevel=error` keeps npm's own diagnosis, which
 # is the only one either shape produces.
-tarball="$(cd "$archive_dir" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
+#
+# `--ignore-scripts` skips this package.json's own `prepack`/`prepare`/`postpack`
+# hooks — `npm help scripts` names these as npm pack's only three lifecycle
+# events (verified 2026-08-27) — otherwise arbitrary code declared by the very
+# package.json this pack operates on. None of the three
+# are in its `scripts` block today
+# (`node -e 'console.log(Object.keys(require("./package.json").scripts))'`
+# from $root lists only `ci:test:js`) — if one of them is ever added, that
+# command starts naming it, which is the signal to decide deliberately
+# whether it must run here.
+tarball="$(cd "$archive_dir" && npm_pack_ignoring_scripts "$work" | tail -n1)" || true
 
 if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
     fail "npm pack produced no tarball — cannot run the smoke"
@@ -254,19 +305,137 @@ npm init -y >/dev/null 2>&1
 # the moment CI runs, so a release on the tool's side could red the build on a
 # day nothing changed here — and worse, a green run would not say which version
 # it proved. Dependabot bumps the pins; this smoke is what vets the bump.
-# `|| true` so the guard below can report: with the key ABSENT rather than empty,
-# Object.entries(undefined) throws and node exits 1, which under `set -e` would
-# abort the script at the assignment and leave the CI log with a node stack trace
-# instead of this script's own diagnostic.
-tools="$(ROOT="$root" node -e 'const d=require(process.env.ROOT + "/package.json").devDependencies;
-process.stdout.write(Object.entries(d).map(([n, v]) => n + "@" + v).join(" "))' 2>/dev/null)" || true
+#
+# An ARRAY, one element per tool, never a joined string a shell later
+# word-splits — see build_tools_from_devdependencies above for why. With the
+# devDependencies key ABSENT (rather than merely empty), `Object.entries`
+# throws instead of returning `[]`, caught below by the same empty-array
+# check that catches the reject path, since a thrown/rejected build prints
+# nothing to stdout either way.
+mapfile -t tools < <(build_tools_from_devdependencies "$root" 2>"$work/tools-build.log")
 
-if [ -z "$tools" ]; then
-    fail "no devDependencies in package.json — nothing to pin the smoke to"
+if [ "${#tools[@]}" -eq 0 ]; then
+    fail "no devDependencies in package.json — nothing to pin the smoke to (or an entry was rejected)" "$work/tools-build.log"
     exit 1
 fi
 
-printf 'INFO     tools under test: %s\n' "$(safe_report "$tools")"
+printf 'INFO     tools under test: %s\n' "$(safe_report "${tools[*]}")"
+
+# "A gate that cannot be shown to fail proves nothing" — same principle as
+# harness_probe_ignore_scripts_suppresses_lifecycle_scripts further down,
+# applied to the OTHER half of the same bypass: this drives real poisoned
+# `package.json` fixtures through the actual build_tools_from_devdependencies
+# function (not a hand-reasoned example in a comment), so a loosened or
+# dropped check reds this control instead of only the prose going stale.
+# assert_build_tools_rejects <description> — writes $fixture_dir/package.json
+# beforehand, so each case below is the fixture plus one line instead of a
+# repeated if/fail/pass block.
+#
+# What actually has to hold, and what this checks: the real caller is
+# `mapfile -t tools < <(build_tools_from_devdependencies …)`, which reads
+# stdout only and never inspects the exit code — so a "reject" that leaked
+# ANYTHING to stdout would still poison `$tools` in the real script, no
+# matter how correct its diagnostic looks. Checking stdout emptiness — not
+# stderr content, and not the exit code — is therefore both the necessary
+# condition and, on its own, close to sufficient: two narrower checks were
+# tried and abandoned here. A bare nonzero-exit check passes even with the
+# whole reject path deleted, because `.startsWith` on a non-string throws
+# and throwing also exits nonzero with empty stdout — accepted as
+# equivalent rather than chased further, since both are fail-closed for the
+# one thing that matters to the caller. A stderr diagnostic-string check
+# (further narrowed to require a stack-trace frame, to rule out a syntax
+# error landing on that literal line and getting echoed by V8) still passed
+# a bare `throw "…same phrase…"`, which produces no stack frame in node
+# 24 — that variant is dropped rather than chased into a third heuristic,
+# since it was defending a property (which code path rejected) the caller
+# was never shown to depend on; only whether stdout is empty is.
+assert_build_tools_rejects() {
+    local out err
+    err="$(mktemp -p "$fixture_dir")"
+    if out="$(build_tools_from_devdependencies "$fixture_dir" 2>"$err")"; then
+        fail "bookkeeping self-test — build_tools_from_devdependencies accepted $1: $(safe_report "$out")"
+    elif [ -n "$out" ]; then
+        fail "bookkeeping self-test — build_tools_from_devdependencies rejected $1 on exit code, but still emitted to stdout: $(safe_report "$out")"
+    elif ! grep -qF 'is not safe to pass to npm as an argument' "$err"; then
+        fail "bookkeeping self-test — build_tools_from_devdependencies rejected $1 with empty stdout, but not via its own diagnostic (crashed instead?): $(safe_report "$(cat "$err")")"
+    else
+        pass "build_tools_from_devdependencies rejects $1"
+    fi
+    rm -f -- "$err"
+}
+
+harness_probe_build_tools_rejects_unsafe_devdependencies() {
+    local fixture_dir out
+
+    fixture_dir="$(mktemp -d "$work/tools-build-probe.XXXXXX")"
+
+    # A value carrying embedded whitespace plus a flag — the exact shape
+    # reproduced end to end against the real npm install call.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript": "5.0.16 --no-ignore-scripts" } }
+EOF
+    assert_build_tools_rejects "a devDependency value carrying embedded whitespace"
+
+    # A NAME carrying an embedded newline — `mapfile` reads its own output
+    # line by line, so this splits into separate array elements regardless
+    # of how the caller quotes the result; reproduced to emit a standalone
+    # `--no-ignore-scripts` element that way, with no `--ignore-scripts`
+    # anywhere in between on the resulting `npm install` command line.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript\n--no-ignore-scripts\njscpd": "1.0.0" } }
+EOF
+    assert_build_tools_rejects "a devDependency name carrying a newline"
+
+    # A NAME shaped as an npm flag, no whitespace at all — the leading-"-"
+    # check is what catches this one; the whitespace check alone would not.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "--no-ignore-scripts": "1.0.0" } }
+EOF
+    assert_build_tools_rejects "a devDependency name starting with a dash"
+
+    # A NAME carrying a NUL byte (kept as a JSON string escape, decoded to a
+    # real NUL byte only once node's JSON.parse runs on it, never as a
+    # literal byte in this source file) — before this check existed,
+    # reproduced to make `mapfile` silently truncate the line rather than
+    # reject it, corrupting the pin into an unpinned bare name instead of
+    # exposing a second argument.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript\u0000evil": "1.0.0" } }
+EOF
+    assert_build_tools_rejects "a devDependency name carrying a NUL byte"
+
+    # A VALUE that is not a string at all (JSON permits number/boolean/
+    # null/array/object here) — before the `typeof s !== "string"` guard
+    # existed, this crashed the node script with an uncaught TypeError
+    # instead of the intended diagnostic (still fail-closed either way:
+    # both a crash and a rejection print nothing to stdout).
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript": 5 } }
+EOF
+    assert_build_tools_rejects "a devDependency value that is not a string"
+
+    # An empty-string VALUE — the one remaining branch of unsafeAsArgument
+    # (`s === ""`) with no fixture of its own until now.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript": "" } }
+EOF
+    assert_build_tools_rejects "a devDependency value that is empty"
+
+    # Negative twin: an ordinary pin, proving the six controls above fail
+    # for the stated reason and not because every input is rejected.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript": "5.0.16" } }
+EOF
+    if out="$(build_tools_from_devdependencies "$fixture_dir" 2>/dev/null)" && [ "$out" = 'typescript@5.0.16' ]; then
+        pass "bookkeeping self-test — build_tools_from_devdependencies accepts an ordinary pin"
+    else
+        fail "bookkeeping self-test — build_tools_from_devdependencies rejected an ordinary pin: $(safe_report "$out")"
+    fi
+
+    rm -rf -- "$fixture_dir"
+}
+
+harness_probe_build_tools_rejects_unsafe_devdependencies
 
 # Enforce the devEngines floor rather than documenting it. Why the REPOSITORY's
 # own development/CI floor lives in `devEngines` — not `engines` — is in the
@@ -1258,11 +1427,144 @@ rm -rf "$manifest_fixtures"
 # A registry hiccup or a bad pin would otherwise abort the script here with no
 # output at all — the same red as a genuine config regression, and with the EXIT
 # trap deleting $work there is nothing left in the CI log to tell them apart.
-# shellcheck disable=SC2086 # deliberate word splitting: one npm arg per tool
-if ! npm install --no-audit --no-fund "$work/$tarball" $tools >"$work/npm-install.log" 2>&1; then
+#
+# `--ignore-scripts` covers the whole call — tarball, tools and every
+# transitive package either pulls in: `$tools` is built from THIS
+# package.json's own devDependencies a few lines up, so a name or version in
+# it is exactly as PR-controlled as the tarball itself — neither is something
+# manifest_check above has vetted for what its own install-time scripts would
+# do. Whether any installed package still needs one is re-checked, not
+# assumed — run after `npm install`, so node_modules exists (the leading
+# "./" matters: `require()` treats a bare "node_modules/…" argument as a
+# package name lookup, not a path, and fails; and the object literal has to
+# be spelled without a literal "{}" in this exact script, because `find`
+# rewrites every "{}" in the whole command line, not only the trailing
+# placeholder):
+# `find node_modules -maxdepth 2 -name package.json -exec node -e '
+# const scripts = require("./" + process.argv[1]).scripts;
+# const hooks = ["preinstall","install","postinstall","prepublish","preprepare","prepare","postprepare"]; // npm help scripts' "npm ci"/"npm install" life-cycle order, verified 2026-08-27
+# const hit = hooks.filter((h) => scripts && h in scripts);
+# if (hit.length) console.log(process.argv[1], hit);
+# ' {} \;` prints nothing today — a future dependency bump that starts
+# printing something is the signal to decide deliberately, not something to
+# assume fails loudly. Trusting PR-declared install-time code by default is
+# the one failure mode this line exists to rule out regardless.
+if ! npm_install_ignoring_scripts "$work/$tarball" "${tools[@]}" >"$work/npm-install.log" 2>&1; then
     fail "npm install failed — cannot run the smoke" "$work/npm-install.log"
     exit 1
 fi
+
+# "A gate that cannot be shown to fail proves nothing" (this repository's own
+# AGENTS.md, about the fixture-driven gates this file is one of) — the two
+# `--ignore-scripts` flags above are exactly such a gate. Plant a package that
+# WOULD run code if the flag were dropped, and drive it through the SAME
+# npm_pack_ignoring_scripts / npm_install_ignoring_scripts functions the real
+# pack/install above call — same reason those two functions exist in the
+# first place. The negative twins call plain `npm pack`/`npm install`
+# directly (deliberately NOT through those functions) and assert the
+# opposite: that the marker mechanism itself can detect a run, not just
+# default to "absent" regardless.
+#
+# assert_marker <label> <marker> <fired|silent> — the shape every case below
+# reduces to, so the four decisions read as one line each instead of four
+# copies of the same if/pass/fail.
+assert_marker() {
+    if { [ "$3" = fired ] && [ -e "$2" ]; } || { [ "$3" = silent ] && [ ! -e "$2" ]; }; then
+        pass "$1"
+    else
+        fail "bookkeeping self-test — $1"
+    fi
+}
+
+# The two install cases below each need their OWN fresh target (see the
+# comment on the negative twin), so this is called twice rather than once.
+# Assigns the caller's own `consumer_dir` directly — never
+# `consumer_dir="$(new_probe_consumer_dir)"` — because a command
+# substitution is a subshell: `fail`'s counter increment would be lost the
+# moment this runs inside one, even though the `exit 1` still aborts the
+# whole script correctly either way (a bare assignment is not one of
+# `set -e`'s exempt contexts).
+new_probe_consumer_dir() {
+    consumer_dir="$(mktemp -d "$work/ignore-scripts-probe-consumer.XXXXXX")"
+    if ! (cd "$consumer_dir" && npm init -y) >"$work/probe-init.log" 2>&1; then
+        fail "bookkeeping self-test — npm init -y failed" "$work/probe-init.log"
+        exit 1
+    fi
+}
+
+harness_probe_ignore_scripts_suppresses_lifecycle_scripts() {
+    local poisoned tgz marker consumer_dir
+
+    # Under $work, not a bare mktemp -d: harness_workdir's own EXIT trap then
+    # covers these too, so a setup failure below (which exits the whole
+    # script) cannot leak them the way an unregistered temp dir would.
+    poisoned="$(mktemp -d "$work/ignore-scripts-probe.XXXXXX")"
+    cat > "$poisoned/package.json" <<'EOF'
+{
+  "name": "ignore-scripts-probe",
+  "version": "1.0.0",
+  "scripts": {
+    "prepack": "node write-marker.js",
+    "postinstall": "node write-marker.js"
+  }
+}
+EOF
+    # No "files" allow-list, so `npm pack` includes this alongside package.json —
+    # the same script file runs for both prepack (in $poisoned) and postinstall
+    # (from inside node_modules/ after install), each pointed at its own marker
+    # path by the env var, never by cwd.
+    cat > "$poisoned/write-marker.js" <<'EOF'
+require('fs').writeFileSync(process.env.IGNORE_SCRIPTS_PROBE_MARKER, '1');
+EOF
+
+    marker="$poisoned/prepack-suppressed"
+    if ! tgz="$(cd "$poisoned" && IGNORE_SCRIPTS_PROBE_MARKER="$marker" npm_pack_ignoring_scripts "$poisoned" 2>"$work/probe-pack.log" | tail -n1)"; then
+        fail "bookkeeping self-test — npm pack (suppressed) failed" "$work/probe-pack.log"
+        exit 1
+    fi
+    assert_marker "npm pack --ignore-scripts suppresses prepack" "$marker" silent
+
+    new_probe_consumer_dir
+    marker="$poisoned/postinstall-suppressed"
+    if ! IGNORE_SCRIPTS_PROBE_MARKER="$marker" npm_install_ignoring_scripts --prefix "$consumer_dir" "$poisoned/$tgz" >"$work/probe-install-suppressed.log" 2>&1; then
+        fail "bookkeeping self-test — npm install (suppressed) failed" "$work/probe-install-suppressed.log"
+        exit 1
+    fi
+    assert_marker "npm install --ignore-scripts suppresses postinstall" "$marker" silent
+    rm -rf -- "$consumer_dir"
+
+    # Negative twin, same tarball, no flag, in a FRESH consumer dir: reproduced
+    # with npm 11.12.1 (2026-08-27) that npm treats re-installing the identical
+    # tarball spec into the same node_modules as already satisfied and skips
+    # it silently, which would make this twin pass for the wrong reason
+    # (nothing ran, rather than the flag being honoured) — a fresh target
+    # forces the real install path regardless of what a future npm does here.
+    new_probe_consumer_dir
+    marker="$poisoned/postinstall-unsuppressed"
+    if ! IGNORE_SCRIPTS_PROBE_MARKER="$marker" npm install --no-audit --no-fund --prefix "$consumer_dir" "$poisoned/$tgz" >"$work/probe-install-unsuppressed.log" 2>&1; then
+        fail "bookkeeping self-test — npm install (unsuppressed) failed" "$work/probe-install-unsuppressed.log"
+        exit 1
+    fi
+    assert_marker "npm install without --ignore-scripts runs postinstall" "$marker" fired
+    rm -rf -- "$consumer_dir"
+
+    # Negative twin for the pack side, run last since it overwrites $tgz in
+    # place — nothing after this reads the tarball again, which is what makes
+    # it safe despite this second pack including the marker file in the
+    # tarball too (unlike the first, suppressed pack, this one's prepack
+    # actually runs, and with no "files" allow-list the marker it writes into
+    # $poisoned lands in the tarball right alongside package.json).
+    marker="$poisoned/prepack-unsuppressed"
+    if ! (cd "$poisoned" && IGNORE_SCRIPTS_PROBE_MARKER="$marker" npm pack --pack-destination "$poisoned" --loglevel=error) >"$work/probe-pack-unsuppressed.log" 2>&1; then
+        fail "bookkeeping self-test — npm pack (unsuppressed) failed" "$work/probe-pack-unsuppressed.log"
+        exit 1
+    fi
+    assert_marker "npm pack without --ignore-scripts runs prepack" "$marker" fired
+
+    rm -rf -- "$poisoned"
+}
+
+harness_probe_ignore_scripts_suppresses_lifecycle_scripts
 
 # Everything else in this file proves the gate's LOGIC via a direct path to the
 # working-tree source (harness_run_argv's NODE_GATE). None of it proves the
