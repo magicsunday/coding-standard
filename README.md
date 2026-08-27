@@ -202,6 +202,40 @@ where it holds across the whole span, instead of being asserted from the floor
 alone. That is the reason to prefer the range on a multi-version repository;
 it does not extend deprecation coverage to the ceiling.
 
+A real runtime deprecation is generally caught separately from the PHPStan
+pin: `templates/phpunit.xml.dist` sets `failOnDeprecation="true"` and
+`bin/check-consumer-config.php` requires it (re-derive: `grep -n
+"failOnDeprecation" templates/phpunit.xml.dist
+bin/check-consumer-config.php`), so a deprecated call a test executes
+normally fails the build, on a CI leg whose interpreter is new enough to
+trigger it. That is independent of what the PHPStan pin targets — including
+a deprecation introduced above the floor, which PHPStan's own deprecation
+rule misses per the range explanation above (it resolves to the floor
+either way).
+
+PHPStan's `chr()` stub illustrates a risk in the OPPOSITE direction, gated by
+the SAME floor resolution as the deprecation rule above: its `ascii`
+PARAMETER narrows to `int<0, 255>` only once the resolved floor itself
+reaches 8.5, plain `int` below it — the return type stays `non-empty-string`
+at both (re-derive: `grep -a -B2 "'chr' => \['non-empty-string',
+'ascii'=>'int" .build/vendor/phpstan/phpstan/phpstan.phar`, which also
+prints one unrelated, unlabelled base-map entry ahead of the labelled
+`'new'`/8.5 and `'old'`/pre-8.5 ones). Below a floor of 8.5 — including the
+`80300`/`80500` range example above it, whose floor is 8.3 — PHPStan applies
+no narrowing and stays silent on a `chr()` call regardless of the argument's
+real value. At a floor of 8.5 or above, PHP 8.5.0 itself deprecates passing
+`chr()` an out-of-range integer (observed against a real `php:8.5-cli`
+interpreter: `php -r 'chr(300);'` emits `Deprecated: chr(): Providing a
+value not in-between 0 and 255 is deprecated …`; a `php:8.4-cli` interpreter
+emits nothing), so the narrowing tracks a real behaviour change, but
+PHPStan applies it without checking whether the actual value can
+ever leave the safe range — so it can also flag a call whose argument is
+provably in range by construction, e.g. `hexdec()` over a regex-guaranteed
+two-hex-digit capture, which can only produce 0-255, even though no
+deprecation could ever fire for that specific call: a static-only false
+positive to triage on its own merits, not evidence that the pin is missing
+something.
+
 ### The two tiers
 
 `base.neon` is the **floor** — every repository runs it, no exceptions.

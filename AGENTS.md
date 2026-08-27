@@ -127,8 +127,10 @@ directory that matches how it is consumed, never at the root for convenience.
   single value: `min` = floor, `max` = ceiling. The range narrows only the
   version-conditioned surface (`PHP_VERSION_ID`-style constants,
   `version_compare()`) — it does **not** extend the feature/deprecation rules
-  to the ceiling — see the README's `phpVersion` explanation for the mechanism
-  and the re-derive commands. A single-PHP repository keeps the single value.
+  to the ceiling — see the README's `phpVersion` explanation for the mechanism,
+  the re-derive commands, what actually catches a real runtime deprecation, and
+  a narrowed-stub-type case where PHPStan can false-positive in the opposite
+  direction. A single-PHP repository keeps the single value.
 - **The template lockstep gate rolls out script-first, workflow-step-last.** The
   reusable `php-quality` workflow runs a FIXED list of `composer ci:test:php:*` steps,
   so adding a `Templates` step that runs `ci:test:php:templates` reds EVERY consumer
