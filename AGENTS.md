@@ -124,9 +124,11 @@ directory that matches how it is consumed, never at the root for convenience.
   relative `includes` in `base.neon` (not `phpstan/extension-installer`, which does
   not reach Rector's bundled PHPStan). Do not reintroduce extension-installer here.
 - **A multi-version consumer sets `phpVersion` as a `min`/`max` range**, not a
-  single value: `min` = floor, `max` = ceiling, so PHPStan checks the whole
-  supported span (a single value only analyses at the floor and misses a
-  higher-version deprecation). A single-PHP repository keeps the single value.
+  single value: `min` = floor, `max` = ceiling. The range narrows only the
+  version-conditioned surface (`PHP_VERSION_ID`-style constants,
+  `version_compare()`) — it does **not** extend the feature/deprecation rules
+  to the ceiling — see the README's `phpVersion` explanation for the mechanism
+  and the re-derive commands. A single-PHP repository keeps the single value.
 - **The template lockstep gate rolls out script-first, workflow-step-last.** The
   reusable `php-quality` workflow runs a FIXED list of `composer ci:test:php:*` steps,
   so adding a `Templates` step that runs `ci:test:php:templates` reds EVERY consumer
