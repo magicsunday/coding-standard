@@ -1717,23 +1717,18 @@ done <<<"$declared"
 # this directory. The diagnostic below still walks the chain, because it
 # still asks `check-attr` a leaf at a time.
 #
-# GH-60 direction 1: a bare directory name (the old `biome`/`tsconfig`
-# entries straight out of `$declared`) checked with
-# `[ -e "$archive_dir/$name" ]` passes as long as the directory exists at
-# all, even empty. gitattributes(5): a pattern matching only a directory's
-# CONTENTS (`biome/** export-ignore`) does not also match the directory
-# itself, so `git archive` still writes an empty `biome/` entry — verified
-# in a throwaway repo: `archive/biome` exists and is empty while
-# `archive/biome/base.json` is gone, so the bare-name check cannot see the
-# loss. Every directory-shaped entry is therefore expanded to its real
-# LEAVES below, the same way `templates/` already was, rather than checked
-# bare.
+# Expanded to real leaves rather than checked as a bare directory name
+# (the old `biome`/`tsconfig` entries straight out of `$declared`):
+# gitattributes(5) does not extend a pattern matching only a directory's
+# CONTENTS (`biome/** export-ignore`) to the directory itself, so `git
+# archive` still writes an empty `biome/` entry and a bare-name
+# `[ -e "$archive_dir/$name" ]` check cannot see the loss.
 #
-# GH-60 direction 2: Composer has no `files` allow-list to derive a check
-# from, so `phpstan/`, `rector/`, `php-cs-fixer/` and `deptrac/` — every
-# directory a Composer consumer's `includes:`/`paths` references and npm
-# never ships — are a hand-kept list here. Each is paired with the same
-# non-empty-`ls-tree` anchor `templates/` already had: reading
+# `phpstan/`, `rector/`, `php-cs-fixer/` and `deptrac/` join the same
+# treatment because Composer has no `files`-equivalent allow-list to
+# derive them from — every directory a Composer consumer's
+# `includes:`/`paths` references and npm never ships is a hand-kept list
+# here. Anchored the same way `templates/` already was: reading
 # `$archive_tree` (built by `write-tree` BEFORE `git archive` applies
 # export-ignore) means a renamed or deleted directory reports zero leaves
 # and fails LOUDLY here, rather than the loop further below silently
@@ -1754,12 +1749,15 @@ for leaf_dir in biome tsconfig templates phpstan rector php-cs-fixer deptrac; do
     directory_leaves="$(printf '%s\n%s\n' "$directory_leaves" "$leaves")"
 done
 
-# composer.json's own `bin` array is Composer's equivalent of the npm
-# `files` allow-list for this one path shape — read it instead of
-# hand-keeping the entry, so a future addition to `bin` is covered without
-# anybody remembering to update this control too. Read from `$archive_dir`,
-# same reason as `$declared` above: a live `$root` read could check a path
-# that was never actually archived.
+# composer.json's own `bin` array already names the paths a Composer
+# consumer's binary-symlink step needs — Composer itself does not control
+# what ships via `bin` the way npm's `files` does (that stays exclusively
+# `.gitattributes` export-ignore, same as every other entry here); `bin`
+# just doubles as a ready enumeration source, so it is read instead of
+# hand-keeping the one entry, and a future addition to `bin` is covered
+# without anybody remembering to update this control too. Read from
+# `$archive_dir`, same reason as `$declared` above: a live `$root` read
+# could check a path that was never actually archived.
 composer_bin_entries=""
 composer_bin_entries="$(ROOT="$archive_dir" node -e '
 const bin = require(process.env.ROOT + "/composer.json").bin;
