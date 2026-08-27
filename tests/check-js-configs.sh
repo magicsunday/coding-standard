@@ -214,24 +214,27 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 # resolves through GitHub's codeload, which serves a `git archive` —
 # committed content only, `.gitattributes` export-ignore applied.
 #
-# Archive `git stash create`'s commit (HEAD plus every staged/unstaged
-# TRACKED change), not bare `HEAD`: this script also runs PRE-COMMIT, where
-# the edit under test isn't HEAD yet, and bare `HEAD` would silently validate
-# the parent commit instead. `stash create` touches neither the index, the
-# working tree, nor the real stash ref. An empty result is ambiguous between
-# "clean tree" (exit 0) and a genuine failure (exit non-zero) — only a
-# *successful* empty call may fall back to `HEAD`.
-if ! archive_commit="$(git -C "$root" stash create)"; then
-    fail "git stash create failed — cannot determine what this commit would ship"
+# Archive `git write-tree`'s tree (the INDEX, i.e. what's actually staged),
+# not bare `HEAD`: a run against a dirty tree — the edit under test not yet
+# committed — must validate what that edit would ship, not the parent
+# commit's content. The index rather than the working tree, deliberately: a
+# further UNSTAGED edit on top of a staged one is not what `git commit`
+# (without `-a`) is about to ship, so archiving it would prove a version
+# that was never actually staged — `write-tree` reads the index only,
+# matching that exactly, and on a clean tree it returns HEAD's own tree, so
+# no separate fallback is needed. It touches neither the working tree nor
+# HEAD, and it never succeeds with empty output — unlike `git stash create`,
+# a real failure here is just a non-zero exit, nothing to disambiguate.
+if ! archive_tree="$(git -C "$root" write-tree)"; then
+    fail "git write-tree failed — cannot determine what this commit would ship"
     exit 1
 fi
-: "${archive_commit:=HEAD}"
 
 archive_dir="$work/archive"
 mkdir -- "$archive_dir"
 
-if ! git -C "$root" archive "$archive_commit" | tar -x -C "$archive_dir"; then
-    fail "git archive $archive_commit could not be extracted — cannot pack the artefact a consumer receives"
+if ! git -C "$root" archive "$archive_tree" | tar -x -C "$archive_dir"; then
+    fail "git archive $archive_tree could not be extracted — cannot pack the artefact a consumer receives"
     exit 1
 fi
 
@@ -1418,10 +1421,13 @@ done <<<"$declared"
 # still asks `check-attr` a leaf at a time.
 #
 # The list is DERIVED — from `files` (the same allow-list the tarball check
-# above reads), from `git ls-files templates` for the copy-and-adapt set, and
-# the one Composer-only path neither of those covers. A hand-kept list would
-# drift the moment an entry is added on either side.
-templates_paths="$(git -C "$root" ls-files templates)"
+# above reads), from the archived tree for the copy-and-adapt set, and the
+# one Composer-only path neither of those covers. A hand-kept list would
+# drift the moment an entry is added on either side. `ls-tree "$archive_tree"`,
+# not `ls-files`: the latter reads the live index, which can gain or lose an
+# entry after the snapshot above was taken, the same drift `$declared` and
+# `$mappings` were fixed against.
+templates_paths="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- templates)"
 exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php "$templates_paths" | sort -u)"
 
 while IFS= read -r exported; do
@@ -1430,26 +1436,12 @@ while IFS= read -r exported; do
     if [ -e "$archive_dir/$exported" ]; then
         pass "reaches a consumer through the git archive: $(safe_report "$exported")"
     else
-        # A second query, for the DIAGNOSTIC text only — the verdict above already
-        # came from the archive that was actually packed, so a working-tree edit
-        # landing between the archive step and here can at most make THIS message
-        # name the wrong cause for an absence that is already established as real;
-        # it cannot flip a real absence back into a false "reaches a consumer".
-        #
-        # Walked up the ANCESTOR CHAIN, because `git check-attr` on the leaf alone
-        # reports "unspecified" when the attribute actually sits on a parent
-        # directory (`/bin/support export-ignore` leaves
-        # `bin/support/safe-report-value.php` itself unspecified) — the exact case
-        # this control exists to name. Stops at the first path whose attribute is
-        # actually set; falls through to the TOPMOST ancestor's (unspecified)
-        # answer when nothing up the chain explains the absence, which then reads
-        # as a deliberately honest "cause unknown" rather than a false "not
-        # ignored". `attr` is only overwritten on a SUCCESSFUL `check-attr` call
-        # (non-empty `path_attr`) — a `git check-attr` failure at any one level
-        # (rather than a genuine "unspecified") must not erase a real answer
-        # already found lower in the chain, and must not silently masquerade as
-        # one either; the initial '(unresolvable)' survives when git never once
-        # answers successfully.
+        # A second query, for the DIAGNOSTIC text only — it cannot flip a real
+        # absence back into a false "reaches a consumer", only mislabel its
+        # cause. Ancestor chain, because `git check-attr` on the leaf alone
+        # reports "unspecified" when the attribute sits on a parent directory.
+        # `attr` is only overwritten on a SUCCESSFUL call, so a failure at one
+        # level can't erase or fake an answer found lower in the chain.
         attr='(unresolvable)'
         path="$exported"
         while true; do
