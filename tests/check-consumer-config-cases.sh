@@ -1573,7 +1573,7 @@ assert_rejects_js "$d" "a tsconfig.json past the size cap is reported as oversiz
 
 # The plain-text bound. Measured before the cap reached these readers: a 196 MB
 # .editorconfig at memory_limit=128M ended in `Allowed memory size exhausted`, exit
-# 255, with no gate diagnostic — the outcome $readFile's scoped handler exists to
+# 255, with no gate diagnostic — the outcome readQuietly()'s scoped handler exists to
 # prevent, reached by every site that passed no bound.
 # Every plain-text reader on that bound, not a sample: they were six separate call
 # sites before $readBounded, and two cases could not pin the other four.
