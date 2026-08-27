@@ -214,17 +214,10 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 # resolves through GitHub's codeload, which serves a `git archive` —
 # committed content only, `.gitattributes` export-ignore applied.
 #
-# Archive `git write-tree`'s tree (the INDEX, i.e. what's actually staged),
-# not bare `HEAD`: a run against a dirty tree — the edit under test not yet
-# committed — must validate what that edit would ship, not the parent
-# commit's content. The index rather than the working tree, deliberately: a
-# further UNSTAGED edit on top of a staged one is not what `git commit`
-# (without `-a`) is about to ship, so archiving it would prove a version
-# that was never actually staged — `write-tree` reads the index only,
-# matching that exactly, and on a clean tree it returns HEAD's own tree, so
-# no separate fallback is needed. It touches neither the working tree nor
-# HEAD, and it never succeeds with empty output — unlike `git stash create`,
-# a real failure here is just a non-zero exit, nothing to disambiguate.
+# Archive `git write-tree`'s tree (the index), not `git stash create` or bare
+# `HEAD`: it matches exactly what `git commit` (without `-a`) is about to
+# ship, and unlike `stash create` a failure is an unambiguous non-zero exit —
+# no empty-vs-failure fallback needed.
 if ! archive_tree="$(git -C "$root" write-tree)"; then
     fail "git write-tree failed — cannot determine what this commit would ship"
     exit 1
@@ -1427,7 +1420,16 @@ done <<<"$declared"
 # not `ls-files`: the latter reads the live index, which can gain or lose an
 # entry after the snapshot above was taken, the same drift `$declared` and
 # `$mappings` were fixed against.
-templates_paths="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- templates)"
+if ! templates_paths="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- templates)"; then
+    fail "git ls-tree on templates/ failed — the export-ignore control did not run for it"
+    exit 1
+fi
+
+if [ -z "$templates_paths" ]; then
+    fail "templates/ is empty in the archived tree — the copy-and-adapt export-ignore checks did not run"
+    exit 1
+fi
+
 exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php "$templates_paths" | sort -u)"
 
 while IFS= read -r exported; do
