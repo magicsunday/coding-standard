@@ -70,7 +70,7 @@ const MAX_JSONC_BYTES = 131072;
  * also bounds a string-aware scan, while these files are read and parsed linearly.
  * The bound exists for memory alone — measured, a 196 MB `.editorconfig` at
  * memory_limit=128M ends in `Allowed memory size exhausted`, exit 255, with no gate
- * diagnostic at all. That is the outcome $readFile's scoped handler exists to
+ * diagnostic at all. That is the outcome readQuietly()'s scoped handler exists to
  * prevent, and it was reachable at every call site that passed no bound.
  *
  * 1 MiB rather than the JSONC bound: `.editorconfig` and `phpunit.xml` are read
@@ -165,9 +165,10 @@ $fail = static function (array &$violations, string $file, string $detail): void
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
 
-// safeReportValue() — shared, see its header for the boundary and the requirers.
-// Required rather than duplicated.
+// safeReportValue() and readQuietly() — shared, see each header for the boundary
+// and the requirers. Required rather than duplicated.
 require_once __DIR__ . '/support/safe-report-value.php';
+require_once __DIR__ . '/support/read-quietly.php';
 
 /**
  * The oversize verdict, held once — the wording was edited at each reader separately
@@ -182,39 +183,6 @@ $tooLargeDetail = static fn (int $bound): string => sprintf(
     'is larger than the %d bytes this gate checks, so it was not read in full. A shared-config stub is a few hundred bytes.',
     $bound
 );
-
-/**
- * Reads a file, or returns false without letting PHP print its own warning first.
- *
- * `is_file()` passing does not mean the file can be READ — a mode-000 file, or one
- * whose permissions change between the two calls, still fails. PHP raises an
- * unsuppressed E_WARNING on that path, so the raw
- * `Failed to open stream: Permission denied` lands in the output ahead of this
- * gate's own diagnostic and reads like a crash rather than a finding. Captured
- * through a scoped handler, the same shape this file already uses for
- * simplexml_load_file, rather than the banned `@` prefix.
- *
- * @param string   $path     Path to the file to read.
- * @param int|null $maxBytes The most bytes to read, or null to read the whole file.
- *
- * @return string|false
- */
-$readFile = static function (string $path, ?int $maxBytes = null): string|false {
-    set_error_handler(static fn (): bool => true);
-
-    try {
-        // The cap is applied by the READ, not measured after it. Checking
-        // `strlen()` afterwards leaves file_get_contents to materialise the whole
-        // file first, so a 300 MB config ends in `Allowed memory size exhausted`
-        // — exit 255, no gate diagnostic — which is the outcome this function's
-        // scoped handler exists to prevent, reached by the one path the cap was
-        // supposed to close. Appended and defaulted, so a caller that passes no
-        // bound is unchanged.
-        return file_get_contents($path, false, null, 0, $maxBytes ?? \PHP_INT_MAX);
-    } finally {
-        restore_error_handler();
-    }
-};
 
 /**
  * Reads a plain-text config under MAX_TEXT_BYTES, reporting an oversize file itself.
@@ -236,13 +204,11 @@ $readFile = static function (string $path, ?int $maxBytes = null): string|false 
  *
  * @return string|false|null The contents, false when unreadable, null when oversize.
  */
-$readBounded = static function (array &$violations, string $path, string $label) use ($readFile, $fail, $tooLargeDetail): string|false|null {
-    $contents = $readFile($path, MAX_TEXT_BYTES + 1);
+$readBounded = static function (array &$violations, string $path, string $label) use ($fail, $tooLargeDetail): string|false|null {
+    $contents = readCapped($path, MAX_TEXT_BYTES);
 
-    if (is_string($contents) && (strlen($contents) > MAX_TEXT_BYTES)) {
+    if ($contents === null) {
         $fail($violations, $label, $tooLargeDetail(MAX_TEXT_BYTES));
-
-        return null;
     }
 
     return $contents;
@@ -831,10 +797,10 @@ $stripJsonc = static function (string $json): ?string {
  *
  * @return array<array-key, mixed>|false|int|null
  */
-$loadJsonc = static function (string $path) use ($stripJsonc, $readFile, $stripBom): array|int|null|false {
+$loadJsonc = static function (string $path) use ($stripJsonc, $stripBom): array|int|null|false {
     // One byte past the cap is read, so `> MAX_JSONC_BYTES` can tell "at the
     // bound" from "past it" without a second stat.
-    $contents = $readFile($path, MAX_JSONC_BYTES + 1);
+    $contents = readQuietly($path, MAX_JSONC_BYTES + 1);
 
     if ($contents === false) {
         return false;

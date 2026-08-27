@@ -126,7 +126,8 @@ function isDirectory(path) {
 /**
  * Reads up to maxBytes of a file through a fixed-size buffer, so a config far
  * past the cap is never fully materialised — the node counterpart of the
- * $readFile bounded-length read in bin/check-consumer-config.php.
+ * bounded-length read in bin/support/read-quietly.php's readQuietly()/
+ * readCapped(), used by bin/check-consumer-config.php.
  *
  * @param {string} path
  * @param {number} maxBytes
