@@ -1769,10 +1769,12 @@ if [ -z "$composer_bin_entries" ]; then
     exit 1
 fi
 
-# `biome` and `tsconfig` are dropped from `$declared` here: the loop above
-# already expanded both into real leaves. The remaining `$declared` entries
-# (the `.mjs` files) are already leaves and pass through unchanged.
-declared_leaf_files="$(comm -23 <(printf '%s\n' "$declared" | sort) <(printf '%s\n' biome tsconfig | sort))"
+# Every leaf dir the loop above already expanded is dropped from `$declared`
+# here, not just `biome`/`tsconfig` by name: a future leaf dir added to that
+# loop is excluded here automatically instead of needing a matching hand-edit.
+# The remaining `$declared` entries (the `.mjs` files) are already leaves and
+# pass through unchanged.
+declared_leaf_files="$(comm -23 <(printf '%s\n' "$declared" | sort) <(printf '%s\n' biome tsconfig templates phpstan rector php-cs-fixer deptrac | sort))"
 
 exported_paths="$(printf '%s\n' "$declared_leaf_files" package.json composer.json bin/support/safe-report-value.php bin/support/read-quietly.php "$composer_bin_entries" "$directory_leaves" | sort -u)"
 
