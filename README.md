@@ -205,9 +205,11 @@ it does not extend deprecation coverage to the ceiling.
 The floor pin's own blind spot is narrower than "a deprecation": a symbol
 whose STUB SIGNATURE narrows above the floor (`chr()`'s `ascii` PARAMETER
 narrows to `int<0, 255>` in the 8.5 stubs, plain `int` below it — the return
-type stays `non-empty-string` at both; re-derive: `grep -a -o "'chr' *=>
-*\[[^]]*\]" .build/vendor/phpstan/phpstan/phpstan.phar | sort -u`) rather
-than a real runtime deprecation. A real deprecation introduced AT OR BELOW
+type stays `non-empty-string` at both; re-derive, which prints the `new`
+(8.5) entry directly under its `'new'` label and the `old` (below 8.5) entry
+under `'old'`: `grep -a -B2 "'chr' => \['non-empty-string', 'ascii'=>'int"
+.build/vendor/phpstan/phpstan/phpstan.phar`) rather than a real runtime
+deprecation. A real deprecation introduced AT OR BELOW
 the floor is already caught statically by the deprecation rule described
 above, whether or not a test executes the call. One introduced ABOVE the
 floor is invisible to that rule, but is covered separately whenever a test
