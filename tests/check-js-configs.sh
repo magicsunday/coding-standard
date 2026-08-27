@@ -209,6 +209,28 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
 # --- pack and install exactly as a consumer receives the package -------------
 
+# Pack the artefact a consumer actually gets, not the raw working tree: the
+# documented install path (`github:magicsunday/coding-standard#<tag>`)
+# resolves through GitHub's codeload, which serves a `git archive` —
+# committed content only, `.gitattributes` export-ignore applied.
+#
+# Archive `git write-tree`'s tree (the index), not `git stash create` or bare
+# `HEAD`: it matches exactly what `git commit` (without `-a`) is about to
+# ship, and unlike `stash create` a failure is an unambiguous non-zero exit —
+# no empty-vs-failure fallback needed.
+if ! archive_tree="$(git -C "$root" write-tree)"; then
+    fail "git write-tree failed — cannot determine what this commit would ship"
+    exit 1
+fi
+
+archive_dir="$work/archive"
+mkdir -- "$archive_dir"
+
+if ! git -C "$root" archive "$archive_tree" | tar -x -C "$archive_dir"; then
+    fail "git archive $archive_tree could not be extracted — cannot pack the artefact a consumer receives"
+    exit 1
+fi
+
 # Two failure shapes, and `|| true` is what lets the guard below see both. A pack
 # that FAILS makes the pipeline non-zero under pipefail, and a plain assignment
 # would abort the script one line before the guard that names the cause. A pack
@@ -217,7 +239,7 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 # the install would then be handed a directory and fail as a misleading
 # "check package.json files". `--loglevel=error` keeps npm's own diagnosis, which
 # is the only one either shape produces.
-tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
+tarball="$(cd "$archive_dir" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
 
 if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
     fail "npm pack produced no tarball — cannot run the smoke"
@@ -1336,8 +1358,15 @@ packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
 # `set -e`, so a `files` that is missing, misspelled or not an array would skip
 # the loop entirely — switching this assertion off while npm falls back to packing
 # the whole repository.
+#
+# Read from `$archive_dir`, not `$root`: this list decides which paths the loop
+# below checks against `$packed` (itself built from `$archive_dir`) and, further
+# down, against `$archive_dir` again for the export-ignore control — a live
+# `$root` read would let a mid-run edit to package.json's `files` change WHICH
+# paths get checked without changing what was actually archived, silently
+# dropping coverage for whatever the edit removed.
 declared=""
-declared="$(ROOT="$root" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join("\n"))')" || true
+declared="$(ROOT="$archive_dir" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join("\n"))')" || true
 
 if [ -z "$declared" ]; then
     fail "could not read the files allow-list from package.json — the declared-entry check did not run"
@@ -1365,46 +1394,76 @@ while IFS= read -r entry; do
     fi
 done <<<"$declared"
 
-# The delivery this smoke does NOT pack. `npm pack` reads the working tree; the
-# only documented install path is `github:magicsunday/coding-standard#<tag>`, which
-# pacote fetches from GitHub's codeload archive with `.gitattributes` export-ignore
-# already applied. So `files` and the export-ignore list are two hand-kept allow-lists
-# over one delivery and only one was exercised — and this repository has already made
-# the mistake once: commit 1a2291e reverted a `/package.json export-ignore` that broke
-# every consumer's install, found by hand rather than by a gate.
+# An export-ignored `files` entry already fails the "declared and packed"
+# loop above; an export-ignored package.json fails earlier still, at the
+# pack step itself ("npm pack produced no tarball"). What neither reaches is
+# bin/support/safe-report-value.php (the Composer-side shared helper, not in
+# `files`) and the whole `templates/` directory — README-documented as
+# copy-and-adapt for PHP and JS/TS alike, reaching consumers via a
+# git-archive-based copy, not `npm install`, so it isn't in `files` either.
+# An export-ignore on any of these has no `declared` entry and no pack
+# failure to trip. This control catches those, and names the cause.
 #
-# `git check-attr` runs git's own attribute resolution rather than grepping the file,
-# so it answers for whatever pattern happens to match, and it reads THIS repository's
-# .gitattributes — the copy that bit, not the template.
+# The verdict reads `$archive_dir` — the same extraction the pack step
+# built — rather than a second, independently-timed `git check-attr` query
+# against the live working tree, which could answer for a `.gitattributes`
+# state that no longer matches what was actually packed. It also needs no
+# ANCESTOR CHAIN expansion the way a per-leaf `check-attr` query would:
+# `git archive` already dropped a whole export-ignored subtree when it built
+# this directory. The diagnostic below still walks the chain, because it
+# still asks `check-attr` a leaf at a time.
 #
-# bin/support/safe-report-value.php is in the list for the Composer side of the same
-# question: the shipped gate `require_once`s it, and nothing else asserts it survives
-# into the dist archive.
-# The list is DERIVED from `files` — the same allow-list the tarball check above
-# reads — plus package.json itself and the Composer side's shared helper, neither of
-# which `files` covers. A hand-kept list here would drift from `files` the moment an
-# entry is added, which is the drift this pair of allow-lists is about.
-#
-# Each entry is expanded into its ANCESTOR CHAIN, because that is how .gitattributes
-# matches and how `git archive` prunes: `/bin/support export-ignore` sets the
-# attribute on the directory and leaves `bin/support/safe-report-value.php`
-# unspecified, while the archive drops the whole subtree. Asking about the leaf alone
-# answers a question nobody asked — measured, that spelling passed the first version
-# of this control.
-exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php \
-    | awk 'NF { n = split($0, part, "/"); path = ""; for (i = 1; i <= n; i++) { path = (i == 1 ? part[i] : path "/" part[i]); print path } }' \
-    | sort -u)"
+# The list is DERIVED — from `files` (the same allow-list the tarball check
+# above reads), from the archived tree for the copy-and-adapt set, and the
+# one Composer-only path neither of those covers. A hand-kept list would
+# drift the moment an entry is added on either side. `ls-tree "$archive_tree"`,
+# not `ls-files`: the latter reads the live index, which can gain or lose an
+# entry after the snapshot above was taken, the same drift `$declared` and
+# `$mappings` were fixed against.
+if ! templates_paths="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- templates)"; then
+    fail "git ls-tree on templates/ failed — the export-ignore control did not run for it"
+    exit 1
+fi
+
+if [ -z "$templates_paths" ]; then
+    fail "templates/ is empty in the archived tree — the copy-and-adapt export-ignore checks did not run"
+    exit 1
+fi
+
+exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php "$templates_paths" | sort -u)"
 
 while IFS= read -r exported; do
     [ -n "$exported" ] || continue
-    attr="$(git -C "$root" check-attr export-ignore -- "$exported" 2>/dev/null)" || attr=''
 
-    if [ -z "$attr" ]; then
-        fail "cannot resolve export-ignore for $(safe_report "$exported") — git could not answer, so this control did not run"
-    elif [ "$attr" != "$exported: export-ignore: unspecified" ]; then
-        fail "$(safe_report "$exported") is export-ignored, so a github: install and the Composer dist archive both lose it: $(safe_report "$attr")"
-    else
+    if [ -e "$archive_dir/$exported" ]; then
         pass "reaches a consumer through the git archive: $(safe_report "$exported")"
+    else
+        # A second query, for the DIAGNOSTIC text only — it cannot flip a real
+        # absence back into a false "reaches a consumer", only mislabel its
+        # cause. Ancestor chain, because `git check-attr` on the leaf alone
+        # reports "unspecified" when the attribute sits on a parent directory.
+        # `attr` is only overwritten on a SUCCESSFUL call, so a failure at one
+        # level can't erase or fake an answer found lower in the chain.
+        attr='(unresolvable)'
+        path="$exported"
+        while true; do
+            path_attr="$(git -C "$root" check-attr export-ignore -- "$path" 2>/dev/null)" || path_attr=''
+
+            if [ -n "$path_attr" ]; then
+                attr="$path_attr"
+
+                if [ "$path_attr" != "$path: export-ignore: unspecified" ]; then
+                    break
+                fi
+            fi
+
+            case "$path" in
+                */*) path="${path%/*}" ;;
+                *) break ;;
+            esac
+        done
+
+        fail "$(safe_report "$exported") is missing from the archived tree, so a github: install and the Composer dist archive both lose it: $(safe_report "$attr")"
     fi
 done <<<"$exported_paths"
 
@@ -1637,7 +1696,10 @@ declare -A expected_target=(
     [cts]=cjs
 )
 
-mappings="$(ROOT="$root" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
+# Read from $archive_dir, same reason as $declared above: this table decides
+# what gets tested against the installed (archived) package, so it has to
+# describe that same package, not whatever the live working tree currently has.
+mappings="$(ROOT="$archive_dir" node -e 'const m = require(process.env.ROOT + "/biome/base.json")
     .linter.rules.correctness.useImportExtensions.options.extensionMappings;
 process.stdout.write(Object.entries(m).map(([from, to]) => from + " " + to).join("\n"))')" || true
 
@@ -1845,7 +1907,23 @@ rm src/unchecked.ts
 # added there without a fixture cannot ship: driving only `typescript` left
 # `javascript`, `jsx` and `tsx` — the other three this change added — unproven,
 # and misspelling any of them stayed green through the whole suite.
-cp "$root/templates/jscpd.json" .jscpd.json
+#
+# Read from $archive_dir, same reason as $declared/$mappings above: "the copy a
+# consumer makes" (see the comment on the verbatim-template run below) is the
+# archived one, not whatever the live working tree currently has. Guarded
+# explicitly rather than left to `cp`'s own error under `set -e`: the
+# export-ignore control above already reports an export-ignored template as
+# a `fail` and keeps going, but every jscpd control below is unrunnable
+# without this file, so an unguarded `cp` here would abort the whole script
+# mid-run on `set -e` — the export-ignore finding stays logged, but `verdict`
+# and everything after it never run, and a genuinely unrelated failure later
+# in the file goes unreported for that run.
+if [ ! -e "$archive_dir/templates/jscpd.json" ]; then
+    fail "templates/jscpd.json is missing from the archived tree — the jscpd controls did not run"
+    exit 1
+fi
+
+cp "$archive_dir/templates/jscpd.json" .jscpd.json
 
 # BIOME is the tool that refuses a config carrying an unknown key — the trap its
 # shared base fell into once. jscpd does not: it reads JSON5 and ignores `"//"`,
@@ -1907,7 +1985,7 @@ export const $1 = (values) => {
 TS
 }
 
-jscpd_formats="$(ROOT="$root" node -e 'process.stdout.write(
+jscpd_formats="$(ROOT="$archive_dir" node -e 'process.stdout.write(
     require(process.env.ROOT + "/templates/jscpd.json").format.join("\n"))')" || true
 
 if [ -z "$jscpd_formats" ]; then
