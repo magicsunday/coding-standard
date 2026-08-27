@@ -90,16 +90,31 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
-            # The lockstep gate self-test below now drives BOTH the PHP gate and
-            # its Node port (bin/check-js-config.mjs) through the same
-            # differential fixtures, so this PHP-matrix job needs a `node` on
-            # PATH too — pinned the same way the js job pins it (see that job's
-            # comment), rather than relying on whatever the runner image
-            # happens to preinstall.
+            # This PHP-matrix job needs a `node` on PATH before either consumer
+            # below: tests/harness.sh's own degraded() bookkeeping check
+            # unconditionally shells out to `node -e '…'` before any fixture
+            # runs (reached first, by the JSON lint gate self-test immediately
+            # below), and the Lockstep gate self-test a few steps further down
+            # drives BOTH the PHP gate and its Node port (bin/check-js-config.mjs)
+            # through the same differential fixtures. Pinned the same way the js
+            # job pins it (see that job's comment), rather than relying on
+            # whatever the runner image happens to preinstall — placed here,
+            # ahead of both consumers, rather than after the first one that
+            # happens to need it.
             - name: Set up Node.js
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: 24
+
+            # The gate above discovers files rather than reading a hand-kept
+            # list, and only ever takes the happy path against this
+            # repository's own tree. These cases prove it still rejects a
+            # malformed, a missing and an unreadable file, that its discovery
+            # prunes vendored/installed trees and VCS metadata, and that a
+            # consumer-controlled file name cannot forge a workflow command in
+            # the report.
+            - name: JSON lint gate self-test
+              run: composer ci:test:json-cases
 
             # Exercise the template lockstep gate: the fixture-driven harness proves
             # it ACCEPTS the canon and REJECTS every drift class (loosened strict

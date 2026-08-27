@@ -12,8 +12,7 @@ by the fixture-driven gates under `tests/`, each of which drives the thing it ce
 against inputs that must produce a finding — including `tests/check-js-configs.sh`,
 which runs the real Biome, `tsc` and jscpd against the shared configs and the shipped `templates/jscpd.json`. A gate that cannot be
 shown to fail proves nothing, so a gate here is not trusted without its failure
-path — of the FIRST-PARTY gates, `ci:test:json` is the one that still lacks one,
-tracked in #41 rather than left implicit. `ci:test:php:lint` is a third-party
+path — every first-party gate has one. `ci:test:php:lint` is a third-party
 syntax check with no first-party logic to drive, which is why it is not counted
 here.
 

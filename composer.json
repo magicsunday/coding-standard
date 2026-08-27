@@ -60,6 +60,9 @@
             "phplint --configuration .phplint.yml"
         ],
         "ci:test:json": "@php tests/lint-json.php",
+        "ci:test:json-cases": [
+            "bash tests/lint-json-cases.sh"
+        ],
         "ci:test:version": "@php tests/check-version-lockstep.php",
         "ci:test:version-lockstep": [
             "bash tests/check-version-lockstep-cases.sh"
@@ -74,7 +77,8 @@
     },
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
-        "ci:test:json": "Validate that every shipped JSON config parses.",
+        "ci:test:json": "Validate that every shipped JSON config parses (path-driven, not a hand-kept file list).",
+        "ci:test:json-cases": "Fixture-driven cases proving the JSON lint gate reports a malformed file, a missing file (a dangling symlink) and an unreadable file, that its discovery actually recurses and prunes vendored/installed trees and VCS metadata, that a symlink cannot be followed out of the scan root, and that a consumer-controlled file or directory name cannot forge a workflow command in the report.",
         "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",
         "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
