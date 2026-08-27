@@ -298,6 +298,15 @@ else
     d="$work/scan-aborts"
     mkdir -p "$d/${forged}-dir"
     chmod 000 "$d/${forged}-dir"
+    # Two separate assertions, not one: `assert_report_is_inert` alone would
+    # also pass a regression that silently SKIPPED the unreadable directory
+    # instead of aborting on it — the scan would then find nothing at all and
+    # exit 1 through the vacuity guard's own static, already-inert message,
+    # which is a caught violation for the WRONG reason. "Could not scan" is a
+    # literal prefix outside any safeReportValue() call, so it survives the
+    # 64-byte cap regardless of where the (possibly truncated) forged segment
+    # lands — unlike that segment, it is safe to assert verbatim here.
+    assert_rejects "$d" "an unreadable subdirectory aborts the whole scan" "Could not scan"
     assert_report_is_inert "$d" "an unreadable subdirectory aborts the whole scan, inertly"
     chmod 700 "$d/${forged}-dir"
 fi
