@@ -1439,9 +1439,10 @@ done <<<"$declared"
 # The verdict is READ FROM `$archive_dir` — the same extraction the pack step
 # above actually built — rather than from a second, independently-timed
 # `git check-attr` query against the live working tree. A prior version of
-# this control asked git a second time, roughly a full npm install and
-# Biome/tsc run after the archive was taken; a working-tree mutation landing
-# in that window (a concurrent session, an editor autosave — this
+# this control asked git a second time, after the archive was taken and the
+# tarball had already been installed into the throwaway consumer project; a
+# working-tree mutation landing in that window (a concurrent session, an
+# editor autosave — this
 # repository's own operating notes record concurrent-session worktree
 # collisions as real here) could make that second query answer for a
 # `.gitattributes` state that no longer matches what was actually packed,
@@ -1458,10 +1459,14 @@ done <<<"$declared"
 # because IT still asks `git check-attr` a leaf at a time.
 #
 # The list is DERIVED from `files` — the same allow-list the tarball check above
-# reads — plus package.json itself and the Composer side's shared helper, neither of
-# which `files` covers. A hand-kept list here would drift from `files` the moment an
-# entry is added, which is the drift this pair of allow-lists is about.
-exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php | sort -u)"
+# reads — plus package.json itself and two paths `files` doesn't cover: the
+# Composer side's shared helper, and templates/jscpd.json — README-documented
+# as "copy-and-adapt" for PHP AND JS/TS consumers alike, so it reaches them
+# the same way package.json does (a browsed or downloaded git-archive-based
+# copy of the repository), not through `npm install`. A hand-kept list here
+# would drift from `files` the moment an entry is added, which is the drift
+# this pair of allow-lists is about.
+exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php templates/jscpd.json | sort -u)"
 
 while IFS= read -r exported; do
     [ -n "$exported" ] || continue
@@ -1952,7 +1957,11 @@ rm src/unchecked.ts
 # added there without a fixture cannot ship: driving only `typescript` left
 # `javascript`, `jsx` and `tsx` — the other three this change added — unproven,
 # and misspelling any of them stayed green through the whole suite.
-cp "$root/templates/jscpd.json" .jscpd.json
+#
+# Read from $archive_dir, same reason as $declared/$mappings above: "the copy a
+# consumer makes" (see the comment on the verbatim-template run below) is the
+# archived one, not whatever the live working tree currently has.
+cp "$archive_dir/templates/jscpd.json" .jscpd.json
 
 # BIOME is the tool that refuses a config carrying an unknown key — the trap its
 # shared base fell into once. jscpd does not: it reads JSON5 and ignores `"//"`,
@@ -2014,7 +2023,7 @@ export const $1 = (values) => {
 TS
 }
 
-jscpd_formats="$(ROOT="$root" node -e 'process.stdout.write(
+jscpd_formats="$(ROOT="$archive_dir" node -e 'process.stdout.write(
     require(process.env.ROOT + "/templates/jscpd.json").format.join("\n"))')" || true
 
 if [ -z "$jscpd_formats" ]; then
