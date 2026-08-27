@@ -209,6 +209,53 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 
 # --- pack and install exactly as a consumer receives the package -------------
 
+# `npm pack` reads whatever is on disk, which is neither of the two things
+# the documented install path (`github:magicsunday/coding-standard#<tag>`)
+# actually resolves to. pacote fetches that ref from GitHub's codeload, which
+# serves a `git archive` — committed content only, `.gitattributes`
+# export-ignore already applied. Packing the raw working tree misses nothing
+# that export-ignore drops (a `/package.json export-ignore` once broke every
+# install while this smoke stayed green — commit 1a2291e), so `files`/
+# export-ignore drift needs a real `git archive` in the loop.
+#
+# `git stash create`, not bare `git archive HEAD`: this same script also runs
+# PRE-COMMIT (`npm run ci:test:js`, the check this repository's own
+# convention hook-enforces before every commit), where the change under test
+# is staged or unstaged, not yet HEAD. `git archive HEAD` alone would then
+# silently validate the PARENT commit — not the edit about to be committed —
+# for exactly the files this pack proves (biome/base.json, tsconfig/base.json,
+# package.json, bin/*), defeating the pre-commit gate for them. `git stash
+# create` builds a real commit object from HEAD plus every staged and
+# unstaged TRACKED change, without touching the index, the working tree, or
+# the actual stash ref — so archiving it still goes through git's own
+# .gitattributes resolution (export-ignore stays enforced) while including
+# the work about to be committed. On a clean tree — always true in CI, since
+# a fresh checkout has nothing to stash — it prints nothing and the fallback
+# below archives HEAD directly; an untracked file is correctly excluded
+# either way, since it cannot ship on a commit that does not exist yet.
+#
+# The `if` guards the exit status, not just the value: `git stash create`
+# prints nothing on BOTH a legitimate clean tree (exit 0) and a genuine
+# failure (a corrupt index, a detached-HEAD edge case — exit non-zero).
+# Collapsing both into `archive_commit=''` (and so, via the fallback below,
+# into HEAD) would silently paper over the failure case instead of reporting
+# it — measured: `GIT_INDEX_FILE=/dev/null git stash create` fails with
+# "index file smaller than expected", exit 128. Only an EMPTY result from a
+# SUCCESSFUL command may fall back to HEAD.
+if ! archive_commit="$(git -C "$root" stash create)"; then
+    fail "git stash create failed — cannot determine what this commit would ship"
+    exit 1
+fi
+: "${archive_commit:=HEAD}"
+
+archive_dir="$work/archive"
+mkdir -- "$archive_dir"
+
+if ! git -C "$root" archive "$archive_commit" | tar -x -C "$archive_dir"; then
+    fail "git archive $archive_commit could not be extracted — cannot pack the artefact a consumer receives"
+    exit 1
+fi
+
 # Two failure shapes, and `|| true` is what lets the guard below see both. A pack
 # that FAILS makes the pipeline non-zero under pipefail, and a plain assignment
 # would abort the script one line before the guard that names the cause. A pack
@@ -217,7 +264,7 @@ run_tsc()  { npx --no-install tsc -p tsconfig.json >"$1" 2>&1; }
 # the install would then be handed a directory and fail as a misleading
 # "check package.json files". `--loglevel=error` keeps npm's own diagnosis, which
 # is the only one either shape produces.
-tarball="$(cd "$root" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
+tarball="$(cd "$archive_dir" && npm pack --pack-destination "$work" --loglevel=error | tail -n1)" || true
 
 if [ -z "$tarball" ] || [ ! -f "$work/$tarball" ]; then
     fail "npm pack produced no tarball — cannot run the smoke"
@@ -1336,8 +1383,15 @@ packed="$(tar -tzf "$work/$tarball" | sed -n 's~^package/~~p' | sort)" || {
 # `set -e`, so a `files` that is missing, misspelled or not an array would skip
 # the loop entirely — switching this assertion off while npm falls back to packing
 # the whole repository.
+#
+# Read from `$archive_dir`, not `$root`: this list decides which paths the loop
+# below checks against `$packed` (itself built from `$archive_dir`) and, further
+# down, against `$archive_dir` again for the export-ignore control — a live
+# `$root` read would let a mid-run edit to package.json's `files` change WHICH
+# paths get checked without changing what was actually archived, silently
+# dropping coverage for whatever the edit removed.
 declared=""
-declared="$(ROOT="$root" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join("\n"))')" || true
+declared="$(ROOT="$archive_dir" node -e 'process.stdout.write(require(process.env.ROOT + "/package.json").files.join("\n"))')" || true
 
 if [ -z "$declared" ]; then
     fail "could not read the files allow-list from package.json — the declared-entry check did not run"
@@ -1365,46 +1419,96 @@ while IFS= read -r entry; do
     fi
 done <<<"$declared"
 
-# The delivery this smoke does NOT pack. `npm pack` reads the working tree; the
-# only documented install path is `github:magicsunday/coding-standard#<tag>`, which
-# pacote fetches from GitHub's codeload archive with `.gitattributes` export-ignore
-# already applied. So `files` and the export-ignore list are two hand-kept allow-lists
-# over one delivery and only one was exercised — and this repository has already made
-# the mistake once: commit 1a2291e reverted a `/package.json export-ignore` that broke
-# every consumer's install, found by hand rather than by a gate.
+# The pack above runs against a `git archive` extraction (of the pre-commit
+# stash-create commit, or HEAD on a clean tree — see the comment above the
+# pack step), so an export-ignored `files` entry now already fails the
+# "declared and packed" loop above — it is simply absent from $packed. An
+# export-ignored package.json fails even earlier, at the pack step itself:
+# `git archive` omits it, npm has no manifest to read, and the smoke exits
+# on "npm pack produced no tarball" — a generic message, but the run still
+# reds. What no earlier step reaches is bin/support/safe-report-value.php:
+# it is not listed in `files` (it is the Composer side's shared helper,
+# `require_once`d by the shipped gates, not part of the npm allow-list) and
+# its absence does not stop the pack from succeeding, so an export-ignore on
+# it has no `declared` entry and no pack failure to trip. This control is
+# what actually catches that one, and names the CAUSE (export-ignore)
+# rather than leaving a generic "absent from the tarball" for the reader to
+# explain — the incident that makes this worth a named control, not just a
+# generic one, is on the pack-step comment above.
 #
-# `git check-attr` runs git's own attribute resolution rather than grepping the file,
-# so it answers for whatever pattern happens to match, and it reads THIS repository's
-# .gitattributes — the copy that bit, not the template.
+# The verdict is READ FROM `$archive_dir` — the same extraction the pack step
+# above actually built — rather than from a second, independently-timed
+# `git check-attr` query against the live working tree. A prior version of
+# this control asked git a second time, roughly a full npm install and
+# Biome/tsc run after the archive was taken; a working-tree mutation landing
+# in that window (a concurrent session, an editor autosave — this
+# repository's own operating notes record concurrent-session worktree
+# collisions as real here) could make that second query answer for a
+# `.gitattributes` state that no longer matches what was actually packed,
+# so a genuinely broken artifact could still read back as "reaches a
+# consumer." Checking `$archive_dir` instead has no such gap: `git archive`
+# already applied its own attribute resolution once, correctly, when it
+# built this exact directory, so asking "is the path there" needs no second
+# opinion and cannot drift from what was packed. The verdict itself also
+# needs no ANCESTOR CHAIN expansion the way a per-leaf `git check-attr` query
+# did: `git archive` drops a whole export-ignored subtree, so
+# `bin/support/safe-report-value.php` is simply absent from `$archive_dir`
+# whenever `/bin/support export-ignore` fired, without asking about
+# `bin/support` separately. The diagnostic below still walks the chain,
+# because IT still asks `git check-attr` a leaf at a time.
 #
-# bin/support/safe-report-value.php is in the list for the Composer side of the same
-# question: the shipped gate `require_once`s it, and nothing else asserts it survives
-# into the dist archive.
 # The list is DERIVED from `files` — the same allow-list the tarball check above
 # reads — plus package.json itself and the Composer side's shared helper, neither of
 # which `files` covers. A hand-kept list here would drift from `files` the moment an
 # entry is added, which is the drift this pair of allow-lists is about.
-#
-# Each entry is expanded into its ANCESTOR CHAIN, because that is how .gitattributes
-# matches and how `git archive` prunes: `/bin/support export-ignore` sets the
-# attribute on the directory and leaves `bin/support/safe-report-value.php`
-# unspecified, while the archive drops the whole subtree. Asking about the leaf alone
-# answers a question nobody asked — measured, that spelling passed the first version
-# of this control.
-exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php \
-    | awk 'NF { n = split($0, part, "/"); path = ""; for (i = 1; i <= n; i++) { path = (i == 1 ? part[i] : path "/" part[i]); print path } }' \
-    | sort -u)"
+exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php | sort -u)"
 
 while IFS= read -r exported; do
     [ -n "$exported" ] || continue
-    attr="$(git -C "$root" check-attr export-ignore -- "$exported" 2>/dev/null)" || attr=''
 
-    if [ -z "$attr" ]; then
-        fail "cannot resolve export-ignore for $(safe_report "$exported") — git could not answer, so this control did not run"
-    elif [ "$attr" != "$exported: export-ignore: unspecified" ]; then
-        fail "$(safe_report "$exported") is export-ignored, so a github: install and the Composer dist archive both lose it: $(safe_report "$attr")"
-    else
+    if [ -e "$archive_dir/$exported" ]; then
         pass "reaches a consumer through the git archive: $(safe_report "$exported")"
+    else
+        # A second query, for the DIAGNOSTIC text only — the verdict above already
+        # came from the archive that was actually packed, so a working-tree edit
+        # landing between the archive step and here can at most make THIS message
+        # name the wrong cause for an absence that is already established as real;
+        # it cannot flip a real absence back into a false "reaches a consumer".
+        #
+        # Walked up the ANCESTOR CHAIN, because `git check-attr` on the leaf alone
+        # reports "unspecified" when the attribute actually sits on a parent
+        # directory (`/bin/support export-ignore` leaves
+        # `bin/support/safe-report-value.php` itself unspecified) — the exact case
+        # this control exists to name. Stops at the first path whose attribute is
+        # actually set; falls through to the TOPMOST ancestor's (unspecified)
+        # answer when nothing up the chain explains the absence, which then reads
+        # as a deliberately honest "cause unknown" rather than a false "not
+        # ignored". `attr` is only overwritten on a SUCCESSFUL `check-attr` call
+        # (non-empty `path_attr`) — a `git check-attr` failure at any one level
+        # (rather than a genuine "unspecified") must not erase a real answer
+        # already found lower in the chain, and must not silently masquerade as
+        # one either; the initial '(unresolvable)' survives when git never once
+        # answers successfully.
+        attr='(unresolvable)'
+        path="$exported"
+        while true; do
+            path_attr="$(git -C "$root" check-attr export-ignore -- "$path" 2>/dev/null)" || path_attr=''
+
+            if [ -n "$path_attr" ]; then
+                attr="$path_attr"
+
+                if [ "$path_attr" != "$path: export-ignore: unspecified" ]; then
+                    break
+                fi
+            fi
+
+            case "$path" in
+                */*) path="${path%/*}" ;;
+                *) break ;;
+            esac
+        done
+
+        fail "$(safe_report "$exported") is missing from the archived tree, so a github: install and the Composer dist archive both lose it: $(safe_report "$attr")"
     fi
 done <<<"$exported_paths"
 
