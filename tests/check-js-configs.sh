@@ -1699,8 +1699,9 @@ done <<<"$declared"
 # An export-ignored `files` entry already fails the "declared and packed"
 # loop above; an export-ignored package.json fails earlier still, at the
 # pack step itself ("npm pack produced no tarball"). What neither reaches is
-# bin/support/safe-report-value.php (the Composer-side shared helper, not in
-# `files`) and the whole `templates/` directory — README-documented as
+# bin/support/safe-report-value.php and bin/support/read-quietly.php (the
+# Composer-side shared helpers, neither in `files`) and the whole
+# `templates/` directory — README-documented as
 # copy-and-adapt for PHP and JS/TS alike, reaching consumers via a
 # git-archive-based copy, not `npm install`, so it isn't in `files` either.
 # An export-ignore on any of these has no `declared` entry and no pack
@@ -1732,7 +1733,7 @@ if [ -z "$templates_paths" ]; then
     exit 1
 fi
 
-exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php "$templates_paths" | sort -u)"
+exported_paths="$(printf '%s\n' "$declared" package.json bin/support/safe-report-value.php bin/support/read-quietly.php "$templates_paths" | sort -u)"
 
 while IFS= read -r exported; do
     [ -n "$exported" ] || continue
