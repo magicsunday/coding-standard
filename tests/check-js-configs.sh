@@ -220,33 +220,16 @@ npm_install_ignoring_scripts() { npm install --no-audit --no-fund --ignore-scrip
 # PR-controlled as the tarball, and either one reaching this call unchecked
 # can inject a second argument onto the same npm command line that carries
 # `--ignore-scripts` — REJECT (not sanitise) a value or name shaped so it
-# could be read as anything other than one inert npm argument:
-# whitespace in the NAME or the VALUE (either half can carry it) — a newline
-# smuggles a second CLI token past `mapfile`'s line-based read regardless of
-# how carefully the consumer quotes the array it produces, reproduced: a
-# devDependencies KEY of `"typescript\n--no-ignore-scripts\njscpd"` makes
-# `mapfile` emit `--no-ignore-scripts` as its own array element, with no
-# `--ignore-scripts` in between. A bare space cannot do the same now that
-# `$tools` below is an array passed as `"${tools[@]}"` rather than a shell-
-# split string — rejected anyway, since no legitimate npm version or package
-# name grammar contains one, and one check for the whole character class is
-# simpler than special-casing the newline alone.
-# — or a leading "-" (an npm CLI flag needs nothing else to be recognised
-# as one; unproven exploitable through this function's own `name@version`
-# join specifically — `"--ignore-scripts@false"` reproducibly does NOT
-# re-enable scripts, only npm's own arg parser gets to decide that, and a
-# future change to this function or to npm's own parsing is not a bet worth
-# taking merely because today's join shape happens not to trigger it)
-# — or empty, or carrying a NUL byte (`mapfile` silently truncates a NUL-
-# carrying line, which cannot smuggle a second argument but does corrupt the
-# pin into an unpinned bare name with no diagnostic — reject rather than
-# silently test whatever the registry currently calls latest)
-# — or simply not a string: JSON permits a devDependencies value that is a
-# number, boolean, null, array or object, and `.startsWith`/`.includes` on
-# one of those throws instead of returning a verdict — still fail-closed
-# either way (a crashed script prints nothing to stdout, same as a rejected
-# one), but as an unintended crash rather than this function's own
-# diagnostic, so it is checked for explicitly instead.
+# could be read as anything other than one inert npm argument: whitespace in
+# either half (a newline defeats `mapfile`'s line-based read regardless of
+# quoting; a bare space no longer can, now that `$tools` is an array, but is
+# rejected anyway since no legitimate name/version grammar contains one), a
+# leading "-" (npm-flag-shaped), empty, a NUL byte, or simply not a string
+# (JSON permits number/boolean/null/array/object here). Each shape, and why
+# it was reproduced rather than assumed, is recorded next to the fixture
+# that proves it in harness_probe_build_tools_rejects_unsafe_devdependencies
+# below — not repeated here, so the reproduction detail lives once, at the
+# site that can still prove it if the checks ever change.
 build_tools_from_devdependencies() {
     ROOT="$1" node -e '
 const d = require(process.env.ROOT + "/package.json").devDependencies;
@@ -1452,7 +1435,7 @@ rm -rf "$manifest_fixtures"
 # placeholder):
 # `find node_modules -maxdepth 2 -name package.json -exec node -e '
 # const scripts = require("./" + process.argv[1]).scripts;
-# const hooks = ["preinstall","install","postinstall","prepack","prepare","postpack"]; // npm help scripts, verified 2026-08-27
+# const hooks = ["preinstall","install","postinstall","prepublish","preprepare","prepare","postprepare"]; // npm help scripts' "npm ci"/"npm install" life-cycle order, verified 2026-08-27
 # const hit = hooks.filter((h) => scripts && h in scripts);
 # if (hit.length) console.log(process.argv[1], hit);
 # ' {} \;` prints nothing today — a future dependency bump that starts
