@@ -180,13 +180,27 @@ parameters:
 
 State `phpVersion` as a **`min`/`max` range** whenever the repository supports a
 span of PHP versions: set `min` to *that repository's own* supported floor and
-`max` to its ceiling. PHPStan then analyses across the whole span — it flags both
-use of a feature newer than the floor *and* a symbol deprecated at the ceiling.
-The `80300`/`80500` above are only an example (the chart modules' `8.3 - 8.5`
-support window); each repository substitutes its own bounds. A single value
-(`phpVersion: 80300`) only analyses "as if on 8.3" and silently misses a
-deprecation introduced at a higher version, so a repository pinned to a single
-PHP version — and only then — keeps the scalar form.
+`max` to its ceiling. The `80300`/`80500` above are only an example (the chart
+modules' `8.3 - 8.5` support window); each repository substitutes its own
+bounds. A repository pinned to a single PHP version — and only then — keeps
+the scalar form.
+
+A range does **not** widen the feature/deprecation rules themselves: PHPStan
+resolves `min`/`max` down to the floor and hands that single value to the
+rules that flag a feature newer than it or a symbol deprecated as of it, so
+`min: 80300, max: 80500` reports the same set as a scalar `phpVersion: 80300`
+for those rules — a deprecation introduced above the floor is missed either
+way (re-derive: `grep -a -B4 -A2 "phpVersion\['min'\]"
+.build/vendor/phpstan/phpstan/phpstan.phar`). What the range does change is the
+version-conditioned surface — `PHP_VERSION_ID`-style constants and
+`version_compare()` become ranges instead of fixed values, each through its
+own consumer of the configured range (re-derive: `grep -a -n --
+"->getVersionRange()" .build/vendor/phpstan/phpstan/phpstan.phar`, which hits
+both the constant resolver and the `version_compare()` extension) — so an
+always-true/false finding on a version-conditioned branch is reported only
+where it holds across the whole span, instead of being asserted from the floor
+alone. That is the reason to prefer the range on a multi-version repository;
+it does not extend deprecation coverage to the ceiling.
 
 ### The two tiers
 
