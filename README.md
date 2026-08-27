@@ -202,24 +202,34 @@ where it holds across the whole span, instead of being asserted from the floor
 alone. That is the reason to prefer the range on a multi-version repository;
 it does not extend deprecation coverage to the ceiling.
 
-The floor pin's own blind spot is narrower than "a deprecation": a symbol
-whose STUB SIGNATURE narrows above the floor (`chr()`'s `ascii` PARAMETER
-narrows to `int<0, 255>` in the 8.5 stubs, plain `int` below it — the return
-type stays `non-empty-string` at both; re-derive, which prints the `new`
-(8.5) entry directly under its `'new'` label and the `old` (below 8.5) entry
-under `'old'`: `grep -a -B2 "'chr' => \['non-empty-string', 'ascii'=>'int"
-.build/vendor/phpstan/phpstan/phpstan.phar`) rather than a real runtime
-deprecation. A real deprecation introduced AT OR BELOW
-the floor is already caught statically by the deprecation rule described
-above, whether or not a test executes the call. One introduced ABOVE the
-floor is invisible to that rule, but is covered separately whenever a test
-actually executes it — `templates/phpunit.xml.dist` sets
+A real deprecation introduced AT OR BELOW the floor is already caught
+statically by the deprecation rule described above (it flags a symbol marked
+`@deprecated`), whether or not a test executes the call. One introduced ABOVE
+the floor is invisible to that rule, but is covered separately whenever a
+test actually executes it — `templates/phpunit.xml.dist` sets
 `failOnDeprecation="true"` and `bin/check-consumer-config.php` requires it
 (re-derive: `grep -n "failOnDeprecation" templates/phpunit.xml.dist
 bin/check-consumer-config.php`), so such a call fails the build regardless of
 what the PHPStan pin targets — provided the CI matrix runs an interpreter new
 enough to trigger it. A deprecation introduced above the floor, in code no
 test executes, is missed by both mechanisms.
+
+`chr()` illustrates a DIFFERENT, narrower gap that the pin — at any
+`phpVersion` value — never closes. PHP 8.5.0 deprecates passing it an integer
+outside 0-255, and PHPStan's stub signature encodes exactly that by narrowing
+its `ascii` PARAMETER to `int<0, 255>` in the 8.5 stubs, plain `int` below it
+— the return type stays `non-empty-string` at both (re-derive, which prints
+the `new`/8.5 entry under its `'new'` label and the `old`/pre-8.5 entry under
+`'old'`: `grep -a -B2 "'chr' => \['non-empty-string', 'ascii'=>'int"
+.build/vendor/phpstan/phpstan/phpstan.phar`). This is an argument-TYPE check,
+not the deprecation rule above: `phpstan-deprecation-rules` only flags a
+whole symbol marked `@deprecated`, never an argument-value narrowing (its
+`RestrictedDeprecatedFunctionUsageExtension` tests
+`FunctionReflection::isDeprecated()`, which `chr()` itself never satisfies).
+So the pin can flag a `chr()` call whose argument is provably in range by
+construction — e.g. `hexdec()` over a regex-guaranteed two-hex-digit capture,
+which can only produce 0-255 — even though the PHP 8.5 deprecation can never
+actually fire for it: a static-only false positive, not a real defect.
 
 ### The two tiers
 
