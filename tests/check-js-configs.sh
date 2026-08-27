@@ -414,7 +414,14 @@ EOF
 EOF
     assert_build_tools_rejects "a devDependency value that is not a string"
 
-    # Negative twin: an ordinary pin, proving the five controls above fail
+    # An empty-string VALUE — the one remaining branch of unsafeAsArgument
+    # (`s === ""`) with no fixture of its own until now.
+    cat > "$fixture_dir/package.json" <<'EOF'
+{ "devDependencies": { "typescript": "" } }
+EOF
+    assert_build_tools_rejects "a devDependency value that is empty"
+
+    # Negative twin: an ordinary pin, proving the six controls above fail
     # for the stated reason and not because every input is rejected.
     cat > "$fixture_dir/package.json" <<'EOF'
 { "devDependencies": { "typescript": "5.0.16" } }
@@ -1452,12 +1459,11 @@ fi
 # `--ignore-scripts` flags above are exactly such a gate. Plant a package that
 # WOULD run code if the flag were dropped, and drive it through the SAME
 # npm_pack_ignoring_scripts / npm_install_ignoring_scripts functions the real
-# pack/install above call, not a hand-copied `--ignore-scripts` invocation —
-# so a flag dropped from either function reds this control too, instead of
-# the control holding its own copy that a real regression leaves untouched.
-# The negative twins call plain `npm pack`/`npm install` directly (deliberately
-# NOT through those functions) and assert the opposite: that the marker
-# mechanism itself can detect a run, not just default to "absent" regardless.
+# pack/install above call — same reason those two functions exist in the
+# first place. The negative twins call plain `npm pack`/`npm install`
+# directly (deliberately NOT through those functions) and assert the
+# opposite: that the marker mechanism itself can detect a run, not just
+# default to "absent" regardless.
 #
 # assert_marker <label> <marker> <fired|silent> — the shape every case below
 # reduces to, so the four decisions read as one line each instead of four
