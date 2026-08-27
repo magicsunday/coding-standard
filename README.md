@@ -202,6 +202,18 @@ where it holds across the whole span, instead of being asserted from the floor
 alone. That is the reason to prefer the range on a multi-version repository;
 it does not extend deprecation coverage to the ceiling.
 
+The floor pin's actual blind spot, measured across the fleet, is narrow: a
+symbol whose STUB SIGNATURE narrows above the floor (`chr()` returns
+`int<0, 255>` in the 8.5 stubs, plain `int` below it) rather than a real
+runtime deprecation. A real runtime deprecation is covered separately —
+`templates/phpunit.xml.dist` sets `failOnDeprecation="true"` and
+`bin/check-consumer-config.php` requires it (re-derive: `grep -n
+"failOnDeprecation" templates/phpunit.xml.dist bin/check-consumer-config.php`),
+so a deprecated call a test actually executes fails the build regardless of
+what the PHPStan pin targets — provided the CI matrix runs an interpreter new
+enough to trigger it. Nothing covers a deprecated call no test executes,
+under either mechanism.
+
 ### The two tiers
 
 `base.neon` is the **floor** — every repository runs it, no exceptions.

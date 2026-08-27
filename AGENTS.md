@@ -129,6 +129,10 @@ directory that matches how it is consumed, never at the root for convenience.
   `version_compare()`) — it does **not** extend the feature/deprecation rules
   to the ceiling — see the README's `phpVersion` explanation for the mechanism
   and the re-derive commands. A single-PHP repository keeps the single value.
+  A real runtime deprecation is caught separately, by PHPUnit's
+  `failOnDeprecation` (`templates/phpunit.xml.dist`, required by
+  `bin/check-consumer-config.php`) — the pin's own remaining blind spot is a
+  narrowed-stub-type gap (e.g. `chr()` on PHP 8.5), not a deprecation.
 - **The template lockstep gate rolls out script-first, workflow-step-last.** The
   reusable `php-quality` workflow runs a FIXED list of `composer ci:test:php:*` steps,
   so adding a `Templates` step that runs `ci:test:php:templates` reds EVERY consumer
