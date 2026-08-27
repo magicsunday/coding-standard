@@ -1733,9 +1733,10 @@ done <<<"$declared"
 # export-ignore) means a renamed or deleted directory reports zero leaves
 # and fails LOUDLY here, rather than the loop further below silently
 # iterating nothing for it.
+leaf_dirs="biome tsconfig templates phpstan rector php-cs-fixer deptrac"
 directory_leaves=""
 
-for leaf_dir in biome tsconfig templates phpstan rector php-cs-fixer deptrac; do
+for leaf_dir in $leaf_dirs; do
     if ! leaves="$(git -C "$root" ls-tree -r --name-only "$archive_tree" -- "$leaf_dir")"; then
         fail "git ls-tree on $leaf_dir/ failed — the export-ignore control did not run for it"
         exit 1
@@ -1769,12 +1770,11 @@ if [ -z "$composer_bin_entries" ]; then
     exit 1
 fi
 
-# Every leaf dir the loop above already expanded is dropped from `$declared`
-# here, not just `biome`/`tsconfig` by name: a future leaf dir added to that
-# loop is excluded here automatically instead of needing a matching hand-edit.
-# The remaining `$declared` entries (the `.mjs` files) are already leaves and
-# pass through unchanged.
-declared_leaf_files="$(comm -23 <(printf '%s\n' "$declared" | sort) <(printf '%s\n' biome tsconfig templates phpstan rector php-cs-fixer deptrac | sort))"
+# Reads `$leaf_dirs` rather than a second hand-typed name list, so a future
+# addition to the loop above is dropped from `$declared` here too, with
+# nothing to keep in sync by hand. The remaining `$declared` entries (the
+# `.mjs` files) are already leaves and pass through unchanged.
+declared_leaf_files="$(comm -23 <(printf '%s\n' "$declared" | sort) <(printf '%s\n' $leaf_dirs | sort))"
 
 exported_paths="$(printf '%s\n' "$declared_leaf_files" package.json composer.json bin/support/safe-report-value.php bin/support/read-quietly.php "$composer_bin_entries" "$directory_leaves" | sort -u)"
 
