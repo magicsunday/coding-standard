@@ -84,19 +84,16 @@ jobs:
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
-            # This PHP-matrix job needs a `node` on PATH before ANY step that
+            # This PHP-matrix job needs a `node` on PATH before any step that
             # sources tests/harness.sh: its own degraded() bookkeeping check
             # unconditionally shells out to `node -e '…'` the moment the file is
-            # sourced, not lazily on first use. Several steps below source it
-            # (re-derive rather than trust a list here, which would only go
-            # stale the next time one is added: `grep -l 'harness\.sh"' tests/*.sh`)
-            # and every one of them needs it ready first. Pinned the same way the
-            # js job pins it (see that job's comment), rather than relying on
-            # whatever the runner image happens to preinstall — placed here,
-            # ahead of every consumer, rather than after the first one that
-            # happens to need it: a step inserted ahead of the then-first
-            # consumer already moved that "first" once (#47), and this ordering
-            # survives the next one too.
+            # sourced, not lazily on first use. Placed immediately after the
+            # install step and ahead of every other step in this job — rather
+            # than naming which script happens to source harness.sh first, so
+            # adding a new one ahead of the current first cannot silently need
+            # this moved again. Pinned the same way the js job pins it (see
+            # that job's comment), rather than relying on whatever the runner
+            # image happens to preinstall.
             - name: Set up Node.js
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
