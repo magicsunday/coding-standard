@@ -1,6 +1,6 @@
-# /.build is already gitignored, so it can never be tracked and never reaches an
-# archive regardless of this line — kept anyway, matching the template, as a
-# defensive no-op should that ever change.
+# /.build is already gitignored, so it is not normally tracked and would not
+# reach an archive regardless of this line (a forced `git add -f` could still
+# track it) — kept anyway, matching the template, as a defensive backstop.
 /.build             export-ignore
 # Export-ignoring /.github blinds OSSF Scorecard's file-based checks
 # (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not
