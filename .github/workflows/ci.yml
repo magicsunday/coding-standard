@@ -87,17 +87,16 @@ jobs:
             # This PHP-matrix job needs a `node` on PATH before ANY step that
             # sources tests/harness.sh: its own degraded() bookkeeping check
             # unconditionally shells out to `node -e '…'` the moment the file is
-            # sourced, not lazily on first use — every harness.sh consumer below
-            # (the PHP gate self-analysis self-test, the JSON lint gate
-            # self-test, the Lockstep gate self-test, which additionally drives
-            # BOTH the PHP gate and its Node port bin/check-js-config.mjs through
-            # the same differential fixtures) needs it ready first. Pinned the
-            # same way the js job pins it (see that job's comment), rather than
-            # relying on whatever the runner image happens to preinstall —
-            # placed here, ahead of every consumer, rather than after the first
-            # one that happens to need it: a step inserted ahead of the
-            # then-first consumer already moved that "first" once (#47), and
-            # this ordering survives the next one too.
+            # sourced, not lazily on first use. Several steps below source it
+            # (re-derive rather than trust a list here, which would only go
+            # stale the next time one is added: `grep -l 'harness\.sh"' tests/*.sh`)
+            # and every one of them needs it ready first. Pinned the same way the
+            # js job pins it (see that job's comment), rather than relying on
+            # whatever the runner image happens to preinstall — placed here,
+            # ahead of every consumer, rather than after the first one that
+            # happens to need it: a step inserted ahead of the then-first
+            # consumer already moved that "first" once (#47), and this ordering
+            # survives the next one too.
             - name: Set up Node.js
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
