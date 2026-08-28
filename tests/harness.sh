@@ -135,32 +135,6 @@ harness_pad_json_to_cap() {
     ' "$bound" "$body" "$out_file"
 }
 
-# harness_pad_text_to_cap <bound> <suffix> <out-file>
-#
-# Builds a plain-text file of EXACTLY <bound> bytes: filler bytes, then <suffix>
-# verbatim at the end, so whatever <suffix> carries (a pin, a marker) survives
-# intact for the gate under test to find. The JSONC/JSON counterpart of
-# harness_pad_json_to_cap above — same reason for living here rather than in a
-# single caller, and the same self-check shape, because a size-cap fixture that
-# is not verifiably AT the bound proves nothing about a size check's `>`
-# surviving a mutation to `>=`.
-harness_pad_text_to_cap() {
-    local bound="$1" suffix="$2" out_file="$3"
-    php -r '
-        $bound  = (int) $argv[1];
-        $suffix = $argv[2];
-        $pad    = $bound - strlen($suffix);
-        $out    = str_repeat("x", $pad) . $suffix;
-
-        if (strlen($out) !== $bound) {
-            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
-            exit(1);
-        }
-
-        file_put_contents($argv[3], $out);
-    ' "$bound" "$suffix" "$out_file"
-}
-
 # degraded <output>
 #
 # True when the interpreter emitted a diagnostic of its own — a PHP warning,
