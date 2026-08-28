@@ -51,26 +51,4 @@
 # an override has to restate the `message` it wants to keep.
 includes:
     - ../../../spaze/phpstan-disallowed-calls/extension.neon
-
-parameters:
-    disallowedFunctionCalls:
-        -
-            function: 'strtoupper()'
-            message: 'it folds ASCII only; use mb_strtoupper() with an explicit encoding, or compare case-insensitively instead of folding'
-            errorTip: 'strtoupper("über") is "üBER" — the multi-byte character is left as it was.'
-        -
-            function: 'strtolower()'
-            message: 'it folds ASCII only; use mb_strtolower() with an explicit encoding, or compare case-insensitively instead of folding'
-            errorTip: 'strtolower("GEBÜRTIGE") is "gebÜrtige", which then never matches "gebürtige".'
-        -
-            function: 'ucfirst()'
-            message: 'it uppercases the first BYTE; fold only the first character explicitly, e.g. mb_strtoupper(mb_substr($v, 0, 1), "UTF-8") . mb_substr($v, 1, null, "UTF-8")'
-            errorTip: 'ucfirst("über") returns "über" unchanged — a silent no-op on any multi-byte first character.'
-        -
-            function: 'lcfirst()'
-            message: 'it lowercases the first BYTE; fold only the first character explicitly, e.g. mb_strtolower(mb_substr($v, 0, 1), "UTF-8") . mb_substr($v, 1, null, "UTF-8")'
-            errorTip: 'lcfirst("Über") returns "Über" unchanged — the exact mirror of ucfirst().'
-        -
-            function: 'ucwords()'
-            message: 'it is byte-wise and splits on ASCII whitespace only; use mb_convert_case($value, MB_CASE_TITLE, "UTF-8") where normalising the whole word is intended'
-            errorTip: 'It does not split on a non-breaking space, so a name joined by one keeps its lower-case second part. mb_convert_case() is not a drop-in replacement: MB_CASE_TITLE also LOWER-cases the rest of every word and treats "-" as a word separator ("McDONALD" becomes "Mcdonald", "anna-maria" becomes "Anna-Maria"), so where interior capitals must survive, upper-case each word initial explicitly instead.'
+    - disallowed-function-calls.neon

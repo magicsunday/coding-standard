@@ -48,11 +48,16 @@ fi
 
 
 # The banned functions are DERIVED from the shipped config, never hand-kept: a
-# sixth ban added to disallowed-calls.neon must not be silently untested, and the
-# fixture must not drift away from it either.
-CONFIG="$ROOT/phpstan/disallowed-calls.neon"
-# Comment lines are stripped first — the file documents an `allowIn` override in a
-# commented example, which would otherwise be parsed as a sixth, duplicate ban.
+# sixth ban added to disallowed-function-calls.neon must not be silently untested,
+# and the fixture must not drift away from it either. disallowed-calls.neon (the
+# consumer-facing entry point) only `includes:` this fragment — it carries no
+# `disallowedFunctionCalls` key itself since GH-47, so the extraction targets the
+# fragment directly.
+CONFIG="$ROOT/phpstan/disallowed-function-calls.neon"
+# Comment lines are stripped first — disallowed-calls.neon documents an `allowIn`
+# override in a commented example, which would otherwise be parsed as a sixth,
+# duplicate ban; this fragment carries no such example today, but the filter costs
+# nothing to keep and protects against one being added here later.
 mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
     | grep -oE "function: '[a-z0-9_]+\(\)'" \
     | sed -E "s/function: '([a-z0-9_]+)\(\)'/\1/")
@@ -64,10 +69,9 @@ mapfile -t BANNED < <(grep -vE '^[[:space:]]*#' "$CONFIG" \
 # the same truncated list could not notice either. (Digits and dashes are NOT the gap:
 # the class already admits digits, and no PHP function name carries a dash.)
 # Conditional on purpose: the five bans this config declares today all match
-# it — re-derive with the same comment filter the extractor uses, since the config
-# ships a commented example that a bare grep counts as a sixth:
+# it — re-derive with the same comment filter the extractor uses:
 #
-#     grep -vE '^[[:space:]]*#' phpstan/disallowed-calls.neon | grep -oE "function: '[^']+'"
+#     grep -vE '^[[:space:]]*#' phpstan/disallowed-function-calls.neon | grep -oE "function: '[^']+'"
 #
 # So nothing has been skipped. The guard is for the next spelling, and it reports
 # itself rather than disappearing.

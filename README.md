@@ -114,7 +114,7 @@ The directory a file lives in states how it is meant to be consumed:
 |---|---|---|
 | `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
 | `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
-| repository root | **this package's own dev config** | `.phplint.yml`, `.github/`, `tests/`, `phpunit.xml.dist` (`composer ci:test:phpunit`, GH-77) — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
+| repository root | **this package's own dev config** | `.phplint.yml`, `phpstan.neon` (`composer ci:test:php:analyse` — level 6 plus `phpstan/disallowed-function-calls.neon`'s case-folding bans over the PHP files under `bin/` and `tests/`), `.github/`, `tests/`, `phpunit.xml.dist` (`composer ci:test:phpunit`, GH-77) — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
 
 Every include path below is written as `.build/vendor/…`, the house layout: the
 `magicsunday/*` repositories set `config.vendor-dir` to `.build/vendor` and
