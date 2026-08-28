@@ -63,6 +63,9 @@
         "ci:test:php:analyse": [
             "phpstan analyse --configuration phpstan.neon --memory-limit=-1"
         ],
+        "ci:test:php:analyse-cases": [
+            "bash tests/check-php-analyse-cases.sh"
+        ],
         "ci:test:json": "@php tests/lint-json.php",
         "ci:test:json-cases": [
             "bash tests/lint-json-cases.sh"
@@ -82,6 +85,7 @@
     "scripts-descriptions": {
         "ci:test:php:lint": "Syntax-check every PHP file via phplint (path-driven, not a hand-kept list).",
         "ci:test:php:analyse": "PHPStan level 6 plus the case-folding bans over the PHP files under this package's own bin/ and tests/ (its non-PHP gate scripts and the .sh harnesses are a separate concern) — previously only phplint-syntax-checked. Excludes tests/consumer, a separate fixture project analysed by the Consumer smoke steps.",
+        "ci:test:php:analyse-cases": "Fixture-driven case proving phpstan.neon's own include of phpstan/disallowed-function-calls.neon actually fires — the one link the consumer-facing disallowed-calls self-test cannot cover, since it only ever runs through tests/consumer's installed copy.",
         "ci:test:json": "Validate that every shipped JSON config parses (path-driven, not a hand-kept file list).",
         "ci:test:json-cases": "Fixture-driven cases proving the JSON lint gate reports a malformed file, a missing file (a dangling symlink) and an unreadable file, that its discovery actually recurses and prunes vendored/installed trees and VCS metadata, that a symlink cannot be followed out of the scan root, and that a consumer-controlled file or directory name cannot forge a workflow command in the report.",
         "ci:test:version": "Assert package.json's version matches every npm tag pin documented in the README, so the install instructions never point at a tag predating the fix they describe.",

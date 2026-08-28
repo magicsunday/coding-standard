@@ -41,10 +41,7 @@ harness_assert_no_stray_increments 0
 CONSUMER="$ROOT/tests/consumer"
 PHPSTAN="$CONSUMER/.build/bin/phpstan"
 
-if [ ! -x "$PHPSTAN" ]; then
-    printf 'FAIL: %s is missing — run `composer install` in tests/consumer first.\n' "$PHPSTAN"
-    exit 2
-fi
+harness_require_executable "$PHPSTAN" ' in tests/consumer'
 
 
 # The banned functions are DERIVED from the shipped config, never hand-kept: a

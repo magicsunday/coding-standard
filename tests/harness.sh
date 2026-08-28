@@ -101,6 +101,24 @@ harness_workdir() {
     work="$(CDPATH= cd -- "$work" && pwd)"
 }
 
+# harness_require_executable <path> <install-hint>
+#
+# Aborts with exit 2 if <path> is not an executable file — the guard every
+# PHPStan-driven case file needs before its first invocation, since a missing
+# binary would otherwise surface as an opaque "command not found" from deep
+# inside the case logic instead of a clear, actionable message naming the
+# install step that was skipped. <install-hint> is the caller's own phrase for
+# where to run `composer install` (root, or a named subdirectory) — the one
+# thing that varies between callers.
+harness_require_executable() {
+    local path="$1" hint="$2"
+
+    if [ ! -x "$path" ]; then
+        printf 'FAIL: %s is missing — run `composer install`%s first.\n' "$path" "$hint"
+        exit 2
+    fi
+}
+
 # harness_pad_json_to_cap <bound> <json-body> <out-file>
 #
 # Builds a JSON document of EXACTLY <bound> bytes: <json-body>'s closing brace is
