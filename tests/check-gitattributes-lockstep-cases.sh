@@ -173,6 +173,20 @@ printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
 assert_rejects "$d" "a repository with no .gitattributes at all is reported as drift, not skipped" \
     '/.github: missing `export-ignore`'
 
+# --- a symlinked own .gitattributes must not be followed to its target's
+# content — is_file() alone follows the link, so without is_link() this would
+# read $target's satisfying entry and pass. Git itself does not read a
+# symlinked .gitattributes for attribute purposes either (git check-attr on a
+# real checkout reports it unspecified), so the archive this gate certifies
+# would silently disagree with the archive git actually produces ---
+d="$(mk_case own-file-is-symlink)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n' > "$d/gitattributes-target"
+ln -s -- gitattributes-target "$d/.gitattributes"
+assert_rejects "$d" "a symlinked own .gitattributes is treated as absent, not followed to its target" \
+    '/.github: missing `export-ignore`'
+
 # --- two applicable entries: a gate that stopped after the first match would
 # pass this file's own canon case, so both misses need their own assertion ---
 d="$(mk_case two-missing)"
