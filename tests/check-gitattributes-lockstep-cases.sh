@@ -56,11 +56,17 @@ assert_accepts "$d" "a template entry naming a path this repository does not hav
 # --- a commented-out template directive is not a requirement, even when the
 # path exists — templates/gitattributes keeps biome.json/tsconfig.json export-
 # ignore INACTIVE on purpose (a github: dependency's prepare script needs them),
-# and this gate must not resurrect that as a demand ---
+# and this gate must not resurrect that as a demand. The on-disk artifact sits at
+# "#/biome.json", not "biome.json": ltrim() only strips a leading `/`, so an
+# UN-skipped comment line would mis-parse $matches[1] as the literal path
+# "#/biome.json" — placing the file there is what makes this case actually
+# discriminate a removed comment-skip guard (it would then resolve and, since
+# .gitattributes never declares "#/biome.json", flip this case to a rejection)
+# rather than passing either way regardless of whether the guard exists. ---
 d="$(mk_case commented-out-not-required)"
-mkdir -p "$d/.github"
+mkdir -p "$d/.github" "$d/#"
 printf '#/biome.json    export-ignore\n/.github        export-ignore\n' > "$d/templates/gitattributes"
-: > "$d/biome.json"
+: > "$d/#/biome.json"
 printf '/.github        export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a commented-out template directive is not required even though the path exists"
 
@@ -285,6 +291,38 @@ mkdir -p "$d/.github"
 printf '123    export-ignore\n/.github    export-ignore\n' > "$d/templates/gitattributes"
 printf '/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a template line naming a bare numeric path does not crash the applicability check"
+
+# --- a NUL byte embedded in a captured path (\S does not exclude it) must not
+# crash the gate with an uncaught ValueError out of realpath() under
+# declare(strict_types=1) -- reproduced against the pre-fix code. The poisoned
+# line sits FIRST so the crash, if the guard regresses, happens before /.github
+# is ever reached. ---
+d="$(mk_case nul-byte-in-path-does-not-crash)"
+mkdir -p "$d/.github"
+printf '/orphan\x00suffix    export-ignore\n/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a NUL byte embedded in a template path does not crash the applicability check"
+
+# --- a UTF-8 BOM at the start of templates/gitattributes must not corrupt the
+# FIRST parsed path -- reproduced against the pre-fix code: the BOM bytes
+# attached to the leading path token, it could never realpath()-resolve, and a
+# genuinely-required, genuinely-missing entry was silently treated as "not
+# applicable" -- a false ACCEPT that hid real drift, the worst failure mode for
+# a drift-detection gate. ---
+d="$(mk_case bom-prefixed-template-still-parses)"
+mkdir -p "$d/.github"
+printf '\xEF\xBB\xBF/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_rejects "$d" "a UTF-8 BOM at the start of templates/gitattributes does not corrupt the first parsed path" \
+    '/.github: missing `export-ignore`'
+
+# --- the same tolerance in the other file: a BOM-prefixed .gitattributes must
+# still be recognised as satisfying a requirement. ---
+d="$(mk_case bom-prefixed-own-file-still-satisfies)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '\xEF\xBB\xBF/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a UTF-8 BOM at the start of .gitattributes does not stop it from satisfying a requirement"
 
 # --- at-cap: content exactly AT MAX_GITATTRIBUTES_BYTES must still be read in
 # full and compared, not silently truncated. The oversize cases above only prove
