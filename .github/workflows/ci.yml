@@ -196,6 +196,20 @@ jobs:
             - name: Version lockstep gate self-test
               run: composer ci:test:version-lockstep
 
+            # GH-38: asserts this repository's own .gitattributes export-ignores
+            # every templates/gitattributes entry that names a path this
+            # repository actually has, so a shipped template widening cannot
+            # silently leave this package's own dist archive out of step again.
+            - name: Gitattributes lockstep gate
+              run: composer ci:test:gitattributes
+
+            # The gate above runs against this repository, where every
+            # applicable entry already agrees — so it only ever takes the happy
+            # path and would stay green if it lost the ability to fail. These
+            # cases put it in each failing state on purpose.
+            - name: Gitattributes lockstep gate self-test
+              run: composer ci:test:gitattributes-lockstep
+
     js:
         name: JS/TS configs
         runs-on: ubuntu-latest
