@@ -91,6 +91,17 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * line either file writes anchors an exact `/path`, so an exact-string comparison
  * is what both files actually need.
  *
+ * A leading UTF-8 BOM is stripped before the first line is split off: without it,
+ * the three BOM bytes attach to the file's very first token — a comment marker
+ * (silently defeating the `#`-prefix skip, since the trimmed line no longer STARTS
+ * with `#`) or a path (corrupting `$matches[1]` so it can never realpath()-resolve
+ * below, and a required entry that can never resolve reads as "not applicable" —
+ * reproduced: a repository that genuinely has the corrupted entry's path, with
+ * .gitattributes genuinely missing the mirroring line, was still reported OK).
+ * Editors that default to "UTF-8 with BOM" on save produce exactly this file; the
+ * artifact does not change either file's declared intent, so tolerating it here
+ * matches how bin/check-consumer-config.php already tolerates one for .editorconfig.
+ *
  * @param string $contents The raw file contents.
  *
  * @return list<string> The paths whose LAST token carries an active
@@ -99,6 +110,8 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
 $parseExportIgnorePaths = static function (string $contents): array {
     /** @var array<array-key, bool> $state */
     $state = [];
+
+    $contents = str_starts_with($contents, "\xEF\xBB\xBF") ? substr($contents, 3) : $contents;
 
     foreach (preg_split('/\r\n|\r|\n/', $contents) ?: [] as $line) {
         $trimmed = trim($line);
@@ -230,6 +243,15 @@ if ($realRoot === false) {
 $violations = [];
 
 foreach ($templatePaths as $path) {
+    // A NUL byte in a captured path (`\S` does not exclude it) throws a ValueError
+    // out of realpath() under this file's own declare(strict_types=1) — reproduced.
+    // Treated the same as the numeric-key case above: not a path this repository
+    // "has", reported via this gate's own graceful exit paths rather than an
+    // uncaught crash and a stack trace naming this file's own filesystem path.
+    if (str_contains($path, "\0")) {
+        continue;
+    }
+
     $real = realpath($root . '/' . ltrim($path, '/'));
 
     // Not applicable here — the qualifier this gate exists to apply. Silent, the
