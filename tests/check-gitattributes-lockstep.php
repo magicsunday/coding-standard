@@ -233,7 +233,7 @@ if (count($templatePaths) === 0) {
 // archive), so a symlink here is exactly as ineffective as no file, and
 // treating it as such is what makes this gate certify the same archive git
 // itself will produce rather than the target file's content.
-$ownContents = (is_file($ownPath) && !is_link($ownPath)) ? $readOrExit($ownPath) : '';
+$ownContents = (!is_link($ownPath) && is_file($ownPath)) ? $readOrExit($ownPath) : '';
 $ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 
 // realpath() proves containment, never string surgery on $path: templates/gitattributes
