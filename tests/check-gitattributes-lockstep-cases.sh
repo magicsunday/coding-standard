@@ -93,8 +93,8 @@ assert_rejects "$d" "a negated -export-ignore attribute does not satisfy the req
 # negative one: such a parser reports this path satisfied even though the file's
 # real, git-effective state for it is NOT export-ignored — a green-while-red gap
 # proven by mutation (reverting $parseExportIgnorePaths to the append-only shape
-# turns this case's rejection into a false accept while every other case in this
-# file stays green). ---
+# turns this case's rejection into a false accept, along with the same-line and
+# !export-ignore cases below, which share the same negation-handling branch). ---
 d="$(mk_case negation-overrides-earlier-positive)"
 mkdir -p "$d/.github"
 printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
