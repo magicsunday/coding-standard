@@ -1,0 +1,51 @@
+# Analyses this package's own PHP gate scripts and PHPUnit harness — the PHP
+# files under bin/ and tests/ — which until now got only phplint syntax
+# checking; a non-PHP file under either path (bin/check-js-config.mjs,
+# bin/support/*.mjs, tests/*.sh) is out of scope for a PHPStan run and stays
+# covered by its own gate (tests/check-js-configs.sh; the .sh harnesses have
+# no static-analysis gate at all — a separate concern from this one).
+# tests/consumer is a separate fixture project with its own composer.json and
+# phpstan.neon, analysed by the "Consumer smoke" CI steps instead, so it is
+# excluded here.
+#
+# Deliberately level 6, not `max` via phpstan/base.neon: 6 already catches arity
+# (level 0), argument.type (level 5) and dead code (level 4) — the contract-break
+# class this config exists for — with zero ignores needed; the levels above 6
+# start reporting `mixed`-typed noise these deliberately procedural CLI scripts
+# are not worth chasing.
+#
+# Cannot `includes: - phpstan/disallowed-calls.neon` the way a consumer does:
+# that file's own `../../../spaze/...` include is written for a vendor-nested
+# install (`.build/vendor/magicsunday/coding-standard/phpstan/`), and this
+# package can analyse itself only in place, at the repository root — one level
+# short of where that climb lands. Composer refuses a root package requiring
+# itself to fake that nesting (verified via `composer validate`:
+# "Root package 'magicsunday/coding-standard' cannot require itself"), and a
+# manual symlink at that path does not help either: a `..` segment written
+# after a symlink resolves against the symlink's TARGET, not its own location,
+# so the climb still lands three levels above the symlink's REAL parent instead
+# of the intended `.build/vendor/`. The ban list itself carries no such relative
+# include, so it lives in its own fragment (phpstan/disallowed-function-calls.neon)
+# that both this file and phpstan/disallowed-calls.neon include directly — no
+# restated copy, nothing that can drift.
+includes:
+    - .build/vendor/spaze/phpstan-disallowed-calls/extension.neon
+    - phpstan/disallowed-function-calls.neon
+
+parameters:
+    level: 6
+
+    phpVersion:
+        min: 80300
+        max: 80500
+
+    paths:
+        - bin
+        - tests
+
+    excludePaths:
+        analyseAndScan:
+            - tests/consumer/*
+
+    fileExtensions:
+        - php

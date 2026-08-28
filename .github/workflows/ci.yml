@@ -79,13 +79,23 @@ jobs:
               run: composer validate --strict
 
             # The gates below run tools from this package's own .build/bin
-            # (phplint), so the root install is a prerequisite — not only the
-            # fixture install further down.
+            # (phplint, phpstan), so the root install is a prerequisite — not
+            # only the fixture install further down.
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
             - name: Lint the PHP config factories
               run: composer ci:test:php:lint
+
+            # phplint above is a syntax check only, and over a wider path set
+            # (also php-cs-fixer/, rector/, templates/, tests/consumer). This
+            # is the arity / argument-type / dead-code / case-folding pass —
+            # over bin/ and tests/ (tests/consumer excluded) — the procedural
+            # glue this package ships to consumers (bin/) and its own
+            # PHPUnit test harness (tests/), which previously escaped every
+            # analyser.
+            - name: Statically analyse the PHP gate scripts
+              run: composer ci:test:php:analyse
 
             - name: Validate the JSON configs
               run: composer ci:test:json

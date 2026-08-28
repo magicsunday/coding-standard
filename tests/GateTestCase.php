@@ -52,21 +52,11 @@ abstract class GateTestCase extends TestCase
     private ?FixtureDirectory $fixtureDirectory = null;
 
     /**
-     * The process runner used to invoke every gate under test.
+     * The process runner used to invoke every gate under test, created lazily by
+     * gateProcess() and shared across calls within the same test; null until
+     * first requested.
      */
-    private readonly GateProcess $gateProcess;
-
-    /**
-     * Creates this test's GateProcess runner.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->gateProcess = new GateProcess();
-    }
+    private ?GateProcess $gateProcess = null;
 
     /**
      * Removes this test's fixture directory, if one was created.
@@ -91,6 +81,14 @@ abstract class GateTestCase extends TestCase
     protected function fixture(): FixtureDirectory
     {
         return $this->fixtureDirectory ??= new FixtureDirectory();
+    }
+
+    /**
+     * @return GateProcess This test's process runner, created lazily and shared across calls within one test.
+     */
+    private function gateProcess(): GateProcess
+    {
+        return $this->gateProcess ??= new GateProcess();
     }
 
     /**
@@ -297,7 +295,7 @@ abstract class GateTestCase extends TestCase
         string $exitCodeLabel,
         string $message,
     ): GateResult {
-        $result = $this->gateProcess->run($command, $fixtureDir);
+        $result = $this->gateProcess()->run($command, $fixtureDir);
 
         self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
         self::assertSame(
