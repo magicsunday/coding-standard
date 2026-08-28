@@ -293,10 +293,11 @@ printf '/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a template line naming a bare numeric path does not crash the applicability check"
 
 # --- a NUL byte embedded in a captured path (\S does not exclude it) must not
-# crash the gate with an uncaught ValueError out of realpath() under
-# declare(strict_types=1) -- reproduced against the pre-fix code. The poisoned
-# line sits FIRST so the crash, if the guard regresses, happens before /.github
-# is ever reached. ---
+# crash the gate with an uncaught ValueError out of realpath() -- PHP 8+ rejects
+# any NUL-byte path unconditionally, not a strict_types-only behavior -- verified
+# identically on PHP 8.3/8.4/8.5, and reproduced against the pre-fix code. The
+# poisoned line sits FIRST so the crash, if the guard regresses, happens before
+# /.github is ever reached. ---
 d="$(mk_case nul-byte-in-path-does-not-crash)"
 mkdir -p "$d/.github"
 printf '/orphan\x00suffix    export-ignore\n/.github    export-ignore\n' > "$d/templates/gitattributes"
@@ -323,6 +324,17 @@ mkdir -p "$d/.github"
 printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
 printf '\xEF\xBB\xBF/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a UTF-8 BOM at the start of .gitattributes does not stop it from satisfying a requirement"
+
+# --- a SINGLE `if`-shaped strip only removes one BOM. Two concatenated UTF-8
+# BOMs reproduce the exact false-accept the single-strip fix was written to
+# close, one BOM deeper -- reproduced against the single-strip code. Looping
+# closes the whole stacked-BOM class instead of the next report finding three. ---
+d="$(mk_case double-bom-prefixed-template-still-parses)"
+mkdir -p "$d/.github"
+printf '\xEF\xBB\xBF\xEF\xBB\xBF/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_rejects "$d" "two concatenated UTF-8 BOMs do not corrupt the first parsed path either" \
+    '/.github: missing `export-ignore`'
 
 # --- at-cap: content exactly AT MAX_GITATTRIBUTES_BYTES must still be read in
 # full and compared, not silently truncated. The oversize cases above only prove
