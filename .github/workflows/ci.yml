@@ -97,6 +97,15 @@ jobs:
             - name: Statically analyse the PHP gate scripts
               run: composer ci:test:php:analyse
 
+            # phpstan.neon's own include of phpstan/disallowed-function-calls.neon
+            # has no other proof: bin/ and tests/ currently call none of the five
+            # banned functions, so a broken include would leave the step above
+            # silently green. tests/check-disallowed-calls-cases.sh proves the ban
+            # LIST fires, but only through tests/consumer's installed copy, never
+            # phpstan.neon itself.
+            - name: PHP gate self-analysis self-test
+              run: composer ci:test:php:analyse-cases
+
             - name: Validate the JSON configs
               run: composer ci:test:json
 
