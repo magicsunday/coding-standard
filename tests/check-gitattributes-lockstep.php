@@ -18,12 +18,7 @@ declare(strict_types=1);
  * present in templates/gitattributes since that file's first commit. `/.build` is
  * also gitignored here, so the gap was never a live leak into an actual archive;
  * the value of a gate is closing it before the next template addition is one that
- * matters. (An earlier version of this comment attributed the gap to a "widened
- * template" incident involving package.json/biome.json/tsconfig.json — that never
- * happened: package.json was added to templates/gitattributes and removed again;
- * biome.json/biome.jsonc/tsconfig.json were added active and then commented out,
- * never removed — both within the same PR, before merge, per its review-comment
- * thread.)
+ * matters.
  *
  * The qualifier is the whole difficulty: the template lists paths a consumer has
  * that THIS package does not (rector.php, infection.json5 — this package ships the
@@ -89,8 +84,8 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * one file half of this gate exists to catch drift in. Iterating $attributes in order
  * and letting each token overwrite $state as it is encountered reproduces
  * gitattributes' own last-token-wins rule at both granularities; a path mentioned only
- * with `-export-ignore` (no earlier positive) is correctly excluded by the same
- * mechanism, with no separate negation check needed.
+ * with `-export-ignore`/`!export-ignore` (no earlier positive) is correctly excluded
+ * by the same mechanism, with no separate negation check needed.
  *
  * A full gitattributes grammar (glob patterns, macros, `**`) is out of scope: every
  * line either file writes anchors an exact `/path`, so an exact-string comparison
@@ -126,10 +121,20 @@ $parseExportIgnorePaths = static function (string $contents): array {
         // reproduced against a real checkout: `git check-attr export-ignore` on a
         // line ending in `-export-ignore` reports `unset` regardless of what an
         // earlier token on that line said.
+        //
+        // Three tokens, not two: gitattributes(5) also has `!attr` ("unspecified" —
+        // resets to unset, as if no rule had matched at all), which this simplified
+        // two-file model treats the same as `-attr` since there is no lower-priority
+        // rule underneath for it to fall back to. Reproduced: a real `git archive`
+        // of a commit whose .gitattributes reads `/x export-ignore` then
+        // `/x !export-ignore` still includes `/x`, and `git check-attr` reports
+        // `unspecified` for it — an earlier version of this loop recognised only
+        // `export-ignore`/`-export-ignore` and left `$state` unchanged for `!attr`,
+        // so that second, real "turn it back off" line was silently ignored.
         foreach ($attributes as $attribute) {
             if ($attribute === 'export-ignore') {
                 $state[$matches[1]] = true;
-            } elseif ($attribute === '-export-ignore') {
+            } elseif (($attribute === '-export-ignore') || ($attribute === '!export-ignore')) {
                 $state[$matches[1]] = false;
             }
         }
@@ -142,7 +147,7 @@ $parseExportIgnorePaths = static function (string $contents): array {
     // this function's own signature promises, so a numeric path cannot reach
     // ltrim()'s string-typed parameter below as an int and throw under
     // declare(strict_types=1) instead of this gate's own graceful exit paths.
-    return array_map('strval', array_keys(array_filter($state)));
+    return array_map(strval(...), array_keys(array_filter($state)));
 };
 
 /**
