@@ -107,8 +107,11 @@ harness_probe_reporters 1 probe_reporters
 # measured, stripping safe_report from three real sites leaves this green. The PHP side
 # has the right shape (harness_report_is_inert runs the real binary over a real
 # fixture); doing the same here needs the smoke's loops driven over a poisoned $root,
-# which is tracked rather than bolted on. What this pins is the helpers, the encoder
-# and the log-excerpt route, each in both directions.
+# which is tracked rather than bolted on. What this pins is the helpers and the
+# log-excerpt route, each in both directions. The node encoder (manifest_check's own
+# encodeValue) is proven separately, against the REAL function rather than a local
+# stand-in — peer-name-poison and peer-name-legacy-prefix further down, via
+# manifest_rejects/manifest_reports_value.
 harness_probe_report_inertness() {
     local poisoned forged out
     poisoned="$(mktemp -d)"
@@ -116,19 +119,6 @@ harness_probe_report_inertness() {
     # a newline (opens a line), a CR (opens a line to the runner, invisible to grep),
     # both command grammars, and an ESC.
     forged="$(printf 'x\n::error title=pwned::forged ##[error]legacy \033[2K\rcr')"
-
-    FORGED="$forged" node -e '
-const fs = require("node:fs");
-const forged = process.env.FORGED;
-const dir = process.argv[1];
-
-fs.writeFileSync(dir + "/package.json", JSON.stringify({
-    name: "poisoned",
-    files: ["biome", forged],
-    devDependencies: { [forged]: "1.0.0" },
-    peerDependencies: { [forged]: "^1.0.0" },
-}));
-' "$poisoned"
 
     # Only the value-reporting helpers are driven, not the whole gate: the point is the
     # report shape, and a full run needs a registry. Each call is the real function.
@@ -142,17 +132,6 @@ fs.writeFileSync(dir + "/package.json", JSON.stringify({
             fail "biome/base.json maps the .$(safe_report "$forged") extension, which this smoke has no proven target for"
             printf '%s\n' 'x' '    ::error::forgedByATool' 'mid ##[error]legacyFromATool' "$(printf 'cr\rforged')" > "$poisoned/tool.log"
             fail 'a tool rejected the fixture' "$poisoned/tool.log"
-            ROOT="$poisoned" node -e '
-const pkg = require(process.env.ROOT + "/package.json");
-const encodeValue = (value) => {
-    const encoded = JSON.stringify(value);
-
-    return encoded === undefined ? "(absent)" : encoded.replaceAll("#[", "#?[");
-};
-for (const [name, range] of Object.entries(pkg.peerDependencies)) {
-    console.error("a peerDependencies range is not satisfied by the pin the smoke proves");
-    console.error(`INFO     peer: ${encodeValue(name)}   range: ${encodeValue(range)}`);
-}'
         } 2>&1
     )"
 
@@ -183,13 +162,6 @@ for (const [name, range] of Object.entries(pkg.peerDependencies)) {
     # inert-by-omission shape this family keeps producing.
     if ! grep -qF -- 'tools under test: x?::error' <<<"$out"; then
         fail "bookkeeping self-test — the bash report route printed no scrubbed payload"
-    fi
-
-    # The node encoder ESCAPES the newline rather than translating it — `\n`, two
-    # characters — which is its containment mechanism and a different one from the bash
-    # side's `?`. Asserting the bash spelling here was wrong and this arm caught it.
-    if ! grep -qF -- 'INFO     peer: "x\n::error' <<<"$out"; then
-        fail "bookkeeping self-test — the node encoder printed no scrubbed payload"
     fi
 
     if ! grep -qF -- '  ?::error::forgedByATool' <<<"$out"; then
@@ -1293,7 +1265,7 @@ manifest_reports_value "$(manifest_fixture peer-name-legacy-prefix \
 # into the stream the assertion reads, which is the same hole one level down. One
 # fixture is enough because `report()` is one function: the other value routes reach
 # the same two lines, so nothing is left unpinned by not repeating the payload.
-manifest_rejects "$(manifest_fixture peer-name-poison \
+peer_name_poison="$(manifest_fixture peer-name-poison \
     "{ \"devEngines\": { \"runtime\": { \"name\": \"node\", \"version\": \">=24\" } },
        \"devDependencies\": { \"@biomejs/biome\": \"2.5.5\",
                              \"poison-pin\": \"x\\n$peer_drift_sentence\",
@@ -1301,10 +1273,26 @@ manifest_rejects "$(manifest_fixture peer-name-poison \
        \"peerDependencies\": { \"@biomejs/biome\": \"^2.5.0\",
                              \"poison-pin\": \"^2.0.0\",
                              \"poison-range\": \"x\\n$peer_drift_sentence\",
-                             \"x\\n$peer_drift_sentence\": \"^1.0.0\" } }")" \
+                             \"x\\n$peer_drift_sentence\": \"^1.0.0\" } }")"
+
+manifest_rejects "$peer_name_poison" \
     "manifest control — a peer name, pin or range cannot supply the text another control asserts" \
     "$no_pin_sentence" \
     "$peer_drift_sentence"
+
+# The must-carry direction the two absence checks above cannot cover: they only
+# prove the forbidden sentences stay OUT of the report, which an encoder that
+# redacts or mis-escapes a newline-bearing value (returning e.g. "(absent)" for
+# it, the way encodeValue does for a value JSON.stringify itself cannot render)
+# would satisfy just as well as a correct one — the newline never reaching the
+# report at all is invisible to an absence check. This is that must-carry
+# assertion, against the REAL encoder's own INFO line: the poisoned peer name
+# reaches the report exactly as JSON.stringify renders it — a literal `\n`
+# (backslash, n — the two-character escape, not an actual line break) — proving
+# the encoder actually ran on this value rather than merely not leaking it.
+manifest_reports_value "$peer_name_poison" \
+    "manifest control — the poisoned peer name reaches the report correctly encoded" \
+    "$(printf 'INFO     peer: "x\\n%s"' "$peer_drift_sentence")"
 
 # A canonical $schema whose version nothing pins. The body differs from the one
 # the helper writes so that this arm is the fixture only cause — peer-without-pin
@@ -1358,6 +1346,21 @@ range_as_pin="$(manifest_fixture range-as-pin \
 manifest_rejects "$range_as_pin" \
     "manifest control — a devDependency range standing in for a pin is reported" \
     "is not an exact version"
+
+# The must-carry (third) argument is the primary discriminator, and it shipped
+# with no bookkeeping self-test of its own — disabling it leaves every
+# manifest_rejects case above green as long as the gate rejected for ANY reason,
+# measured. Same shape as probe_reporters at the top of this file. The driver
+# reuses range-as-pin (already known to reject) against a substring its
+# diagnostic never carries, so only this arm can raise the counter.
+probe_must_carry_assertion() {
+    manifest_rejects "$range_as_pin" \
+        'bookkeeping self-test — the must-carry argument' \
+        'a substring this diagnostic never carries'
+}
+
+harness_probe_reporters 1 probe_must_carry_assertion \
+    'manifest_rejects accepts any rejection as the tested reason'
 
 # The must-not-carry argument is a control in its own right, and an unproven one:
 # disabling it leaves every case above green — measured. Same shape as
