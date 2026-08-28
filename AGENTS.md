@@ -287,6 +287,20 @@ directory that matches how it is consumed, never at the root for convenience.
   side moves to a caret range. Raising the shared Biome base's own floor — a key that
   does not exist in the older tool, which Biome rejects wholesale — falls under the
   same rule and the same obligation to name it in the notes.
+- **This repository's own `.gitattributes` is kept in step with `templates/gitattributes`
+  by `composer ci:test:gitattributes` (GH-38), not by hand.** The template is shipped
+  for consumers to copy AND applied to this package itself (the README says so), and
+  a widened template gaining entries here does not mean this repository's own
+  `.gitattributes` gained them too — it once did not, and `git archive` (what
+  Packagist serves) shipped npm-only dev tooling into every Composer consumer's dist
+  tarball as a result. The gate requires an entry only for a template path this
+  repository actually HAS (`file_exists()` against the repository root) — a path a
+  CONSUMER has that this package does not (`rector.php`, `infection.json5`) is
+  silently not applicable, and a commented-out template directive
+  (`biome.json`/`tsconfig.json`/`biome.jsonc`, inactive on purpose) is never a
+  requirement either. `composer ci:test:gitattributes-lockstep` is its fixture-driven
+  self-test; run against this repository alone the gate only ever takes the happy
+  path.
 - **A gate that aborts must not read as a gate that passed.** These harnesses report
   their results line by line, so a run that dies before its first assertion prints no
   failure marker at all — and anything judging the run by grepping its output for one
