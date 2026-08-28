@@ -128,6 +128,20 @@ printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
 printf '/.github    -export-ignore export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a later export-ignore TOKEN on the same line overrides an earlier negation token"
 
+# --- gitattributes(5) has a THIRD token form, not just `attr`/`-attr`: `!attr`
+# ("unspecified" -- resets to unset, as if no rule had matched). A parser that
+# only recognises `export-ignore`/`-export-ignore` leaves $state untouched for
+# `!export-ignore`, so an earlier positive survives -- reproduced against a real
+# checkout: `git archive` of a commit whose .gitattributes reads
+# `/x export-ignore` then `/x !export-ignore` still includes /x, and
+# `git check-attr` reports `unspecified` for it. ---
+d="$(mk_case unspecified-token-overrides-earlier-positive)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n/.github    !export-ignore\n' > "$d/.gitattributes"
+assert_rejects "$d" "a later !export-ignore line resets an earlier export-ignore to unspecified" \
+    '/.github: missing `export-ignore`'
+
 # --- a path present with only an unrelated attribute is still missing the one
 # this gate asserts ---
 d="$(mk_case unrelated-attribute)"
@@ -278,7 +292,7 @@ assert_accepts "$d" "a template line naming a bare numeric path does not crash t
 # those (they sit far past any plausible shrunk value) while truncating a
 # legitimate file near the real cap — this is the counterpart that catches that,
 # mirroring tests/check-version-lockstep-cases.sh's own at-cap-package-json/
-# at-cap-readme pair, via the same shared harness_pad_text_to_cap this file's own
+# at-cap-readme pair, via the same shared harness_pad_text_to_cap that file's own
 # at-cap-readme case now uses too. Padding is a trailing comment line, verified by
 # the helper's own self-check to land the file at EXACTLY the cap before the gate
 # ever sees it. ---
