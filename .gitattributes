@@ -1,3 +1,7 @@
+# /.build is already gitignored, so it can never be tracked and never reaches an
+# archive regardless of this line — kept anyway, matching the template, as a
+# defensive no-op should that ever change.
+/.build             export-ignore
 # Export-ignoring /.github blinds OSSF Scorecard's file-based checks
 # (Dangerous-Workflow, Token-Permissions, Pinned-Dependencies report `-1` = "not
 # applicable", not a penalty) — Scorecard analyses the export-ignored tarball.
