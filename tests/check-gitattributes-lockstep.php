@@ -13,11 +13,15 @@ declare(strict_types=1);
  * Keeps this repository's own root .gitattributes in step with templates/gitattributes.
  *
  * templates/gitattributes is shipped for consumers to copy; this package applies it
- * to ITSELF too (the README says so), but nothing enforced that. GH-38: when the
- * template gained seven entries (package.json, biome.json, tsconfig.json and four
- * more), this repository's own .gitattributes gained none of them — `git archive`,
- * which is what Packagist serves, shipped npm-only dev tooling into every Composer
- * consumer's dist tarball. Found by a review bot, not by a gate.
+ * to ITSELF too (the README says so), but nothing enforced that. GH-38: the one
+ * entry this repository's own .gitattributes had never mirrored is `/.build` —
+ * present in templates/gitattributes since that file's first commit. `/.build` is
+ * also gitignored here, so the gap was never a live leak into an actual archive;
+ * the value of a gate is closing it before the next template addition is one that
+ * matters. (An earlier version of this comment attributed the gap to a "widened
+ * template" incident involving package.json/biome.json/tsconfig.json — that never
+ * happened: those three were added to templates/gitattributes and reverted again
+ * within the same PR, before merge, per its review-comment thread.)
  *
  * The qualifier is the whole difficulty: the template lists paths a consumer has
  * that THIS package does not (rector.php, infection.json5 — this package ships the
@@ -58,7 +62,7 @@ require_once __DIR__ . '/../bin/support/read-quietly.php';
  *
  * Both files this gate compares are hand-maintained lockstep lists, not generated
  * content — templates/gitattributes is 3127 bytes and this repository's own
- * .gitattributes is 584. Re-derive before raising it: `wc -c templates/gitattributes
+ * .gitattributes is 821. Re-derive before raising it: `wc -c templates/gitattributes
  * .gitattributes`.
  */
 const MAX_GITATTRIBUTES_BYTES = 1048576;
@@ -70,9 +74,19 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * Comment lines (leading `#`, which also covers a line that comments OUT a
  * directive — templates/gitattributes keeps three deliberately inactive, see this
  * file's own docblock) and blank lines are skipped. Every remaining line names a
- * path followed by a whitespace-separated attribute list; only the exact token
- * `export-ignore` counts; a negated `-export-ignore` is a DIFFERENT token and is
- * therefore correctly not collected, with no separate negation check needed.
+ * path followed by a whitespace-separated attribute list.
+ *
+ * State per path, not a plain append: gitattributes(5) has a later line override an
+ * earlier one for the same path, so `/x export-ignore` followed later by
+ * `/x -export-ignore` leaves `/x` NOT export-ignored — the file's real,
+ * git-effective state. An earlier version of this function only ever appended on
+ * the positive token and never removed on the negative one, so a later negation was
+ * silently ignored and a path that had genuinely stopped being export-ignored still
+ * read as satisfied — a green-while-red gap in the one file half of this gate exists
+ * to catch drift in. Tracking `true`/`false` per path and keeping only the paths
+ * whose LAST occurrence was positive reproduces gitattributes' own last-line-wins
+ * rule; a path mentioned only with `-export-ignore` (no earlier positive) is
+ * correctly excluded by the same mechanism, with no separate negation check needed.
  *
  * A full gitattributes grammar (glob patterns, macros, `**`) is out of scope: every
  * line either file writes anchors an exact `/path`, so an exact-string comparison
@@ -80,11 +94,12 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  *
  * @param string $contents The raw file contents.
  *
- * @return list<string> The paths carrying an active `export-ignore` attribute, in
- *                       the order the file lists them.
+ * @return list<string> The paths whose LAST occurrence carries an active
+ *                       `export-ignore` attribute.
  */
 $parseExportIgnorePaths = static function (string $contents): array {
-    $paths = [];
+    /** @var array<string, bool> $state */
+    $state = [];
 
     foreach (preg_split('/\r\n|\r|\n/', $contents) ?: [] as $line) {
         $trimmed = trim($line);
@@ -100,29 +115,49 @@ $parseExportIgnorePaths = static function (string $contents): array {
         $attributes = preg_split('/\s+/', trim($matches[2])) ?: [];
 
         if (in_array('export-ignore', $attributes, true)) {
-            $paths[] = $matches[1];
+            $state[$matches[1]] = true;
+        } elseif (in_array('-export-ignore', $attributes, true)) {
+            $state[$matches[1]] = false;
         }
     }
 
-    return $paths;
+    return array_keys(array_filter($state));
+};
+
+/**
+ * Reads a lockstep file capped at MAX_GITATTRIBUTES_BYTES, reporting an oversize or
+ * unreadable file and exiting(2) — a setup failure, distinct from the drift verdict
+ * (exit 1) this gate otherwise reports. Both this gate's file reads shared this
+ * three-branch block verbatim before this closure existed; bin/check-consumer-config.php's
+ * own `$readBounded` was extracted at the same 2-copy threshold, for the same reason
+ * its docblock gives: a duplicated read block drifts (a message updated at one call
+ * site and not the other) exactly the way a duplicated report line does.
+ *
+ * @param string $path Path to the file to read.
+ *
+ * @return string The contents. Never returns on failure.
+ */
+$readOrExit = static function (string $path): string {
+    $contents = readCapped($path, MAX_GITATTRIBUTES_BYTES);
+
+    if ($contents === null) {
+        fwrite(\STDERR, sprintf("%s is larger than the %d bytes this gate reads.\n", $path, MAX_GITATTRIBUTES_BYTES));
+        exit(2);
+    }
+
+    if ($contents === false) {
+        fwrite(\STDERR, sprintf("Cannot read %s.\n", $path));
+        exit(2);
+    }
+
+    return $contents;
 };
 
 $templatePath = $root . '/templates/gitattributes';
 $ownPath      = $root . '/.gitattributes';
 
-$templateContents = readCapped($templatePath, MAX_GITATTRIBUTES_BYTES);
-
-if ($templateContents === null) {
-    fwrite(\STDERR, sprintf("%s is larger than the %d bytes this gate reads.\n", $templatePath, MAX_GITATTRIBUTES_BYTES));
-    exit(2);
-}
-
-if ($templateContents === false) {
-    fwrite(\STDERR, sprintf("Cannot read %s.\n", $templatePath));
-    exit(2);
-}
-
-$templatePaths = $parseExportIgnorePaths($templateContents);
+$templateContents = $readOrExit($templatePath);
+$templatePaths    = $parseExportIgnorePaths($templateContents);
 
 // A template carrying no active export-ignore entry at all cannot drive this gate
 // — the same vacuity guard tests/check-version-lockstep.php applies to a README
@@ -138,35 +173,44 @@ if (count($templatePaths) === 0) {
 // failure — the same three-way split bin/check-consumer-config.php's REQUIRED
 // phpunit.xml read applies, and for the same reason: is_file() is checked before
 // the read so a permissions problem is not misreported as "no file here".
-if (is_file($ownPath)) {
-    $ownContents = readCapped($ownPath, MAX_GITATTRIBUTES_BYTES);
+$ownContents = is_file($ownPath) ? $readOrExit($ownPath) : '';
+$ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 
-    if ($ownContents === null) {
-        fwrite(\STDERR, sprintf("%s is larger than the %d bytes this gate reads.\n", $ownPath, MAX_GITATTRIBUTES_BYTES));
-        exit(2);
-    }
+// realpath() proves containment, never string surgery on $path: templates/gitattributes
+// is pull-request branch content in this repository's own CI (like every gate this file's
+// own header note on safeReportValue()/readCapped() already treats that way), and a
+// crafted entry such as `../../../../../../etc/hostname    export-ignore` would otherwise
+// walk $target outside this repository via ltrim('/') alone — reproduced: file_exists()
+// on the unresolved path answered for an arbitrary path on the CI runner's filesystem,
+// turning "is this path applicable" into a boolean existence oracle over the whole
+// filesystem. Only the boolean leaked (never content, never a write), but the containment
+// is proven here rather than assumed, the same rule this package's own security review
+// applies everywhere else. $realRoot is resolved once, outside the loop: it does not
+// change per iteration.
+$realRoot = realpath($root);
 
-    if ($ownContents === false) {
-        fwrite(\STDERR, sprintf("Cannot read %s.\n", $ownPath));
-        exit(2);
-    }
-} else {
-    $ownContents = '';
+// $templateContents already read successfully above, so $root resolved to a real,
+// readable directory at that point — this can only fail on a root removed between
+// the two calls, a race this gate reports as a setup failure like every other IO
+// problem here, rather than silently treating every template path as inapplicable.
+if ($realRoot === false) {
+    fwrite(\STDERR, sprintf("Cannot resolve %s to a real path.\n", $root));
+    exit(2);
 }
-
-$ownPaths = array_flip($parseExportIgnorePaths($ownContents));
 
 /** @var list<string> $violations */
 $violations = [];
 
 foreach ($templatePaths as $path) {
-    $target = $root . '/' . ltrim($path, '/');
+    $real = realpath($root . '/' . ltrim($path, '/'));
 
     // Not applicable here — the qualifier this gate exists to apply. Silent, the
     // same way an absent .jscpd.json is silent for check-consumer-config.php: the
     // template lists a path a CONSUMER has, and this package legitimately does not
-    // have every one of them.
-    if (!file_exists($target)) {
+    // have every one of them. A path realpath() cannot resolve under $realRoot —
+    // absent, or escaping it via `..` — falls in here too: neither is a path this
+    // repository "has" for this gate's purpose.
+    if (($real === false) || !str_starts_with($real, $realRoot . \DIRECTORY_SEPARATOR)) {
         continue;
     }
 

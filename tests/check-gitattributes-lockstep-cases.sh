@@ -81,6 +81,30 @@ printf '/.github    -export-ignore\n' > "$d/.gitattributes"
 assert_rejects "$d" "a negated -export-ignore attribute does not satisfy the requirement" \
     '/.github: missing `export-ignore`'
 
+# --- a LATER negation for the same path overrides an earlier positive — the
+# gitattributes(5) last-line-wins rule. The single-line case above cannot catch a
+# parser that only ever APPENDS on the positive token and never removes on the
+# negative one: such a parser reports this path satisfied even though the file's
+# real, git-effective state for it is NOT export-ignored — a green-while-red gap
+# proven by mutation (reverting $parseExportIgnorePaths to the append-only shape
+# turns this case's rejection into a false accept while every other case in this
+# file stays green). ---
+d="$(mk_case negation-overrides-earlier-positive)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n/.github    -export-ignore\n' > "$d/.gitattributes"
+assert_rejects "$d" "a later -export-ignore line for the same path overrides an earlier export-ignore" \
+    '/.github: missing `export-ignore`'
+
+# --- the same rule in the other direction: a later positive overrides an earlier
+# negation, so the path IS satisfied — proves this is genuinely last-line-wins and
+# not merely "any negation anywhere wins" ---
+d="$(mk_case positive-overrides-earlier-negation)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    -export-ignore\n/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a later export-ignore line for the same path overrides an earlier negation"
+
 # --- a path present with only an unrelated attribute is still missing the one
 # this gate asserts ---
 d="$(mk_case unrelated-attribute)"
@@ -184,5 +208,18 @@ printf '' > "$d/.gitattributes"
 assert_report_is_inert "$d" \
     "a template path name carrying a legacy workflow-command prefix does not forge one" \
     "$scrubbed"
+
+# --- path containment: a template entry escaping the fixture root via `..` must
+# not resolve outside it. Reproduced against the real gate before the realpath()
+# fix landed: with a bare `ltrim($path, '/')`, this exact entry resolved to a real
+# file OUTSIDE the reviewed repository and was reported as a violation for a path
+# that has nothing to do with this repository — the gate must instead treat it as
+# not applicable, the same verdict an absent path gets. ---
+d="$(mk_case path-traversal-not-applicable)"
+outside="$work/traversal-target"
+: > "$outside"
+printf '../traversal-target    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a template path escaping the repository root via .. is not applicable, not a violation"
 
 verdict
