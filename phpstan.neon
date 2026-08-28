@@ -17,17 +17,17 @@
 # Cannot `includes: - phpstan/disallowed-calls.neon` the way a consumer does:
 # that file's own `../../../spaze/...` include is written for a vendor-nested
 # install (`.build/vendor/magicsunday/coding-standard/phpstan/`), and this
-# package can analyse itself only in place, at the repository root — one level
-# short of where that climb lands. Composer refuses a root package requiring
-# itself to fake that nesting (verified via `composer validate`:
-# "Root package 'magicsunday/coding-standard' cannot require itself"), and a
-# manual symlink at that path does not help either: a `..` segment written
-# after a symlink resolves against the symlink's TARGET, not its own location,
-# so the climb still lands three levels above the symlink's REAL parent instead
-# of the intended `.build/vendor/`. The ban list itself carries no such relative
-# include, so it lives in its own fragment (phpstan/disallowed-function-calls.neon)
-# that both this file and phpstan/disallowed-calls.neon include directly — no
-# restated copy, nothing that can drift.
+# package can only analyse itself in place, at the repository root — a
+# different physical position that climb does not resolve from correctly.
+# Composer refuses a root package requiring itself to fake that nesting
+# (verified via `composer validate`: "Root package 'magicsunday/coding-standard'
+# cannot require itself"), and a manual symlink at that path does not help
+# either: a `..` segment written after a symlink resolves against the symlink's
+# TARGET, not its own location, so the climb still misses `.build/vendor/`. The
+# ban list itself carries no such relative include, so it lives in its own
+# fragment (phpstan/disallowed-function-calls.neon) that both this file and
+# phpstan/disallowed-calls.neon include directly — no restated copy, nothing
+# that can drift.
 includes:
     - .build/vendor/spaze/phpstan-disallowed-calls/extension.neon
     - phpstan/disallowed-function-calls.neon
