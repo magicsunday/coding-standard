@@ -100,7 +100,6 @@ tag_and_push() {
 # exercise the 'origin' default) sets CHECK_RELEASE_TAG_REMOTE itself and calls
 # the underlying harness_* function directly instead of through these.
 assert_accepts()         { CHECK_RELEASE_TAG_REMOTE="$1-origin.git" harness_accepts         "$gate" "$@"; }
-assert_rejects()          { CHECK_RELEASE_TAG_REMOTE="$1-origin.git" harness_rejects         "$gate" "$@"; }
 assert_usage_error()     { CHECK_RELEASE_TAG_REMOTE="$1-origin.git" harness_usage_error     "$gate" "$@"; }
 assert_report_is_inert() { CHECK_RELEASE_TAG_REMOTE="$1-origin.git" harness_report_is_inert "$gate" "$@"; }
 
