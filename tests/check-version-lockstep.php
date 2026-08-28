@@ -37,6 +37,8 @@ $root = $argv[1] ?? dirname(__DIR__);
 // carrying a raw ESC reached the report intact.
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
 require_once __DIR__ . '/../bin/support/read-quietly.php';
+require_once __DIR__ . '/../bin/support/read-package-json-version.php';
+require_once __DIR__ . '/../bin/support/version-tag-shape.php';
 
 /**
  * The largest file this gate reads, in bytes.
@@ -60,37 +62,12 @@ const MAX_LOCKSTEP_BYTES = 1048576;
 // documented on its own definition — measured before that bound existed: a
 // README carrying a matching pin in line 1 and a stale one past the bound
 // reported one matching pin and exited 0.
-$packageJsonContents = readCapped($root . '/package.json', MAX_LOCKSTEP_BYTES);
-
-if ($packageJsonContents === null) {
-    fwrite(\STDERR, sprintf("%s/package.json is larger than the %d bytes this gate reads.\n", $root, MAX_LOCKSTEP_BYTES));
-
-    exit(2);
-}
-
-if ($packageJsonContents === false) {
-    fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
-    exit(2);
-}
-
-$packageJson = json_decode($packageJsonContents, true);
-
-// Three causes, three reports. Collapsing "cannot be read", "does not parse" and
-// "parses but carries no version" into one message sends the reader to add a key
-// to a file JSON could not read in the first place — the same conflation the
-// sibling gate keeps apart on purpose, and for the same reason: the message is
-// the only instruction the reader gets.
-if (!is_array($packageJson)) {
-    fwrite(\STDERR, sprintf("%s/package.json is not valid JSON.\n", $root));
-    exit(2);
-}
-
-if (!is_string($packageJson['version'] ?? null)) {
-    fwrite(\STDERR, "package.json has no string `version`.\n");
-    exit(2);
-}
-
-$version = $packageJson['version'];
+//
+// readPackageJsonVersion() holds the four-cause, four-report split this used
+// to inline: collapsing "too large", "cannot be read", "does not parse" and
+// "parses but carries no version" into one message sends the reader to add a
+// key to a file JSON could not read in the first place.
+$version = readPackageJsonVersion($root, MAX_LOCKSTEP_BYTES);
 $readme  = readCapped($root . '/README.md', MAX_LOCKSTEP_BYTES);
 
 if ($readme === null) {
@@ -123,25 +100,11 @@ preg_match_all(
     \PREG_OFFSET_CAPTURE
 );
 
-// The version shape, applied to each occurrence. It has to hold for a prerelease
-// and build metadata too: each `-`/`+` group is dot-separated alphanumerics
-// rather than a class containing `.`, and the group repeats, so
-// `#1.2.3-beta.1+build.5` is taken whole instead of truncated at the prerelease.
-// A git ref may not END in a period (git check-ref-format), so a trailing one is
-// always prose and is stripped before the comparison.
-// `[.-]` was `-`-ambiguous: a `-` could open a new group through the outer `[-+]`
-// or continue the current one, so `1(-a)^N!` has 2^N parses and the trailing `!`
-// forces all of them. Measured on php 8.5 — at N=20 preg_match returns FALSE with
-// `Backtrack limit exhausted`, and the `=== 1` comparison below reads that as "not
-// a version tag", making the verdict depend on `pcre.backtrack_limit`.
-//
-// Dropping `-` from the inner class removes the ambiguity without narrowing the
-// language: the OUTER group repeats, so `1.0.0-alpha-1` still matches, as two
-// groups rather than one. Verified identical over `1.8.0`, `1.2.3-beta.1+build.5`,
-// `1.0.0-alpha-1`, `1`, `1.0`, `2.0.0+build.5`, `1.8.0_hotfix`, `1.7.0..`,
-// `v1.8.0`, `1.8.0-`, `1.8.0.`, `''`, `'1.8.0 '` and `"1.8.0\n"`.
-$shape = '~^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)*$~D';
-
+// The version shape, applied to each occurrence. isVersionTagShaped() (GH-42)
+// holds the ambiguity/backtracking rationale this used to carry inline; a git
+// ref may not END in a period (git check-ref-format), so a trailing one is
+// always prose and is stripped before the comparison — that stripping is this
+// gate's own concern, not the shared shape check's.
 /** @var list<array{0: string, 1: int, 2: bool}> $pins */
 $pins = [];
 
@@ -160,7 +123,7 @@ foreach ($matches[1] as [$raw, $offset]) {
         continue;
     }
 
-    $pins[] = [$token, $offset, preg_match($shape, $token) === 1];
+    $pins[] = [$token, $offset, isVersionTagShaped($token)];
 }
 
 // A README that documents no pin at all would make this gate pass vacuously —
