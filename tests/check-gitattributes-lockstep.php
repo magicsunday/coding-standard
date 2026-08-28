@@ -101,6 +101,15 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * Editors that default to "UTF-8 with BOM" on save produce exactly this file; the
  * artifact does not change either file's declared intent, so tolerating it here
  * matches how bin/check-consumer-config.php already tolerates one for .editorconfig.
+ * Looped, not a single strip: reproduced the same false-accept one BOM stack
+ * deeper (two concatenated UTF-8 BOMs) against a single `if`-shaped strip.
+ *
+ * UTF-16/UTF-32 BOMs are deliberately NOT handled: a file genuinely saved in one
+ * of those encodings has every byte doubled or quadrupled throughout, not just a
+ * marker prefix on otherwise-UTF-8 content — this gate's byte-oriented line
+ * splitting and regex would not usefully parse the rest of such a file either, so
+ * stripping only the marker would not make the file readable. Out of scope, the
+ * same way a full gitattributes grammar is out of scope two paragraphs up.
  *
  * @param string $contents The raw file contents.
  *
@@ -111,7 +120,9 @@ $parseExportIgnorePaths = static function (string $contents): array {
     /** @var array<array-key, bool> $state */
     $state = [];
 
-    $contents = str_starts_with($contents, "\xEF\xBB\xBF") ? substr($contents, 3) : $contents;
+    while (str_starts_with($contents, "\xEF\xBB\xBF")) {
+        $contents = substr($contents, 3);
+    }
 
     foreach (preg_split('/\r\n|\r|\n/', $contents) ?: [] as $line) {
         $trimmed = trim($line);
@@ -244,7 +255,9 @@ $violations = [];
 
 foreach ($templatePaths as $path) {
     // A NUL byte in a captured path (`\S` does not exclude it) throws a ValueError
-    // out of realpath() under this file's own declare(strict_types=1) — reproduced.
+    // out of realpath() regardless of this file's strict_types setting — PHP 8+
+    // rejects any NUL-byte path unconditionally, not a strict-mode-only behavior
+    // — reproduced identically on PHP 8.3/8.4/8.5 with and without strict_types.
     // Treated the same as the numeric-key case above: not a path this repository
     // "has", reported via this gate's own graceful exit paths rather than an
     // uncaught crash and a stack trace naming this file's own filesystem path.
