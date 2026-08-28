@@ -78,6 +78,10 @@
         "ci:test:gitattributes-lockstep": [
             "bash tests/check-gitattributes-lockstep-cases.sh"
         ],
+        "ci:test:release-tag": "@php tests/check-release-tag-lockstep.php",
+        "ci:test:release-tag-lockstep": [
+            "bash tests/check-release-tag-lockstep-cases.sh"
+        ],
         "ci:test:templates": [
             "bash tests/check-consumer-config-cases.sh"
         ],
@@ -96,6 +100,8 @@
         "ci:test:version-lockstep": "Fixture-driven cases proving the version lockstep gate reports a stale README pin, a missing pin and an unreadable file — run against this repository alone it only ever takes the happy path.",
         "ci:test:gitattributes": "Assert this repository's own .gitattributes export-ignores every templates/gitattributes entry that names a path this repository actually has, so a future template addition cannot silently leave this package's own dist archive out of step.",
         "ci:test:gitattributes-lockstep": "Fixture-driven cases proving the gitattributes lockstep gate accepts a repository that is not applicable to a given template entry and rejects every drift class — run against this repository alone it only ever takes the happy path.",
+        "ci:test:release-tag": "Assert the release tag package.json's version names actually resolves on the remote and, if it does, that it is an ancestor of HEAD — i.e. that this branch's own history actually contains it — the two failure shapes ci:test:version cannot see, since it only ever compares two copies inside this repository. Runs on push to main only (see .github/workflows/ci.yml); no matching tag yet is not a violation.",
+        "ci:test:release-tag-lockstep": "Fixture-driven cases proving the release tag gate accepts an unresolved tag, accepts a resolved tag that is HEAD or an ancestor of it, rejects a resolved tag whose commit is outside this branch's history, and reports a transport failure, a malformed version, an unborn HEAD, and a resolve-but-cannot-fetch/cannot-resolve-to-a-commit remote state each as a setup failure rather than silently — against disposable local git repositories, never the real network.",
         "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:disallowed-calls": "Fixture-driven cases proving the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Requires tests/consumer to be installed.",
         "ci:test:phpunit": "Runs this repository's own PHPUnit suite (tests/Support and GateTestCase's meta-tests) — not the fixture-driven bash suites, which have their own ci:test:* scripts."

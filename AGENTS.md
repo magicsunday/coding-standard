@@ -278,6 +278,26 @@ directory that matches how it is consumed, never at the root for convenience.
   it reads no git, so the TAG is kept in step by bumping all of them in the same
   commit as the tag, not by the gate. The gate fails closed if the README documents no pin at all, so deleting
   the instructions cannot make it pass vacuously.
+  **`ci:test:version` cannot see the git side it deliberately reads no git for** (GH-42):
+  it is green the moment package.json and every README pin agree with EACH OTHER, even
+  when the tag they now agree on does not exist yet on GitHub, or exists but names a
+  commit this repository's own history never contains. `composer ci:test:release-tag`
+  closes the second shape — the first already fails loudly for a consumer trying the pin
+  too early, so it is deliberately not this gate's concern either. It runs
+  `git ls-remote`/`git fetch` against the real `origin`, only on a push to `main` (never
+  on the release PR, where the tag legitimately does not exist yet). **It checks
+  ancestry (`git merge-base --is-ancestor <tag-commit> HEAD`), not tree equality against
+  `HEAD`** — a tree-equality design shipped first and briefly, and an adversarial review
+  caught it live against this repository's own history before it reached `main`:
+  `package.json`'s `version` is bumped only at release time, and the tag is routinely
+  cut from a LATER commit than the one that bumped it, so `HEAD` keeps moving on every
+  ordinary post-release commit while the tag does not — a tree-equality check reports
+  that routine gap as the drift violation on every single one of them. Ancestry does
+  not: once cut, a tag stays an ancestor of `HEAD` for the life of the branch, and the
+  same reasoning is why this never runs on `release: published` either (that event
+  checks out the tag itself as `HEAD`, making an ancestry check trivially true and
+  proving nothing). Detail: tests/check-release-tag-lockstep.php's own docblock and the
+  README's "Releasing this package" section.
   **Narrowing an npm peer range ships as a MINOR, and the release notes say so.** In
   the npm ecosystem a raised peer floor is the canonical breaking change — npm 7+
   answers a conflict with a hard `ERESOLVE`, not a warning — so the reflex is to call
