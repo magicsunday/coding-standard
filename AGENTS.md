@@ -284,8 +284,13 @@ directory that matches how it is consumed, never at the root for convenience.
   commit this repository's own history never contains. `composer ci:test:release-tag`
   closes the second shape — the first already fails loudly for a consumer trying the pin
   too early, so it is deliberately not this gate's concern either. It runs
-  `git ls-remote`/`git fetch` against the real `origin`, only on a push to `main` (never
-  on the release PR, where the tag legitimately does not exist yet). **It checks
+  `git ls-remote`/`git fetch` against the real `origin`, on TWO triggers — an ordinary
+  push to `main` (`.github/workflows/ci.yml`, a continuous safety net) and every
+  `push: tags:` (`.github/workflows/release-tag-lockstep.yml`, checked out against
+  `main`'s own tip, closing the window a tag push alone would otherwise leave unchecked
+  between tag creation and the next ordinary commit — `git push --tags` is a separate
+  command from `git push origin main` and triggers no `push: branches:` workflow at
+  all) — never on the release PR, where the tag legitimately does not exist yet. **It checks
   ancestry (`git merge-base --is-ancestor <tag-commit> HEAD`), not tree equality against
   `HEAD`** — a tree-equality design shipped first and briefly, and an adversarial review
   caught it live against this repository's own history before it reached `main`:

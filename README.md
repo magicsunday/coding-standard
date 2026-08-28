@@ -700,13 +700,24 @@ orphaned branch, a rewritten commit, or a plain mistake). The first is what a
 consumer's `npm install` hits in the gap between the version-bump commit and the tag
 push that follows it, and fails loudly for them when it happens; the second is silent
 — `npm install` succeeds and installs whatever that commit contains.
-`composer ci:test:release-tag` closes the second shape: on every push to `main` it
-resolves the tag `package.json`'s `version` names against the real `origin` and, once
-that tag exists, asserts it is an ancestor of `HEAD` — i.e. that this branch's own
-history actually contains it. No tag yet is not a violation — the first shape already
-fails loudly for a consumer, so nothing here needs to fail loudly a second time for the
-same reason. It never runs on a pull request, since the release PR is the one place the
-tag legitimately does not exist yet.
+`composer ci:test:release-tag` closes the second shape: it resolves the tag
+`package.json`'s `version` names against the real `origin` and, once that tag exists,
+asserts it is an ancestor of `HEAD` — i.e. that this branch's own history actually
+contains it. No tag yet is not a violation — the first shape already fails loudly for
+a consumer, so nothing here needs to fail loudly a second time for the same reason. It
+never runs on a pull request, since the release PR is the one place the tag
+legitimately does not exist yet.
+
+Two workflow triggers call it, for two different reasons. `.github/workflows/ci.yml`
+runs it on every ordinary push to `main`, as a continuous safety net. That alone is not
+enough: `git tag`/`git push --tags` is a separate command from `git push origin main`
+and does not trigger a `push: branches:` workflow at all, so a wrong or orphaned tag
+would otherwise go unchecked from the moment it is created until whatever unrelated
+commit next lands on `main` — during which a consumer could install it.
+`.github/workflows/release-tag-lockstep.yml` closes that window: it runs the same gate
+on every `push: tags:`, checked out against `main`'s own tip rather than the tag
+itself (checking out the tag would make the ancestry check compare the tag against
+itself and prove nothing).
 
 An earlier version of this gate compared the tag's tree to `HEAD`'s directly instead of
 checking ancestry, and shipped briefly before an adversarial review caught it against
