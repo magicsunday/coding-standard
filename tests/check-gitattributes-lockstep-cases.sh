@@ -222,4 +222,57 @@ printf '../traversal-target    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"
 assert_accepts "$d" "a template path escaping the repository root via .. is not applicable, not a violation"
 
+# --- a template line whose path has no attribute list at all (no whitespace after
+# it) must not be treated as a requirement — the shape the block-parse regex is
+# built to reject. /orphan-path exists on disk and is NOT export-ignored in the
+# fixture's own .gitattributes, so a parser that loosened the regex enough to match
+# a bare path would turn this into a false violation; keeping the file present
+# makes that regression observable rather than vacuously passing either way. ---
+d="$(mk_case malformed-line-no-attributes)"
+mkdir -p "$d/.github"
+: > "$d/orphan-path"
+printf '/orphan-path\n/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a template line with a bare path and no attribute list is skipped, not treated as a requirement"
+
+# --- at-cap: content exactly AT MAX_GITATTRIBUTES_BYTES must still be read in
+# full and compared, not silently truncated. The oversize cases above only prove
+# content past the cap is rejected; a bound shrunk by mutation would still trip
+# those (they sit far past any plausible shrunk value) while truncating a
+# legitimate file near the real cap — this is the counterpart that catches that,
+# mirroring tests/check-version-lockstep-cases.sh's own at-cap-package-json/
+# at-cap-readme pair. Padding is a trailing comment line, verified to land the
+# file at EXACTLY the cap before the gate ever sees it. ---
+pad_to_cap() { # <bound> <real-content> <out-file>
+    local bound="$1" body="$2" out_file="$3"
+    php -r '
+        $bound = (int) $argv[1];
+        $body  = $argv[2];
+        // Fixed overhead of the appended comment line: "# " (2 bytes) + "\n" (1 byte).
+        $pad   = $bound - strlen($body) - 3;
+        $out   = $body . "# " . str_repeat("a", $pad) . "\n";
+
+        if (strlen($out) !== $bound) {
+            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
+            exit(1);
+        }
+
+        file_put_contents($argv[3], $out);
+    ' "$bound" "$body" "$out_file"
+}
+
+d="$(mk_case at-cap-template)"
+mkdir -p "$d/.github"
+pad_to_cap 1048576 '/.github    export-ignore
+' "$d/templates/gitattributes"
+printf '/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a templates/gitattributes exactly at the size cap is still read in full"
+
+d="$(mk_case at-cap-own)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+pad_to_cap 1048576 '/.github    export-ignore
+' "$d/.gitattributes"
+assert_accepts "$d" "a .gitattributes exactly at the size cap is still read in full"
+
 verdict
