@@ -1,0 +1,58 @@
+name: Release tag lockstep
+
+# GH-42: `push: branches: [main]` in ci.yml already runs this gate on every
+# ordinary commit — but a `git push --tags` (the second, separate command the
+# release procedure names) is a TAG push, not a branch push, so it never
+# triggers that workflow at all. Between a wrong/orphaned tag being created and
+# the next unrelated commit landing on `main`, nothing checks it and a
+# consumer can install it in the meantime. This workflow closes that window:
+# it runs the SAME gate immediately once the tag exists, checked out against
+# `main`'s own tip rather than the tag itself (see the job's own comment for
+# why that distinction matters).
+on:
+    push:
+        tags:
+            - "*"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    release-tag:
+        name: Release tag lockstep gate (tag push)
+        runs-on: ubuntu-latest
+
+        steps:
+            # `ref: main`, not the default (the tag that triggered this run):
+            # checking out the tag itself would make `HEAD` and the resolved
+            # tag the exact same commit, so the gate's ancestry check could
+            # never disagree with itself and would prove nothing — the same
+            # reasoning tests/check-release-tag-lockstep.php's own docblock
+            # gives for why this gate never runs on `release: published`
+            # either. No `fetch-depth` override: the gate itself already
+            # detects and repairs a shallow checkout before it needs to walk
+            # history (`git rev-parse --is-shallow-repository` + `git fetch
+            # --unshallow`), so asserting the same thing again here would
+            # only duplicate that concern in a second place.
+            - name: Checkout main
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: main
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: "8.5"
+                  tools: composer:v2
+                  coverage: none
+
+            - name: Install dependencies
+              run: composer install --prefer-dist --no-interaction --no-progress
+
+            - name: Release tag lockstep gate
+              run: composer ci:test:release-tag

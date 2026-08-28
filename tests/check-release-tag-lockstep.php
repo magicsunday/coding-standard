@@ -58,9 +58,17 @@ declare(strict_types=1);
  *
  * Why this cannot run on `pull_request`: the release PR is the one place
  * where the tag legitimately does not exist yet, so a check that demanded it
- * would block every release. It runs on `push` to `main` instead (see
- * .github/workflows/ci.yml's `if: github.event_name == 'push'` guard on the
- * step that calls this).
+ * would block every release. Two triggers call it instead, for two different
+ * reasons: `push` to `main` in .github/workflows/ci.yml (`if:
+ * github.event_name == 'push'` on the step that calls this) re-checks
+ * ancestry on every ordinary commit, cheaply, as a continuous safety net;
+ * .github/workflows/release-tag-lockstep.yml additionally runs it on every
+ * `push: tags:`, checked out against `main`'s own tip rather than the tag
+ * itself — `git tag`/`git push --tags` is a separate command from `git push
+ * origin main` and does not trigger a `push: branches:` workflow at all, so
+ * without this second trigger a wrong or orphaned tag would go unchecked
+ * from the moment it is created until whatever unrelated commit next lands
+ * on `main`, and a consumer could install it in the meantime.
  *
  * Exit codes: 0 is a pass (including the "nothing to check yet" case above),
  * 1 is the drift verdict (shape 2), 2 says the gate could not run at all — an
@@ -295,6 +303,18 @@ function runGit(array $argv): array
 
         usleep(50000);
     }
+
+    // One more drain after the loop observed the process as no longer
+    // running: the child can still write its FINAL bytes in the gap between
+    // this iteration's two read calls above and the `running` check that
+    // broke the loop — `git rev-parse` writing its SHA and exiting is short
+    // enough for exactly that interleaving. Skipping this final read risked
+    // losing those bytes silently, turning a genuinely successful run into
+    // `$tagCommit` reading empty and a false setup failure downstream.
+    $chunk = stream_get_contents($pipes[1]);
+    $stdout .= $chunk === false ? '' : $chunk;
+    $chunk = stream_get_contents($pipes[2]);
+    $stderr .= $chunk === false ? '' : $chunk;
 
     fclose($pipes[1]);
     fclose($pipes[2]);
