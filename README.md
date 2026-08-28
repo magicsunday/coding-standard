@@ -697,10 +697,10 @@ README pin in the same commit as the tag.
 `templates/gitattributes` is shipped for consumers to copy, and this package applies
 it to itself too — repository root is this package's own dev config, all
 `export-ignore`d, so a consumer never receives it. Nothing enforced that until GH-38:
-when the template gained seven entries (`package.json`, `biome.json`, `tsconfig.json`
-and four more), this repository's own `.gitattributes` gained none of them, and
-`git archive` — what Packagist serves — shipped npm-only dev tooling into every
-Composer consumer's dist tarball.
+this repository's own `.gitattributes` had never mirrored `/.build`, present in
+`templates/gitattributes` since that file's first commit. `/.build` is also
+gitignored here, so the gap never leaked into an actual dist archive — the value of
+the gate is closing it before a future template addition is one that would.
 
 `composer ci:test:gitattributes` re-derives, from `templates/gitattributes`, every
 path this repository actually has and asserts its own `.gitattributes` export-ignores
