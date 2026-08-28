@@ -20,8 +20,10 @@ declare(strict_types=1);
  * the value of a gate is closing it before the next template addition is one that
  * matters. (An earlier version of this comment attributed the gap to a "widened
  * template" incident involving package.json/biome.json/tsconfig.json — that never
- * happened: those three were added to templates/gitattributes and reverted again
- * within the same PR, before merge, per its review-comment thread.)
+ * happened: package.json was added to templates/gitattributes and removed again;
+ * biome.json/biome.jsonc/tsconfig.json were added active and then commented out,
+ * never removed — both within the same PR, before merge, per its review-comment
+ * thread.)
  *
  * The qualifier is the whole difficulty: the template lists paths a consumer has
  * that THIS package does not (rector.php, infection.json5 — this package ships the
@@ -36,9 +38,9 @@ declare(strict_types=1);
  * directory too): the template never lists them as export-ignore candidates in the
  * first place — they are package content, not a copy-and-adapt dev-tooling file —
  * so they never enter this gate's comparison. Likewise the template's OWN
- * commented-out lines (`#/biome.json export-ignore` and its two neighbours, kept
- * inactive on purpose — see templates/gitattributes' header) are skipped exactly
- * like any other comment; a commented-out directive is not a requirement.
+ * commented-out lines (e.g. `#/biome.json export-ignore` — see templates/gitattributes'
+ * header for the full set, kept inactive on purpose) are skipped exactly like any
+ * other comment; a commented-out directive is not a requirement.
  *
  * Run from the package root: php tests/check-gitattributes-lockstep.php
  *
@@ -72,21 +74,23 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * `export-ignore` attribute.
  *
  * Comment lines (leading `#`, which also covers a line that comments OUT a
- * directive — templates/gitattributes keeps three deliberately inactive, see this
+ * directive — templates/gitattributes keeps some deliberately inactive, see this
  * file's own docblock) and blank lines are skipped. Every remaining line names a
  * path followed by a whitespace-separated attribute list.
  *
- * State per path, not a plain append: gitattributes(5) has a later line override an
- * earlier one for the same path, so `/x export-ignore` followed later by
- * `/x -export-ignore` leaves `/x` NOT export-ignored — the file's real,
- * git-effective state. An earlier version of this function only ever appended on
- * the positive token and never removed on the negative one, so a later negation was
- * silently ignored and a path that had genuinely stopped being export-ignored still
- * read as satisfied — a green-while-red gap in the one file half of this gate exists
- * to catch drift in. Tracking `true`/`false` per path and keeping only the paths
- * whose LAST occurrence was positive reproduces gitattributes' own last-line-wins
- * rule; a path mentioned only with `-export-ignore` (no earlier positive) is
- * correctly excluded by the same mechanism, with no separate negation check needed.
+ * State per path, not a plain append: gitattributes(5) has a later TOKEN override an
+ * earlier one for the same path, both across lines (`/x export-ignore` followed later
+ * by `/x -export-ignore` leaves `/x` NOT export-ignored) and within one line (`/x
+ * export-ignore -export-ignore` is ALSO not export-ignored — the trailing token wins
+ * there too) — the file's real, git-effective state either way. An earlier version of
+ * this function only ever appended on the positive token and never removed on the
+ * negative one, so a later negation was silently ignored and a path that had genuinely
+ * stopped being export-ignored still read as satisfied — a green-while-red gap in the
+ * one file half of this gate exists to catch drift in. Iterating $attributes in order
+ * and letting each token overwrite $state as it is encountered reproduces
+ * gitattributes' own last-token-wins rule at both granularities; a path mentioned only
+ * with `-export-ignore` (no earlier positive) is correctly excluded by the same
+ * mechanism, with no separate negation check needed.
  *
  * A full gitattributes grammar (glob patterns, macros, `**`) is out of scope: every
  * line either file writes anchors an exact `/path`, so an exact-string comparison
@@ -94,11 +98,11 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  *
  * @param string $contents The raw file contents.
  *
- * @return list<string> The paths whose LAST occurrence carries an active
+ * @return list<string> The paths whose LAST token carries an active
  *                       `export-ignore` attribute.
  */
 $parseExportIgnorePaths = static function (string $contents): array {
-    /** @var array<string, bool> $state */
+    /** @var array<array-key, bool> $state */
     $state = [];
 
     foreach (preg_split('/\r\n|\r|\n/', $contents) ?: [] as $line) {
@@ -114,24 +118,43 @@ $parseExportIgnorePaths = static function (string $contents): array {
 
         $attributes = preg_split('/\s+/', trim($matches[2])) ?: [];
 
-        if (in_array('export-ignore', $attributes, true)) {
-            $state[$matches[1]] = true;
-        } elseif (in_array('-export-ignore', $attributes, true)) {
-            $state[$matches[1]] = false;
+        // Iterated in order, not two independent in_array() presence checks: a
+        // presence check cannot tell `export-ignore -export-ignore` (unset) from
+        // `-export-ignore export-ignore` (set) on the SAME line, because both
+        // tokens are simply present either way. Assigning as each token is reached
+        // makes the textually last one win, matching git's own within-line rule —
+        // reproduced against a real checkout: `git check-attr export-ignore` on a
+        // line ending in `-export-ignore` reports `unset` regardless of what an
+        // earlier token on that line said.
+        foreach ($attributes as $attribute) {
+            if ($attribute === 'export-ignore') {
+                $state[$matches[1]] = true;
+            } elseif ($attribute === '-export-ignore') {
+                $state[$matches[1]] = false;
+            }
         }
     }
 
-    return array_keys(array_filter($state));
+    // array_keys() on a $state whose key happens to be a canonical-integer string
+    // (a template line naming a bare numeric path with no leading slash — content
+    // this gate treats as pull-request-controlled) comes back as PHP's own int key,
+    // not the string $matches[1] captured it as; strval() restores the list<string>
+    // this function's own signature promises, so a numeric path cannot reach
+    // ltrim()'s string-typed parameter below as an int and throw under
+    // declare(strict_types=1) instead of this gate's own graceful exit paths.
+    return array_map('strval', array_keys(array_filter($state)));
 };
 
 /**
  * Reads a lockstep file capped at MAX_GITATTRIBUTES_BYTES, reporting an oversize or
  * unreadable file and exiting(2) — a setup failure, distinct from the drift verdict
  * (exit 1) this gate otherwise reports. Both this gate's file reads shared this
- * three-branch block verbatim before this closure existed; bin/check-consumer-config.php's
- * own `$readBounded` was extracted at the same 2-copy threshold, for the same reason
- * its docblock gives: a duplicated read block drifts (a message updated at one call
- * site and not the other) exactly the way a duplicated report line does.
+ * three-branch block verbatim before this closure existed — extracted at this
+ * repository's own 2+-duplicate threshold. bin/check-consumer-config.php's own
+ * `$readBounded` consolidated a duplicated read block too, for a related but
+ * distinct reason (see that file's own docblock: it replaced SIX copies that used
+ * to substitute an empty string for an oversize read, which fabricated violations
+ * on the truncated content — not this closure's motivation).
  *
  * @param string $path Path to the file to read.
  *

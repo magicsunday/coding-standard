@@ -105,6 +105,29 @@ printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
 printf '/.github    -export-ignore\n/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a later export-ignore line for the same path overrides an earlier negation"
 
+# --- the SAME rule one level down: two tokens for one path on a SINGLE line, not
+# two lines. A parser deciding a line by "does export-ignore appear anywhere in its
+# attribute list" (checked before "-export-ignore") cannot tell `export-ignore
+# -export-ignore` (real git verdict: unset) from `-export-ignore export-ignore`
+# (real git verdict: set) — both tokens are simply present either way. Only
+# iterating the tokens in order and letting each overwrite the state as it is
+# reached reproduces git's real, git-effective last-TOKEN-wins rule here too
+# (verified against a real checkout: `git check-attr export-ignore` on a line
+# ending in `-export-ignore` reports `unset` regardless of an earlier token on that
+# same line). ---
+d="$(mk_case same-line-negation-overrides-earlier-token)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore -export-ignore\n' > "$d/.gitattributes"
+assert_rejects "$d" "a later -export-ignore TOKEN on the same line overrides an earlier export-ignore token" \
+    '/.github: missing `export-ignore`'
+
+d="$(mk_case same-line-positive-overrides-earlier-token)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    -export-ignore export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a later export-ignore TOKEN on the same line overrides an earlier negation token"
+
 # --- a path present with only an unrelated attribute is still missing the one
 # this gate asserts ---
 d="$(mk_case unrelated-attribute)"
@@ -235,44 +258,43 @@ printf '/orphan-path\n/.github    export-ignore\n' > "$d/templates/gitattributes
 printf '/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a template line with a bare path and no attribute list is skipped, not treated as a requirement"
 
+# --- a template line naming a canonical-integer-string path (no leading slash)
+# must not crash the applicability check. PHP casts such a string USED AS AN
+# ARRAY KEY to an int, so $parseExportIgnorePaths()'s $state map would hand back
+# an int where its own signature promises list<string> — and this file declares
+# strict_types=1, so that int reaching ltrim()'s string-typed first parameter
+# throws an uncaught TypeError instead of this gate's own graceful exit path. The
+# numeric line sits FIRST so the crash (if the strval() fix regresses) happens
+# before /.github is ever reached. ---
+d="$(mk_case numeric-path-does-not-crash)"
+mkdir -p "$d/.github"
+printf '123    export-ignore\n/.github    export-ignore\n' > "$d/templates/gitattributes"
+printf '/.github    export-ignore\n' > "$d/.gitattributes"
+assert_accepts "$d" "a template line naming a bare numeric path does not crash the applicability check"
+
 # --- at-cap: content exactly AT MAX_GITATTRIBUTES_BYTES must still be read in
 # full and compared, not silently truncated. The oversize cases above only prove
 # content past the cap is rejected; a bound shrunk by mutation would still trip
 # those (they sit far past any plausible shrunk value) while truncating a
 # legitimate file near the real cap — this is the counterpart that catches that,
 # mirroring tests/check-version-lockstep-cases.sh's own at-cap-package-json/
-# at-cap-readme pair. Padding is a trailing comment line, verified to land the
-# file at EXACTLY the cap before the gate ever sees it. ---
-pad_to_cap() { # <bound> <real-content> <out-file>
-    local bound="$1" body="$2" out_file="$3"
-    php -r '
-        $bound = (int) $argv[1];
-        $body  = $argv[2];
-        // Fixed overhead of the appended comment line: "# " (2 bytes) + "\n" (1 byte).
-        $pad   = $bound - strlen($body) - 3;
-        $out   = $body . "# " . str_repeat("a", $pad) . "\n";
-
-        if (strlen($out) !== $bound) {
-            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
-            exit(1);
-        }
-
-        file_put_contents($argv[3], $out);
-    ' "$bound" "$body" "$out_file"
-}
+# at-cap-readme pair, via the same shared harness_pad_text_to_cap this file's own
+# at-cap-readme case now uses too. Padding is a trailing comment line, verified by
+# the helper's own self-check to land the file at EXACTLY the cap before the gate
+# ever sees it. ---
+body='/.github    export-ignore
+'
 
 d="$(mk_case at-cap-template)"
 mkdir -p "$d/.github"
-pad_to_cap 1048576 '/.github    export-ignore
-' "$d/templates/gitattributes"
+harness_pad_text_to_cap 1048576 "$body# " a $'\n' "$d/templates/gitattributes"
 printf '/.github    export-ignore\n' > "$d/.gitattributes"
 assert_accepts "$d" "a templates/gitattributes exactly at the size cap is still read in full"
 
 d="$(mk_case at-cap-own)"
 mkdir -p "$d/.github"
 printf '/.github    export-ignore\n' > "$d/templates/gitattributes"
-pad_to_cap 1048576 '/.github    export-ignore
-' "$d/.gitattributes"
+harness_pad_text_to_cap 1048576 "$body# " a $'\n' "$d/.gitattributes"
 assert_accepts "$d" "a .gitattributes exactly at the size cap is still read in full"
 
 verdict
