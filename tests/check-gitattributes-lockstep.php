@@ -225,7 +225,15 @@ if (count($templatePaths) === 0) {
 // failure — the same three-way split bin/check-consumer-config.php's REQUIRED
 // phpunit.xml read applies, and for the same reason: is_file() is checked before
 // the read so a permissions problem is not misreported as "no file here".
-$ownContents = is_file($ownPath) ? $readOrExit($ownPath) : '';
+//
+// is_link() is checked FIRST and, if true, forces the same empty-content path as
+// absent — is_file() alone follows a symlink and would read whatever regular
+// file it points to. Git itself does not: a symlinked .gitattributes is not
+// read for attribute purposes at all (reproduced with git check-attr and git
+// archive), so a symlink here is exactly as ineffective as no file, and
+// treating it as such is what makes this gate certify the same archive git
+// itself will produce rather than the target file's content.
+$ownContents = (is_file($ownPath) && !is_link($ownPath)) ? $readOrExit($ownPath) : '';
 $ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 
 // realpath() proves containment, never string surgery on $path: templates/gitattributes
