@@ -774,9 +774,22 @@ harness_probe_inert_shapes() {
     harness_fake_report='  - x: nothing wrong here'
     harness_report_is_inert php /nonexistent 'probe: a must-carry value absent from the report' \
         'a payload this report never carries'
+
+    # The 5th-argument arm (GH-42): a caller can declare an expected exit code
+    # other than the drift-verdict default (1) — check-release-tag-lockstep-cases.sh
+    # does, for the one poison case whose forge-prone value is rejected before
+    # the drift verdict is even reachable. Without this arm, `${5:-1}` silently
+    # degrading to "any exit code is accepted" (dropping the comparison
+    # entirely) would stay green: every probe above stubs `harness_fake_rc=1`
+    # and passes no 5th argument, so none of them exercises this parameter at
+    # all. `harness_fake_rc` deliberately stays 1 here while the 5th argument
+    # declares 2, so the mismatch is what this arm's `reason` must catch.
+    harness_fake_report='  - x: nothing wrong here'
+    harness_report_is_inert php /nonexistent 'probe: a declared exit code the gate did not actually return' \
+        'nothing wrong here' 2
 }
 
-harness_probe_reporters 9 harness_probe_inert_shapes \
+harness_probe_reporters 10 harness_probe_inert_shapes \
     'harness_report_is_inert has an arm that no longer decides'
 
 # harness_assert_no_stray_increments <expected-count>

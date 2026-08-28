@@ -261,10 +261,14 @@ assert_usage_error "$d" "a tag resolving to a blob rather than a commit is repor
 
 # --- HEAD itself cannot be resolved to a commit — an unborn HEAD (a repository
 # with no local commit at all, though its remote already carries a real,
-# fetchable, resolvable tag). Every other error-exit branch in this gate has a
-# discriminating case; this one did not until an independent review found the
-# gap: deleting the check entirely (falling through to an empty/garbage
-# $headTreeSha equivalent) survived every other case in this file silently. ---
+# fetchable, resolvable tag). The shallow-repository probe still SUCCEEDS here
+# (`git rev-parse --is-shallow-repository` answers `false` on an unborn HEAD
+# too), so the failure this case pins is `merge-base --is-ancestor` itself
+# reporting 128. Asserted on the message's own TAIL ("is an ancestor of
+# HEAD"), not the "Could not determine whether" prefix both this message and
+# the shallow-detection failure message share — the shared prefix would keep
+# passing even if a regression redirected this exact input into the OTHER
+# branch instead. ---
 d="$work/unborn-head"
 mkdir -p "$d"
 git init -q "$d"
@@ -284,7 +288,7 @@ printf '{\n    "version": "1.0.0"\n}\n' > "$d/package.json"
 git -C "$d" remote add origin "$origin"
 CHECK_RELEASE_TAG_REMOTE="$origin" harness_usage_error "$gate" "$d" \
     "an unborn local HEAD is reported as a setup failure, not misread as a resolvable commit" \
-    "Could not determine whether"
+    "is an ancestor of HEAD"
 
 # --- a genuinely SHALLOW checkout (the `actions/checkout` default this
 # repository's own CI runs under — `fetch-depth: 1`, unset because none of

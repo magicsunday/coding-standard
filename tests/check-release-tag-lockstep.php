@@ -154,6 +154,101 @@ function stillRunning($process): bool
 }
 
 /**
+ * Reads whatever is currently buffered on both non-blocking pipes and
+ * appends it to $stdout/$stderr.
+ *
+ * A named helper rather than the two-line pair repeated inline: runGit()'s
+ * own polling loop, the drain after that loop observes the process as no
+ * longer running (a child can still write its FINAL bytes in the gap
+ * between one iteration's read and the `running` check that follows —
+ * `git rev-parse` writing its SHA and exiting is short enough for exactly
+ * that interleaving, and losing those bytes silently turned a genuinely
+ * successful run into a confusing setup failure downstream), and any future
+ * call site all need the identical two reads.
+ *
+ * @param array{1: resource, 2: resource} $pipes  The stdout/stderr pipes,
+ *                                                 already set non-blocking.
+ * @param string                          $stdout Accumulator, by reference.
+ * @param string                          $stderr Accumulator, by reference.
+ */
+function drainPipes(array $pipes, string &$stdout, string &$stderr): void
+{
+    $chunk = stream_get_contents($pipes[1]);
+    $stdout .= $chunk === false ? '' : $chunk;
+    $chunk = stream_get_contents($pipes[2]);
+    $stderr .= $chunk === false ? '' : $chunk;
+}
+
+/**
+ * Kills $process's whole process group, escalating from SIGTERM to SIGKILL.
+ *
+ * Split out of runGit()'s own timeout branch, which PHPMD flagged as too
+ * long/complex once this escalation grew a grace period and a group-wide
+ * SIGKILL sweep on top of the original single SIGTERM — the same complexity
+ * this repository's own `use function`/early-return conventions exist to
+ * keep in check.
+ *
+ * @param resource $process The process resource from proc_open().
+ * @param int      $pid     The PID proc_open() tracks — also the process
+ *                          GROUP id, since runGit() launches every command
+ *                          through `setsid`.
+ */
+function killProcessGroup($process, int $pid): void
+{
+    // The group-wide signal first: on the (network-bound) calls this matters
+    // for, the process proc_open() tracks has already exec'd into a helper
+    // of its own, and proc_terminate() alone reaches only that top PID, not
+    // the group setsid put it in charge of.
+    if (function_exists('posix_kill')) {
+        posix_kill(-$pid, \SIGTERM);
+    }
+
+    proc_terminate($process);
+
+    // A brief grace period for an ordinary process to actually exit on
+    // SIGTERM before escalating — bounded, so this cannot itself turn into
+    // the unbounded wait GIT_TIMEOUT_SECONDS exists to prevent. SIGKILL,
+    // unlike SIGTERM, cannot be caught, blocked or ignored, so it is what
+    // actually makes the bound a HARD one rather than a request a stuck
+    // process is free to sit on — proc_close() in the caller blocks until
+    // the process is gone, so without this escalation a SIGTERM-resistant
+    // process would make GIT_TIMEOUT_SECONDS mean nothing.
+    for ($i = 0; $i < 20; $i++) {
+        if (!stillRunning($process)) {
+            break;
+        }
+
+        usleep(100000);
+    }
+
+    // Unconditional, not gated on stillRunning($process) again: that call
+    // reports only the process proc_open() itself tracks (the group LEADER
+    // after setsid), so a leader that already exited while a descendant it
+    // spawned (a `git-remote-https` helper) did not would read as "not
+    // running" and skip this — leaving exactly the descendant leak `setsid`
+    // exists to let this reach. A signal to an already-empty process group
+    // is a harmless no-op (posix_kill()/proc_terminate() on a gone PID/PGID
+    // fail silently), so sending it unconditionally costs nothing on the
+    // common path where SIGTERM alone already finished the job.
+    //
+    // Accepted, not closed: $pid could in principle be RECYCLED by the
+    // kernel into an unrelated process's own PGID between the leader exiting
+    // and this call, making that kill target the wrong group. Closing that
+    // fully needs a stable handle a raw PID is not (Linux
+    // `pidfd_send_signal`, unavailable from PHP without a C extension) —
+    // disproportionate for a race this narrow (a single specific recycled
+    // PID becoming another process's OWN group leader inside a two-second
+    // window) guarding an already-rare trigger (a hung git network call) on
+    // a path that only ever bounds worst-case CI duration and never affects
+    // the gate's own ancestry verdict.
+    if (function_exists('posix_kill')) {
+        posix_kill(-$pid, \SIGKILL);
+    }
+
+    proc_terminate($process, \SIGKILL);
+}
+
+/**
  * Runs a git subcommand without a shell, bounded by GIT_TIMEOUT_SECONDS, and
  * reports its outcome.
  *
@@ -213,82 +308,14 @@ function runGit(array $argv): array
     $deadline = microtime(true) + GIT_TIMEOUT_SECONDS;
 
     while (true) {
-        $chunk = stream_get_contents($pipes[1]);
-        $stdout .= $chunk === false ? '' : $chunk;
-        $chunk = stream_get_contents($pipes[2]);
-        $stderr .= $chunk === false ? '' : $chunk;
+        drainPipes($pipes, $stdout, $stderr);
 
         if (!proc_get_status($process)['running']) {
             break;
         }
 
         if (microtime(true) > $deadline) {
-            $pid = proc_get_status($process)['pid'];
-
-            // The group-wide signal first: on the (network-bound) calls this
-            // matters for, the process proc_open() tracks has already exec'd
-            // into a helper of its own, and proc_terminate() alone reaches
-            // only that top PID, not the group setsid put it in charge of.
-            if (function_exists('posix_kill')) {
-                posix_kill(-$pid, \SIGTERM);
-            }
-
-            proc_terminate($process);
-
-            // A brief grace period for an ordinary process to actually exit on
-            // SIGTERM before escalating — bounded, so this cannot itself turn
-            // into the unbounded wait GIT_TIMEOUT_SECONDS exists to prevent.
-            // SIGKILL, unlike SIGTERM, cannot be caught, blocked or ignored,
-            // so it is what actually makes the bound a HARD one rather than a
-            // request a stuck process is free to sit on — proc_close() below
-            // blocks until the process is gone, so without this escalation a
-            // SIGTERM-resistant process would make GIT_TIMEOUT_SECONDS mean
-            // nothing.
-            //
-            // Routed through stillRunning() rather than a second inline
-            // `proc_get_status($process)['running']`: PHPStan treats
-            // proc_get_status() as a pure function of $process and folds a
-            // repeated call to the SAME expression back to the one this same
-            // `while` loop already narrowed a few lines above
-            // (`booleanNot.alwaysFalse`/`if.alwaysTrue`) — it has no model of
-            // a signal sent to the underlying OS process changing that
-            // process's live state between calls. A named wrapper is a
-            // different expression, so nothing to fold.
-            for ($i = 0; $i < 20; $i++) {
-                if (!stillRunning($process)) {
-                    break;
-                }
-
-                usleep(100000);
-            }
-
-            // Unconditional, not gated on stillRunning($process) again: that
-            // call reports only the process proc_open() itself tracks (the
-            // group LEADER after setsid), so a leader that already exited
-            // while a descendant it spawned (a `git-remote-https` helper)
-            // did not would read as "not running" and skip this — leaving
-            // exactly the descendant leak `setsid` exists to let this reach.
-            // A signal to an already-empty process group is a harmless no-op
-            // (posix_kill()/proc_terminate() on a gone PID/PGID fail
-            // silently), so sending it unconditionally costs nothing on the
-            // common path where SIGTERM alone already finished the job.
-            //
-            // Accepted, not closed: $pid could in principle be RECYCLED by
-            // the kernel into an unrelated process's own PGID between the
-            // leader exiting and this call, making that kill target the
-            // wrong group. Closing that fully needs a stable handle a raw
-            // PID is not (Linux `pidfd_send_signal`, unavailable from PHP
-            // without a C extension) — disproportionate for a race this
-            // narrow (a single specific recycled PID becoming another
-            // process's OWN group leader inside a two-second window) guarding
-            // an already-rare trigger (a hung git network call) on a path
-            // that only ever bounds worst-case CI duration and never affects
-            // the gate's own ancestry verdict.
-            if (function_exists('posix_kill')) {
-                posix_kill(-$pid, \SIGKILL);
-            }
-
-            proc_terminate($process, \SIGKILL);
+            killProcessGroup($process, proc_get_status($process)['pid']);
 
             fclose($pipes[1]);
             fclose($pipes[2]);
@@ -311,10 +338,7 @@ function runGit(array $argv): array
     // enough for exactly that interleaving. Skipping this final read risked
     // losing those bytes silently, turning a genuinely successful run into
     // `$tagCommit` reading empty and a false setup failure downstream.
-    $chunk = stream_get_contents($pipes[1]);
-    $stdout .= $chunk === false ? '' : $chunk;
-    $chunk = stream_get_contents($pipes[2]);
-    $stderr .= $chunk === false ? '' : $chunk;
+    drainPipes($pipes, $stdout, $stderr);
 
     fclose($pipes[1]);
     fclose($pipes[2]);
@@ -418,9 +442,16 @@ if ($fetch['exitCode'] === 0) {
 // was wrong), but IS surfaced as a diagnostic: silently leaking a local ref
 // is exactly the kind of state a later run would otherwise trip over with no
 // explanation.
+//
+// The diagnostic is gated on the fetch having actually SUCCEEDED: when it
+// did not, PROBE_REF was never created in the first place, so this same
+// `update-ref -d` fails too — for that ordinary, expected reason rather
+// than a genuinely stuck lock — and reporting it would print a confusing
+// "could not delete" note ahead of the real "could not fetch it" cause
+// below, about a ref that was never there to delete.
 $cleanup = runGit(['git', '-C', $root, 'update-ref', '-d', PROBE_REF]);
 
-if ($cleanup['exitCode'] !== 0) {
+if (($fetch['exitCode'] === 0) && ($cleanup['exitCode'] !== 0)) {
     fwrite(\STDERR, sprintf(
         "Note: could not delete the local probe ref %s afterwards: %s\n",
         safeReportValue(PROBE_REF),
