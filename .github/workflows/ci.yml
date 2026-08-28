@@ -211,6 +211,31 @@ jobs:
             - name: Gitattributes lockstep gate self-test
               run: composer ci:test:gitattributes-lockstep
 
+            # GH-42: the version lockstep gate above proves package.json's
+            # `version` and every README pin agree with EACH OTHER — both live
+            # inside this repository, so it cannot see whether the tag they
+            # name actually resolves on GitHub, or resolves to a commit this
+            # branch's own history never contains (see
+            # tests/check-release-tag-lockstep.php's own docblock for the real
+            # incident this closes, GH-31, and for why it checks ANCESTRY
+            # rather than a tree match against HEAD — a tree-equality design
+            # shipped first and was caught, on this repository's own history,
+            # false-failing every ordinary post-release commit). `if:
+            # github.event_name == 'push'` on purpose: the release PR is the
+            # one place the tag legitimately does not exist yet, so running
+            # this on `pull_request` would block every release.
+            - name: Release tag lockstep gate
+              if: github.event_name == 'push'
+              run: composer ci:test:release-tag
+
+            # No `if` guard here, unlike the step above: this is a fixture-
+            # driven self-test against disposable local git repositories, not
+            # a check of this repository's own real tags, so it neither needs
+            # nor touches the real network and stays useful on every
+            # pull_request too.
+            - name: Release tag lockstep gate self-test
+              run: composer ci:test:release-tag-lockstep
+
     js:
         name: JS/TS configs
         runs-on: ubuntu-latest

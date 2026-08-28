@@ -582,28 +582,39 @@ harness_decide_usage_error() {
 # One report site, not one per arm: with an increment behind each `elif` the probe
 # only ever reaches the arm its own fixture takes, leaving the others free to lose
 # theirs. Measured.
-harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report must carry>]
+harness_report_is_inert() { # <gate> <dir> <label> [<scrubbed payload the report must carry>] [<expected exit code, default 1>]
     local gate="$1" dir="$2" label="$3" out rc
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?
 
-    # "${@:4}" — not "$4" behind an if/else — is what carries whether a 4th
-    # argument was PASSED at all: it expands to zero words when there is none
-    # and one word when there is, so harness_decide_report_is_inert's own `$#`
-    # sees the same presence/absence its must-carry arms decide on.
+    # "${@:4}" — not "$4"/"$5" behind an if/else — is what carries whether a
+    # 4th and/or 5th argument was PASSED at all: it expands to zero, one or
+    # two words accordingly, so harness_decide_report_is_inert's own `$#` and
+    # `${5:-1}` see the same presence/absence its own arms decide on.
     harness_decide_report_is_inert "$out" "$rc" "$label" "${@:4}"
 }
 
-# harness_decide_report_is_inert <out> <rc> <label> [<scrubbed payload the report must carry>]
+# harness_decide_report_is_inert <out> <rc> <label> [<scrubbed payload the report must carry>] [<expected exit code, default 1>]
 #
 # See harness_decide_accepts for why this is split out.
+#
+# The 5th argument (GH-42) is appended, defaulted — never spliced before the
+# existing must-carry slot — so every pre-existing 3/4-argument caller is
+# unaffected: `${5:-1}` keeps the drift verdict (exit 1) as the default this
+# function has always checked. It exists because a gate whose "could not run"
+# class is genuinely exit 2 rather than exit 1 (tests/check-release-tag-lockstep.php's
+# shape-check rejection, which cannot reach exit 1 at all — see that gate's own
+# cases file) still needs the same six scrub/forgery checks below; duplicating
+# them in a per-suite local function was tried first and reverted; a single
+# defaulted parameter is what this project's own append-only-parameter rule
+# already prescribes for exactly this shape of change.
 harness_decide_report_is_inert() {
-    local out="$1" rc="$2" label="$3" lines reason=''
+    local out="$1" rc="$2" label="$3" lines reason='' expected_rc="${5:-1}"
     lines="$(grep -c . <<<"$out" || true)"
 
     if degraded "$out"; then
         reason='the gate ran degraded — it emitted a diagnostic'
-    elif [ "$rc" -ne 1 ]; then
-        reason="expected the drift verdict, got exit $rc"
+    elif [ "$rc" -ne "$expected_rc" ]; then
+        reason="expected exit $expected_rc, got exit $rc"
     elif grep -q "$(printf '\033')" <<<"$out"; then
         reason='an ANSI escape from a consumer value reached the report'
     elif grep -qE '^[[:space:]]*::[A-Za-z0-9_-]+' <<<"$out"; then

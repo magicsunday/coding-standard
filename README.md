@@ -692,6 +692,33 @@ Unlike the consumer gates in this README, this one is not shipped for anyone els
 run — it guards this repository's own release hygiene. Bump `package.json` and every
 README pin in the same commit as the tag.
 
+`composer ci:test:version` can only compare two copies that both live inside this
+repository, so it stays green the instant a release edits them together — it cannot
+see whether the tag they now agree on actually exists on GitHub, or exists but names a
+commit that never became part of this repository's own history (a tag cut from an
+orphaned branch, a rewritten commit, or a plain mistake). The first is what a
+consumer's `npm install` hits in the gap between the version-bump commit and the tag
+push that follows it, and fails loudly for them when it happens; the second is silent
+— `npm install` succeeds and installs whatever that commit contains.
+`composer ci:test:release-tag` closes the second shape: on every push to `main` it
+resolves the tag `package.json`'s `version` names against the real `origin` and, once
+that tag exists, asserts it is an ancestor of `HEAD` — i.e. that this branch's own
+history actually contains it. No tag yet is not a violation — the first shape already
+fails loudly for a consumer, so nothing here needs to fail loudly a second time for the
+same reason. It never runs on a pull request, since the release PR is the one place the
+tag legitimately does not exist yet.
+
+An earlier version of this gate compared the tag's tree to `HEAD`'s directly instead of
+checking ancestry, and shipped briefly before an adversarial review caught it against
+this repository's own history: `package.json`'s `version` is bumped only at release
+time, and the tag is routinely cut from a LATER commit than the one that bumped it — so
+on every ordinary commit between two releases, `HEAD` keeps moving while the tag does
+not, and a tree-equality check reports that routine, healthy gap as a violation.
+Ancestry survives exactly the case tree-equality does not: once a tag is cut, every
+ordinary commit that follows keeps it as an ancestor for the life of the branch.
+`composer ci:test:release-tag-lockstep` is its fixture-driven self-test, run against
+disposable local git repositories rather than the real network.
+
 ## Self-check: .gitattributes lockstep
 
 `templates/gitattributes` is shipped for consumers to copy, and this package applies
