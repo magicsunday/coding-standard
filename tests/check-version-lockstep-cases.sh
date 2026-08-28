@@ -172,17 +172,7 @@ assert_accepts "$d" "a package.json exactly at the size cap is still read in ful
 d="$work/at-cap-readme"
 mkdir -p "$d"
 printf '{\n    "version": "1.7.0"\n}\n' > "$d/package.json"
-php -r '
-    $pin = "github:magicsunday/coding-standard#1.7.0\n";
-    $pad = 1048576 - strlen($pin);
-    $out = str_repeat("x", $pad) . $pin;
-
-    if (strlen($out) !== 1048576) {
-        fwrite(STDERR, sprintf("fixture is %d bytes, not the cap\n", strlen($out)));
-        exit(1);
-    }
-
-    file_put_contents($argv[1], $out);
+harness_pad_text_to_cap 1048576 '' x 'github:magicsunday/coding-standard#1.7.0
 ' "$d/README.md"
 assert_accepts "$d" "a README.md exactly at the size cap is still read in full and the pin matched"
 
