@@ -84,6 +84,25 @@ jobs:
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
+            # This PHP-matrix job needs a `node` on PATH before ANY step that
+            # sources tests/harness.sh: its own degraded() bookkeeping check
+            # unconditionally shells out to `node -e '…'` the moment the file is
+            # sourced, not lazily on first use — every harness.sh consumer below
+            # (the PHP gate self-analysis self-test, the JSON lint gate
+            # self-test, the Lockstep gate self-test, which additionally drives
+            # BOTH the PHP gate and its Node port bin/check-js-config.mjs through
+            # the same differential fixtures) needs it ready first. Pinned the
+            # same way the js job pins it (see that job's comment), rather than
+            # relying on whatever the runner image happens to preinstall —
+            # placed here, ahead of every consumer, rather than after the first
+            # one that happens to need it: a step inserted ahead of the
+            # then-first consumer already moved that "first" once (#47), and
+            # this ordering survives the next one too.
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+
             - name: Lint the PHP config factories
               run: composer ci:test:php:lint
 
@@ -108,22 +127,6 @@ jobs:
 
             - name: Validate the JSON configs
               run: composer ci:test:json
-
-            # This PHP-matrix job needs a `node` on PATH before either consumer
-            # below: tests/harness.sh's own degraded() bookkeeping check
-            # unconditionally shells out to `node -e '…'` before any fixture
-            # runs (reached first, by the JSON lint gate self-test immediately
-            # below), and the Lockstep gate self-test a few steps further down
-            # drives BOTH the PHP gate and its Node port (bin/check-js-config.mjs)
-            # through the same differential fixtures. Pinned the same way the js
-            # job pins it (see that job's comment), rather than relying on
-            # whatever the runner image happens to preinstall — placed here,
-            # ahead of both consumers, rather than after the first one that
-            # happens to need it.
-            - name: Set up Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-              with:
-                  node-version: 24
 
             # The gate above discovers files rather than reading a hand-kept
             # list, and only ever takes the happy path against this
