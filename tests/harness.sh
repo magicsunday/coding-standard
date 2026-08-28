@@ -105,11 +105,13 @@ harness_workdir() {
 #
 # Aborts with exit 2 if <path> is not an executable file — the guard every
 # PHPStan-driven case file needs before its first invocation, since a missing
-# binary would otherwise surface as an opaque "command not found" from deep
-# inside the case logic instead of a clear, actionable message naming the
-# install step that was skipped. <install-hint> is the caller's own phrase for
-# where to run `composer install` (root, or a named subdirectory) — the one
-# thing that varies between callers.
+# binary would otherwise surface as an opaque shell error ("No such file or
+# directory" — every caller invokes it by its full path, never a bare command
+# bash would instead report "command not found" for) from deep inside the case
+# logic instead of a clear, actionable message naming the install step that
+# was skipped. <install-hint> is the caller's own phrase for where to run
+# `composer install` (root, or a named subdirectory) — the one thing that
+# varies between callers.
 harness_require_executable() {
     local path="$1" hint="$2"
 
