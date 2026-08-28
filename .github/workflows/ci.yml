@@ -176,8 +176,9 @@ jobs:
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
 
-            # These two sit LAST on purpose. A failing step skips every later one,
-            # and what they catch is a documentation mismatch — a release that
+            # These two sit AFTER the consumer smoke steps on purpose. A failing
+            # step skips every later one, and what they catch is a documentation
+            # mismatch — a release that
             # bumps package.json's version without the README pin. Ahead of the
             # consumer smoke, that one-line defect would suppress PHPStan, Rector
             # and php-cs-fixer against the installed fixture on all three legs,
@@ -198,8 +199,8 @@ jobs:
 
             # GH-38: asserts this repository's own .gitattributes export-ignores
             # every templates/gitattributes entry that names a path this
-            # repository actually has, so a shipped template widening cannot
-            # silently leave this package's own dist archive out of step again.
+            # repository actually has, so a future template addition cannot
+            # silently leave this package's own dist archive out of step.
             - name: Gitattributes lockstep gate
               run: composer ci:test:gitattributes
 
