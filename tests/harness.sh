@@ -155,6 +155,36 @@ harness_pad_json_to_cap() {
     ' "$bound" "$body" "$out_file"
 }
 
+# harness_pad_text_to_cap <bound> <prefix> <filler-char> <suffix> <out-file>
+#
+# Builds a plain-text document of EXACTLY <bound> bytes: <prefix> and <suffix> are
+# kept byte-for-byte, and the gap between them is filled with <filler-char> repeated
+# enough times to land the whole document on the cap. The non-JSON sibling of
+# harness_pad_json_to_cap above, for a caller whose "at-the-size-cap" fixture is a
+# README pin (<prefix> empty, <suffix> the pin) or a comment-terminated config line
+# (<prefix> the real content plus its comment opener, <suffix> the newline that
+# closes it) — the same padding arithmetic and self-check this file already shares
+# for JSON, extracted here once two callers needed the plain-text shape of it rather
+# than adding a third hand-copied version.
+harness_pad_text_to_cap() {
+    local bound="$1" prefix="$2" filler="$3" suffix="$4" out_file="$5"
+    php -r '
+        $bound  = (int) $argv[1];
+        $prefix = $argv[2];
+        $filler = $argv[3];
+        $suffix = $argv[4];
+        $pad    = $bound - strlen($prefix) - strlen($suffix);
+        $out    = $prefix . str_repeat($filler, $pad) . $suffix;
+
+        if (strlen($out) !== $bound) {
+            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
+            exit(1);
+        }
+
+        file_put_contents($argv[5], $out);
+    ' "$bound" "$prefix" "$filler" "$suffix" "$out_file"
+}
+
 # degraded <output>
 #
 # True when the interpreter emitted a diagnostic of its own — a PHP warning,
