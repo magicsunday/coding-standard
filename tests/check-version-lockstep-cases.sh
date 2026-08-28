@@ -130,6 +130,51 @@ mkdir -p "$d"
 printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
 assert_usage_error "$d" "a missing package.json reports as unreadable" "/package.json."
 
+# The size cap on each of the two files this gate reads, neither driven before now:
+# readCapped() is shared with the shipped gates, but this gate's own use of it — one
+# call per file, both against MAX_LOCKSTEP_BYTES — had no fixture of its own, so a
+# regression scoped to just these two call sites (reading unbounded, or comparing
+# against the wrong constant) would have shipped silently. Content past the bound
+# need not be valid JSON or a real pin: readCapped() reports the file as too large
+# before either byte is ever interpreted.
+d="$work/oversize-package-json"
+mkdir -p "$d"
+php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/package.json"
+printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
+assert_usage_error "$d" "an oversized package.json is reported as too large, not as unparseable" \
+    "package.json is larger than the 1048576 bytes"
+
+d="$work/oversize-readme"
+mkdir -p "$d"
+printf '{\n    "version": "1.7.0"\n}\n' > "$d/package.json"
+php -r 'file_put_contents($argv[1], str_repeat("x", 1048577));' "$d/README.md"
+assert_usage_error "$d" "an oversized README.md is reported as too large, not as documenting no pin" \
+    "README.md is larger than the 1048576 bytes"
+
+# The two oversize arms above only prove content one byte PAST the bound is
+# rejected — a mutation that shrinks the bound actually passed to readCapped()
+# (not the MAX_LOCKSTEP_BYTES constant the message text quotes) survives both
+# silently, because the printed message always names the untouched constant
+# regardless of what bound was enforced: a 1048577-byte fixture still exceeds a
+# mutated `MAX_LOCKSTEP_BYTES - 1` bound too, and "larger than the 1048576 bytes"
+# is still what gets printed. The counterpart, AT the cap: content that must be
+# read in FULL and matched, so a bound even one byte too small starts rejecting
+# it instead — mirroring the jscpd-at-the-size-cap fixture in
+# check-consumer-config-cases.sh, for this gate's own MAX_LOCKSTEP_BYTES.
+d="$work/at-cap-package-json"
+mkdir -p "$d"
+harness_pad_json_to_cap 1048576 \
+    "$(php -r 'echo json_encode(["name" => "@magicsunday/coding-standard", "version" => "1.7.0"]);')" \
+    "$d/package.json"
+printf 'github:magicsunday/coding-standard#1.7.0\n' > "$d/README.md"
+assert_accepts "$d" "a package.json exactly at the size cap is still read in full and its version matched"
+
+d="$work/at-cap-readme"
+mkdir -p "$d"
+printf '{\n    "version": "1.7.0"\n}\n' > "$d/package.json"
+harness_pad_text_to_cap 1048576 $'github:magicsunday/coding-standard#1.7.0\n' "$d/README.md"
+assert_accepts "$d" "a README.md exactly at the size cap is still read in full and the pin matched"
+
 # The inline forms this repository's own prose uses. `\S` swallowed the trailing
 # backtick and the closing paren, so a correct README reported a mismatch
 # against a pin that only differed by punctuation.

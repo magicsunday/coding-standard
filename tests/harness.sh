@@ -101,6 +101,66 @@ harness_workdir() {
     work="$(CDPATH= cd -- "$work" && pwd)"
 }
 
+# harness_pad_json_to_cap <bound> <json-body> <out-file>
+#
+# Builds a JSON document of EXACTLY <bound> bytes: <json-body>'s closing brace is
+# replaced with a padding key, so the document stays valid JSON and every other
+# key in <json-body> survives untouched for the gate under test to inspect.
+# Shared across every "at-the-size-cap" fixture, in every caller — the padding
+# arithmetic and its self-check used to be copied per fixture (twice inside one
+# file, then again inline in a second file once the first copy was deduplicated),
+# and a fixture that is not verifiably AT the bound proves nothing about a `>` in
+# a size check surviving a mutation to `>=`. Living here rather than in a single
+# caller is what makes it reachable from every `check-*-cases.sh` file, which
+# each run as their own process and cannot see a function another one defines.
+#
+# Self-checking: the builder nets +8 fixed bytes (`,"//":"` plus the closing
+# `"}`, minus the `}` it replaces) around the padding — an earlier version used
+# `- 11` and landed three bytes short, which is exactly the margin that would
+# have let `>` survive a mutation to `>=` undetected.
+harness_pad_json_to_cap() {
+    local bound="$1" body="$2" out_file="$3"
+    php -r '
+        $bound = (int) $argv[1];
+        $body  = $argv[2];
+        $pad   = $bound - strlen($body) - 8;
+        $out   = substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}";
+
+        if (strlen($out) !== $bound) {
+            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
+            exit(1);
+        }
+
+        file_put_contents($argv[3], $out);
+    ' "$bound" "$body" "$out_file"
+}
+
+# harness_pad_text_to_cap <bound> <suffix> <out-file>
+#
+# Builds a plain-text file of EXACTLY <bound> bytes: filler bytes, then <suffix>
+# verbatim at the end, so whatever <suffix> carries (a pin, a marker) survives
+# intact for the gate under test to find. The JSONC/JSON counterpart of
+# harness_pad_json_to_cap above — same reason for living here rather than in a
+# single caller, and the same self-check shape, because a size-cap fixture that
+# is not verifiably AT the bound proves nothing about a size check's `>`
+# surviving a mutation to `>=`.
+harness_pad_text_to_cap() {
+    local bound="$1" suffix="$2" out_file="$3"
+    php -r '
+        $bound  = (int) $argv[1];
+        $suffix = $argv[2];
+        $pad    = $bound - strlen($suffix);
+        $out    = str_repeat("x", $pad) . $suffix;
+
+        if (strlen($out) !== $bound) {
+            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
+            exit(1);
+        }
+
+        file_put_contents($argv[3], $out);
+    ' "$bound" "$suffix" "$out_file"
+}
+
 # degraded <output>
 #
 # True when the interpreter emitted a diagnostic of its own — a PHP warning,
@@ -665,9 +725,23 @@ harness_probe_inert_shapes() {
     harness_fake_report='  - x: nothing wrong here'
     harness_report_is_inert php /nonexistent 'probe: the gate did not reject at all'
     harness_fake_rc=1
+
+    # The must-carry arm proper, which every arm above skips: the empty-must-carry
+    # probe passes a fourth argument but an EMPTY one, so this is the one place
+    # `harness_decide_report_is_inert`'s final `elif` — a NON-empty must-carry that
+    # never reached the report — can be reached at all. Before this, its only guard
+    # was a real gate's own fixture (a caller in a fourth file passing that
+    # argument), which stops proving anything the day that caller is refactored or
+    # deleted. A clean report with a must-carry value it plainly does not contain
+    # drives this arm alone: every shape arm above requires the value to be ABSENT
+    # from an otherwise clean report to reach here, and none of
+    # ESC/`::`/`##[`/CR/split/degraded fires on it.
+    harness_fake_report='  - x: nothing wrong here'
+    harness_report_is_inert php /nonexistent 'probe: a must-carry value absent from the report' \
+        'a payload this report never carries'
 }
 
-harness_probe_reporters 8 harness_probe_inert_shapes \
+harness_probe_reporters 9 harness_probe_inert_shapes \
     'harness_report_is_inert has an arm that no longer decides'
 
 # harness_assert_no_stray_increments <expected-count>

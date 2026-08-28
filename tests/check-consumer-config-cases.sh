@@ -1538,25 +1538,33 @@ sed -i 's/failOnRisky="true"/failOnRisky="false\&#10;::error::forged\&#10;  - ph
 assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a character reference' \
     'false?::error::forged?'
 
+# The CR half of the same class, which neither shipped gate's suite drove through a
+# real fixture before now — only harness.sh's own crafted-report probes did. Why a
+# bare CR needs its own arm at all (the runner's line-break semantics) is documented
+# once, on harness_decide_report_is_inert in tests/harness.sh — not restated here.
+# What this fixture adds is that `&#13;` actually survives XML attribute-value
+# normalisation and reaches the gate as a real CR, exactly as `&#10;` does above.
+# Verified against this repository's own libxml:
+#     php -r 'echo bin2hex((string) simplexml_load_string("<a x=\"false&#13;::error::forged&#13;\"/>")["x"]);'
+# prints 66616c73650d3a3a6572726f723a3a666f726765640d — 0x0d preserved at both
+# positions, not 0x20, the same way `&#10;` preserves 0x0a rather than being folded.
+d="$(mk_case phpunit-control-chars-carriage-return-in-value)"
+sed -i 's/failOnRisky="true"/failOnRisky="false\&#13;::error::forged\&#13;  - phpunit.xml: OK"/' "$d/phpunit.xml"
+assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a bare carriage return' \
+    'false?::error::forged?'
+
 # The size cap, both sides of the bound. 131072 is read and checked; one byte more
 # is reported as unread rather than scanned — the pass is quadratic on an
-# unterminated string literal, and the input is pull-request content.
+# unterminated string literal, and the input is pull-request content. The padding
+# builder is harness_pad_json_to_cap (tests/harness.sh) — shared with the
+# jscpd-at-the-size-cap fixture further down and with
+# check-version-lockstep-cases.sh's own at-cap-package-json fixture, since each
+# `check-*-cases.sh` file runs as its own process and a locally-defined function
+# is not reachable from a sibling file.
 d="$(mk_js_case biome-at-the-size-cap)"
-php -r '
-    $body = json_encode(["extends" => ["@magicsunday/coding-standard/biome/base.json"]]);
-    $pad  = 131072 - strlen($body) - 8;
-    $out  = substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}";
-
-    // Self-checking: the builder nets +8, and an earlier `- 11` landed three bytes
-    // short — which is exactly the margin that lets `>` survive a mutation to `>=`,
-    // in the case named for that bound.
-    if (strlen($out) !== 131072) {
-        fwrite(STDERR, sprintf("fixture is %d bytes, not the cap\n", strlen($out)));
-        exit(1);
-    }
-
-    file_put_contents($argv[1], $out);
-' "$d/biome.json"
+harness_pad_json_to_cap 131072 \
+    "$(php -r 'echo json_encode(["extends" => ["@magicsunday/coding-standard/biome/base.json"]]);')" \
+    "$d/biome.json"
 assert_rejects_js "$d" "a biome.json exactly at the size cap is still read and checked" '`"//"` key'
 
 d="$(mk_js_case biome-past-the-size-cap)"
@@ -1570,6 +1578,27 @@ assert_rejects_js "$d" "a biome.json past the size cap is reported as oversized,
 d="$(mk_js_case ts-past-the-size-cap)"
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/tsconfig.json"
 assert_rejects_js "$d" "a tsconfig.json past the size cap is reported as oversized, not scanned" "larger than the 131072 bytes this gate checks"
+
+# The plain-text bound, AT the cap rather than past it — the counterpart of
+# biome-at-the-size-cap above, for MAX_TEXT_BYTES rather than MAX_JSONC_BYTES. Every
+# case in the oversize loop below writes one byte PAST the bound, where `>` and `>=`
+# agree, so a mutation to `>=` survives all of them; this is the one that does not.
+# .jscpd.json is picked because an unknown top-level key costs it nothing — the
+# shipped template documents that convention with its own "//" key — so the padding
+# introduces no second violation, and the fixture's real defect (`threshold: 1`) is
+# what the assertion below requires: an "oversized" report would not carry it.
+d="$(mk_case jscpd-at-the-size-cap)"
+harness_pad_json_to_cap 1048576 \
+    "$(php -r 'echo json_encode([
+        "threshold" => 1,
+        "minTokens" => 100,
+        "minLines"  => 5,
+        "exitCode"  => 1,
+        "reporters" => ["console-full"],
+        "format"    => ["php"],
+    ]);')" \
+    "$d/.jscpd.json"
+assert_rejects "$d" "a .jscpd.json exactly at the size cap is still read and checked" '`threshold` must be 0'
 
 # The plain-text bound. Measured before the cap reached these readers: a 196 MB
 # .editorconfig at memory_limit=128M ended in `Allowed memory size exhausted`, exit
