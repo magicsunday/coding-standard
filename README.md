@@ -622,7 +622,7 @@ one.
 **The `extends` chain is resolved, not just read.** The gate does not stop at the
 document's own top level — it folds every entry the document's `extends` list names
 into the EFFECTIVE configuration, in the order a real tool applies it, and asserts
-against that. Three consequences, all measured against Biome 2.5.5 and tsc 7.0.2
+against that. Four consequences, all measured against Biome 2.5.5 and tsc 7.0.2
 rather than reasoned about:
 
 - A **local** file named after the shared entry is read and merged. With
@@ -647,6 +647,12 @@ rather than reasoned about:
   on exactly the same grounds. Unlike the document-level `"//"` check below, this one
   only runs once the npm dependency is declared: resolving a local target at all
   requires the chain to be folded, which happens only inside that adoption gate.
+- A local `extends` target past the size this gate reads is reported too, rather than
+  silently treated the same as an unresolved one. The byte cap is this gate's own
+  defensive bound against a quadratic comment-strip scan, not a real limit either tool
+  enforces — Biome and tsc load and apply such a file without complaint — so treating
+  it as absent would let a deliberately padded local target smuggle a real weakening
+  of the shared config past the gate undetected.
 
 What remains a **drift detector, not a bypass guard**: resolution is one hop deep — a
 local target's own `extends` chain is not followed transitively — and a specifier
