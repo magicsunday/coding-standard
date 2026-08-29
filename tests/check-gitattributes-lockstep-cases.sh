@@ -213,6 +213,21 @@ d="$(mk_case missing-template)"
 rmdir "$d/templates"
 assert_usage_error "$d" "a missing templates/gitattributes reports as unreadable" 'Cannot read'
 
+# --- a symlinked templates/gitattributes must not be followed to its
+# target's content — unlike a symlinked own .gitattributes (treated as
+# absent, above), this repository's own release process never produces a
+# symlinked template file, so following it is a setup failure (exit 2), not
+# drift. Without an is_link() guard, $readOrExit would follow the link via
+# file_get_contents() and parse the target's content as if it were
+# templates/gitattributes, echoing fragments of an arbitrary file the gate's
+# author did not intend it to read (GH-114). ---
+d="$(mk_case template-is-symlink)"
+mkdir -p "$d/.github"
+printf '/.github    export-ignore\n' > "$d/templates/gitattributes-target"
+ln -s -- gitattributes-target "$d/templates/gitattributes"
+assert_usage_error "$d" "a symlinked templates/gitattributes reports as unreadable, not followed to its target" \
+    'Cannot read'
+
 # --- IO failures: an unreadable file must report as such rather than as a
 # content defect. Skipped for uid 0: root bypasses DAC, so mode 000 stays
 # readable and both cases would read as a false regression — the same skip
