@@ -175,9 +175,24 @@ $parseExportIgnorePaths = static function (string $contents): array {
 };
 
 /**
+ * Reports a path as unreadable and exits(2) — a setup failure, distinct from the
+ * drift verdict (exit 1) this gate otherwise reports. Shared by $readOrExit's own
+ * unreadable branch and the is_link() guard below, which reaches this same verdict
+ * without ever calling readCapped() — extracted at this repository's own
+ * 2+-duplicate threshold once the guard added the second call site.
+ *
+ * @param string $path Path that could not be read.
+ *
+ * @return never
+ */
+$reportUnreadable = static function (string $path): never {
+    fwrite(\STDERR, sprintf("Cannot read %s.\n", $path));
+    exit(2);
+};
+
+/**
  * Reads a lockstep file capped at MAX_GITATTRIBUTES_BYTES, reporting an oversize or
- * unreadable file and exiting(2) — a setup failure, distinct from the drift verdict
- * (exit 1) this gate otherwise reports. Both this gate's file reads shared this
+ * unreadable file and exiting(2). Both this gate's file reads shared this
  * three-branch block verbatim before this closure existed — extracted at this
  * repository's own 2+-duplicate threshold. bin/check-consumer-config.php's own
  * `$readBounded` consolidated a duplicated read block too, for a related but
@@ -189,7 +204,7 @@ $parseExportIgnorePaths = static function (string $contents): array {
  *
  * @return string The contents. Never returns on failure.
  */
-$readOrExit = static function (string $path): string {
+$readOrExit = static function (string $path) use ($reportUnreadable): string {
     $contents = readCapped($path, MAX_GITATTRIBUTES_BYTES);
 
     if ($contents === null) {
@@ -198,8 +213,7 @@ $readOrExit = static function (string $path): string {
     }
 
     if ($contents === false) {
-        fwrite(\STDERR, sprintf("Cannot read %s.\n", $path));
-        exit(2);
+        $reportUnreadable($path);
     }
 
     return $contents;
@@ -216,8 +230,7 @@ $ownPath      = $root . '/.gitattributes';
 // the target's content as if it were templates/gitattributes, echoing
 // fragments of an arbitrary file the gate's author did not intend it to read.
 if (is_link($templatePath)) {
-    fwrite(\STDERR, sprintf("Cannot read %s.\n", $templatePath));
-    exit(2);
+    $reportUnreadable($templatePath);
 }
 
 $templateContents = $readOrExit($templatePath);
