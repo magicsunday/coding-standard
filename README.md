@@ -619,25 +619,36 @@ parsed as JSONC, because `tsconfig.json` is JSONC by specification — comments 
 trailing commas are accepted, and a `//` inside a string value is not mistaken for
 one.
 
-**What it does not do, stated because the list above reads as if it did.** The gate
-inspects the consumer's own config file for explicit off-switches; it does not
-compute the configuration the tool ends up with. Two consequences, both measured
-against Biome 2.5.5 rather than reasoned about:
+**The `extends` chain is resolved, not just read.** The gate does not stop at the
+document's own top level — it folds every entry the document's `extends` list names
+into the EFFECTIVE configuration, in the order a real tool applies it, and asserts
+against that. Two consequences, both measured against Biome 2.5.5 and tsc 7.0.2
+rather than reasoned about:
 
-- An `extends` list may name a further **local** file after the shared one, and that
-  file wins. `["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"]`
-  with `{"linter": {"enabled": false}}` in the second lets `a == b` through while the
-  gate reports OK. The same holds for `tsconfig.json`, where a later entry setting
-  `noUncheckedIndexedAccess: false` survives into `tsc --showConfig`.
-- A single rule may be switched off by name — `"noDoubleEquals": "off"` — which the
-  gate does not look at. It pins the preset floor and each rule group, not the
-  individual rules the base enables.
+- A **local** file named after the shared entry is read and merged. With
+  `["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"]` and
+  `{"linter": {"enabled": false}}` in the second file, the gate reports the drift the
+  disable introduces. Order is honoured in both directions: the shared entry is a
+  layer too, substituted with this package's own bundled content wherever the
+  document lists it — so a shared entry placed AFTER a local override wins the fold
+  and correctly leaves the consumer un-flagged, exactly as Biome and tsc themselves
+  resolve it. The same order-sensitivity applies to `tsconfig.json`: a local entry
+  setting `noUncheckedIndexedAccess: false` is caught when it is the
+  highest-precedence value in the resolved chain (listed after the shared entry, or
+  as the document's own setting), and correctly left un-flagged when the shared
+  entry follows it and wins the fold instead.
+- A single rule switched off by name — `"noDoubleEquals": "off"`, in either the bare
+  string or the `{"level": "off"}` shape — is reported too. The rule names are derived
+  from this package's own `biome/base.json` rather than hand-copied, the same way
+  `$pinnedFlags` is checked against `tsconfig/base.json`, so a rule added to or
+  dropped from the shared config needs no matching edit here.
 
-So this is a **drift detector, not a bypass guard**: it catches a consumer copy that
-has fallen out of step, not one that deliberately steers around the standard — and a
-repository willing to do the latter can equally drop the gate from its CI. Closing
-both would mean resolving the `extends` chain and deriving the rule names from the
-shared base; that is tracked in #36 rather than half-done here.
+What remains a **drift detector, not a bypass guard**: resolution is one hop deep — a
+local target's own `extends` chain is not followed transitively — and a specifier
+reaching outside the repository (a `../` chain) or naming a package this repository
+never installed is not followed at all, the same answer this gate already gives an
+unmet contract elsewhere: not in the repository, nothing to read. A repository
+willing to point `extends` at such a target can equally drop the gate from its CI.
 
 ### Node-only front end — `bin/check-js-config.mjs`
 
@@ -669,9 +680,9 @@ one drift, 2 means the path argument is not a directory. A repository with neith
 `biome.json`/`biome.jsonc` nor `tsconfig.json` is not probed at all, exactly as on the
 PHP side.
 
-Everything the "What it does not do" note above says about `bin/check-consumer-config.php`
-— a drift detector, not a bypass guard, and blind to a later `extends` entry or an
-individually named rule — applies here identically, since it is the same contract.
+Everything the section above says about `bin/check-consumer-config.php` — the
+resolved `extends` chain, the per-rule check, and the remaining one-hop /
+no-escape limits — applies here identically, since it is the same contract.
 
 ## Releasing this package
 

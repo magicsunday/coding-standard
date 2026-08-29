@@ -87,6 +87,14 @@ if (!is_dir($repoRoot)) {
     exit(2);
 }
 
+/**
+ * This package's OWN installation root — the directory holding `bin/` and
+ * `biome/` as siblings, not the consumer repository `$repoRoot` points at.
+ * Read-only source for the rule names GH-36's per-rule check derives from
+ * `biome/base.json` rather than hand-copying.
+ */
+$packageRoot = \dirname(__DIR__);
+
 /** @var list<string> $violations */
 $violations = [];
 
@@ -835,6 +843,36 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $stripBom): array|
 };
 
 /**
+ * Reports whether a single `extends` specifier IS the shared package entry.
+ *
+ * Extracted from $extendsShared so the same recognition serves a second
+ * purpose (GH-36): telling a LOCAL `extends` target — one this gate now reads
+ * and folds into the effective config — apart from the shared entry, which is
+ * asserted for separately and must not be re-read here as if it were a
+ * consumer-authored file.
+ *
+ * @param string $candidate      One `extends` list entry.
+ * @param string $sharedStem     Path inside the package, without the `.json` suffix.
+ * @param bool   $suffixOptional Whether the consuming tool resolves the suffix itself.
+ *
+ * @return bool
+ */
+$isSharedSpecifier = static function (string $candidate, string $sharedStem, bool $suffixOptional): bool {
+    // `$~D` rather than `$~`: without the D modifier PCRE lets `$` match before a
+    // single trailing newline, so `"…/base.json\n"` — valid JSON, and a string
+    // neither tool trims before resolving — would be read as the shared link. That
+    // is the whitespace latitude the sibling $extendsShared docblock rules out,
+    // reintroduced by the anchor rather than by the pattern body.
+    $pattern = sprintf(
+        '~^(?:\./)?(?:node_modules/(?:\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/%s%s$~D',
+        preg_quote($sharedStem, '~'),
+        $suffixOptional ? '(?:\.json)?' : '\.json'
+    );
+
+    return preg_match($pattern, $candidate) === 1;
+};
+
+/**
  * Reports whether an `extends` value references the shared config.
  *
  * The value may be a string (tsconfig) or a list (Biome, and tsconfig since 5.0).
@@ -884,7 +922,7 @@ $loadJsonc = static function (string $path) use ($stripJsonc, $stripBom): array|
  *
  * @return bool
  */
-$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional, bool $listRequired = false): bool {
+$extendsShared = static function (array $config, string $sharedStem, bool $suffixOptional, bool $listRequired = false) use ($isSharedSpecifier): bool {
     $extends = $config['extends'] ?? null;
 
     if ($listRequired && !is_array($extends)) {
@@ -893,24 +931,300 @@ $extendsShared = static function (array $config, string $sharedStem, bool $suffi
 
     $candidates = is_array($extends) ? $extends : [$extends];
 
-    // `$~D` rather than `$~`: without the D modifier PCRE lets `$` match before a
-    // single trailing newline, so `"…/base.json\n"` — valid JSON, and a string
-    // neither tool trims before resolving — would be read as the shared link. That
-    // is the whitespace latitude the paragraph above rules out, reintroduced by the
-    // anchor rather than by the pattern body.
-    $pattern = sprintf(
-        '~^(?:\./)?(?:node_modules/(?:\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/%s%s$~D',
-        preg_quote($sharedStem, '~'),
-        $suffixOptional ? '(?:\.json)?' : '\.json'
-    );
-
     foreach ($candidates as $candidate) {
-        if (is_string($candidate) && (preg_match($pattern, $candidate) === 1)) {
+        if (is_string($candidate) && $isSharedSpecifier($candidate, $sharedStem, $suffixOptional)) {
             return true;
         }
     }
 
     return false;
+};
+
+/**
+ * Deep-merges two decoded JSON/JSONC documents the way a real tool folds an
+ * `extends` chain: nested objects merge key-by-key, `overrides` arrays
+ * CONCATENATE rather than replace, and every other value in $overlay wins over
+ * $base outright — matching a later `extends` entry (or the document itself)
+ * overriding an earlier one.
+ *
+ * Verified against Biome 2.5.5, not assumed: a document's own `overrides` entry
+ * and a local `extends` target's `overrides` entry both applied to their
+ * respective file globs in the same run, so `overrides` accumulates rather than
+ * being replaced — unlike every other array-valued key. `files.includes`
+ * measured the opposite way: a later layer's list REPLACES an earlier one
+ * wholesale, so the general rule stays "overlay wins outright" and `overrides`
+ * is the one named exception.
+ *
+ * **An empty JSON object is indistinguishable from an empty JSON array once
+ * decoded** — `json_decode('{}', true)` and `json_decode('[]', true)` are both
+ * `[]`, and `array_is_list([])` is `true` (verified: PHP has no third state for
+ * "empty associative array"). Naively requiring `!array_is_list($value)` on
+ * BOTH sides to recurse therefore mis-classifies an empty overlay OBJECT
+ * (`{"linter": {}}`) as a list and falls through to whole-value replacement —
+ * wiping every key the layers below it set, rather than leaving them untouched
+ * as a real merge-patch would. Verified against Biome 2.5.5: with a chain that
+ * disables the linter and then re-enables it via a later `extends` entry, an
+ * empty `"linter": {}` on the document itself still reports the lint findings
+ * the re-enable restored — an empty object contributes nothing, it does not
+ * clear what came before. The list/object decision below therefore asks
+ * "is either the NON-EMPTY side a list" rather than "is the overlay a list":
+ * an empty side carries no signal either way, so it defers to whichever side
+ * actually has content, and when both sides are empty the two candidate
+ * results (recurse vs. replace) are identical (`[]`) and the ambiguity is
+ * moot. `overrides` needs no such guard — concatenating an empty list with a
+ * non-empty one already produces the non-empty one on either side, so the
+ * ambiguity never changes its result.
+ *
+ * The choice above (defer to the non-empty side) has one residual asymmetry
+ * with the JS mirror, found and verified during this change's own audit
+ * round: a genuinely EMPTY JSON ARRAY on a key whose valid schema type is
+ * always an object — `"linter": []`, never a real Biome/tsc shape — recurses
+ * here (base preserved) rather than replacing (JS's `Array.isArray([])` is
+ * unconditionally true, so it replaces). Not fixed: Biome itself hard-rejects
+ * this shape before either gate's verdict would matter — verified against
+ * 2.5.5, `linter has an incorrect type, expected an object, but received an
+ * array` kills the whole config load — so a config that reaches this
+ * divergence never successfully loads for a real consumer in the first place.
+ * Resolving it would mean preserving the object/array distinction through
+ * every decode in this file (PHP's `json_decode(..., true)` collapses both to
+ * `[]` even when NON-empty content differs in shape, which this file relies
+ * on elsewhere), not a local fix to this function.
+ *
+ * @param array<array-key, mixed> $base    The lower-precedence layer.
+ * @param array<array-key, mixed> $overlay The higher-precedence layer.
+ *
+ * @return array<array-key, mixed>
+ */
+$mergeConfigLayer = static function (array $base, array $overlay) use (&$mergeConfigLayer): array {
+    foreach ($overlay as $key => $value) {
+        if (
+            ($key === 'overrides')
+            && is_array($value) && array_is_list($value)
+            && is_array($base[$key] ?? null) && array_is_list($base[$key])
+        ) {
+            $base[$key] = [...$base[$key], ...$value];
+
+            continue;
+        }
+
+        if (is_array($value) && is_array($base[$key] ?? null)) {
+            $baseIsList    = ($base[$key] !== []) && array_is_list($base[$key]);
+            $overlayIsList = ($value !== []) && array_is_list($value);
+
+            if (!$baseIsList && !$overlayIsList) {
+                $base[$key] = $mergeConfigLayer($base[$key], $value);
+
+                continue;
+            }
+        }
+
+        $base[$key] = $value;
+    }
+
+    return $base;
+};
+
+/**
+ * Loads a config this package itself ships (`biome/base.json`,
+ * `tsconfig/base.json`), so its own content can take part in a resolved
+ * `extends` chain exactly where the consumer lists it (GH-36) — including
+ * placed AFTER a local override, where the shared entry's own explicit values
+ * win back and undo it, exactly as the real tool folds the chain. Trusted
+ * content: no size bound and no JSONC handling, because this package does not
+ * ship comments in its own configs and the input is not pull-request content.
+ *
+ * A missing or unparseable bundled file is a packaging defect this gate
+ * cannot repair; folding an empty layer in that case leaves the consumer's own
+ * values as the only ones checked, which is the safer failure than treating a
+ * read error as a decoded document.
+ *
+ * @param string $path Absolute path to the package's own config file.
+ *
+ * @return array<array-key, mixed>
+ */
+$loadOwnConfig = static function (string $path): array {
+    $contents = is_file($path) ? file_get_contents($path) : false;
+    $decoded  = is_string($contents) ? json_decode($contents, true) : null;
+
+    return is_array($decoded) ? $decoded : [];
+};
+
+/**
+ * Resolves an `extends` chain to the config layers a real tool would also
+ * apply, IN THE ORDER the document names them (GH-36).
+ *
+ * A later `extends` entry silences the shared standard just as effectively as
+ * the document's own top level does — Biome and tsc both apply the chain in
+ * order, each entry overriding the ones before it — so a gate that reads only
+ * the document itself misses it. Order matters in BOTH directions, which is
+ * why the shared entry is a layer here rather than being skipped: a consumer
+ * listing it AFTER a local override gets the shared entry's own explicit
+ * values back on top, undoing the override, exactly as Biome 2.5.5 and tsc
+ * 7.0.2 both fold it — verified, not assumed: with the shared entry listed
+ * last, a local `linter.enabled: false` (Biome) and a local
+ * `noUncheckedIndexedAccess: false` (tsc) were both silently overridden back
+ * on, because the shared base sets each of those explicitly. Treating the
+ * shared entry as a no-op regardless of position would have reported drift on
+ * a consumer config that was not actually drifted.
+ *
+ * A package-scoped entry other than the shared one is excluded by
+ * construction, not by pattern matching — it resolves to no file inside
+ * $repoRoot, so the loop below silently contributes nothing for it. That is
+ * the same answer this gate already gives an unmet contract elsewhere: not in
+ * the repository, nothing to read.
+ *
+ * A specifier that escapes the repository (a `../` chain reaching outside it)
+ * is not followed either. The input is pull-request content in the consumer's
+ * CI — see $stripJsonc's own trust-model note — and opening whatever the CI
+ * runner's filesystem happens to hold at an arbitrary path is not this gate's
+ * job. Both exclusions are silent, not reported: a target this gate cannot
+ * read is a target it never claimed to check.
+ *
+ * A local target that itself fails to read or parse contributes nothing rather
+ * than a fabricated drift report — the real tool's own error for that file, not
+ * a guess by a reader that is not the real tool, is the correct diagnostic for
+ * it.
+ *
+ * Only entries the document's OWN `extends` list names are resolved — a local
+ * target's own `extends` chain is not followed transitively. The exploit this
+ * closes needs exactly one hop (the issue's reproduction and both fixture
+ * routes below use one), and a second hop is unbounded recursion over
+ * consumer-controlled file names with no cycle guard yet in place.
+ *
+ * @param string                  $repoRoot       The consumer repository root
+ *                                                  — where the checked config
+ *                                                  file itself sits, so a
+ *                                                  local specifier resolves
+ *                                                  relative to it exactly as
+ *                                                  the real tool does.
+ * @param array<array-key, mixed> $config         The decoded consumer config —
+ *                                                  the whole document, not just
+ *                                                  its `extends` key, matching
+ *                                                  $extendsShared's own call
+ *                                                  convention. `extends` is
+ *                                                  read out as an UNTYPED local
+ *                                                  below rather than a typed
+ *                                                  parameter, deliberately: the
+ *                                                  value is pull-request
+ *                                                  content and can legally be
+ *                                                  ANY JSON type (a number, a
+ *                                                  bool, an object) — a
+ *                                                  parameter typed narrower
+ *                                                  than that throws a
+ *                                                  TypeError on exactly the
+ *                                                  malformed input this
+ *                                                  function exists to answer
+ *                                                  "no candidates" for, rather
+ *                                                  than crashing the whole gate
+ *                                                  (verified: `{"extends": 5}`
+ *                                                  raised `TypeError: Argument
+ *                                                  #2 ($extends) must be of
+ *                                                  type array|string|null, int
+ *                                                  given` before this fix).
+ * @param string                  $sharedStem     Passed to
+ *                                                  $isSharedSpecifier.
+ * @param bool                    $suffixOptional Whether a bare specifier may
+ *                                                  omit `.json` — true for
+ *                                                  tsconfig (tsc appends it),
+ *                                                  false for Biome (verified:
+ *                                                  it does not — a bare
+ *                                                  specifier with no matching
+ *                                                  file on disk is reported
+ *                                                  `module not found`, never
+ *                                                  resolved with the suffix
+ *                                                  appended).
+ * @param array<array-key, mixed> $sharedLayer    This package's own bundled
+ *                                                  config (from
+ *                                                  $loadOwnConfig), substituted
+ *                                                  wherever the shared entry
+ *                                                  sits in the chain.
+ *
+ * @return list<array<array-key, mixed>> The layers, in `extends` order — the
+ *                                        caller folds them left-to-right and
+ *                                        merges the document on top, so later
+ *                                        entries and the document itself win
+ *                                        exactly as the tool resolves them.
+ */
+$resolveExtendsLayers = static function (string $repoRoot, array $config, string $sharedStem, bool $suffixOptional, array $sharedLayer) use ($isSharedSpecifier, $loadJsonc): array {
+    $extends = $config['extends'] ?? null;
+
+    // `array_is_list`, not a bare `is_array`: neither Biome nor tsc accepts an
+    // `extends` value shaped as a JSON OBJECT — a decoded PHP array that is not
+    // a list — and the JS mirror already rejects that shape (`Array.isArray`
+    // is false for a plain object). Accepting it here too would iterate an
+    // object's VALUES as candidates and could read a local file for one of
+    // them, a verdict the JS side would never reach for the same input.
+    $candidates = match (true) {
+        is_array($extends) && array_is_list($extends) => $extends,
+        is_string($extends)                            => [$extends],
+        default                                         => [],
+    };
+
+    $realRoot = realpath($repoRoot);
+    $layers   = [];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        if ($isSharedSpecifier($candidate, $sharedStem, $suffixOptional)) {
+            $layers[] = $sharedLayer;
+
+            continue;
+        }
+
+        if ($realRoot === false) {
+            continue;
+        }
+
+        foreach ($suffixOptional ? [$candidate, $candidate . '.json'] : [$candidate] as $attempt) {
+            $path = $repoRoot . '/' . $attempt;
+
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $real = realpath($path);
+
+            if (($real === false) || !str_starts_with($real, $realRoot . \DIRECTORY_SEPARATOR)) {
+                break;
+            }
+
+            $decoded = $loadJsonc($path);
+
+            if (is_array($decoded)) {
+                $layers[] = $decoded;
+            }
+
+            break;
+        }
+    }
+
+    return $layers;
+};
+
+/**
+ * Folds a resolved `extends` chain into the effective document: each layer in
+ * `extends` order, the document itself merged last so it wins over all of them
+ * (GH-36). The one caller-visible step shared verbatim by the biome.json and
+ * tsconfig.json blocks below — kept as its own function rather than the same
+ * three-line loop written twice, since `$biomeLayers`/`$tsconfigLayers` are
+ * never read again once folded.
+ *
+ * @param list<array<array-key, mixed>> $layers   From $resolveExtendsLayers, in `extends` order.
+ * @param array<array-key, mixed>       $document The document itself, merged last.
+ *
+ * @return array<array-key, mixed>
+ */
+$foldExtendsChain = static function (array $layers, array $document) use ($mergeConfigLayer): array {
+    $effective = [];
+
+    foreach ($layers as $layer) {
+        $effective = $mergeConfigLayer($effective, $layer);
+    }
+
+    return $mergeConfigLayer($effective, $document);
 };
 
 /**
@@ -1012,6 +1326,80 @@ $npmDependencyDeclared = static function (string $repoRoot) use (&$violations, $
     return false;
 };
 
+/**
+ * The individual Biome rules this package's own biome/base.json turns on
+ * explicitly, keyed by group (GH-36).
+ *
+ * Derived from the shipped file rather than hand-copied here, so a rule added
+ * to or dropped from it needs no matching edit in this gate — the same
+ * reasoning as the `$pinnedFlags` ↔ tsconfig/base.json bijection a few
+ * hundred lines below. `preset` is excluded: it selects a whole rule-set floor,
+ * not one rule, and is already asserted separately.
+ *
+ * @param array<array-key, mixed> $biomeBaseConfig This package's own bundled
+ *                                                   biome/base.json, decoded
+ *                                                   once by $loadOwnConfig and
+ *                                                   shared with
+ *                                                   $resolveExtendsLayers
+ *                                                   rather than re-read here.
+ *
+ * @return array<string, list<string>> Rule names per group, e.g. `['suspicious' => ['noDoubleEquals', …]]`.
+ */
+$sharedBiomeRules = static function (array $biomeBaseConfig): array {
+    $rules = $biomeBaseConfig['linter']['rules'] ?? null;
+
+    if (!is_array($rules)) {
+        return [];
+    }
+
+    $byGroup = [];
+
+    foreach ($rules as $group => $groupRules) {
+        if (($group === 'preset') || !is_string($group) || !is_array($groupRules)) {
+            continue;
+        }
+
+        foreach (array_keys($groupRules) as $ruleName) {
+            if (is_string($ruleName)) {
+                $byGroup[$group][] = $ruleName;
+            }
+        }
+    }
+
+    return $byGroup;
+};
+
+/**
+ * Extracts a Biome rule's severity, accepting both value shapes the schema
+ * allows: a bare string (`"off"`) and an options object (`{"level": "off"}`).
+ *
+ * Takes the group's decoded rules array plus the rule name, rather than the
+ * already-indexed value, for the same reason $resolveExtendsLayers takes the
+ * whole config rather than its already-indexed `extends` value: the value at
+ * an arbitrary consumer-controlled key is pull-request content and can
+ * legally be ANY JSON type — a parameter typed narrower than that would throw
+ * a TypeError on exactly the malformed rule value this function exists to
+ * answer "no severity" for.
+ *
+ * @param array<array-key, mixed> $rules    The decoded `linter.rules.<group>` object.
+ * @param int|string              $ruleName The rule name to read out of it.
+ *
+ * @return string|null The severity, lower-case as written; null when the shape carries none.
+ */
+$biomeRuleSeverity = static function (array $rules, int|string $ruleName): ?string {
+    $ruleValue = $rules[$ruleName] ?? null;
+
+    if (is_string($ruleValue)) {
+        return $ruleValue;
+    }
+
+    if (is_array($ruleValue) && is_string($ruleValue['level'] ?? null)) {
+        return $ruleValue['level'];
+    }
+
+    return null;
+};
+
 // biome.json / biome.jsonc: the linter must stay wired to the shared ruleset.
 $biomeFile = null;
 
@@ -1081,8 +1469,24 @@ if ($biomeFile !== null) {
         // Walking them off the document alone leaves the cross product open, and
         // an override is the idiomatic place to write a language block, since that
         // is how a language setting gets scoped to a path set.
-        $baseScopes = [['', $biomeJson]];
-        $overrides  = $biomeJson['overrides'] ?? null;
+        //
+        // Every assertion below runs against the EFFECTIVE document (GH-36): the
+        // document's own values folded on top of every `extends` entry it names,
+        // in the order the tool itself would resolve them — the shared entry
+        // included, substituted with this package's own bundled content (see
+        // $resolveExtendsLayers for why it must be, not merely skipped). A
+        // repository with no `extends` array at all gets back exactly
+        // $biomeJson, because folding nothing onto it changes nothing.
+        $biomeBaseConfig = $loadOwnConfig($packageRoot . '/biome/base.json');
+        $biomeLayers     = $resolveExtendsLayers($repoRoot, $biomeJson, 'biome/base', false, $biomeBaseConfig);
+        $biomeEffective  = $foldExtendsChain($biomeLayers, $biomeJson);
+
+        // The rule names GH-36's per-rule check below must not find "off" —
+        // derived from this package's own biome/base.json, not hand-copied.
+        $sharedRules = $sharedBiomeRules($biomeBaseConfig);
+
+        $baseScopes = [['', $biomeEffective]];
+        $overrides  = $biomeEffective['overrides'] ?? null;
 
         if (is_array($overrides)) {
             foreach ($overrides as $index => $override) {
@@ -1117,7 +1521,7 @@ if ($biomeFile !== null) {
         // `files` exists at the document root and in each `overrides` entry (an
         // override's own key is `includes`), but the wholesale case is the root:
         // an override that matches nothing narrows that override, not the run.
-        $rootIncludes = $biomeJson['files']['includes'] ?? null;
+        $rootIncludes = $biomeEffective['files']['includes'] ?? null;
 
         if (is_array($rootIncludes)) {
             $positive = array_filter(
@@ -1167,24 +1571,43 @@ if ($biomeFile !== null) {
 
             // Seeded inside the guard so every element is an array by
             // construction, rather than appending one that may not be and
-            // skipping it again in the loop below.
+            // skipping it again in the loop below. $group is null for the
+            // `linter.rules` scope itself, which holds no single rule GROUP's
+            // rules directly and so has nothing for the per-rule check below to
+            // walk.
             if (is_array($topLevelRules)) {
-                $ruleScopes[] = ['linter.rules', $topLevelRules];
+                $ruleScopes[] = ['linter.rules', $topLevelRules, null];
 
                 foreach ($topLevelRules as $group => $groupRules) {
-                    if (is_array($groupRules)) {
-                        $ruleScopes[] = [sprintf('linter.rules.%s', safeReportValue($group)), $groupRules];
+                    if (is_array($groupRules) && is_string($group)) {
+                        $ruleScopes[] = [sprintf('linter.rules.%s', safeReportValue($group)), $groupRules, $group];
                     }
                 }
             }
 
-            foreach ($ruleScopes as [$path, $rules]) {
+            foreach ($ruleScopes as [$path, $rules, $group]) {
                 if (($rules['recommended'] ?? null) === false) {
                     $fail($violations, $label, sprintf('`%s%s.recommended` must not be false — that drops the rule floor the shared config builds on.', $prefix, $path));
                 }
 
                 if (($rules['preset'] ?? null) === 'none') {
                     $fail($violations, $label, sprintf('`%s%s.preset` must not be `none` — that drops the rule floor the shared config builds on.', $prefix, $path));
+                }
+
+                // GH-36's second measured route: switching one rule off by name
+                // survives every check above, because none of them look past the
+                // group-level `recommended`/`preset` floor at the individual rules
+                // this package enables explicitly. $sharedRules is keyed by group,
+                // so only a genuine rule-group scope (not the bare `linter.rules`
+                // scope, where $group is null) has anything to check here.
+                if ($group === null) {
+                    continue;
+                }
+
+                foreach ($sharedRules[$group] ?? [] as $ruleName) {
+                    if ($biomeRuleSeverity($rules, $ruleName) === 'off') {
+                        $fail($violations, $label, sprintf('`%s%s.%s` must not be "off" — that drops a rule the shared config enables explicitly.', $prefix, $path, $ruleName));
+                    }
                 }
             }
         }
@@ -1267,8 +1690,18 @@ if ($adopted && is_file($tsconfigFile)) {
             'isolatedModules',
         ];
 
+        // GH-36: a pinned flag switched back to false in a LATER `extends` entry
+        // survives untouched if only $tsconfigJson itself is checked — tsc
+        // applies the chain in order, each entry overriding the ones before it, so
+        // the effective document is what must be asserted against, the shared
+        // entry's own bundled content included at its listed position (see
+        // $resolveExtendsLayers). A repository with no `extends` array at all
+        // gets back exactly $tsconfigJson.
+        $tsconfigLayers    = $resolveExtendsLayers($repoRoot, $tsconfigJson, 'tsconfig/base', true, $loadOwnConfig($packageRoot . '/tsconfig/base.json'));
+        $tsconfigEffective = $foldExtendsChain($tsconfigLayers, $tsconfigJson);
+
         foreach ($pinnedFlags as $flag) {
-            if (($tsconfigJson['compilerOptions'][$flag] ?? null) === false) {
+            if (($tsconfigEffective['compilerOptions'][$flag] ?? null) === false) {
                 $fail($violations, 'tsconfig.json', sprintf('`compilerOptions.%s` must not be false — it overrides the shared strict base.', $flag));
             }
         }
