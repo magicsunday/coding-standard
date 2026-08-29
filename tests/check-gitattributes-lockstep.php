@@ -208,6 +208,18 @@ $readOrExit = static function (string $path): string {
 $templatePath = $root . '/templates/gitattributes';
 $ownPath      = $root . '/.gitattributes';
 
+// is_link() is checked FIRST, same as the $ownPath guard below, but treated as a
+// setup failure rather than as absent: unlike a symlinked .gitattributes (a
+// state a real checkout can legitimately end up in), this repository's own
+// release process never produces a symlinked templates/gitattributes. Without
+// this guard, $readOrExit follows the link via file_get_contents() and parses
+// the target's content as if it were templates/gitattributes, echoing
+// fragments of an arbitrary file the gate's author did not intend it to read.
+if (is_link($templatePath)) {
+    fwrite(\STDERR, sprintf("Cannot read %s.\n", $templatePath));
+    exit(2);
+}
+
 $templateContents = $readOrExit($templatePath);
 $templatePaths    = $parseExportIgnorePaths($templateContents);
 
