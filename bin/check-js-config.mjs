@@ -894,6 +894,18 @@ function loadOwnConfig(path) {
  *                                  loadOwnConfig), substituted wherever the
  *                                  shared entry sits in the chain.
  *
+ * One residual PHP/JS asymmetry, found and verified during this change's own
+ * audit round: a JSON object whose keys are the sequential strings "0", "1",
+ * … resolves as a local `extends` candidate list in PHP (its `array_is_list`
+ * check cannot tell such an object from a genuine array, because
+ * `json_decode` there re-indexes numeric string keys to integers — a
+ * long-standing PHP behaviour, not specific to this file) while `Array.isArray`
+ * here correctly rejects the same input. Not fixed: Biome itself hard-rejects
+ * that `extends` shape outright (`extends has an incorrect type, expected an
+ * array, but received an object`, verified against 2.5.5), so no real,
+ * loadable consumer config reaches this divergence. See
+ * $resolveExtendsLayers in bin/check-consumer-config.php for the full note.
+ *
  * @returns {object[]} The layers, in `extends` order.
  */
 function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional, sharedLayer) {
@@ -1166,6 +1178,16 @@ if (biomeFile !== null) {
         const biomeBaseConfig = loadOwnConfig(join(packageRoot, 'biome', 'base.json'));
         const biomeLayers = resolveExtendsLayers(repoRoot, biomeJson.extends ?? null, 'biome/base', false, biomeBaseConfig);
         const biomeEffective = foldExtendsChain(biomeLayers, biomeJson);
+
+        // The "//" check above only ever saw the document itself — before
+        // GH-36, that was the whole story, since no local `extends` target
+        // was ever read. It now is: a local target Biome loads as part of the
+        // same chain is refused by Biome on exactly the same grounds, so it
+        // needs the same check. See the PHP gate's comment at the equivalent
+        // branch.
+        if (biomeLayers.some((layer) => hasNoteKey(layer))) {
+            fail(label, 'a local `extends` target contains a `"//"` key — Biome rejects unknown keys and refuses the whole config it belongs to, so the chain is valid JSON but unloadable. Put the note in a comment or in the README.');
+        }
 
         // The rule names GH-36's per-rule check below must not find "off" —
         // derived from this package's own biome/base.json, not hand-copied.
