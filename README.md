@@ -639,9 +639,11 @@ rather than reasoned about:
   entry follows it and wins the fold instead.
 - A single rule switched off by name — `"noDoubleEquals": "off"`, in either the bare
   string or the `{"level": "off"}` shape — is reported too. The rule names are derived
-  from this package's own `biome/base.json` rather than hand-copied, the same way
-  `$pinnedFlags` is checked against `tsconfig/base.json`, so a rule added to or
-  dropped from the shared config needs no matching edit here.
+  from this package's own `biome/base.json` at runtime rather than hand-copied — unlike
+  `$pinnedFlags` (the list below, checked against `tsconfig/base.json`), which is a
+  hand-written literal a separate test keeps in lockstep — so a rule added to or
+  dropped from the shared config needs no matching edit here, while a new strict flag
+  in `tsconfig/base.json` still does.
 - A `"//"` key hiding inside a local `extends` target is reported too, not only one on
   the document itself — a local file Biome loads as part of the same chain is refused
   on exactly the same grounds. Unlike the document-level `"//"` check below, this one
