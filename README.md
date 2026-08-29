@@ -622,7 +622,7 @@ one.
 **The `extends` chain is resolved, not just read.** The gate does not stop at the
 document's own top level — it folds every entry the document's `extends` list names
 into the EFFECTIVE configuration, in the order a real tool applies it, and asserts
-against that. Two consequences, both measured against Biome 2.5.5 and tsc 7.0.2
+against that. Three consequences, all measured against Biome 2.5.5 and tsc 7.0.2
 rather than reasoned about:
 
 - A **local** file named after the shared entry is read and merged. With
@@ -642,6 +642,11 @@ rather than reasoned about:
   from this package's own `biome/base.json` rather than hand-copied, the same way
   `$pinnedFlags` is checked against `tsconfig/base.json`, so a rule added to or
   dropped from the shared config needs no matching edit here.
+- A `"//"` key hiding inside a local `extends` target is reported too, not only one on
+  the document itself — a local file Biome loads as part of the same chain is refused
+  on exactly the same grounds. Unlike the document-level `"//"` check below, this one
+  only runs once the npm dependency is declared: resolving a local target at all
+  requires the chain to be folded, which happens only inside that adoption gate.
 
 What remains a **drift detector, not a bypass guard**: resolution is one hop deep — a
 local target's own `extends` chain is not followed transitively — and a specifier
@@ -842,9 +847,13 @@ contradiction until the measurements are written down, so here they are:
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
 The gate follows the same split: it reports a `"//"` key in a consumer's
-`biome.json`/`biome.jsonc` and says nothing about one in `tsconfig.json`. That check is
-one of the few that does not wait for adoption, because the file is unloadable however
-it was written.
+`biome.json`/`biome.jsonc` and says nothing about one in `tsconfig.json`. The
+document-level check is one of the few that does not wait for adoption, because the
+file is unloadable however it was written. A second, narrower report — a `"//"` key
+hiding inside a LOCAL `extends` target rather than the document itself — does wait for
+adoption, because resolving that target at all requires the extends chain to be
+folded, which only happens once the npm dependency is declared (see "The `extends`
+chain is resolved" above).
 
 The Biome case is not hypothetical — this package shipped a `biome/base.json` carrying
 one, and it was dead config for every consumer that extended it while `ci:test:json`

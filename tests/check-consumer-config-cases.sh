@@ -956,6 +956,24 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_rejects_js "$d" "biome.json with a nested \"//\" key" '`"//"` key'
 
+# The same key inside a LOCAL `extends` target, not the document itself — found
+# during this change's own audit round by a fresh runtime trace, no fixture
+# exercised this combination before. Before GH-36 no local target was ever
+# read, so this could not exist; now it can, and it must be caught the same
+# way: verified against Biome 2.5.5, the note key makes `./biome.loose.json`
+# unloadable regardless of what the document that extends it looks like.
+d="$(mk_js_case biome-note-key-in-local-extends)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+cat > "$d/biome.loose.json" <<'JSON'
+{ "//": "note", "linter": { "enabled": true } }
+JSON
+assert_rejects_js "$d" "biome.json whose local extends target carries a \"//\" key" 'a local `extends` target contains a `"//"` key'
+
 # The plain "no extends" case lives with the adoption pair further down, where it
 # is the counterpart to the same config in a repository that has not adopted.
 

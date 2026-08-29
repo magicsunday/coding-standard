@@ -1154,6 +1154,22 @@ $resolveExtendsLayers = static function (string $repoRoot, array $config, string
     // is false for a plain object). Accepting it here too would iterate an
     // object's VALUES as candidates and could read a local file for one of
     // them, a verdict the JS side would never reach for the same input.
+    //
+    // One residual PHP/JS asymmetry, found and verified during this change's
+    // own audit round, deliberately left unfixed for the same reason the
+    // `$mergeConfigLayer` empty-array ambiguity is: a JSON OBJECT whose keys
+    // happen to be the sequential strings `"0"`, `"1"`, … decodes in PHP to an
+    // array indexed by the equivalent INTEGERS — a long-standing PHP behaviour
+    // for every array, not specific to `json_decode` — and `array_is_list`
+    // then reports `true` for it, same as a genuine JSON array. JS has no
+    // equivalent coercion (`JSON.parse('{"0":"a"}')` stays a plain object,
+    // `Array.isArray` on it is `false`), so PHP resolves such an `extends`
+    // value's entries as local candidates while JS resolves none. Not fixed:
+    // Biome itself hard-rejects this exact shape — verified against 2.5.5,
+    // `extends has an incorrect type, expected an array, but received an
+    // object` kills the whole config load — so a config that reaches this
+    // divergence never successfully loads for a real consumer, the same
+    // manifestation argument as the `"linter": []` case above.
     $candidates = match (true) {
         is_array($extends) && array_is_list($extends) => $extends,
         is_string($extends)                            => [$extends],
@@ -1480,6 +1496,23 @@ if ($biomeFile !== null) {
         $biomeBaseConfig = $loadOwnConfig($packageRoot . '/biome/base.json');
         $biomeLayers     = $resolveExtendsLayers($repoRoot, $biomeJson, 'biome/base', false, $biomeBaseConfig);
         $biomeEffective  = $foldExtendsChain($biomeLayers, $biomeJson);
+
+        // The "//" check above only ever saw the document itself — before
+        // GH-36, that was the whole story, since no local `extends` target was
+        // ever read. It now is: a local target Biome loads as part of the same
+        // chain is refused by Biome on exactly the same grounds, so it needs
+        // the same check. Found during this change's own audit round (a
+        // fresh runtime trace, not a hand-picked case): earlier fixtures
+        // already exercised a local target's OTHER content (a disabled
+        // linter, an off rule), but no fixture put a `"//"` key inside one
+        // until then.
+        foreach ($biomeLayers as $layer) {
+            if ($hasNoteKey($layer)) {
+                $fail($violations, $label, 'a local `extends` target contains a `"//"` key — Biome rejects unknown keys and refuses the whole config it belongs to, so the chain is valid JSON but unloadable. Put the note in a comment or in the README.');
+
+                break;
+            }
+        }
 
         // The rule names GH-36's per-rule check below must not find "off" —
         // derived from this package's own biome/base.json, not hand-copied.
