@@ -893,6 +893,11 @@ function loadOwnConfig(path) {
  * @param {object} sharedLayer     This package's own bundled config (from
  *                                  loadOwnConfig), substituted wherever the
  *                                  shared entry sits in the chain.
+ * @param {string} label           How the checked config file is named in
+ *                                  the report — used when a local target is
+ *                                  oversized, the one local-resolution
+ *                                  failure this gate reports rather than
+ *                                  silently skipping (see below).
  *
  * One residual PHP/JS asymmetry, found and verified during this change's own
  * audit round: a JSON object whose keys are the sequential strings "0", "1",
@@ -908,7 +913,7 @@ function loadOwnConfig(path) {
  *
  * @returns {object[]} The layers, in `extends` order.
  */
-function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional, sharedLayer) {
+function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional, sharedLayer, label) {
     const candidates = Array.isArray(extendsValue)
         ? extendsValue
         : (typeof extendsValue === 'string' ? [extendsValue] : []);
@@ -961,6 +966,18 @@ function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional
 
             if (decoded.kind === 'ok') {
                 layers.push(decoded.value);
+            } else if (decoded.kind === 'oversize') {
+                // Unlike an unreadable or unparseable local target — left to
+                // Biome's own error, per this function's docblock — an
+                // oversized one is a file Biome loads and applies without
+                // any complaint of its own: MAX_JSONC_BYTES is this gate's
+                // OWN defensive cap against stripJsonc's quadratic comment
+                // scan, not a real limit either tool enforces. Silently
+                // treating it as "not resolved" the way an unparseable file
+                // is would let a deliberately padded local target smuggle a
+                // real weakening past this gate undetected — found by Codex
+                // during PR review.
+                fail(label, `a local \`extends\` target (${attempt}) ` + tooLargeDetail(MAX_JSONC_BYTES));
             }
 
             break;
@@ -1176,7 +1193,7 @@ if (biomeFile !== null) {
         // Every assertion below runs against the EFFECTIVE document (GH-36) —
         // see $biomeEffective's comment in bin/check-consumer-config.php.
         const biomeBaseConfig = loadOwnConfig(join(packageRoot, 'biome', 'base.json'));
-        const biomeLayers = resolveExtendsLayers(repoRoot, biomeJson.extends ?? null, 'biome/base', false, biomeBaseConfig);
+        const biomeLayers = resolveExtendsLayers(repoRoot, biomeJson.extends ?? null, 'biome/base', false, biomeBaseConfig, label);
         const biomeEffective = foldExtendsChain(biomeLayers, biomeJson);
 
         // The "//" check above only ever saw the document itself — before
@@ -1352,6 +1369,7 @@ if (adopted && tsconfigFileExists) {
             'tsconfig/base',
             true,
             loadOwnConfig(join(packageRoot, 'tsconfig', 'base.json')),
+            'tsconfig.json',
         );
         const tsconfigEffective = foldExtendsChain(tsconfigLayers, tsconfigJson);
 
