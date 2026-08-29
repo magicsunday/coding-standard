@@ -1274,7 +1274,19 @@ if (biomeFile !== null) {
                     continue;
                 }
 
-                for (const ruleName of sharedRules[group] ?? []) {
+                // `Object.hasOwn`, not a bare `sharedRules[group] ?? []` — `group`
+                // is a consumer-controlled rule-group NAME (`Object.entries` over a
+                // consumer's own `linter.rules`), and `sharedRules` is a plain
+                // object. A group literally named `toString` (or `constructor`,
+                // `valueOf`, …) resolves through the prototype chain to the
+                // inherited `Object.prototype` member — a function, which is
+                // neither `null` nor `undefined`, so `?? []` never applies — and
+                // `for...of` over a function throws `TypeError: … is not
+                // iterable`, crashing the whole gate on a config Biome would
+                // merely answer `Found an unknown key` for. Found by CodeRabbit,
+                // verified live: `for (const x of ({})['toString'] ?? []) {}`
+                // throws exactly that.
+                for (const ruleName of Object.hasOwn(sharedRules, group) ? sharedRules[group] : []) {
                     if (biomeRuleSeverity(rules[ruleName]) === 'off') {
                         fail(label, `\`${prefix}${rulesPath}.${ruleName}\` must not be "off" — that drops a rule the shared config enables explicitly.`);
                     }
