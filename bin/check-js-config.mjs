@@ -38,10 +38,20 @@
  * @link    https://github.com/magicsunday/coding-standard/
  */
 
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { safeReportValue } from './support/safe-report-value.mjs';
+
+/**
+ * This package's OWN installation root — the directory holding `bin/` and
+ * `biome/` as siblings, not the consumer repository `repoRoot` points at.
+ * Read-only source for the rule names GH-36's per-rule check derives from
+ * `biome/base.json` rather than hand-copying. Mirrors `$packageRoot` in
+ * bin/check-consumer-config.php.
+ */
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
  * The largest JSONC config this gate will read, in bytes. Mirrors
@@ -702,11 +712,31 @@ function isArrayLike(value) {
 }
 
 /**
+ * Reports whether a single `extends` specifier IS the shared package entry.
+ * See $isSharedSpecifier in bin/check-consumer-config.php for the full
+ * rationale — the pattern below is that function's regex, translated 1:1 (JS
+ * `$` without the `m` flag already matches only the true end of the string, so
+ * no equivalent of PCRE's `D` modifier is needed).
+ *
+ * @param {string} candidate       One `extends` list entry.
+ * @param {string} sharedStem      Path inside the package, without the `.json` suffix.
+ * @param {boolean} suffixOptional Whether the consuming tool resolves the suffix itself.
+ *
+ * @returns {boolean}
+ */
+function isSharedSpecifier(candidate, sharedStem, suffixOptional) {
+    const escapedStem = sharedStem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const suffix = suffixOptional ? '(?:\\.json)?' : '\\.json';
+    const pattern = new RegExp(
+        `^(?:\\./)?(?:node_modules/(?:\\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/${escapedStem}${suffix}$`,
+    );
+
+    return pattern.test(candidate);
+}
+
+/**
  * Reports whether an `extends` value references the shared config. See
- * $extendsShared in bin/check-consumer-config.php for the full rationale — the
- * pattern below is that function's regex, translated 1:1 (JS `$` without the
- * `m` flag already matches only the true end of the string, so no equivalent of
- * PCRE's `D` modifier is needed).
+ * $extendsShared in bin/check-consumer-config.php for the full rationale.
  *
  * @param {object} config         The decoded consumer config.
  * @param {string} sharedStem     Path inside the package, without the `.json` suffix.
@@ -723,19 +753,261 @@ function extendsShared(config, sharedStem, suffixOptional, listRequired = false)
     }
 
     const candidates = isArrayLike(extendsValue) ? Object.values(extendsValue) : [extendsValue];
-    const escapedStem = sharedStem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const suffix = suffixOptional ? '(?:\\.json)?' : '\\.json';
-    const pattern = new RegExp(
-        `^(?:\\./)?(?:node_modules/(?:\\.pnpm/[^/]+/node_modules/)?)?@magicsunday/coding-standard/${escapedStem}${suffix}$`,
-    );
 
     for (const candidate of candidates) {
-        if (typeof candidate === 'string' && pattern.test(candidate)) {
+        if (typeof candidate === 'string' && isSharedSpecifier(candidate, sharedStem, suffixOptional)) {
             return true;
         }
     }
 
     return false;
+}
+
+/**
+ * Deep-merges two decoded JSON/JSONC documents the way a real tool folds an
+ * `extends` chain. Mirrors $mergeConfigLayer in bin/check-consumer-config.php
+ * — see that function's docblock for the Biome 2.5.5 measurements behind the
+ * `overrides`-concatenates / everything-else-replaces split. PHP's docblock
+ * there also explains an `array_is_list([])` ambiguity (an empty JSON object
+ * and an empty JSON array both decode to the identical PHP `[]`) that needs a
+ * "check whichever side is non-empty" guard — that ambiguity has no JS
+ * equivalent, since `JSON.parse('{}')` and `JSON.parse('[]')` decode to
+ * distinguishable values here (`Array.isArray` tells them apart), so the
+ * plain `isArrayLike(value) && !Array.isArray(value)` check below is already
+ * correct on both sides without that guard — with one residual asymmetry
+ * against the PHP guard, found during this change's own audit round and left
+ * unfixed there for the reason recorded on `$mergeConfigLayer`: a genuinely
+ * empty JSON ARRAY on a key whose valid schema shape is always an object
+ * (`"linter": []`, never real Biome/tsc config) replaces here (this file's
+ * `Array.isArray([])` is unconditionally `true`) while PHP's `array_is_list`
+ * ambiguity makes it recurse instead. Not reachable by a config that
+ * successfully loads in the real tool — Biome answers that exact shape with
+ * `linter has an incorrect type, expected an object, but received an array`
+ * before either gate's verdict would matter.
+ *
+ * `__proto__`/`constructor`/`prototype` are skipped outright — a
+ * `JSON.parse`'d document with a literal `"__proto__"` key creates a real OWN
+ * property (JSON.parse does not special-case it), but `merged[key]` on the
+ * READ side falls through to the inherited accessor once `merged` carries no
+ * own `__proto__`, returning the object's actual prototype rather than
+ * `undefined` — the "both sides are objects, recurse" branch then treats that
+ * prototype as ordinary data and the resulting assignment performs a real
+ * `[[SetPrototypeOf]]` on the merged object. None of the three names is a
+ * legitimate Biome/tsc config key, so skipping them changes no accepted
+ * config's effective result.
+ *
+ * @param {object} base    The lower-precedence layer.
+ * @param {object} overlay The higher-precedence layer.
+ *
+ * @returns {object}
+ */
+function mergeConfigLayer(base, overlay) {
+    const merged = { ...base };
+
+    for (const [key, value] of Object.entries(overlay)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            continue;
+        }
+
+        const baseValue = merged[key];
+
+        if (key === 'overrides' && Array.isArray(value) && Array.isArray(baseValue)) {
+            merged[key] = [...baseValue, ...value];
+
+            continue;
+        }
+
+        if (
+            isArrayLike(value) && !Array.isArray(value)
+            && isArrayLike(baseValue) && !Array.isArray(baseValue)
+        ) {
+            merged[key] = mergeConfigLayer(baseValue, value);
+
+            continue;
+        }
+
+        merged[key] = value;
+    }
+
+    return merged;
+}
+
+/**
+ * Folds a resolved `extends` chain into the effective document. Mirrors
+ * $foldExtendsChain in bin/check-consumer-config.php — the one step shared
+ * verbatim by the biome.json and tsconfig.json blocks below.
+ *
+ * @param {object[]} layers   From resolveExtendsLayers, in `extends` order.
+ * @param {object} document   The document itself, merged last.
+ *
+ * @returns {object}
+ */
+function foldExtendsChain(layers, document) {
+    let effective = {};
+
+    for (const layer of layers) {
+        effective = mergeConfigLayer(effective, layer);
+    }
+
+    return mergeConfigLayer(effective, document);
+}
+
+/**
+ * Loads a config this package itself ships. Mirrors $loadOwnConfig in
+ * bin/check-consumer-config.php — trusted content, no size bound, no JSONC
+ * handling.
+ *
+ * @param {string} path Absolute path to the package's own config file.
+ *
+ * @returns {object}
+ */
+function loadOwnConfig(path) {
+    if (!isFile(path)) {
+        return {};
+    }
+
+    try {
+        const decoded = JSON.parse(readFileSync(path, 'utf8'));
+
+        return isArrayLike(decoded) ? decoded : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
+ * Resolves an `extends` chain to the config layers a real tool would also
+ * apply, IN THE ORDER the document names them. Mirrors
+ * $resolveExtendsLayers in bin/check-consumer-config.php — see that
+ * function's docblock for why the shared entry is substituted with this
+ * package's own bundled content rather than skipped (order-sensitive: a
+ * shared entry listed AFTER a local override wins the fold and undoes it,
+ * verified against Biome 2.5.5 and tsc 7.0.2), why an unresolvable
+ * package-scoped entry contributes nothing silently, why a path escaping
+ * repoRoot is not followed, and why the resolution is one hop deep.
+ *
+ * @param {string} repoRoot        The consumer repository root.
+ * @param {*} extendsValue         The document's raw `extends` value.
+ * @param {string} sharedStem      Passed to isSharedSpecifier.
+ * @param {boolean} suffixOptional Whether a bare specifier may omit `.json`.
+ * @param {object} sharedLayer     This package's own bundled config (from
+ *                                  loadOwnConfig), substituted wherever the
+ *                                  shared entry sits in the chain.
+ *
+ * @returns {object[]} The layers, in `extends` order.
+ */
+function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional, sharedLayer) {
+    const candidates = Array.isArray(extendsValue)
+        ? extendsValue
+        : (typeof extendsValue === 'string' ? [extendsValue] : []);
+
+    let realRoot;
+
+    try {
+        realRoot = realpathSync(repoRoot);
+    } catch {
+        realRoot = null;
+    }
+
+    const layers = [];
+
+    for (const candidate of candidates) {
+        if (typeof candidate !== 'string') {
+            continue;
+        }
+
+        if (isSharedSpecifier(candidate, sharedStem, suffixOptional)) {
+            layers.push(sharedLayer);
+
+            continue;
+        }
+
+        if (realRoot === null) {
+            continue;
+        }
+
+        for (const attempt of suffixOptional ? [candidate, `${candidate}.json`] : [candidate]) {
+            const path = join(repoRoot, attempt);
+
+            if (!isFile(path)) {
+                continue;
+            }
+
+            let real;
+
+            try {
+                real = realpathSync(path);
+            } catch {
+                break;
+            }
+
+            if (!(real === realRoot || real.startsWith(realRoot + sep))) {
+                break;
+            }
+
+            const decoded = loadJsonc(path);
+
+            if (decoded.kind === 'ok') {
+                layers.push(decoded.value);
+            }
+
+            break;
+        }
+    }
+
+    return layers;
+}
+
+/**
+ * The individual Biome rules this package's own biome/base.json turns on
+ * explicitly, keyed by group. Mirrors $sharedBiomeRules in
+ * bin/check-consumer-config.php.
+ *
+ * @param {object} biomeBaseConfig This package's own bundled biome/base.json,
+ *                                  decoded once by loadOwnConfig and shared
+ *                                  with resolveExtendsLayers rather than
+ *                                  re-read here.
+ *
+ * @returns {Record<string, string[]>}
+ */
+function sharedBiomeRules(biomeBaseConfig) {
+    const rules = biomeBaseConfig?.linter?.rules;
+
+    if (!isArrayLike(rules)) {
+        return {};
+    }
+
+    const byGroup = {};
+
+    for (const [group, groupRules] of Object.entries(rules)) {
+        if (group === 'preset' || !isArrayLike(groupRules) || Array.isArray(groupRules)) {
+            continue;
+        }
+
+        byGroup[group] = Object.keys(groupRules);
+    }
+
+    return byGroup;
+}
+
+/**
+ * Extracts a Biome rule's severity, accepting both value shapes the schema
+ * allows: a bare string and an options object. Mirrors $biomeRuleSeverity.
+ *
+ * @param {*} ruleValue
+ *
+ * @returns {string|null}
+ */
+function biomeRuleSeverity(ruleValue) {
+    if (typeof ruleValue === 'string') {
+        return ruleValue;
+    }
+
+    if (isArrayLike(ruleValue) && !Array.isArray(ruleValue) && typeof ruleValue.level === 'string') {
+        return ruleValue.level;
+    }
+
+    return null;
 }
 
 /**
@@ -888,8 +1160,19 @@ if (biomeFile !== null) {
         // the document, each overrides entry, and a per-language block inside
         // either. See the PHP gate's comment for the measured 2.5.5 behaviour
         // this walk exists to catch.
-        const baseScopes = [['', biomeJson]];
-        const overrides = biomeJson.overrides ?? null;
+        //
+        // Every assertion below runs against the EFFECTIVE document (GH-36) —
+        // see $biomeEffective's comment in bin/check-consumer-config.php.
+        const biomeBaseConfig = loadOwnConfig(join(packageRoot, 'biome', 'base.json'));
+        const biomeLayers = resolveExtendsLayers(repoRoot, biomeJson.extends ?? null, 'biome/base', false, biomeBaseConfig);
+        const biomeEffective = foldExtendsChain(biomeLayers, biomeJson);
+
+        // The rule names GH-36's per-rule check below must not find "off" —
+        // derived from this package's own biome/base.json, not hand-copied.
+        const sharedRules = sharedBiomeRules(biomeBaseConfig);
+
+        const baseScopes = [['', biomeEffective]];
+        const overrides = biomeEffective.overrides ?? null;
 
         if (isArrayLike(overrides)) {
             for (const [index, override] of Object.entries(overrides)) {
@@ -916,7 +1199,7 @@ if (biomeFile !== null) {
 
         // files.includes narrowed to nothing but exclusions is the disable
         // route that leaves every `enabled` flag true.
-        const rootIncludes = biomeJson.files?.includes ?? null;
+        const rootIncludes = biomeEffective.files?.includes ?? null;
 
         if (isArrayLike(rootIncludes)) {
             const positive = Object.values(rootIncludes).filter(
@@ -945,22 +1228,34 @@ if (biomeFile !== null) {
             const ruleScopes = [];
 
             if (isArrayLike(topLevelRules)) {
-                ruleScopes.push(['linter.rules', topLevelRules]);
+                ruleScopes.push(['linter.rules', topLevelRules, null]);
 
                 for (const [group, groupRules] of Object.entries(topLevelRules)) {
                     if (isArrayLike(groupRules)) {
-                        ruleScopes.push([`linter.rules.${safeReportValue(group)}`, groupRules]);
+                        ruleScopes.push([`linter.rules.${safeReportValue(group)}`, groupRules, group]);
                     }
                 }
             }
 
-            for (const [rulesPath, rules] of ruleScopes) {
+            for (const [rulesPath, rules, group] of ruleScopes) {
                 if (rules.recommended === false) {
                     fail(label, `\`${prefix}${rulesPath}.recommended\` must not be false — that drops the rule floor the shared config builds on.`);
                 }
 
                 if (rules.preset === 'none') {
                     fail(label, `\`${prefix}${rulesPath}.preset\` must not be \`none\` — that drops the rule floor the shared config builds on.`);
+                }
+
+                // GH-36's second measured route: switching one rule off by name.
+                // See the PHP gate's comment at the equivalent branch.
+                if (group === null) {
+                    continue;
+                }
+
+                for (const ruleName of sharedRules[group] ?? []) {
+                    if (biomeRuleSeverity(rules[ruleName]) === 'off') {
+                        fail(label, `\`${prefix}${rulesPath}.${ruleName}\` must not be "off" — that drops a rule the shared config enables explicitly.`);
+                    }
                 }
             }
         }
@@ -1013,8 +1308,21 @@ if (adopted && tsconfigFileExists) {
             'isolatedModules',
         ];
 
+        // GH-36: fold every `extends` entry onto the document itself before
+        // asserting, the shared entry's own bundled content included at its
+        // listed position — see $tsconfigEffective's comment in
+        // bin/check-consumer-config.php.
+        const tsconfigLayers = resolveExtendsLayers(
+            repoRoot,
+            tsconfigJson.extends ?? null,
+            'tsconfig/base',
+            true,
+            loadOwnConfig(join(packageRoot, 'tsconfig', 'base.json')),
+        );
+        const tsconfigEffective = foldExtendsChain(tsconfigLayers, tsconfigJson);
+
         for (const flag of pinnedFlags) {
-            const compilerOptions = tsconfigJson.compilerOptions;
+            const compilerOptions = tsconfigEffective.compilerOptions;
             const value = isArrayLike(compilerOptions) ? compilerOptions[flag] : undefined;
 
             if (value === false) {
