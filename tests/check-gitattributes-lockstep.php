@@ -182,8 +182,8 @@ $parseExportIgnorePaths = static function (string $contents): array {
  * repository's own 2+-duplicate threshold once that guard added the second call
  * site. Do NOT route the .gitattributes is_link() check further down through this
  * closure: that one is deliberately NOT a setup failure (see its own comment) —
- * routing it here would silently turn real, checkable drift into an unreachable
- * failure report.
+ * routing it here would replace the real, checkable drift report with an early
+ * setup-failure exit, before the violation list this gate builds is ever reached.
  *
  * @param string $path Path that could not be read.
  *
