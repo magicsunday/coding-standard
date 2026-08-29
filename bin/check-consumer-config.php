@@ -1231,7 +1231,7 @@ $resolveExtendsLayers = static function (string $repoRoot, array $config, string
                 // deliberately padded local target smuggle a real weakening
                 // past this gate undetected — found by Codex during PR
                 // review.
-                $fail($violations, $label, sprintf('a local `extends` target (%s) ', $attempt) . $tooLargeDetail(MAX_JSONC_BYTES));
+                $fail($violations, $label, sprintf('a local `extends` target (%s) ', safeReportValue($attempt)) . $tooLargeDetail(MAX_JSONC_BYTES));
             }
 
             break;

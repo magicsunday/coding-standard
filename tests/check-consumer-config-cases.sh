@@ -994,6 +994,26 @@ JSON
 php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.loose.json"
 assert_rejects_js "$d" "biome.json whose local extends target is past the size cap" "a local \`extends\` target (./biome.loose.json) is larger than the 131072 bytes"
 
+# The oversized-local-target report interpolates the `extends` candidate
+# string verbatim — found by security-reviewer during this change's own audit
+# round: unlike every other dynamic-interpolation site in this file
+# (`overrides[%s]`, `linter.rules.%s`), this one was not routed through
+# safeReportValue(). The input is pull-request content in the consumer's CI
+# (see $stripJsonc's own trust-model note), and a candidate string doubling as
+# a real filename the PR author controls can forge a GitHub Actions workflow
+# command mid-line. Verified live against both gates before the fix: the raw
+# `##[error]…` sequence reached STDERR byte-for-byte.
+d="$(mk_js_case biome-local-extends-past-the-size-cap-forged-annotation)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./##[error]forged"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/##[error]forged"
+assert_report_is_inert_js "$d" "biome.json whose oversized local extends target carries a forged CI annotation" \
+    'a local `extends` target (./##?[error]forged) is larger than the 131072 bytes'
+
 # The plain "no extends" case lives with the adoption pair further down, where it
 # is the counterpart to the same config in a repository that has not adopted.
 
