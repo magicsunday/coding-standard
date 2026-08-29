@@ -1473,6 +1473,256 @@ d="$(mk_js_case ts-extensionless)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base"\n}\n' > "$d/tsconfig.json"
 assert_accepts_js "$d" "tsconfig.json extending without the .json suffix"
 
+# --- GH-36: the extends chain resolves to the EFFECTIVE config, not just the
+# document's own top level ----------------------------------------------------
+#
+# Route 1, reproduced from the issue almost verbatim: the shared entry is
+# listed FIRST, a LOCAL second entry disables the linter wholesale, and the
+# document's own top level never mentions `linter` at all. Verified against
+# Biome 2.5.5: with this exact pair, `biome ci` checks zero files, because the
+# wholesale disable is folded on top of the shared base.
+d="$(mk_js_case biome-local-extends-linter-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+cat > "$d/biome.loose.json" <<'JSON'
+{ "linter": { "enabled": false } }
+JSON
+assert_rejects_js "$d" "biome.json whose LATER local extends target disables the linter" "\`linter.enabled\` must not be false"
+
+# The order-sensitive half of the same mechanism, in the OTHER direction: the
+# shared entry listed AFTER a local override wins the fold and undoes it — the
+# shared base sets `linter.enabled: true` explicitly, so it wins back. Verified
+# against Biome 2.5.5: with the shared entry last, the same local
+# `biome.loose.json` that disabled the linter above no longer does — `biome
+# lint` reports the `noDoubleEquals`/`useConst` findings it would report with no
+# override at all. A fix that treats the shared entry as a no-op regardless of
+# its position — "skip it, it is already asserted separately" — passes route 1
+# above but reports drift HERE, on a document this gate must accept.
+d="$(mk_js_case biome-shared-extends-after-local-override)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["./biome.loose.json", "@magicsunday/coding-standard/biome/base.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+cat > "$d/biome.loose.json" <<'JSON'
+{ "linter": { "enabled": false } }
+JSON
+assert_accepts_js "$d" "biome.json whose shared extends entry follows and undoes a local override"
+
+# A local target that does something ordinary and touches none of the checked
+# toggles must not be reported — the negative control the issue itself asks
+# for. `lineWidth` is a formatter ergonomic this gate does not pin.
+d="$(mk_js_case biome-local-extends-legitimate)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.wide.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+cat > "$d/biome.wide.json" <<'JSON'
+{ "formatter": { "lineWidth": 120 } }
+JSON
+assert_accepts_js "$d" "biome.json whose local extends target is a legitimate, non-drifting relaxation"
+
+# A package-scoped entry other than the shared one resolves to no file in this
+# repository — "not in the repository", the same answer this gate already
+# gives an unmet contract elsewhere — so it must be silently skipped rather
+# than reported or crashed on.
+d="$(mk_js_case biome-local-extends-package-scoped-out-of-scope)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "@some/other-package"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+assert_accepts_js "$d" "biome.json whose second extends entry is an uninstalled package, not a local file"
+
+# A specifier that escapes the repository must not be followed — the input is
+# pull-request content in the consumer's CI, and opening whatever the runner's
+# filesystem holds at an arbitrary path is not this gate's job. The escape
+# target genuinely disables the linter, so if it were followed this case would
+# reject; accepting proves it is not.
+d="$(mk_js_case biome-local-extends-path-traversal)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "../escape.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+cat > "$(dirname "$d")/escape.json" <<'JSON'
+{ "linter": { "enabled": false } }
+JSON
+assert_accepts_js "$d" "biome.json whose local extends target escapes the repository via ../"
+
+# Route 2: one rule switched off by name survives every check that only looks
+# at the group-level `recommended`/`preset` floor. Both value shapes Biome's
+# schema allows are driven — a bare string and an options object — since only
+# one was verified in the issue.
+d="$(mk_js_case biome-rule-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": { "noDoubleEquals": "off" } } }
+}
+JSON
+assert_rejects_js "$d" "biome.json switching a shared rule off by its bare-string value" "\`linter.rules.suspicious.noDoubleEquals\` must not be \"off\""
+
+d="$(mk_js_case biome-rule-off-object-shape)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": { "noDoubleEquals": { "level": "off" } } } }
+}
+JSON
+assert_rejects_js "$d" "biome.json switching a shared rule off via its options-object level" "\`linter.rules.suspicious.noDoubleEquals\` must not be \"off\""
+
+# The override half of route 2 — the per-rule check must walk the same
+# override scopes the wholesale toggle check already does.
+d="$(mk_js_case biome-rule-off-in-override)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "overrides": [
+        { "includes": ["**/*.legacy.js"], "linter": { "rules": { "suspicious": { "noDoubleEquals": "off" } } } }
+    ]
+}
+JSON
+assert_rejects_js "$d" "biome.json switching a shared rule off inside an overrides entry" "overrides[0].linter.rules.suspicious.noDoubleEquals\` must not be \"off\""
+
+# Two negative controls, so the per-rule check is proven to look at "off"
+# specifically rather than at "any change to a shared rule's value".
+d="$(mk_js_case biome-rule-escalated-not-off)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": { "noDoubleEquals": "error" } } }
+}
+JSON
+assert_accepts_js "$d" "biome.json tightening a shared rule's severity (not drift)"
+
+d="$(mk_js_case biome-rule-off-not-shared)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+}
+JSON
+assert_accepts_js "$d" "biome.json switching off a rule the shared config never turns on itself"
+
+# tsconfig gets the same two mechanisms — order-sensitive extends-chain
+# resolution, one hop deep, with the shared entry substituted at its listed
+# position. Verified against tsc 7.0.2, mirroring the Biome measurements above.
+d="$(mk_js_case ts-local-extends-flag-off)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/tsconfig/base.json", "./tsconfig.loose.json"],
+    "include": ["src"]
+}
+JSON
+cat > "$d/tsconfig.loose.json" <<'JSON'
+{ "compilerOptions": { "noUncheckedIndexedAccess": false } }
+JSON
+assert_rejects_js "$d" "tsconfig.json whose LATER local extends target disables noUncheckedIndexedAccess" "noUncheckedIndexedAccess"
+
+d="$(mk_js_case ts-shared-extends-after-local-override)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["./tsconfig.loose.json", "@magicsunday/coding-standard/tsconfig/base.json"],
+    "include": ["src"]
+}
+JSON
+cat > "$d/tsconfig.loose.json" <<'JSON'
+{ "compilerOptions": { "noUncheckedIndexedAccess": false } }
+JSON
+assert_accepts_js "$d" "tsconfig.json whose shared extends entry follows and undoes a local override"
+
+d="$(mk_js_case ts-local-extends-legitimate)"
+cat > "$d/tsconfig.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/tsconfig/base.json", "./tsconfig.paths-only.json"],
+    "include": ["src"]
+}
+JSON
+cat > "$d/tsconfig.paths-only.json" <<'JSON'
+{ "compilerOptions": { "paths": { "@app/*": ["src/*"] } } }
+JSON
+assert_accepts_js "$d" "tsconfig.json whose local extends target only adds paths (not drift)"
+
+# An empty JSON object decodes to PHP's `[]`, indistinguishable from an empty
+# JSON array once decoded — `array_is_list([])` is `true` — so a naive merge
+# treats an empty overlay OBJECT as a list and replaces the accumulated value
+# outright instead of leaving it untouched. Found independently by two
+# reviewers during this change's own audit round, verified against Biome
+# 2.5.5.
+#
+# Only ONE direction is fixture-tested, not two, and that is deliberate rather
+# than an omission — found by test-quality-reviewer in this change's own audit
+# round: an earlier version of this file also carried a "leaves a re-enable
+# untouched" ACCEPT case, built the same way as the REJECT case below but with
+# the layers in the opposite order (shared re-enabling AFTER the local
+# disable). It read as the direction-1 counterpart, but no check in this gate
+# fires on an ABSENT bad value, only on an explicit one — so wiping the good,
+# re-enabled `linter` object down to `{}` and correctly preserving it both
+# report the identical verdict (`accept`), and the case could not tell the
+# fixed merge from the pre-fix bug apart. The REJECT case immediately below is
+# the one direction where the two behaviours actually diverge: wiping a
+# *disabled* section removes the very key this gate's check reads, turning an
+# expected rejection into a false accept, which is the observable half of this
+# bug and the only half a CLI accept/reject fixture can pin.
+d="$(mk_js_case biome-empty-object-overlay-does-not-hide-drift)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"],
+    "files": { "includes": ["src/**"] },
+    "linter": {}
+}
+JSON
+cat > "$d/biome.loose.json" <<'JSON'
+{ "linter": { "enabled": false } }
+JSON
+assert_rejects_js "$d" "biome.json whose empty top-level object does not mask an unresolved disable" "\`linter.enabled\` must not be false"
+
+# `extends` shaped as a JSON OBJECT rather than an array or string is not
+# accepted by either real tool. Found during this change's own audit round: an
+# early implementation iterated an object's VALUES as extends candidates in
+# PHP but not in Node (`Array.isArray` is false for a plain object), so the
+# same config could reach a different verdict on each side. Both sides must
+# now agree — accept, matching neither resolving the local target inside it.
+d="$(mk_js_case biome-extends-object-shape)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": { "shared": "@magicsunday/coding-standard/biome/base.json", "local": "./biome.loose.json" }
+}
+JSON
+cat > "$d/biome.loose.json" <<'JSON'
+{ "linter": { "enabled": false } }
+JSON
+assert_accepts_js "$d" "biome.json whose extends is a JSON object rather than an array"
+
+# Prototype pollution via a literal `"__proto__"` key (CWE-1321), found by
+# security-reviewer during this change's own audit round: `JSON.parse` creates
+# a real OWN `__proto__` property, but `merged[key]` on the read side falls
+# through to the inherited accessor once the accumulator carries no own
+# `__proto__`, returning the object's actual prototype — which the "both sides
+# are objects, recurse" branch then treats as ordinary data and reassigns via
+# `[[SetPrototypeOf]]`. Verified against the real gate: without the fix this
+# fabricated a `files.includes` violation on a document that never set
+# `files` at all. PHP is unaffected — plain arrays have no prototype
+# mechanism — so this is the node-only half of the differential pair.
+d="$(mk_js_case biome-proto-key-no-fabricated-violation)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "__proto__": { "files": { "includes": ["!**/*"] } }
+}
+JSON
+assert_accepts_js "$d" "biome.json carrying a __proto__ key does not fabricate a files.includes violation"
+
 # The string-protection the trailing-comma pass needs: a comma before a bracket
 # INSIDE a string value is part of the value, not punctuation to strip.
 #
