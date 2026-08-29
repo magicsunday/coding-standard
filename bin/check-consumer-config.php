@@ -1138,6 +1138,15 @@ $loadOwnConfig = static function (string $path): array {
  *                                                  $loadOwnConfig), substituted
  *                                                  wherever the shared entry
  *                                                  sits in the chain.
+ * @param list<string>            $violations     The accumulated report,
+ *                                                  appended to when a local
+ *                                                  target is oversized —
+ *                                                  the one local-resolution
+ *                                                  failure this gate reports
+ *                                                  rather than silently
+ *                                                  skipping (see below).
+ * @param string                  $label          How the checked config file
+ *                                                  is named in the report.
  *
  * @return list<array<array-key, mixed>> The layers, in `extends` order — the
  *                                        caller folds them left-to-right and
@@ -1145,7 +1154,7 @@ $loadOwnConfig = static function (string $path): array {
  *                                        entries and the document itself win
  *                                        exactly as the tool resolves them.
  */
-$resolveExtendsLayers = static function (string $repoRoot, array $config, string $sharedStem, bool $suffixOptional, array $sharedLayer) use ($isSharedSpecifier, $loadJsonc): array {
+$resolveExtendsLayers = static function (string $repoRoot, array $config, string $sharedStem, bool $suffixOptional, array $sharedLayer, array &$violations, string $label) use ($isSharedSpecifier, $loadJsonc, $fail, $tooLargeDetail): array {
     $extends = $config['extends'] ?? null;
 
     // `array_is_list`, not a bare `is_array`: neither Biome nor tsc accepts an
@@ -1211,6 +1220,18 @@ $resolveExtendsLayers = static function (string $repoRoot, array $config, string
 
             if (is_array($decoded)) {
                 $layers[] = $decoded;
+            } elseif (is_int($decoded)) {
+                // Unlike an unreadable or unparseable local target — left to
+                // Biome's own error, per this function's docblock — an
+                // oversized one is a file Biome loads and applies without any
+                // complaint of its own: MAX_JSONC_BYTES is this gate's OWN
+                // defensive cap against $stripJsonc's quadratic comment scan,
+                // not a real limit either tool enforces. Silently treating it
+                // as "not resolved" the way an unparseable file is would let a
+                // deliberately padded local target smuggle a real weakening
+                // past this gate undetected — found by Codex during PR
+                // review.
+                $fail($violations, $label, sprintf('a local `extends` target (%s) ', $attempt) . $tooLargeDetail(MAX_JSONC_BYTES));
             }
 
             break;
@@ -1494,7 +1515,7 @@ if ($biomeFile !== null) {
         // repository with no `extends` array at all gets back exactly
         // $biomeJson, because folding nothing onto it changes nothing.
         $biomeBaseConfig = $loadOwnConfig($packageRoot . '/biome/base.json');
-        $biomeLayers     = $resolveExtendsLayers($repoRoot, $biomeJson, 'biome/base', false, $biomeBaseConfig);
+        $biomeLayers     = $resolveExtendsLayers($repoRoot, $biomeJson, 'biome/base', false, $biomeBaseConfig, $violations, $label);
         $biomeEffective  = $foldExtendsChain($biomeLayers, $biomeJson);
 
         // The "//" check above only ever saw the document itself — before
@@ -1730,7 +1751,7 @@ if ($adopted && is_file($tsconfigFile)) {
         // entry's own bundled content included at its listed position (see
         // $resolveExtendsLayers). A repository with no `extends` array at all
         // gets back exactly $tsconfigJson.
-        $tsconfigLayers    = $resolveExtendsLayers($repoRoot, $tsconfigJson, 'tsconfig/base', true, $loadOwnConfig($packageRoot . '/tsconfig/base.json'));
+        $tsconfigLayers    = $resolveExtendsLayers($repoRoot, $tsconfigJson, 'tsconfig/base', true, $loadOwnConfig($packageRoot . '/tsconfig/base.json'), $violations, 'tsconfig.json');
         $tsconfigEffective = $foldExtendsChain($tsconfigLayers, $tsconfigJson);
 
         foreach ($pinnedFlags as $flag) {

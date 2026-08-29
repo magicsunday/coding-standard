@@ -974,6 +974,26 @@ cat > "$d/biome.loose.json" <<'JSON'
 JSON
 assert_rejects_js "$d" "biome.json whose local extends target carries a \"//\" key" 'a local `extends` target contains a `"//"` key'
 
+# A local `extends` target past MAX_JSONC_BYTES — found by Codex during PR
+# review. Unlike an unreadable or unparseable local target (left to Biome's
+# own error, by design), an oversized one is a file Biome loads and applies
+# without complaint: the byte cap is this gate's OWN defensive bound against
+# the quadratic comment-strip regex, not a real limit either tool enforces.
+# Silently treating it as "not resolved" the way an unparseable file is would
+# let a deliberately padded local target smuggle a real weakening past this
+# gate undetected. Same padding technique as biome-past-the-size-cap below —
+# an unterminated string literal is enough to cross the byte cap without
+# needing valid JSON, since the cap is checked before parsing.
+d="$(mk_js_case biome-local-extends-past-the-size-cap)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json", "./biome.loose.json"],
+    "files": { "includes": ["src/**"] }
+}
+JSON
+php -r 'file_put_contents($argv[1], "{\"a\":" . str_repeat("\\\"", 70000));' "$d/biome.loose.json"
+assert_rejects_js "$d" "biome.json whose local extends target is past the size cap" "a local \`extends\` target (./biome.loose.json) is larger than the 131072 bytes"
+
 # The plain "no extends" case lives with the adoption pair further down, where it
 # is the counterpart to the same config in a repository that has not adopted.
 
