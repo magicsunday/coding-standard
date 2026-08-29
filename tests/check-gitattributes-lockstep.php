@@ -177,9 +177,13 @@ $parseExportIgnorePaths = static function (string $contents): array {
 /**
  * Reports a path as unreadable and exits(2) — a setup failure, distinct from the
  * drift verdict (exit 1) this gate otherwise reports. Shared by $readOrExit's own
- * unreadable branch and the is_link() guard below, which reaches this same verdict
- * without ever calling readCapped() — extracted at this repository's own
- * 2+-duplicate threshold once the guard added the second call site.
+ * unreadable branch and the templates/gitattributes is_link() guard below, which
+ * reaches this same verdict without ever calling readCapped() — extracted at this
+ * repository's own 2+-duplicate threshold once that guard added the second call
+ * site. Do NOT route the .gitattributes is_link() check further down through this
+ * closure: that one is deliberately NOT a setup failure (see its own comment) —
+ * routing it here would silently turn real, checkable drift into an unreachable
+ * failure report.
  *
  * @param string $path Path that could not be read.
  *
@@ -257,7 +261,10 @@ if (count($templatePaths) === 0) {
 // read for attribute purposes at all (reproduced with git check-attr and git
 // archive), so a symlink here is exactly as ineffective as no file, and
 // treating it as such is what makes this gate certify the same archive git
-// itself will produce rather than the target file's content.
+// itself will produce rather than the target file's content. Intentionally NOT
+// $reportUnreadable(): unlike the template guard above, this is real,
+// checkable drift, not a setup failure — routing it there would exit(2) before
+// the violation list is ever built.
 $ownContents = (!is_link($ownPath) && is_file($ownPath)) ? $readOrExit($ownPath) : '';
 $ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 
