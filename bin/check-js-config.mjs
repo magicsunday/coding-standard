@@ -977,7 +977,7 @@ function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional
                 // is would let a deliberately padded local target smuggle a
                 // real weakening past this gate undetected — found by Codex
                 // during PR review.
-                fail(label, `a local \`extends\` target (${attempt}) ` + tooLargeDetail(MAX_JSONC_BYTES));
+                fail(label, `a local \`extends\` target (${safeReportValue(attempt)}) ` + tooLargeDetail(MAX_JSONC_BYTES));
             }
 
             break;
