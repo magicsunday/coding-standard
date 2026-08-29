@@ -1632,6 +1632,24 @@ cat > "$d/biome.json" <<'JSON'
 JSON
 assert_accepts_js "$d" "biome.json switching off a rule the shared config never turns on itself"
 
+# A rule GROUP literally named after an inherited Object.prototype member
+# (found by CodeRabbit during this change's own review): the Node gate's
+# `sharedRules[group]` lookup resolves through the prototype chain to the
+# inherited member itself rather than `undefined`, so `?? []` never applies —
+# `for...of` over a function throws and crashes the whole gate. Biome itself
+# refuses this exact shape ("Found an unknown key `toString`"), but the gate
+# must never CRASH on a config it is asked to check, whatever Biome does with
+# it — a wrong verdict is not the same failure class as an unhandled
+# exception. PHP is unaffected: an array key lookup has no prototype chain.
+d="$(mk_js_case biome-rule-group-named-tostring)"
+cat > "$d/biome.json" <<'JSON'
+{
+    "extends": ["@magicsunday/coding-standard/biome/base.json"],
+    "linter": { "rules": { "toString": { "someRule": "off" } } }
+}
+JSON
+assert_accepts_js "$d" "biome.json with a rule group literally named toString does not crash the gate"
+
 # tsconfig gets the same two mechanisms — order-sensitive extends-chain
 # resolution, one hop deep, with the shared entry substituted at its listed
 # position. Verified against tsc 7.0.2, mirroring the Biome measurements above.
