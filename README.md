@@ -851,7 +851,7 @@ contradiction until the measurements are written down, so here they are:
 | File | `"//"` | Because |
 |---|---|---|
 | `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
-| `templates/jscpd.json` | **yes** | jscpd reads JSON5 and ignores it; the smoke runs the template verbatim, note key and all |
+| `templates/jscpd.json` | **yes** | jscpd reads strict JSON — `"//"` is a legal string key, not JSON5 tolerance; verified against 5.0.14, a `//` line comment or a trailing comma is rejected outright — the smoke runs the template verbatim, note key and all |
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
 The gate follows the same split: it reports a `"//"` key in a consumer's
