@@ -179,24 +179,24 @@ harness_probe_report_inertness() {
 harness_probe_report_inertness
 
 # Self-test for the harness_probe_report_inertness fix above: a scratch dir
-# nested under $work must survive a hard abort between its creation and its
-# own explicit cleanup, because harness_workdir's EXIT trap covers the whole
-# $work tree. Runs in an isolated subshell (its own throwaway root, not this
-# suite's $work) so the abort cannot kill this suite. The mutation control
-# proves an unregistered bare mktemp -d does NOT survive the same abort —
-# exactly the leak this fix closes.
-probe_work_nested_scratch_survives_hard_abort() {
+# nested under $work must be cleaned up even after a hard abort between its
+# creation and its own explicit cleanup, because harness_workdir's EXIT trap
+# covers the whole $work tree. Runs in an isolated subshell (its own
+# throwaway root, not this suite's $work) so the abort cannot kill this
+# suite. The mutation control proves an unregistered bare mktemp -d is NOT
+# cleaned up by the same abort — exactly the leak this fix closes.
+probe_work_nested_scratch_is_cleaned_up_after_hard_abort() {
     local nested_dir bare_dir
 
     # Tie-back: the mutation control below proves the MECHANISM in the
-    # abstract (a directory nested under a trapped root survives an abort),
-    # not that harness_probe_report_inertness's own scratch dir is still
-    # nested under $work — that function's real abort can't be forced without
-    # disrupting its own test purpose. Grepping the actual call site catches a
-    # future revert to a bare `mktemp -d` there that the mechanism proof alone
-    # would miss. Scoped to that function's own body via sed, not a plain
-    # grep over the whole file — the literal search string below would
-    # otherwise match itself on this very line.
+    # abstract (a directory nested under a trapped root gets cleaned up
+    # despite an abort), not that harness_probe_report_inertness's own scratch
+    # dir is still nested under $work — that function's real abort can't be
+    # forced without disrupting its own test purpose. Grepping the actual call
+    # site catches a future revert to a bare `mktemp -d` there that the
+    # mechanism proof alone would miss. Scoped to that function's own body via
+    # sed, not a plain grep over the whole file — the literal search string
+    # below would otherwise match itself on this very line.
     if ! sed -n '/^harness_probe_report_inertness() {/,/^}/p' "${BASH_SOURCE[0]}" \
         | grep -qF 'poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"'; then
         fail "bookkeeping self-test — harness_probe_report_inertness no longer nests its scratch dir under \$work"
@@ -227,7 +227,7 @@ probe_work_nested_scratch_survives_hard_abort() {
         rm -rf -- "$bare_dir"
     fi
 }
-probe_work_nested_scratch_survives_hard_abort
+probe_work_nested_scratch_is_cleaned_up_after_hard_abort
 
 # See the sibling harnesses: the bar is derived, not remembered.
 harness_assert_no_stray_increments 1
