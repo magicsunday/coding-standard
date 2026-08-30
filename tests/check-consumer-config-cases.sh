@@ -1965,6 +1965,28 @@ done
 # EXACTLY once, no fabricated second cause" property. This is the only case that
 # drives BOTH gates through assert_reports_once's stricter assertion, so without
 # it the parity this property needs would not hold on the node side.
+# The plain-text bound, AT the cap rather than past it — package.json's own
+# counterpart of biome-at-the-size-cap above, for MAX_TEXT_BYTES rather than
+# MAX_JSONC_BYTES. GH-109: only the cap+1 case (below) existed, so a mutation
+# narrowing readBounded's `>` to `>=` would reject a package.json that sits
+# exactly on the bound, and no fixture caught it. Padding keeps the
+# devDependency declaration intact and drops biome.json's own `extends`
+# (mirroring js-adopted-no-extends further down): package.json is read in
+# full only when the cap comparison is correct, which is what makes `adopted`
+# true and the extends check fire at all. Under the `>=` mutant, package.json
+# would be (wrongly) treated as oversized — `adopted` stays false, the
+# extends check never runs, and the gate would ACCEPT instead of naming
+# biome/base.json.
+d="$(mk_js_case package-json-at-the-size-cap)"
+printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
+harness_pad_json_to_cap 1048576 \
+    "$(php -r 'echo json_encode([
+        "name" => "fixture",
+        "devDependencies" => ["@magicsunday/coding-standard" => "github:magicsunday/coding-standard#1.7.0"],
+    ]);')" \
+    "$d/package.json"
+assert_rejects_js "$d" "a package.json exactly at the size cap is still read and checked" "biome/base.json"
+
 d="$(mk_case package-json-past-the-size-cap)"
 cat > "$d/biome.json" <<'JSON'
 {
