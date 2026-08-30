@@ -191,12 +191,16 @@ directory that matches how it is consumed, never at the root for convenience.
   All three spellings, because the gate covers all three and a `biome.json`-only
   probe halves the answer. The per-file probe reads the actual HTTP status line
   instead of the exit code, because `gh api` exits 1 for a genuine 404 AND for a
-  403/rate-limit alike (verified live against a real 404) — a bare `|| continue`
-  cannot tell them apart, so it would drop a throttled repository from the answer
-  without a word. Only a `404` is treated as "this repository has none of the three
-  configs"; anything else prints `RESULT UNKNOWN for <repo>/<file>: <status>` to
-  stderr and moves on, so a repository appearing here after an unexplained `gh`
-  error is visible and worth re-running before acting on.
+  403/rate-limit alike (verified 2026-08-30 against a real 404 on
+  octocat/Hello-World) — a bare `|| continue` cannot tell them apart, so it would
+  drop a throttled repository from the answer without a word. A `404` on one
+  spelling only means try the next one in the inner loop; a `200` moves on to the
+  composer.json probe; anything else — a 403, a rate limit, an empty response —
+  prints `RESULT UNKNOWN for <repo>/<file>: <status>` to stderr and continues, so a
+  repository appearing here after an unexplained `gh` error is visible and worth
+  re-running before acting on. Only once all three spellings come back `404` does a
+  repository fall out of the loop with no output at all — silently, and correctly,
+  since it genuinely has none of the three configs.
 
   Note that the composer.json probe still writes to `/dev/null 2>&1`, so an error
   there is not visible. Let its stderr through if you need to see one, since its
