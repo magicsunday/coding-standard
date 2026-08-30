@@ -77,6 +77,40 @@ contains() { # <needle> <haystack…>
 # The derived loops can fail before any gate run, so they report directly.
 report_failure() { harness_fail "$1"; }
 
+# count_matches <content> <grep -E pattern>
+#
+# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
+# assignment, aborting the whole suite under `set -e` before the caller's own
+# mismatch guard ever runs — the same trap the pre-existing `language_commas`
+# guard further down documents in full. Verified by mutation:
+# probe_zero_match_count_survives_pipefail proves the identical pipeline
+# WITHOUT `|| true` still aborts on empty input, so this is not a vacuous
+# no-op guard.
+count_matches() { # <content> <pattern>
+    printf '%s' "$1" | grep -oE "$2" | wc -l || true
+}
+
+# Self-test for count_matches: an empty block must count as 0 without
+# aborting (positive), and the identical pipeline without `|| true` must
+# still abort on the same empty input (negative/mutation control) — proving
+# the guard is load-bearing. The control runs in a subshell so its abort
+# cannot kill this suite.
+probe_zero_match_count_survives_pipefail() {
+    local count control_out
+
+    count="$(count_matches '' "'[^']*'")"
+    if [ "$count" -ne 0 ]; then
+        report_failure "bookkeeping self-test — count_matches on an empty block did not read 0"
+    fi
+
+    if control_out="$(bash -c 'set -euo pipefail; x="$(printf "" | grep -oE "x" | wc -l)"; printf "reached:%s" "$x"' 2>/dev/null)"; then
+        report_failure "bookkeeping self-test — the same pipeline without || true no longer aborts under pipefail on empty input; count_matches's guard may be vacuous"
+    elif [ -n "$control_out" ]; then
+        report_failure "bookkeeping self-test — the mutation control produced unexpected output: $control_out"
+    fi
+}
+probe_zero_match_count_survives_pipefail
+
 assert_usage_error()     { harness_usage_error     "$GATE" "$@"; }
 assert_report_is_inert() { harness_report_is_inert "$GATE" "$@"; }
 
@@ -336,11 +370,10 @@ fi
 # nothing reddens. Counting the quoted entries in the same sed range answers a
 # question the name pattern cannot. Occurrences, not lines: two entries on one
 # physical line read as one under `grep -c`, which is the silent direction.
-# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
-# assignment, aborting the suite under `set -e` before the mismatch guard below
-# ever runs (the `language_commas` guard further down explains the mechanism).
-gate_root_flags_declared="$(sed -n '/\$requiredRootFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[^']*'" | wc -l)" || true
+# count_matches (defined above) survives a zero-match block; see its own
+# docblock for why.
+gate_root_flags_block="$(sed -n '/\$requiredRootFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php")"
+gate_root_flags_declared="$(count_matches "$gate_root_flags_block" "'[^']*'")"
 
 if [ "$gate_root_flags_declared" -ne "${#gate_root_flags[@]}" ]; then
     report_failure "the \$requiredRootFlags block declares $gate_root_flags_declared entries but this harness parsed ${#gate_root_flags[@]} — widen the extractor rather than leaving one unexercised"
@@ -2456,11 +2489,10 @@ fi
 # nothing reddens. Counting the quoted entries in the same sed range answers a
 # question the name pattern cannot. Occurrences, not lines: two entries on one
 # physical line read as one under `grep -c`, which is the silent direction.
-# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
-# assignment, aborting the suite under `set -e` before the mismatch guard below
-# ever runs — the same trap as the `$requiredRootFlags` count above.
-pinned_flags_declared="$(sed -n '/\$pinnedFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[^']*'" | wc -l)" || true
+# count_matches (defined above) survives a zero-match block; see its own
+# docblock for why.
+pinned_flags_block="$(sed -n '/\$pinnedFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php")"
+pinned_flags_declared="$(count_matches "$pinned_flags_block" "'[^']*'")"
 
 if [ "$pinned_flags_declared" -ne "${#pinned_flags[@]}" ]; then
     report_failure "the \$pinnedFlags block declares $pinned_flags_declared entries but this harness parsed ${#pinned_flags[@]} — widen the extractor rather than leaving one unexercised"
@@ -2744,10 +2776,9 @@ fi
 # fills its array from `grep -oE`, i.e. matches — so two table entries written on one
 # physical line read as 1 == 1 and the second ships unexercised. That is the silent
 # direction, and it is the same choice harness.sh records for its own counter.
-# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
-# assignment, aborting the suite under `set -e` before the mismatch guard below
-# ever runs — the same trap as the two flag counts above.
-gate_spelling_declared="$(grep -oE '=>' <<<"$gate_spelling_block" | wc -l)" || true
+# count_matches (defined above) survives a zero-match block; see its own
+# docblock for why.
+gate_spelling_declared="$(count_matches "$gate_spelling_block" '=>')"
 
 if [ "$gate_spelling_declared" -ne "${#gate_spellings[@]}" ]; then
     report_failure "the spelling table carries $gate_spelling_declared entries but this harness parsed ${#gate_spellings[@]} — widen the extractor rather than leaving a row unexercised"
