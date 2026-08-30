@@ -2277,18 +2277,24 @@ cp "$archive_dir/templates/jscpd.json" .jscpd.json
 # BIOME is the tool that refuses a config carrying an unknown key — the trap its
 # shared base fell into once. jscpd does not: `"//"` is a legal JSON string key,
 # and jscpd's reader is strict JSON, not JSON5 — a `//` line comment or a
-# trailing comma is rejected outright (verified against 5.0.14). The runs below
-# use the template verbatim rather than a stripped copy, because the copy a
-# consumer makes is what the gate checks.
+# trailing comma is rejected outright (verified against the pinned 5.0.16). The
+# runs below use the template verbatim rather than a stripped copy, because the
+# copy a consumer makes is what the gate checks.
 #
 # Nothing before this pinned that discriminator, so the claim could drift back
 # out of sync with the tool unnoticed — the failure this control exists to
-# catch. A real JSON5 feature (a line comment) is written into a config jscpd
-# never sees otherwise; if jscpd ever starts loading it, bin/check-consumer-config.php's
+# catch. Both real JSON5 features are written into a config jscpd never sees
+# otherwise; if jscpd ever starts loading either, bin/check-consumer-config.php's
 # strict json_decode() read of a consumer's .jscpd.json would be stricter than
 # jscpd itself and this control, not the template smoke below, is what should fail.
-cat > jscpd-json5.json <<'JSCPD5'
-{
+#
+# Every control below asserts the DIAGNOSTIC, never the bare exit status (see
+# the house rule this file states above the biome_ci controls): `npx
+# --no-install` failing to resolve the jscpd binary at all also exits non-zero,
+# and without the `grep` a broken install would silently masquerade as this
+# control proving the JSON5 rejection.
+declare -A jscpd_json5_case=(
+    ["a line comment"]='{
     // a line comment
     "threshold": 0,
     "minTokens": 100,
@@ -2296,14 +2302,28 @@ cat > jscpd-json5.json <<'JSCPD5'
     "exitCode": 1,
     "reporters": ["console-full"],
     "path": ["src"]
-}
-JSCPD5
+}'
+    ["a trailing comma"]='{
+    "threshold": 0,
+    "minTokens": 100,
+    "minLines": 5,
+    "exitCode": 1,
+    "reporters": ["console-full"],
+    "path": ["src"],
+}'
+)
 
-if npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1; then
-    fail "jscpd control — a config carrying a JSON5 line comment loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" "$work/jscpd-json5.log"
-else
-    pass "jscpd — a JSON5 line comment is rejected; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php"
-fi
+for feature in "${!jscpd_json5_case[@]}"; do
+    printf '%s\n' "${jscpd_json5_case[$feature]}" > jscpd-json5.json
+
+    if npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1; then
+        fail "jscpd control — a config carrying $feature loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" "$work/jscpd-json5.log"
+    elif grep -q 'config file .* line' "$work/jscpd-json5.log"; then
+        pass "jscpd — $feature is rejected with a config-parse diagnostic; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php"
+    else
+        fail "jscpd control — the \"$(safe_report "$feature")\" run failed, but not with a config-parse diagnostic" "$work/jscpd-json5.log"
+    fi
+done
 
 rm -f jscpd-json5.json
 
