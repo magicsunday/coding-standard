@@ -115,12 +115,12 @@ harness_probe_reporters 1 probe_reporters
 harness_probe_report_inertness() {
     local poisoned forged out
 
-    # Under $work, not a bare mktemp -d: harness_workdir's own EXIT trap then
-    # covers this too, so a hard abort between here and the `rm -rf` below
-    # (this file never sets `shopt -s inherit_errexit`, but a `set -u`
-    # violation or a failing LAST command of the `out="$(...)"` group still
-    # aborts the run directly) cannot leak it the way an unregistered temp
-    # dir would.
+    # Under $work, not a bare mktemp -d — same reason as the
+    # ignore-scripts-probe pattern further down: harness_workdir's own EXIT
+    # trap then covers this too. Here the abort risk is a hard failure inside
+    # the `out="$(...)"` group below (this file never sets
+    # `shopt -s inherit_errexit`, but a `set -u` violation or a failing LAST
+    # command there still aborts the run directly).
     poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"
     # Every byte class the two scrubs handle, so dropping any one of them is visible:
     # a newline (opens a line), a CR (opens a line to the runner, invisible to grep),
@@ -187,6 +187,20 @@ harness_probe_report_inertness
 # exactly the leak this fix closes.
 probe_work_nested_scratch_survives_hard_abort() {
     local nested_dir bare_dir
+
+    # Tie-back: the mutation control below proves the MECHANISM in the
+    # abstract (a directory nested under a trapped root survives an abort),
+    # not that harness_probe_report_inertness's own scratch dir is still
+    # nested under $work — that function's real abort can't be forced without
+    # disrupting its own test purpose. Grepping the actual call site catches a
+    # future revert to a bare `mktemp -d` there that the mechanism proof alone
+    # would miss. Scoped to that function's own body via sed, not a plain
+    # grep over the whole file — the literal search string below would
+    # otherwise match itself on this very line.
+    if ! sed -n '/^harness_probe_report_inertness() {/,/^}/p' "${BASH_SOURCE[0]}" \
+        | grep -qF 'poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"'; then
+        fail "bookkeeping self-test — harness_probe_report_inertness no longer nests its scratch dir under \$work"
+    fi
 
     nested_dir="$(bash -c '
         set -euo pipefail
