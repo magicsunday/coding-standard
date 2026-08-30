@@ -1057,7 +1057,7 @@ assert_report_is_inert_js "$d" "biome.json whose oversized local extends target 
 # prefix has to end at a segment boundary, the same rule the deptrac import uses.
 d="$(mk_js_case biome-lookalike-extends)"
 printf '{\n    "extends": ["notmagicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending a look-alike package" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending a look-alike package" "must \`extends\`"
 
 # Reaching the same file through an explicit node_modules path is legitimate.
 d="$(mk_js_case biome-node-modules-path)"
@@ -1074,35 +1074,35 @@ assert_accepts_js "$d" "biome.json extending via a pnpm node_modules path"
 # report a link to a config nobody shares.
 d="$(mk_js_case biome-local-lookalike)"
 printf '{\n    "extends": ["./fixtures/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending a local look-alike copy outside node_modules" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending a local look-alike copy outside node_modules" "must \`extends\`"
 
 # A literal `node_modules/` segment somewhere in an arbitrary path is not this
 # repository's node_modules — both of these are loaded by the real tools INSTEAD
 # of the installed package, which is the whole failure mode.
 d="$(mk_js_case biome-nested-lookalike)"
 printf '{\n    "extends": ["./fixtures/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending through a node_modules under an unrelated path" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending through a node_modules under an unrelated path" "must \`extends\`"
 
 d="$(mk_js_case biome-foreign-repo)"
 printf '{\n    "extends": ["../../other-repo/node_modules/@magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending another repository's node_modules" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending another repository's node_modules" "must \`extends\`"
 
 # Biome does NOT resolve an extensionless specifier — verified, it answers with
 # `module not found` — so the gate must not accept one either.
 d="$(mk_js_case biome-extensionless)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending without the .json suffix" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending without the .json suffix" "must \`extends\`"
 
 # The scope is part of the package name. Neither tool resolves the unscoped
 # spelling — Biome answers `module not found`, tsc `TS6053: File … not found` —
 # so accepting it would report a link that cannot exist.
 d="$(mk_js_case biome-unscoped)"
 printf '{\n    "extends": ["magicsunday/coding-standard/biome/base.json"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json extending the unscoped package name" "biome/base.json"
+assert_rejects_js "$d" "biome.json extending the unscoped package name" "must \`extends\`"
 
 d="$(mk_js_case ts-unscoped)"
 printf '{\n    "extends": "magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
-assert_rejects_js "$d" "tsconfig.json extending the unscoped package name" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json extending the unscoped package name" "must \`extends\`"
 
 # Neither tool trims the specifier before resolving it: tsc answers a padded one
 # with `TS6053: File ' @magicsunday/…' not found`, and Biome already proves it
@@ -1111,11 +1111,11 @@ assert_rejects_js "$d" "tsconfig.json extending the unscoped package name" "tsco
 # as missing rather than accept a config the tools cannot load.
 d="$(mk_js_case ts-padded-specifier)"
 printf '{\n    "extends": " @magicsunday/coding-standard/tsconfig/base.json"\n}\n' > "$d/tsconfig.json"
-assert_rejects_js "$d" "tsconfig.json whose specifier carries leading whitespace" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json whose specifier carries leading whitespace" "must \`extends\`"
 
 d="$(mk_js_case biome-padded-specifier)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json "]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json whose specifier carries trailing whitespace" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose specifier carries trailing whitespace" "must \`extends\`"
 
 # The trailing whitespace character the pattern's ANCHOR lets through rather than
 # its body: PCRE's `$` matches before a single trailing newline unless the `D`
@@ -1123,11 +1123,11 @@ assert_rejects_js "$d" "biome.json whose specifier carries trailing whitespace" 
 # rejected — the same latitude, decided by which whitespace character it is.
 d="$(mk_js_case biome-newline-specifier)"
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base.json\\n"]\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json whose specifier ends in a newline" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose specifier ends in a newline" "must \`extends\`"
 
 d="$(mk_js_case ts-newline-specifier)"
 printf '{\n    "extends": "@magicsunday/coding-standard/tsconfig/base.json\\n"\n}\n' > "$d/tsconfig.json"
-assert_rejects_js "$d" "tsconfig.json whose specifier ends in a newline" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json whose specifier ends in a newline" "must \`extends\`"
 
 # Biome accepts only `"//"` or an array for `extends` and answers a bare string
 # with `The 'extends' field must be either '//' or an array of paths` — verified
@@ -1137,13 +1137,13 @@ assert_rejects_js "$d" "tsconfig.json whose specifier ends in a newline" "tsconf
 # the two are asserted in opposite directions.
 d="$(mk_js_case biome-extends-scalar)"
 printf '{\n    "extends": "@magicsunday/coding-standard/biome/base.json"\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json whose extends is a bare string instead of a list" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose extends is a bare string instead of a list" "must \`extends\`"
 
 # A specifier that is not a string at all must report as a missing link rather
 # than fail the gate on a type error.
 d="$(mk_js_case biome-extends-not-a-string)"
 printf '{\n    "extends": 5\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json whose extends is not a specifier at all" "biome/base.json"
+assert_rejects_js "$d" "biome.json whose extends is not a specifier at all" "must \`extends\`"
 
 d="$(mk_js_case biome-linter-off)"
 cat > "$d/biome.json" <<'JSON'
@@ -1492,7 +1492,7 @@ assert_rejects_js "$d" "biome.jsonc with the linter disabled" "biome.jsonc: \`li
 
 d="$(mk_js_case ts-no-extends)"
 printf '{\n    "compilerOptions": { "strict": true }\n}\n' > "$d/tsconfig.json"
-assert_rejects_js "$d" "tsconfig.json without the shared extends" "tsconfig/base.json"
+assert_rejects_js "$d" "tsconfig.json without the shared extends" "must \`extends\`"
 
 d="$(mk_js_case ts-strict-off)"
 cat > "$d/tsconfig.json" <<'JSON'
@@ -2377,7 +2377,7 @@ assert_rejects_js "$d" "an unparseable package.json is reported, not treated as 
 d="$(mk_case js-package-json-bom)"
 printf '\xEF\xBB\xBF{\n    "devDependencies": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' > "$d/package.json"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "a BOM-prefixed package.json is still read for the dependency" "biome/base.json"
+assert_rejects_js "$d" "a BOM-prefixed package.json is still read for the dependency" "must \`extends\`"
 
 # The exception that proves the gate is not simply switched off: a `"//"` key
 # makes the config unloadable for Biome whether or not it extends anything, so
@@ -2404,7 +2404,7 @@ assert_rejects_js "$d" "\"//\" key is reported even without adoption" '`"//"` ke
 # And the counterpart: once the dependency IS declared, the full contract is back.
 d="$(mk_js_case js-adopted-no-extends)"
 printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-assert_rejects_js "$d" "biome.json without extends once the npm package is declared" "biome/base.json"
+assert_rejects_js "$d" "biome.json without extends once the npm package is declared" "must \`extends\`"
 
 # --- the pinned strict flags, derived from the shipped base ------------------
 #
@@ -2557,7 +2557,7 @@ for section in dependencies optionalDependencies peerDependencies; do
     d="$(mk_case "js-adopted-via-$section")"
     printf '{\n    "%s": { "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0" }\n}\n' "$section" > "$d/package.json"
     printf '{\n    "linter": { "enabled": true }\n}\n' > "$d/biome.json"
-    assert_rejects_js "$d" "the npm dependency declared under $section counts as adoption" "biome/base.json"
+    assert_rejects_js "$d" "the npm dependency declared under $section counts as adoption" "must \`extends\`"
 done
 
 # PHP checks isset($json[$section]['@magicsunday/coding-standard']), which is
