@@ -114,7 +114,14 @@ harness_probe_reporters 1 probe_reporters
 # manifest_rejects/manifest_reports_value.
 harness_probe_report_inertness() {
     local poisoned forged out
-    poisoned="$(mktemp -d)"
+
+    # Under $work, not a bare mktemp -d: harness_workdir's own EXIT trap then
+    # covers this too, so a hard abort between here and the `rm -rf` below
+    # (this file never sets `shopt -s inherit_errexit`, but a `set -u`
+    # violation or a failing LAST command of the `out="$(...)"` group still
+    # aborts the run directly) cannot leak it the way an unregistered temp
+    # dir would.
+    poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"
     # Every byte class the two scrubs handle, so dropping any one of them is visible:
     # a newline (opens a line), a CR (opens a line to the runner, invisible to grep),
     # both command grammars, and an ESC.
