@@ -336,8 +336,11 @@ fi
 # nothing reddens. Counting the quoted entries in the same sed range answers a
 # question the name pattern cannot. Occurrences, not lines: two entries on one
 # physical line read as one under `grep -c`, which is the silent direction.
+# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
+# assignment, aborting the suite under `set -e` before the mismatch guard below
+# ever runs (the `language_commas` guard further down explains the mechanism).
 gate_root_flags_declared="$(sed -n '/\$requiredRootFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[^']*'" | wc -l)"
+    | grep -oE "'[^']*'" | wc -l)" || true
 
 if [ "$gate_root_flags_declared" -ne "${#gate_root_flags[@]}" ]; then
     report_failure "the \$requiredRootFlags block declares $gate_root_flags_declared entries but this harness parsed ${#gate_root_flags[@]} — widen the extractor rather than leaving one unexercised"
@@ -2453,8 +2456,11 @@ fi
 # nothing reddens. Counting the quoted entries in the same sed range answers a
 # question the name pattern cannot. Occurrences, not lines: two entries on one
 # physical line read as one under `grep -c`, which is the silent direction.
+# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
+# assignment, aborting the suite under `set -e` before the mismatch guard below
+# ever runs — the same trap as the `$requiredRootFlags` count above.
 pinned_flags_declared="$(sed -n '/\$pinnedFlags = \[/,/\];/p' "$ROOT/bin/check-consumer-config.php" \
-    | grep -oE "'[^']*'" | wc -l)"
+    | grep -oE "'[^']*'" | wc -l)" || true
 
 if [ "$pinned_flags_declared" -ne "${#pinned_flags[@]}" ]; then
     report_failure "the \$pinnedFlags block declares $pinned_flags_declared entries but this harness parsed ${#pinned_flags[@]} — widen the extractor rather than leaving one unexercised"
@@ -2738,7 +2744,10 @@ fi
 # fills its array from `grep -oE`, i.e. matches — so two table entries written on one
 # physical line read as 1 == 1 and the second ships unexercised. That is the silent
 # direction, and it is the same choice harness.sh records for its own counter.
-gate_spelling_declared="$(grep -oE '=>' <<<"$gate_spelling_block" | wc -l)"
+# `|| true`: on zero matches `grep` exits 1 and `pipefail` hands that to this
+# assignment, aborting the suite under `set -e` before the mismatch guard below
+# ever runs — the same trap as the two flag counts above.
+gate_spelling_declared="$(grep -oE '=>' <<<"$gate_spelling_block" | wc -l)" || true
 
 if [ "$gate_spelling_declared" -ne "${#gate_spellings[@]}" ]; then
     report_failure "the spelling table carries $gate_spelling_declared entries but this harness parsed ${#gate_spellings[@]} — widen the extractor rather than leaving a row unexercised"
