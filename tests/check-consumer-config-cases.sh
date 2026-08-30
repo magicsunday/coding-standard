@@ -1375,7 +1375,7 @@ else
     # entry is spelled like. Counting quote CHARACTERS was bounded by the very
     # vocabulary this guard un-bounds — measured, a row written `"vue"` left both
     # counts unchanged.
-    language_commas="$(grep -o ',' <<<"$gate_language_literal" | wc -l)" || true
+    language_commas="$(count_matches "$gate_language_literal" ',')"
 
     if [ "$((language_commas + 1))" -ne "${#gate_languages[@]}" ]; then
         report_failure "the language list holds $((language_commas + 1)) entries but this harness parsed ${#gate_languages[@]} — widen the extractor rather than leaving a row unexercised"
