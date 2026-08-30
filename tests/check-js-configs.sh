@@ -178,6 +178,43 @@ harness_probe_report_inertness() {
 
 harness_probe_report_inertness
 
+# Self-test for the harness_probe_report_inertness fix above: a scratch dir
+# nested under $work must survive a hard abort between its creation and its
+# own explicit cleanup, because harness_workdir's EXIT trap covers the whole
+# $work tree. Runs in an isolated subshell (its own throwaway root, not this
+# suite's $work) so the abort cannot kill this suite. The mutation control
+# proves an unregistered bare mktemp -d does NOT survive the same abort —
+# exactly the leak this fix closes.
+probe_work_nested_scratch_survives_hard_abort() {
+    local nested_dir bare_dir
+
+    nested_dir="$(bash -c '
+        set -euo pipefail
+        root="$(mktemp -d)"
+        harness_workdir_raw="$root"
+        trap '"'"'rm -rf -- "$harness_workdir_raw"'"'"' EXIT
+        mktemp -d "$root/probe.XXXXXX"
+        echo "${undefined_var}"
+    ' 2>/dev/null)" || true
+
+    if [ -z "$nested_dir" ] || [ -d "$nested_dir" ]; then
+        fail "bookkeeping self-test — a \$work-nested scratch dir survived a hard abort; harness_workdir's EXIT trap did not clean it up"
+    fi
+
+    bare_dir="$(bash -c '
+        set -euo pipefail
+        mktemp -d
+        echo "${undefined_var}"
+    ' 2>/dev/null)" || true
+
+    if [ -z "$bare_dir" ] || [ ! -d "$bare_dir" ]; then
+        fail "bookkeeping self-test — the mutation control (bare mktemp -d, no trap) did not reproduce the leak; this probe no longer discriminates the fix"
+    else
+        rm -rf -- "$bare_dir"
+    fi
+}
+probe_work_nested_scratch_survives_hard_abort
+
 # See the sibling harnesses: the bar is derived, not remembered.
 harness_assert_no_stray_increments 1
 
