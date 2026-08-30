@@ -2275,10 +2275,37 @@ fi
 cp "$archive_dir/templates/jscpd.json" .jscpd.json
 
 # BIOME is the tool that refuses a config carrying an unknown key — the trap its
-# shared base fell into once. jscpd does not: it reads JSON5 and ignores `"//"`,
-# which is why the template can carry its note there at all. The runs below use
-# the template verbatim rather than a stripped copy, because the copy a consumer
-# makes is what the gate checks.
+# shared base fell into once. jscpd does not: `"//"` is a legal JSON string key,
+# and jscpd's reader is strict JSON, not JSON5 — a `//` line comment or a
+# trailing comma is rejected outright (verified against 5.0.14). The runs below
+# use the template verbatim rather than a stripped copy, because the copy a
+# consumer makes is what the gate checks.
+#
+# Nothing before this pinned that discriminator, so the claim could drift back
+# out of sync with the tool unnoticed — the failure this control exists to
+# catch. A real JSON5 feature (a line comment) is written into a config jscpd
+# never sees otherwise; if jscpd ever starts loading it, bin/check-consumer-config.php's
+# strict json_decode() read of a consumer's .jscpd.json would be stricter than
+# jscpd itself and this control, not the template smoke below, is what should fail.
+cat > jscpd-json5.json <<'JSCPD5'
+{
+    // a line comment
+    "threshold": 0,
+    "minTokens": 100,
+    "minLines": 5,
+    "exitCode": 1,
+    "reporters": ["console-full"],
+    "path": ["src"]
+}
+JSCPD5
+
+if npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1; then
+    fail "jscpd control — a config carrying a JSON5 line comment loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" "$work/jscpd-json5.log"
+else
+    pass "jscpd — a JSON5 line comment is rejected; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php"
+fi
+
+rm -f jscpd-json5.json
 
 # The one file extension jscpd parses each format name from. `php` is IN here:
 # it was skipped on the reasoning that "the PHP half is exercised by the
