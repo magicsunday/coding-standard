@@ -204,16 +204,10 @@ probe_work_nested_scratch_is_cleaned_up_after_hard_abort() {
     # non-zero and makes pipefail report the whole pipeline as failed even
     # though grep found exactly what it was looking for. This file has no way
     # to know which `sed`/`grep` it runs under, so it cannot assume the pair
-    # in CI never races. Measured 2026-08-30: 20/20 iterations raced (false
-    # failure) on the busybox sed/grep in an `alpine:latest` image, 0/20 on
-    # GNU coreutils (sed 4.9, grep 3.11) — the pipe form is unsafe on at least
-    # one real toolchain. Re-derive:
-    #
-    #     f() { sed -n '/^X() {/,/^}/p' "$1" | grep -qF 'needle'; }
-    #     g() { grep -qF 'needle' <<<"$(sed -n '/^X() {/,/^}/p' "$1")"; }
-    #     # build a fixture where `X() {` opens, `needle` sits near the top,
-    #     # and ~200 filler lines follow before the closing `}`; loop f() and
-    #     # g() under `set -o pipefail` and count false failures for each.
+    # in CI never races (measured 2026-08-30: 20/20 false failures on the
+    # busybox sed/grep in an `alpine:latest` image, 0/20 on GNU coreutils
+    # sed 4.9/grep 3.11 — the pipe form is unsafe on at least one real
+    # toolchain; see the commit history for the reproduction recipe).
     local inertness_body
     inertness_body="$(sed -n '/^harness_probe_report_inertness() {/,/^}/p' "${BASH_SOURCE[0]}")"
     if ! grep -qF 'poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"' <<<"$inertness_body"; then
