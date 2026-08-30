@@ -197,8 +197,17 @@ probe_work_nested_scratch_is_cleaned_up_after_hard_abort() {
     # mechanism proof alone would miss. Scoped to that function's own body via
     # sed, not a plain grep over the whole file — the literal search string
     # below would otherwise match itself on this very line.
-    if ! sed -n '/^harness_probe_report_inertness() {/,/^}/p' "${BASH_SOURCE[0]}" \
-        | grep -qF 'poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"'; then
+    #
+    # Captured first, then grepped via a here-string: `sed | grep -qF` under
+    # `set -o pipefail` lies on the failure path — `grep -q` exits the moment
+    # it finds a match and SIGPIPEs the still-writing `sed`, which then exits
+    # non-zero and makes pipefail report the whole pipeline as failed even
+    # though grep found exactly what it was looking for. Reproduced on
+    # busybox sed/grep (Alpine); not on GNU coreutils, but this file has no
+    # way to know which one it is running under.
+    local inertness_body
+    inertness_body="$(sed -n '/^harness_probe_report_inertness() {/,/^}/p' "${BASH_SOURCE[0]}")"
+    if ! grep -qF 'poisoned="$(mktemp -d "$work/report-inertness.XXXXXX")"' <<<"$inertness_body"; then
         fail "bookkeeping self-test — harness_probe_report_inertness no longer nests its scratch dir under \$work"
     fi
 
