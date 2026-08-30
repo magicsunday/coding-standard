@@ -169,7 +169,12 @@ directory that matches how it is consumed, never at the root for convenience.
 
   for r in $repos; do
       for f in biome.json biome.jsonc tsconfig.json; do
-          gh api "repos/magicsunday/$r/contents/$f" >/dev/null 2>&1 || continue
+          status="$(gh api --include "repos/magicsunday/$r/contents/$f" 2>/dev/null | head -1)"
+          case "$status" in
+              HTTP*' 404 '*) continue ;;
+              HTTP*' 200 '*) ;;
+              *) echo "RESULT UNKNOWN for $r/$f: ${status:-no response}" >&2; continue ;;
+          esac
           gh api "repos/magicsunday/$r/contents/composer.json" >/dev/null 2>&1 || echo "$r"
           break
       done
@@ -184,14 +189,18 @@ directory that matches how it is consumed, never at the root for convenience.
   passed*), so the recipe has to carry the third state itself.
 
   All three spellings, because the gate covers all three and a `biome.json`-only
-  probe halves the answer. The per-file probe ABOVE has the same blind spot in the
-  small: `|| continue` treats a 403 or a rate limit exactly like a 404, so a
-  throttled repository drops out of the answer without a word. A repository
-  appearing here after an unexplained `gh` error is worth re-running before acting on.
+  probe halves the answer. The per-file probe reads the actual HTTP status line
+  instead of the exit code, because `gh api` exits 1 for a genuine 404 AND for a
+  403/rate-limit alike (verified live against a real 404) — a bare `|| continue`
+  cannot tell them apart, so it would drop a throttled repository from the answer
+  without a word. Only a `404` is treated as "this repository has none of the three
+  configs"; anything else prints `RESULT UNKNOWN for <repo>/<file>: <status>` to
+  stderr and moves on, so a repository appearing here after an unexplained `gh`
+  error is visible and worth re-running before acting on.
 
-  Note that the probes write to `/dev/null 2>&1`, so no such error is visible. Let the
-  composer.json probe's stderr through if you need to see one, since its `|| echo`
-  turns a 403 into a FALSE POSITIVE rather than a silent drop.
+  Note that the composer.json probe still writes to `/dev/null 2>&1`, so an error
+  there is not visible. Let its stderr through if you need to see one, since its
+  `|| echo` turns a 403 into a FALSE POSITIVE rather than a silent drop.
 
   Do not read a green run as "every consumer's JS config is checked" — it means no
   candidate for the `bin/check-js-config.mjs` rollout was found among currently
