@@ -79,9 +79,6 @@
         "ci:test:release-tag-lockstep": [
             "bash tests/check-release-tag-lockstep-cases.sh"
         ],
-        "ci:test:templates": [
-            "bash tests/check-consumer-config-cases.sh"
-        ],
         "ci:test:disallowed-calls": "phpunit --filter CheckDisallowedCallsTest --fail-on-skipped --fail-on-empty-test-suite",
         "ci:test:phpunit": "phpunit"
     },
@@ -96,7 +93,6 @@
         "ci:test:gitattributes-lockstep": "Fixture-driven cases proving the gitattributes lockstep gate accepts a repository that is not applicable to a given template entry and rejects every drift class — run against this repository alone it only ever takes the happy path.",
         "ci:test:release-tag": "Assert the tag package.json's version names actually resolves on the remote and, if it does, that it is an ancestor of HEAD — i.e. that this branch's own history actually contains it — the two failure shapes ci:test:version cannot see, since it only ever compares two copies inside this repository. Runs on push to main (see .github/workflows/ci.yml) and on every tag push (see .github/workflows/release-tag-lockstep.yml), never on the release PR; no matching tag yet is not a violation.",
         "ci:test:release-tag-lockstep": "Fixture-driven cases proving the release tag gate accepts an unresolved tag, accepts a resolved tag that is HEAD or an ancestor of it, rejects a resolved tag whose commit is outside this branch's history, and reports a transport failure, a malformed version, an unborn HEAD, and a resolve-but-cannot-fetch/cannot-resolve-to-a-commit remote state each as a setup failure rather than silently — against disposable local git repositories, never the real network.",
-        "ci:test:templates": "Fixture-driven cases proving the template lockstep gate accepts the canon and rejects every drift class.",
         "ci:test:disallowed-calls": "Re-runs CheckDisallowedCallsTest, which self-skips under the plain ci:test:phpunit step above (that step runs before tests/consumer is installed): proves the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Positioned after the Consumer smoke install step in .github/workflows/ci.yml for that reason; --fail-on-skipped turns a still-skipped run at THIS position (a drifted phpstan binary path, a broken consumer install) into a hard failure instead of a silent pass, unlike the earlier step where a skip is the expected outcome; --fail-on-empty-test-suite is the same belt-and-suspenders guarantee against a --filter typo or a class rename matching nothing, on top of the installed PHPUnit's own default 'No tests executed!' exit(1) for that case.",
         "ci:test:phpunit": "Runs this repository's own PHPUnit suite (tests/Support, GateTestCase's meta-tests, and every suite migrated off a tests/check-*-cases.sh bash harness) — not the remaining fixture-driven bash suites, which still have their own ci:test:* scripts."
     }

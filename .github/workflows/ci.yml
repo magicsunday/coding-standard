@@ -130,13 +130,6 @@ jobs:
             - name: JSON lint gate self-test
               run: composer ci:test:json-cases
 
-            # Exercise the template lockstep gate: the fixture-driven harness proves
-            # it ACCEPTS the canon and REJECTS every drift class (loosened strict
-            # flags, section-scoping edge cases, the stale jscpd v4 reporter), so the
-            # gate is proven not to pass vacuously.
-            - name: Lockstep gate self-test
-              run: composer ci:test:templates
-
             # Only the leg whose matrix `coverage` field is non-`none` has a
             # driver active (see the `coverage:` step above) — --coverage-text
             # there is what makes beStrictAboutCoverageMetadata actually

@@ -41,7 +41,7 @@ declare(strict_types=1);
  * What this gate does NOT check: whether the tagged commit's CONTENT is
  * itself correct (a JSON config that Biome refuses to load, say). That is
  * unrelated to what git alone can prove and belongs to the gates that
- * actually run the tool in question (`ci:test:templates`, the JS consumer
+ * actually run the tool in question (CheckConsumerConfigTest, the JS consumer
  * smoke) — this file only proves the tag names a commit this repository's
  * own history actually contains.
  *

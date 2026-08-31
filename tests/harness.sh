@@ -121,57 +121,19 @@ harness_require_executable() {
     fi
 }
 
-# harness_pad_json_to_cap <bound> <json-body> <out-file>
-#
-# Builds a JSON document of EXACTLY <bound> bytes: <json-body>'s closing brace is
-# replaced with a padding key, so the document stays valid JSON and every other
-# key in <json-body> survives untouched for the gate under test to inspect.
-# Shared by the bash "at-the-size-cap" fixtures that use it (currently
-# tests/check-consumer-config-cases.sh and tests/check-gitattributes-lockstep-cases.sh) —
-# the padding arithmetic and its self-check used to be copied per fixture (twice
-# inside one file, then again inline in a second file once the first copy was
-# deduplicated), and a fixture that is not verifiably AT the bound proves nothing
-# about a `>` in a size check surviving a mutation to `>=`. Living here rather
-# than in a single caller is what makes it reachable from every `check-*-cases.sh`
-# file, which each run as their own process and cannot see a function another one
-# defines — not every bash at-cap fixture uses it, though: tests/lint-json-cases.sh
-# builds its own at-cap fixture inline instead. A suite migrated off this file to
-# PHPUnit (tests/CheckVersionLockstepTest.php, #80) carries its own private,
-# non-shared reimplementation instead of calling
-# this function — it is not a caller.
-#
-# Self-checking: the builder nets +8 fixed bytes (`,"//":"` plus the closing
-# `"}`, minus the `}` it replaces) around the padding — an earlier version used
-# `- 11` and landed three bytes short, which is exactly the margin that would
-# have let `>` survive a mutation to `>=` undetected.
-harness_pad_json_to_cap() {
-    local bound="$1" body="$2" out_file="$3"
-    php -r '
-        $bound = (int) $argv[1];
-        $body  = $argv[2];
-        $pad   = $bound - strlen($body) - 8;
-        $out   = substr($body, 0, -1) . ",\"//\":\"" . str_repeat("p", $pad) . "\"}";
-
-        if (strlen($out) !== $bound) {
-            fwrite(STDERR, sprintf("fixture is %d bytes, not the cap of %d\n", strlen($out), $bound));
-            exit(1);
-        }
-
-        file_put_contents($argv[3], $out);
-    ' "$bound" "$body" "$out_file"
-}
-
 # harness_pad_text_to_cap <bound> <prefix> <filler-char> <suffix> <out-file>
 #
 # Builds a plain-text document of EXACTLY <bound> bytes: <prefix> and <suffix> are
 # kept byte-for-byte, and the gap between them is filled with <filler-char> repeated
-# enough times to land the whole document on the cap. The non-JSON sibling of
-# harness_pad_json_to_cap above, for a caller whose "at-the-size-cap" fixture is a
-# README pin (<prefix> empty, <suffix> the pin) or a comment-terminated config line
-# (<prefix> the real content plus its comment opener, <suffix> the newline that
-# closes it) — the same padding arithmetic and self-check this file already shares
-# for JSON, extracted here once two callers needed the plain-text shape of it rather
-# than adding a third hand-copied version.
+# enough times to land the whole document on the cap, for a caller whose
+# "at-the-size-cap" fixture is a README pin (<prefix> empty, <suffix> the pin) or a
+# comment-terminated config line (<prefix> the real content plus its comment opener,
+# <suffix> the newline that closes it). Shared by tests/check-gitattributes-lockstep-cases.sh —
+# a JSON-shaped sibling of this builder (padding via a trailing `"//"` key rather than
+# a filler run) existed here too until #78 removed its only remaining bash caller;
+# every PHPUnit suite that needs the JSON shape carries its own private
+# reimplementation (see e.g. tests/CheckVersionLockstepTest.php's padJsonToCap()) since
+# each test class runs in its own process, same as this file's bash callers did.
 harness_pad_text_to_cap() {
     local bound="$1" prefix="$2" filler="$3" suffix="$4" out_file="$5"
     php -r '
