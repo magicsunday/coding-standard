@@ -433,7 +433,7 @@ CHECK_RELEASE_TAG_REMOTE="$d-origin.git" harness_report_is_inert "$gate" "$d" \
 # tests/check-version-lockstep.php — one representative case to prove THIS
 # gate is actually wired to it; the byte-cap/oversize/malformed-JSON branches
 # of that shared function are exhaustively covered by
-# tests/check-version-lockstep-cases.sh already, against the identical
+# tests/CheckVersionLockstepTest.php already, against the identical
 # function both gates now call, so re-testing every one of its branches here
 # too would prove nothing this suite does not already inherit. ---
 d="$work/missing-package-json"

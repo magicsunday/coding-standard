@@ -98,8 +98,9 @@ harness_assert_no_stray_increments 0
 
 # The name several fixtures below share to prove safeReportValue() wiring at
 # their own report site: it breaks a legacy `##[…]` workflow command the same
-# way tests/check-version-lockstep-cases.sh's own inert-version-legacy case
-# does, and the double `#` is what would survive an unscrubbed report and
+# way tests/CheckVersionLockstepTest.php's own
+# reportIsInertWhenAPackageJsonVersionAttemptsToForgeALegacyWorkflowCommand
+# case does, and the double `#` is what would survive an unscrubbed report and
 # reach the runner mid-line, not only at column 0.
 forged='1.7.0##[error]forged.json'
 scrubbed='1.7.0##?[error]forged.json'

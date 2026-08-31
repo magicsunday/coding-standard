@@ -1919,10 +1919,11 @@ assert_report_is_inert "$d" 'a phpunit.xml attribute value carrying a bare carri
 # is reported as unread rather than scanned — the pass is quadratic on an
 # unterminated string literal, and the input is pull-request content. The padding
 # builder is harness_pad_json_to_cap (tests/harness.sh) — shared with the
-# jscpd-at-the-size-cap fixture further down and with
-# check-version-lockstep-cases.sh's own at-cap-package-json fixture, since each
-# `check-*-cases.sh` file runs as its own process and a locally-defined function
-# is not reachable from a sibling file.
+# jscpd-at-the-size-cap fixture further down, since each `check-*-cases.sh` file
+# runs as its own process and a locally-defined function is not reachable from a
+# sibling file. tests/CheckVersionLockstepTest.php's own at-cap-package-json
+# equivalent no longer shares this helper — its PHPUnit port carries its own
+# private padJsonToCap(), ported off the same bash function rather than calling it.
 d="$(mk_js_case biome-at-the-size-cap)"
 harness_pad_json_to_cap 131072 \
     "$(php -r 'echo json_encode(["extends" => ["@magicsunday/coding-standard/biome/base.json"]]);')" \

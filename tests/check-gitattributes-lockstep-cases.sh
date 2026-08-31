@@ -482,9 +482,10 @@ assert_rejects "$d" "two concatenated UTF-8 BOMs do not corrupt the first parsed
 # content past the cap is rejected; a bound shrunk by mutation would still trip
 # those (they sit far past any plausible shrunk value) while truncating a
 # legitimate file near the real cap — this is the counterpart that catches that,
-# mirroring tests/check-version-lockstep-cases.sh's own at-cap-package-json/
-# at-cap-readme pair, via the same shared harness_pad_text_to_cap that file's own
-# at-cap-readme case now uses too. Padding is a trailing comment line, verified by
+# mirroring tests/CheckVersionLockstepTest.php's own at-cap-package-json/
+# at-cap-readme pair (via the bash-only harness_pad_text_to_cap here; its PHPUnit
+# port carries its own private padTextToCap(), ported off the same bash function
+# rather than calling it). Padding is a trailing comment line, verified by
 # the helper's own self-check to land the file at EXACTLY the cap before the gate
 # ever sees it. ---
 body='/.github    export-ignore

@@ -709,8 +709,9 @@ consumer following it silently gets the older code.
 compares it against `package.json`. A pin that is not a version tag, a pin that
 disagrees with the manifest, and a README that documents no pin at all are each a
 finding; the last one matters because a gate with nothing to compare would
-otherwise pass vacuously. `composer ci:test:version-lockstep` is its fixture-driven
-self-test, which drives the gate into each of those states on purpose.
+otherwise pass vacuously. `tests/CheckVersionLockstepTest.php`, run as part of
+`composer ci:test:phpunit`, is its fixture-driven self-test, which drives the gate
+into each of those states on purpose.
 
 Unlike the consumer gates in this README, this one is not shipped for anyone else to
 run — it guards this repository's own release hygiene. Bump `package.json` and every

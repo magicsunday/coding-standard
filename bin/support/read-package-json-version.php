@@ -18,7 +18,8 @@ declare(strict_types=1);
  * same 2+-duplicate threshold bin/support/read-quietly.php and
  * bin/support/safe-report-value.php were both extracted at. The four exit(2)
  * messages below are unchanged from the gate that originated them, since
- * tests/check-version-lockstep-cases.sh greps for their exact text.
+ * tests/CheckVersionLockstepTest.php asserts each one's wording verbatim
+ * (a substring match, not full-string equality).
  *
  * Depends on readCapped() from bin/support/read-quietly.php — a caller must
  * `require_once` that file first, the same convention every other bin/support/
