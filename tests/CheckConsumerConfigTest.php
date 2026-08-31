@@ -32,20 +32,18 @@ use function in_array;
 use function is_array;
 use function json_decode;
 use function json_encode;
-use function mkdir;
 use function microtime;
+use function mkdir;
 use function posix_getuid;
 use function preg_match;
 use function preg_match_all;
 use function preg_quote;
 use function preg_replace;
-use function sprintf;
 use function str_contains;
 use function str_repeat;
 use function str_replace;
-use function strlen;
-use function substr;
 use function substr_count;
+use function unlink;
 
 use const PREG_SET_ORDER;
 
@@ -566,7 +564,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Canon fixture is accepted.
+     * Canon fixture.
      */
     #[Test]
     public function canonFixtureIsAccepted(): void
@@ -593,7 +591,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects required root flag set false.
+     * Phpunit.xml with the given flag set to false.
      */
     #[Test]
     #[DataProvider('requiredRootFlagProvider')]
@@ -607,7 +605,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects required root flag removed.
+     * Phpunit.xml with the given flag removed.
      */
     #[Test]
     #[DataProvider('requiredRootFlagProvider')]
@@ -648,7 +646,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects source restrict notices disabled.
+     * <source> restrictNotices disabled.
      */
     #[Test]
     public function rejectsSourceRestrictNoticesDisabled(): void
@@ -661,7 +659,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects source restrict warnings disabled.
+     * <source> restrictWarnings disabled.
      */
     #[Test]
     public function rejectsSourceRestrictWarningsDisabled(): void
@@ -678,7 +676,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Rejects phplint PHP under wrong block.
+     * .phplint.yml with php under path, not extensions.
      */
     #[Test]
     public function rejectsPhplintPhpUnderWrongBlock(): void
@@ -690,7 +688,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts phplint CRLF line endings.
+     * .phplint.yml with CRLF line endings.
      */
     #[Test]
     public function acceptsPhplintCrlfLineEndings(): void
@@ -702,7 +700,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts phplint shapes after comment and blank line with no final newline.
+     * .phplint.yml listing php after a comment and a blank line, with no final newline.
      */
     #[Test]
     public function acceptsPhplintShapesAfterCommentAndBlankLineWithNoFinalNewline(): void
@@ -714,7 +712,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects phplint PHP under a later top level key.
+     * .phplint.yml whose `php` sits under a later top-level key, not in extensions.
      */
     #[Test]
     public function rejectsPhplintPhpUnderALaterTopLevelKey(): void
@@ -726,7 +724,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts phplint BOM.
+     * .phplint.yml saved with a UTF-8 BOM directly before its first key.
      */
     #[Test]
     public function acceptsPhplintBom(): void
@@ -775,7 +773,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig star indent style tab.
+     * .editorconfig with indent_style = tab in [*].
      */
     #[Test]
     public function rejectsEditorconfigStarIndentStyleTab(): void
@@ -854,7 +852,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts editorconfig comment carrying form feed.
+     * .editorconfig whose comment carries a form feed before a settings-shaped tail.
      */
     #[Test]
     public function acceptsEditorconfigCommentCarryingFormFeed(): void
@@ -887,7 +885,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig root inside section.
+     * .editorconfig with root inside a section.
      */
     #[Test]
     public function rejectsEditorconfigRootInsideSection(): void
@@ -899,7 +897,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig without makefile override.
+     * .editorconfig without the Makefile tab override.
      */
     #[Test]
     public function rejectsEditorconfigWithoutMakefileOverride(): void
@@ -911,7 +909,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig star indent size 2.
+     * .editorconfig with indent_size = 2 in [*].
      */
     #[Test]
     public function rejectsEditorconfigStarIndentSize2(): void
@@ -923,7 +921,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig without global star section.
+     * .editorconfig without a global [*] section.
      */
     #[Test]
     public function rejectsEditorconfigWithoutGlobalStarSection(): void
@@ -935,7 +933,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects editorconfig lowercase makefile glob.
+     * .editorconfig with a lowercase {makefile,*.mk} glob.
      */
     #[Test]
     public function rejectsEditorconfigLowercaseMakefileGlob(): void
@@ -951,7 +949,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Rejects deptrac dropping the shared import.
+     * Deptrac.yaml dropping the shared import.
      */
     #[Test]
     public function rejectsDeptracDroppingTheSharedImport(): void
@@ -963,7 +961,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts deptrac importing the shared ruleset.
+     * Deptrac.yaml importing the shared ruleset.
      */
     #[Test]
     public function acceptsDeptracImportingTheSharedRuleset(): void
@@ -997,7 +995,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects deptrac mismatched quotes around shared import.
+     * Deptrac.yaml whose shared import opens on one quote and closes on the other.
      */
     #[Test]
     public function rejectsDeptracMismatchedQuotesAroundSharedImport(): void
@@ -1009,7 +1007,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects deptrac shared import under later top level key.
+     * Deptrac.yaml whose shared path sits under a later top-level key, not in imports.
      */
     #[Test]
     public function rejectsDeptracSharedImportUnderLaterTopLevelKey(): void
@@ -1038,7 +1036,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects deptrac shared import in next yaml document.
+     * Deptrac.yaml whose shared import sits in the next YAML document.
      */
     #[Test]
     public function rejectsDeptracSharedImportInNextYamlDocument(): void
@@ -1050,7 +1048,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects deptrac shared path under wrong key.
+     * Deptrac.yaml with the shared path under the wrong key.
      */
     #[Test]
     public function rejectsDeptracSharedPathUnderWrongKey(): void
@@ -1062,7 +1060,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects deptrac near miss vendor namespace.
+     * Deptrac.yaml importing a near-miss (notmagicsunday) path.
      */
     #[Test]
     public function rejectsDeptracNearMissVendorNamespace(): void
@@ -1074,7 +1072,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts deptrac quoted import with inline comment.
+     * Deptrac.yaml with a quoted import + inline comment.
      */
     #[Test]
     public function acceptsDeptracQuotedImportWithInlineComment(): void
@@ -1132,7 +1130,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Rejects jscpd removed 4 reporter name.
+     * .jscpd.json on the removed v4 reporter name.
      */
     #[Test]
     public function rejectsJscpdRemovedV4ReporterName(): void
@@ -1144,7 +1142,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd min lines raised to disable detection.
+     * .jscpd.json with minLines raised to disable detection.
      */
     #[Test]
     public function rejectsJscpdMinLinesRaisedToDisableDetection(): void
@@ -1177,19 +1175,24 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * Three independently-checked jscpd thresholds, one mutation each:
+     * threshold raised, exitCode flipped, minTokens raised to disable
+     * detection.
+     *
      * @return array<string, array{0: string, 1: string, 2: string}>
      */
     public static function jscpdThresholdMutationProvider(): array
     {
         return [
-            'threshold raised above zero'          => ['"threshold": 0', '"threshold": 5', 'threshold'],
-            'exitCode not 1'                       => ['"exitCode": 1', '"exitCode": 0', 'exitCode'],
+            'threshold raised above zero'           => ['"threshold": 0', '"threshold": 5', 'threshold'],
+            'exitCode not 1'                        => ['"exitCode": 1', '"exitCode": 0', 'exitCode'],
             'minTokens raised to disable detection' => ['"minTokens": 100', '"minTokens": 9999', 'minTokens'],
         ];
     }
 
     /**
-     * Rejects jscpd threshold mutation.
+     * Each of the three jscpd thresholds mutated on its own, so a defect in
+     * any one of them is reported without depending on the other two.
      */
     #[Test]
     #[DataProvider('jscpdThresholdMutationProvider')]
@@ -1203,7 +1206,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts jscpd own format names.
+     * .jscpd.json using jscpd's own format names.
      */
     #[Test]
     public function acceptsJscpdOwnFormatNames(): void
@@ -1219,7 +1222,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts jscpd declaring no format at all.
+     * .jscpd.json declaring no format at all.
      */
     #[Test]
     public function acceptsJscpdDeclaringNoFormatAtAll(): void
@@ -1228,7 +1231,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd BOM.
+     * .jscpd.json saved with a UTF-8 BOM is reported as such, not as malformed.
      */
     #[Test]
     public function rejectsJscpdBom(): void
@@ -1241,7 +1244,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd not valid JSON.
+     * .jscpd.json not valid JSON.
      */
     #[Test]
     public function rejectsJscpdNotValidJson(): void
@@ -1253,7 +1256,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd format scalar instead of list.
+     * .jscpd.json with a scalar format instead of a list.
      */
     #[Test]
     public function rejectsJscpdFormatScalarInsteadOfList(): void
@@ -1266,7 +1269,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd format non string entry beside a bad one.
+     * .jscpd.json with a non-string format entry beside a bad one.
      */
     #[Test]
     public function rejectsJscpdFormatNonStringEntryBesideABadOne(): void
@@ -1279,7 +1282,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd reporters scalar instead of list.
+     * .jscpd.json with a scalar reporters instead of a list.
      */
     #[Test]
     public function rejectsJscpdReportersScalarInsteadOfList(): void
@@ -1350,7 +1353,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd unreadable.
+     * An unreadable .jscpd.json is reported rather than skipped.
      */
     #[Test]
     public function rejectsJscpdUnreadable(): void
@@ -1388,7 +1391,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects jscpd extension spelling as format name.
+     * .jscpd.json using a bare file-extension spelling (e.g. "ts") as a
+     * format name, one row per entry the gate's own $extensionSpellings
+     * table declares.
      */
     #[Test]
     #[DataProvider('extensionSpellingProvider')]
@@ -1402,7 +1407,10 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Extension spellings bijection holds both directions.
+     * Both directions of the bijection between PROVEN_SPELLINGS and the
+     * gate's own $extensionSpellings table — a spelling the gate stops
+     * rejecting, and one it starts rejecting that this suite never drove a
+     * case for.
      */
     #[Test]
     public function extensionSpellingsBijectionHoldsBothDirections(): void
@@ -1423,7 +1431,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Rejects phpunit source include no longer covering src.
+     * <source><include> no longer covering src.
      */
     #[Test]
     public function rejectsPhpunitSourceIncludeNoLongerCoveringSrc(): void
@@ -1436,7 +1444,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects phpunit test suite not running tests.
+     * Test suite not running tests/.
      */
     #[Test]
     public function rejectsPhpunitTestSuiteNotRunningTests(): void
@@ -1449,7 +1457,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects architecture directory present but not excluded.
+     * Tests/Architecture present but not excluded.
      */
     #[Test]
     public function rejectsArchitectureDirectoryPresentButNotExcluded(): void
@@ -1461,7 +1469,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts architecture directory present and excluded.
+     * Tests/Architecture present and excluded.
      */
     #[Test]
     public function acceptsArchitectureDirectoryPresentAndExcluded(): void
@@ -1478,7 +1486,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects phpunit missing.
+     * Phpunit.xml missing.
      */
     #[Test]
     public function rejectsPhpunitMissing(): void
@@ -1487,7 +1495,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects phpunit not well formed.
+     * Phpunit.xml not well-formed.
      */
     #[Test]
     public function rejectsPhpunitNotWellFormed(): void
@@ -1499,7 +1507,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts phpunit xml dist fallback.
+     * Strict config discovered as phpunit.xml.dist.
      */
     #[Test]
     public function acceptsPhpunitXmlDistFallback(): void
@@ -1511,7 +1519,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects phpunit without source element.
+     * Phpunit.xml without a <source> element.
      */
     #[Test]
     public function rejectsPhpunitWithoutSourceElement(): void
@@ -1602,7 +1610,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable phplint and fabricates no content drift.
+     * An unreadable .phplint.yml reports only that it cannot be read and
+     * fabricates no content-drift finding on top of it.
      */
     #[Test]
     public function rejectsUnreadablePhplintAndFabricatesNoContentDrift(): void
@@ -1623,7 +1632,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable editorconfig and fabricates no content drift.
+     * The .editorconfig counterpart of the .phplint.yml case above.
      */
     #[Test]
     public function rejectsUnreadableEditorconfigAndFabricatesNoContentDrift(): void
@@ -1644,7 +1653,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable deptrac and fabricates no content drift.
+     * The deptrac.yaml counterpart, with an inline fixture rather than the
+     * template (its `.build/vendor/...` import path does not match this
+     * suite's own fixture layout).
      */
     #[Test]
     public function rejectsUnreadableDeptracAndFabricatesNoContentDrift(): void
@@ -1690,7 +1701,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Accepts canonical biome and tsconfig with JSONC comment.
+     * Canonical biome.json + tsconfig.json (with a JSONC comment).
      */
     #[Test]
     public function acceptsCanonicalBiomeAndTsconfigWithJsoncComment(): void
@@ -1714,7 +1725,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome note key nested.
+     * Biome.json with a nested "//" key.
      */
     #[Test]
     public function rejectsBiomeNoteKeyNested(): void
@@ -1729,7 +1740,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome note key in local extends target.
+     * biome.json whose local extends target carries a "//" key.
      */
     #[Test]
     public function rejectsBiomeNoteKeyInLocalExtendsTarget(): void
@@ -1788,7 +1799,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome extending a lookalike package.
+     * Biome.json extending a look-alike package.
      */
     #[Test]
     public function rejectsBiomeExtendingALookalikePackage(): void
@@ -1800,7 +1811,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome extending via explicit node modules path.
+     * Biome.json extending via an explicit node_modules path.
      */
     #[Test]
     public function acceptsBiomeExtendingViaExplicitNodeModulesPath(): void
@@ -1812,7 +1823,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome extending via pnpm node modules path.
+     * Biome.json extending via a pnpm node_modules path.
      */
     #[Test]
     public function acceptsBiomeExtendingViaPnpmNodeModulesPath(): void
@@ -1824,7 +1835,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome local lookalike outside node modules.
+     * Biome.json extending a local look-alike copy outside node_modules.
      */
     #[Test]
     public function rejectsBiomeLocalLookalikeOutsideNodeModules(): void
@@ -1836,7 +1847,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome nested lookalike through unrelated node modules.
+     * Biome.json extending through a node_modules under an unrelated path.
      */
     #[Test]
     public function rejectsBiomeNestedLookalikeThroughUnrelatedNodeModules(): void
@@ -1848,7 +1859,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome extending another repositorys node modules.
+     * Biome.json extending another repository's node_modules.
      */
     #[Test]
     public function rejectsBiomeExtendingAnotherRepositorysNodeModules(): void
@@ -1860,7 +1871,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome extending without JSON suffix.
+     * Biome.json extending without the .json suffix.
      */
     #[Test]
     public function rejectsBiomeExtendingWithoutJsonSuffix(): void
@@ -1872,7 +1883,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome extending unscoped package name.
+     * Biome.json extending the unscoped package name.
      */
     #[Test]
     public function rejectsBiomeExtendingUnscopedPackageName(): void
@@ -1884,7 +1895,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig extending unscoped package name.
+     * Tsconfig.json extending the unscoped package name.
      */
     #[Test]
     public function rejectsTsconfigExtendingUnscopedPackageName(): void
@@ -1896,7 +1907,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig specifier with leading whitespace.
+     * Tsconfig.json whose specifier carries leading whitespace.
      */
     #[Test]
     public function rejectsTsconfigSpecifierWithLeadingWhitespace(): void
@@ -1908,7 +1919,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome specifier with trailing whitespace.
+     * Biome.json whose specifier carries trailing whitespace.
      */
     #[Test]
     public function rejectsBiomeSpecifierWithTrailingWhitespace(): void
@@ -1920,7 +1931,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome specifier ending in newline.
+     * Biome.json whose specifier ends in a newline.
      */
     #[Test]
     public function rejectsBiomeSpecifierEndingInNewline(): void
@@ -1932,7 +1943,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig specifier ending in newline.
+     * Tsconfig.json whose specifier ends in a newline.
      */
     #[Test]
     public function rejectsTsconfigSpecifierEndingInNewline(): void
@@ -1962,7 +1973,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome extends not a string at all.
+     * Biome.json whose extends is not a specifier at all.
      */
     #[Test]
     public function rejectsBiomeExtendsNotAStringAtAll(): void
@@ -1974,7 +1985,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome linter disabled.
+     * Biome.json with the linter disabled.
      */
     #[Test]
     public function rejectsBiomeLinterDisabled(): void
@@ -1986,7 +1997,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome recommended set disabled.
+     * Biome.json with the recommended set disabled.
      */
     #[Test]
     public function rejectsBiomeRecommendedSetDisabled(): void
@@ -1998,7 +2009,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome formatter disabled.
+     * Biome.json with the formatter disabled.
      */
     #[Test]
     public function rejectsBiomeFormatterDisabled(): void
@@ -2028,7 +2039,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome assist disabled in override.
+     * Biome.json disabling assist inside an override's language block.
      */
     #[Test]
     public function rejectsBiomeAssistDisabledInOverride(): void
@@ -2058,7 +2069,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome includes narrowed to a real path set.
+     * Biome.json narrowed to a real path set.
      */
     #[Test]
     public function acceptsBiomeIncludesNarrowedToARealPathSet(): void
@@ -2086,7 +2097,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome keeping recommended rule preset.
+     * Biome.json keeping the recommended rule preset.
      */
     #[Test]
     public function acceptsBiomeKeepingRecommendedRulePreset(): void
@@ -2115,7 +2126,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome group recommended off.
+     * Biome.json switching one rule group's recommended off.
      */
     #[Test]
     public function rejectsBiomeGroupRecommendedOff(): void
@@ -2127,7 +2138,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome override linter off.
+     * Biome.json disabling the linter through an overrides entry.
      */
     #[Test]
     public function rejectsBiomeOverrideLinterOff(): void
@@ -2139,7 +2150,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome override preset none.
+     * Biome.json dropping the rule floor through an overrides entry.
      */
     #[Test]
     public function rejectsBiomeOverridePresetNone(): void
@@ -2185,7 +2196,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome override language second entry.
+     * Biome.json disabling a non-JS language's formatter in the SECOND overrides entry.
      */
     #[Test]
     public function rejectsBiomeOverrideLanguageSecondEntry(): void
@@ -2237,7 +2248,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Language walk bijection holds both directions.
+     * Both directions of the bijection between PROVEN_LANGUAGES and the
+     * gate's own per-language walk — a language the gate stops walking, and
+     * one it starts walking that this suite never drove a case for.
      */
     #[Test]
     public function languageWalkBijectionHoldsBothDirections(): void
@@ -2249,7 +2262,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome override language legitimate style option.
+     * Biome.json setting a per-language style option inside an overrides entry.
      */
     #[Test]
     public function acceptsBiomeOverrideLanguageLegitimateStyleOption(): void
@@ -2261,7 +2274,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome language legitimate style option.
+     * Biome.json setting a per-language style option.
      */
     #[Test]
     public function acceptsBiomeLanguageLegitimateStyleOption(): void
@@ -2273,7 +2286,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome override legitimate single rule narrowing.
+     * Biome.json narrowing a single rule for one path through overrides.
      */
     #[Test]
     public function acceptsBiomeOverrideLegitimateSingleRuleNarrowing(): void
@@ -2285,7 +2298,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome malformed JSON.
+     * biome.json that is not valid JSON(C).
      */
     #[Test]
     public function rejectsBiomeMalformedJson(): void
@@ -2314,7 +2327,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts clean biome JSONC.
+     * A clean biome.jsonc is accepted.
      */
     #[Test]
     public function acceptsCleanBiomeJsonc(): void
@@ -2327,7 +2340,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome JSONC without shared extends.
+     * Biome.jsonc without the shared extends.
      */
     #[Test]
     public function rejectsBiomeJsoncWithoutSharedExtends(): void
@@ -2340,7 +2353,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome JSONC linter disabled.
+     * Biome.jsonc with the linter disabled.
      */
     #[Test]
     public function rejectsBiomeJsoncLinterDisabled(): void
@@ -2353,7 +2366,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig without shared extends.
+     * Tsconfig.json without the shared extends.
      */
     #[Test]
     public function rejectsTsconfigWithoutSharedExtends(): void
@@ -2365,7 +2378,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig overriding strict to false.
+     * Tsconfig.json overriding strict to false.
      */
     #[Test]
     public function rejectsTsconfigOverridingStrictToFalse(): void
@@ -2393,7 +2406,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig with shared base in extends array.
+     * Tsconfig.json with the shared base in an extends array.
      */
     #[Test]
     public function acceptsTsconfigWithSharedBaseInExtendsArray(): void
@@ -2405,7 +2418,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig turning skip lib check off.
+     * Tsconfig.json turning skipLibCheck off (stricter, not drift).
      */
     #[Test]
     public function acceptsTsconfigTurningSkipLibCheckOff(): void
@@ -2419,7 +2432,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig with trailing commas.
+     * Tsconfig.json with trailing commas.
      */
     #[Test]
     public function acceptsTsconfigWithTrailingCommas(): void
@@ -2431,7 +2444,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig with comment marker inside string value.
+     * Tsconfig.json with a // inside a string value.
      */
     #[Test]
     public function acceptsTsconfigWithCommentMarkerInsideStringValue(): void
@@ -2446,7 +2459,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig extending without JSON suffix.
+     * Tsconfig.json extending without the .json suffix.
      */
     #[Test]
     public function acceptsTsconfigExtendingWithoutJsonSuffix(): void
@@ -2503,7 +2516,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome local extends target legitimate relaxation.
+     * Biome.json whose local extends target is a legitimate, non-drifting relaxation.
      */
     #[Test]
     public function acceptsBiomeLocalExtendsTargetLegitimateRelaxation(): void
@@ -2519,7 +2532,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome second extends entry uninstalled package.
+     * Biome.json whose second extends entry is an uninstalled package, not a local file.
      */
     #[Test]
     public function acceptsBiomeSecondExtendsEntryUninstalledPackage(): void
@@ -2534,7 +2547,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome local extends target escaping repository via dot dot.
+     * Biome.json whose local extends target escapes the repository via ../.
      */
     #[Test]
     public function acceptsBiomeLocalExtendsTargetEscapingRepositoryViaDotDot(): void
@@ -2585,7 +2598,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome rule off by options object level.
+     * Biome.json switching a shared rule off via its options-object level.
      */
     #[Test]
     public function rejectsBiomeRuleOffByOptionsObjectLevel(): void
@@ -2597,7 +2610,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome rule off in override.
+     * Biome.json switching a shared rule off inside an overrides entry.
      */
     #[Test]
     public function rejectsBiomeRuleOffInOverride(): void
@@ -2609,7 +2622,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome rule severity escalated not off.
+     * Biome.json tightening a shared rule's severity (not drift).
      */
     #[Test]
     public function acceptsBiomeRuleSeverityEscalatedNotOff(): void
@@ -2621,7 +2634,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome rule off that shared config never turns on.
+     * Biome.json switching off a rule the shared config never turns on itself.
      */
     #[Test]
     public function acceptsBiomeRuleOffThatSharedConfigNeverTurnsOn(): void
@@ -2653,7 +2666,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig later local extends target disabling flag.
+     * Tsconfig.json whose LATER local extends target disables noUncheckedIndexedAccess.
      */
     #[Test]
     public function rejectsTsconfigLaterLocalExtendsTargetDisablingFlag(): void
@@ -2666,7 +2679,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig shared extends entry following and undoing local override.
+     * Tsconfig.json whose shared extends entry follows and undoes a local override.
      */
     #[Test]
     public function acceptsTsconfigSharedExtendsEntryFollowingAndUndoingLocalOverride(): void
@@ -2679,7 +2692,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig local extends target only adding paths.
+     * Tsconfig.json whose local extends target only adds paths (not drift).
      */
     #[Test]
     public function acceptsTsconfigLocalExtendsTargetOnlyAddingPaths(): void
@@ -2831,7 +2844,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome past the size cap is reported as oversized not scanned.
+     * A biome.json past the size cap is reported as oversized, not scanned.
      */
     #[Test]
     public function rejectsBiomePastTheSizeCapIsReportedAsOversizedNotScanned(): void
@@ -2843,7 +2856,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig past the size cap is reported as oversized not scanned.
+     * A tsconfig.json past the size cap is reported as oversized, not scanned.
      */
     #[Test]
     public function rejectsTsconfigPastTheSizeCapIsReportedAsOversizedNotScanned(): void
@@ -2883,7 +2896,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Reports once when package JSON is past the size cap.
+     * An oversized package.json is reported once, as itself.
      */
     #[Test]
     public function reportsOnceWhenPackageJsonIsPastTheSizeCap(): void
@@ -2896,7 +2909,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome DEL byte in rule group is scrubbed.
+     * A DEL byte in a rule-group key is scrubbed.
      */
     #[Test]
     public function rejectsBiomeDelByteInRuleGroupIsScrubbed(): void
@@ -2913,7 +2926,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome overlong rule group key truncated with marker.
+     * An overlong rule-group key is truncated with a marker.
      */
     #[Test]
     public function rejectsBiomeOverlongRuleGroupKeyTruncatedWithMarker(): void
@@ -2956,7 +2969,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig with block comment.
+     * Tsconfig.json with a block comment.
      */
     #[Test]
     public function acceptsTsconfigWithBlockComment(): void
@@ -2968,7 +2981,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig block comment must not swallow rest of document.
+     * Tsconfig.json whose block comment must not swallow the rest.
      */
     #[Test]
     public function rejectsTsconfigBlockCommentMustNotSwallowRestOfDocument(): void
@@ -2980,7 +2993,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig unterminated block comment.
+     * Tsconfig.json with an unterminated block comment.
      */
     #[Test]
     public function rejectsTsconfigUnterminatedBlockComment(): void
@@ -2992,7 +3005,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig invalid UTF 8 byte discarded inside comment.
+     * Tsconfig.json with an invalid UTF-8 byte discarded inside a comment.
      */
     #[Test]
     public function acceptsTsconfigInvalidUtf8ByteDiscardedInsideComment(): void
@@ -3004,7 +3017,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig invalid UTF 8 byte outside comment.
+     * Tsconfig.json with an invalid UTF-8 byte outside any comment.
      */
     #[Test]
     public function rejectsTsconfigInvalidUtf8ByteOutsideComment(): void
@@ -3035,7 +3048,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig unpaired UTF 16 surrogate escape.
+     * Tsconfig.json with an unpaired UTF-16 surrogate escape.
      */
     #[Test]
     public function rejectsTsconfigUnpairedUtf16SurrogateEscape(): void
@@ -3047,7 +3060,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig properly paired surrogate escape.
+     * Tsconfig.json with a properly paired surrogate escape (an emoji).
      */
     #[Test]
     public function acceptsTsconfigProperlyPairedSurrogateEscape(): void
@@ -3099,7 +3112,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig nested to exactly 511 level depth.
+     * Tsconfig.json nested to exactly the 511-level depth PHP still accepts.
      */
     #[Test]
     public function acceptsTsconfigNestedToExactly511LevelDepth(): void
@@ -3113,7 +3126,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects package JSON nested past 512 level depth cap.
+     * A package.json nested past the 512-level depth cap is reported, not crashed on.
      */
     #[Test]
     public function rejectsPackageJsonNestedPast512LevelDepthCap(): void
@@ -3151,7 +3164,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts package JSON with paired surrogate elsewhere in manifest.
+     * A package.json with a properly paired surrogate elsewhere in the manifest is accepted.
      */
     #[Test]
     public function acceptsPackageJsonWithPairedSurrogateElsewhereInManifest(): void
@@ -3164,7 +3177,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig comment splitting a token.
+     * Tsconfig.json with a comment splitting a token.
      */
     #[Test]
     public function rejectsTsconfigCommentSplittingAToken(): void
@@ -3194,7 +3207,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects tsconfig not valid JSONC.
+     * The JSONC tolerance must not extend to genuinely broken input: an
+     * unclosed object has to be reported, not read as an empty config that
+     * passes every subsequent `?? null` check.
      */
     #[Test]
     public function rejectsTsconfigNotValidJsonc(): void
@@ -3213,7 +3228,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * Accepts standalone biome in repo without adoption.
+     * Standalone biome.json in a repo that has not adopted the npm package.
      */
     #[Test]
     public function acceptsStandaloneBiomeInRepoWithoutAdoption(): void
@@ -3225,7 +3240,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts standalone tsconfig in repo without adoption.
+     * Standalone tsconfig.json in a repo that has not adopted the npm package.
      */
     #[Test]
     public function acceptsStandaloneTsconfigInRepoWithoutAdoption(): void
@@ -3237,7 +3252,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts standalone biome with no package JSON at all.
+     * Standalone biome.json with no package.json at all.
      */
     #[Test]
     public function acceptsStandaloneBiomeWithNoPackageJsonAtAll(): void
@@ -3266,7 +3281,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects malformed biome once npm package is declared.
+     * Malformed biome.json once the npm package is declared — the adopted
+     * counterpart of acceptsMalformedBiomeInRepoWithoutAdoption() above.
      */
     #[Test]
     public function rejectsMalformedBiomeOnceNpmPackageIsDeclared(): void
@@ -3278,7 +3294,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome saved with UTF 8 BOM.
+     * Biome.json saved with a UTF-8 BOM.
      */
     #[Test]
     public function acceptsBiomeSavedWithUtf8Bom(): void
@@ -3294,7 +3310,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts tsconfig saved with UTF 8 BOM.
+     * Tsconfig.json saved with a UTF-8 BOM.
      */
     #[Test]
     public function acceptsTsconfigSavedWithUtf8Bom(): void
@@ -3327,7 +3343,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects package JSON with second leftover BOM.
+     * A package.json with a second, leftover BOM once the first is stripped is reported.
      */
     #[Test]
     public function rejectsPackageJsonWithSecondLeftoverBom(): void
@@ -3342,14 +3358,13 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unparseable package JSON not treated as non adoption.
+     * The probe that decides whether any of this runs must not fail open:
+     * an unparseable manifest would otherwise switch the entire JS/TS
+     * contract off while the gate still printed OK.
      */
     #[Test]
     public function rejectsUnparseablePackageJsonNotTreatedAsNonAdoption(): void
     {
-        // The probe that decides whether any of this runs must not fail
-        // open: an unreadable manifest would otherwise switch the entire
-        // JS/TS contract off while the gate still printed OK.
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\n");
         file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
@@ -3358,7 +3373,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects BOM prefixed package JSON still read for dependency.
+     * A BOM-prefixed package.json is still read for the dependency.
      */
     #[Test]
     public function rejectsBomPrefixedPackageJsonStillReadForDependency(): void
@@ -3387,7 +3402,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects note key even without adoption.
+     * "//" key is reported even without adoption.
      */
     #[Test]
     public function rejectsNoteKeyEvenWithoutAdoption(): void
@@ -3399,7 +3414,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome without extends once npm package is declared.
+     * Biome.json without extends once the npm package is declared.
      */
     #[Test]
     public function rejectsBiomeWithoutExtendsOnceNpmPackageIsDeclared(): void
@@ -3460,7 +3475,10 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Base flag drift.
+     * Every compilerOptions flag tsconfig/base.json ships as `true`, turned
+     * off individually: an ERGONOMICS_FLAGS member must still be accepted
+     * (turning it off is stricter, not looser), every other flag must be
+     * rejected.
      */
     #[Test]
     #[DataProvider('baseFlagProvider')]
@@ -3595,7 +3613,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome overrides second entry reported with its index.
+     * A violation in the SECOND overrides entry is reported with its index.
      */
     #[Test]
     public function rejectsBiomeOverridesSecondEntryReportedWithItsIndex(): void
@@ -3609,13 +3627,14 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts PHP only repo not probed for JS TS contract at all.
+     * A repository with no JS config at all is never probed, so a broken
+     * package.json there is not this gate's business. Deliberately outside
+     * the root-skip guard below: it needs no permissions trick, and it is
+     * the only case covering this arm.
      */
     #[Test]
     public function acceptsPhpOnlyRepoNotProbedForJsTsContractAtAll(): void
     {
-        // Deliberately outside the root-skip guard below: it needs no
-        // permissions trick, and it is the only case covering this arm.
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\n");
 
@@ -3623,7 +3642,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects typescript only consumer still held to tsconfig contract.
+     * A TypeScript-only consumer is still held to the tsconfig contract.
      */
     #[Test]
     public function rejectsTypescriptOnlyConsumerStillHeldToTsconfigContract(): void
@@ -3636,7 +3655,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Reports usage error when path is not a directory.
+     * A path that is not a directory.
      */
     #[Test]
     public function reportsUsageErrorWhenPathIsNotADirectory(): void
@@ -3645,7 +3664,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable biome reports as unreadable not as malformed.
+     * An unreadable biome.json reports as unreadable, not as malformed.
      */
     #[Test]
     public function rejectsUnreadableBiomeReportsAsUnreadableNotAsMalformed(): void
@@ -3664,7 +3683,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable tsconfig reports as unreadable not as malformed.
+     * An unreadable tsconfig.json reports as unreadable, not as malformed.
      */
     #[Test]
     public function rejectsUnreadableTsconfigReportsAsUnreadableNotAsMalformed(): void
@@ -3705,7 +3724,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects unreadable package JSON does not switch off JS TS contract.
+     * An unreadable package.json does not switch the JS/TS contract off.
      */
     #[Test]
     public function rejectsUnreadablePackageJsonDoesNotSwitchOffJsTsContract(): void
@@ -3725,7 +3744,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome override entry not an object does not hide the next.
+     * A non-object overrides entry does not hide the next one.
      */
     #[Test]
     public function rejectsBiomeOverrideEntryNotAnObjectDoesNotHideTheNext(): void
@@ -3755,7 +3774,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts biome JSON read in preference to biome JSONC beside.
+     * Biome.json is read in preference to a biome.jsonc beside it.
      */
     #[Test]
     public function acceptsBiomeJsonReadInPreferenceToBiomeJsoncBeside(): void
@@ -3769,7 +3788,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome scalar linter rules does not hide enabled check.
+     * A scalar linter.rules does not hide the enabled check.
      */
     #[Test]
     public function rejectsBiomeScalarLinterRulesDoesNotHideEnabledCheck(): void
@@ -3781,7 +3800,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Rejects biome scalar rule group does not hide next group.
+     * A scalar rule group does not hide the next group.
      */
     #[Test]
     public function rejectsBiomeScalarRuleGroupDoesNotHideNextGroup(): void
@@ -3793,7 +3812,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Accepts PHP only repo without biome or tsconfig.
+     * PHP-only repo without biome.json or tsconfig.json.
      */
     #[Test]
     public function acceptsPhpOnlyRepoWithoutBiomeOrTsconfig(): void

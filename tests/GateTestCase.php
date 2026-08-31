@@ -372,7 +372,7 @@ abstract class GateTestCase extends TestCase
      * @param int    $bound The exact byte length the returned document must have.
      * @param string $body  A valid JSON object document ending in `}`.
      *
-     * @return string
+     * @return string The padded JSON document, exactly $bound bytes.
      */
     protected static function padJsonToCap(int $bound, string $body): string
     {
