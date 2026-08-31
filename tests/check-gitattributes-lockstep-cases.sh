@@ -294,6 +294,61 @@ printf '../traversal-target    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"
 assert_accepts "$d" "a template path escaping the repository root via .. is not applicable, not a violation"
 
+# --- a git-tracked DANGLING symlink at a required path must not read as absent.
+# git tracks a symlink as a blob holding the literal target string, independent of
+# whether that target resolves, and `git archive` includes it unconditionally — so
+# a template-required path that is a dangling symlink is genuinely tracked and
+# genuinely needs the template's export-ignore line. realpath() on the FULL target
+# follows the link and fails once it cannot resolve the missing final target,
+# exactly the same outcome as "this repository does not have that path" — a
+# false ACCEPT that hides real drift (GH-112). ---
+d="$(mk_case dangling-symlink-required-path)"
+printf '/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+ln -s -- /nonexistent-target-xyz "$d/dangling-symlink"
+assert_rejects "$d" "a git-tracked dangling symlink at a required path is reported as drift, not skipped as absent" \
+    '/dangling-symlink: missing `export-ignore`'
+
+# --- the control for the case above: a genuinely absent path (no symlink, no
+# file) at the same name stays not-applicable — isolating the dangling-symlink/
+# realpath() interaction as the actual discriminator, not a general loosening of
+# the applicability check. ---
+d="$(mk_case genuinely-absent-path-still-not-applicable)"
+printf '/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a genuinely absent path (not a symlink) stays not applicable"
+
+# --- a dangling symlink that already carries export-ignore in .gitattributes must
+# still be accepted — proves the presence check does not itself force a rejection. ---
+d="$(mk_case dangling-symlink-already-satisfied)"
+printf '/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
+printf '/dangling-symlink    export-ignore\n' > "$d/.gitattributes"
+ln -s -- /nonexistent-target-xyz "$d/dangling-symlink"
+assert_accepts "$d" "a git-tracked dangling symlink at a required path already export-ignored is accepted"
+
+# --- a dangling symlink NESTED one directory down must be detected too — proves
+# the fix resolves the immediate PARENT directory, not just the repository root
+# itself, before testing the leaf. ---
+d="$(mk_case dangling-symlink-nested)"
+mkdir -p "$d/.github"
+printf '/.github/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+ln -s -- /nonexistent-target-xyz "$d/.github/dangling-symlink"
+assert_rejects "$d" "a nested git-tracked dangling symlink is reported as drift, not skipped as absent" \
+    '/.github/dangling-symlink: missing `export-ignore`'
+
+# --- a template entry naming a dangling symlink whose PARENT directory escapes
+# the repository root via `..` must still be treated as not applicable — the
+# parent-directory containment check must reject a traversal exactly as the
+# former full-target containment check did. ---
+d="$(mk_case dangling-symlink-parent-traversal-not-applicable)"
+outside="$work/traversal-parent"
+mkdir -p "$outside"
+ln -s -- /nonexistent-target-xyz "$outside/dangling-symlink"
+printf '../traversal-parent/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a dangling symlink whose parent escapes the repository root via .. stays not applicable"
+
 # --- a template line whose path has no attribute list at all (no whitespace after
 # it) must not be treated as a requirement — the shape the block-parse regex is
 # built to reject. /orphan-path exists on disk and is NOT export-ignored in the
