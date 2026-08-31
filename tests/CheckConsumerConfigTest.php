@@ -731,7 +731,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     #[Test]
     public function acceptsPhplintBom(): void
     {
-        // phplint 9.7.2 reads a BOM'd config and runs normally, so the gate
+        // As observed against the overtrue/phplint version composer.lock
+        // pins (`grep -A1 '"name": "overtrue/phplint"' composer.lock`),
+        // the tool reads a BOM'd config and runs normally, so the gate
         // strips it — the `^extensions` anchor sits at offset 0 and the BOM
         // would displace it, reporting drift in a file the tool obeys.
         // `extensions:` is written first (not copied from templates/, which
@@ -788,9 +790,11 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Editors honour a BOM'd .editorconfig — editorconfig-core-js reads one
-     * and returns its settings, because JavaScript's `\s` matches U+FEFF.
-     * PHP's trim() does not, so without the strip the key parses as
+     * As observed on 2026-08-31, editors honour a BOM'd .editorconfig —
+     * editorconfig-core-js (not a dependency of this repository, so there is
+     * no local copy to re-check this against) reads one and returns its
+     * settings, because JavaScript's `\s` matches U+FEFF. PHP's trim() does
+     * not, so without the strip the key parses as
      * "\u{FEFF}root" and a file every editor obeys is reported as drift.
      * Written literally (not copied from templates/, whose header would
      * absorb the BOM on a comment line and leave `root = true` untouched,
@@ -1082,6 +1086,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * As observed on 2026-08-31 (deptrac is not a dependency of this
+     * repository, so there is no local copy to re-check this against),
      * deptrac answers its own BOM'd config with `no extension able to load
      * "<BOM>imports"` and dies, so there a BOM IS the defect and stripping
      * it would hide one — the gate names that cause rather than reporting a
@@ -1729,9 +1735,10 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsBiomeNoteKeyInLocalExtendsTarget(): void
     {
         // The same key inside a LOCAL `extends` target, not the document
-        // itself. Verified against Biome 2.5.5: the note key makes
-        // `./biome.loose.json` unloadable regardless of what the document
-        // that extends it looks like.
+        // itself. As re-verified on 2026-08-31 against the Biome version
+        // package.json currently pins (`jq -r '.devDependencies["@biomejs/biome"]'
+        // package.json`): the note key makes `./biome.loose.json` unloadable
+        // regardless of what the document that extends it looks like.
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
         file_put_contents($dir . '/biome.loose.json', "{ \"//\": \"note\", \"linter\": { \"enabled\": true } }\n");
@@ -1939,9 +1946,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * Biome accepts only `"//"` or an array for `extends` and answers a bare
      * string with `The 'extends' field must be either '//' or an array of
-     * paths` — verified against 2.5.5. tsc, by contrast, takes a bare
-     * string, which is why the two are asserted in opposite directions
-     * elsewhere in this file.
+     * paths` — re-verified 2026-08-31 against the version package.json
+     * currently pins. tsc, by contrast, takes a bare string, which is why
+     * the two are asserted in opposite directions elsewhere in this file.
      *
      * @return void
      */
@@ -2146,8 +2153,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * Biome carries linter/formatter a THIRD time, per language — and
      * there it silences the shared standard for every file of that
-     * language while the top-level keys still read as enabled. Verified
-     * against 2.5.5: with this config a 2-space indent passes.
+     * language while the top-level keys still read as enabled. Re-verified
+     * 2026-08-31 against the version package.json currently pins: with
+     * this config a 2-space indent passes.
      *
      * @return void
      */
@@ -2210,10 +2218,11 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Verified against 2.5.5: with `javascript.linter.enabled: false` a
-     * `==` comparison passes while the top-level `linter.enabled` still
-     * reads true — which is why a check that only walked the document
-     * would report this config clean.
+     * Re-verified 2026-08-31 against the version package.json currently
+     * pins: with `javascript.linter.enabled: false` a `==` comparison
+     * passes while the top-level `linter.enabled` still reads true — which
+     * is why a check that only walked the document would report this
+     * config clean.
      *
      * @return void
      */
@@ -2443,7 +2452,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function acceptsTsconfigExtendingWithoutJsonSuffix(): void
     {
         // tsc appends `.json` itself, so this resolves to the very same
-        // file — verified with 7.0.2.
+        // file — re-verified 2026-08-31 against the version package.json
+        // currently pins (`jq -r '.devDependencies.typescript' package.json`).
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n");
 
@@ -2458,10 +2468,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * Route 1, reproduced from the issue almost verbatim: the shared entry
      * is listed FIRST, a LOCAL second entry disables the linter wholesale,
-     * and the document's own top level never mentions `linter` at all.
-     * Verified against Biome 2.5.5: with this exact pair, `biome ci` checks
-     * zero files, because the wholesale disable is folded on top of the
-     * shared base.
+     * and the document's own top level never mentions `linter` at all — so
+     * a check reading only the top level would miss the disable entirely.
      *
      * @return void
      */
