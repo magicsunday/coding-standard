@@ -318,17 +318,47 @@ printf 'subdir/../..    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"
 assert_accepts "$d" "a nested a/../.. template path is not applicable, not a violation"
 
+# --- the guard rejects "." as well as "..", and this is the ONLY case that pins
+# that half specifically: found by the Codex cross-model pass during this same
+# review — the two cases above both produce basename() === "..", so a guard
+# narrowed to check only "..") would still pass them. A template path ending in
+# "/." (a real subdirectory's own self-entry, not a path git ever tracks as
+# distinct from the directory itself) makes basename() return ".": without the
+# "." half of the guard, is_link()||file_exists() on "$parentReal/." is TRUE
+# (every directory contains itself), so the path would be wrongly treated as
+# applicable and reported as a missing-export-ignore violation for a path that
+# is really just the subdirectory under a different name. ---
+d="$(mk_case dot-leaf-not-applicable)"
+mkdir -p "$d/subdir"
+printf 'subdir/.    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a subdir/. template path is not applicable, not a violation"
+
+# --- the `$parentReal === false` disjunct of the containment check has its own
+# discriminating case here: found by the CE testing persona during this same
+# review, by mutation — every OTHER not-applicable fixture in this file drives
+# realpath(dirname($target)) to a path that DOES resolve (either $realRoot
+# itself, via a ".."-folding parent, or an already-real sibling directory), so
+# removing this disjunct still passes every one of them and only crashes on an
+# ORDINARY multi-segment path whose parent directory genuinely does not exist —
+# exactly the everyday "a consumer-only nested path this repository does not
+# have" case this gate's own qualifier exists to handle silently. Verified by
+# mutation: with this disjunct removed, this fixture crashes with an uncaught
+# TypeError out of str_starts_with() instead of accepting. ---
+d="$(mk_case nonexistent-parent-directory-not-applicable)"
+printf 'nonexistent-dir/child    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a template path whose parent directory does not exist at all is not applicable, not a crash"
+
 # --- a git-tracked DANGLING symlink at a required path must not read as absent.
 # git tracks a symlink as a blob holding the literal target string, independent of
-# whether that target resolves, and `git archive` includes it unconditionally —
-# reproduced 2026-08-31: `git init`, `ln -s /nonexistent-target-xyz l`, commit, then
-# `git archive HEAD | tar -tv` lists `l` as a real symlink entry (`git ls-tree HEAD`
-# shows it as an ordinary mode-120000 blob) — so a template-required path that is a
-# dangling symlink is genuinely tracked and genuinely needs the template's
-# export-ignore line. realpath() on the FULL target follows the link and fails once
-# it cannot resolve the missing final target, exactly the same outcome as "this
-# repository does not have that path" — a false ACCEPT that hides real drift
-# (GH-112). ---
+# whether that target resolves, and `git archive` includes it unconditionally
+# (verified 2026-08-31; see the commit history for the reproduction recipe) — so a
+# template-required path that is a dangling symlink is genuinely tracked and
+# genuinely needs the template's export-ignore line. realpath() on the FULL target
+# follows the link and fails once it cannot resolve the missing final target,
+# exactly the same outcome as "this repository does not have that path" — a
+# false ACCEPT that hides real drift (GH-112). ---
 d="$(mk_case dangling-symlink-required-path)"
 printf '/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"

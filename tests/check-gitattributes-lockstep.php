@@ -283,16 +283,14 @@ $ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 // Containment is proven on the PARENT directory below, not on the full target path:
 // git tracks a symlink as a blob holding the literal target string, independent of
 // whether that target resolves, and `git archive` ships a DANGLING symlink (one whose
-// target does not exist) unconditionally — reproduced 2026-08-31: `git init`, `ln -s
-// /nonexistent-target-xyz l`, commit, then `git archive HEAD | tar -tv` lists `l` as a
-// real symlink entry, and `git ls-tree HEAD` shows it as an ordinary mode-120000 blob.
-// realpath() on the full target FOLLOWS the link and fails once it cannot resolve that
-// missing target — exactly the same false result as "this repository does not have
-// that path", so a genuinely tracked, genuinely shipped dangling symlink silently read
-// as not applicable (GH-112). The parent directory is a real, non-symlinked directory
-// in every applicable case here (a symlinked ANCESTOR directory is the separate,
-// narrower gap GH-119 tracks), so resolving it alone still proves containment without
-// needing the leaf itself to resolve.
+// target does not exist) unconditionally (verified 2026-08-31; see the commit history
+// for the reproduction recipe). realpath() on the full target FOLLOWS the link and
+// fails once it cannot resolve that missing target — exactly the same false result as
+// "this repository does not have that path", so a genuinely tracked, genuinely shipped
+// dangling symlink silently read as not applicable (GH-112). The parent directory is a
+// real, non-symlinked directory in every applicable case here (a symlinked ANCESTOR
+// directory is the separate, narrower gap GH-119 tracks), so resolving it alone still
+// proves containment without needing the leaf itself to resolve.
 $realRoot = realpath($root);
 
 // $templateContents already read successfully above, so $root resolved to a real,
@@ -339,7 +337,7 @@ foreach ($templatePaths as $path) {
     // A raw "." or ".." leaf component is not a real filename git can ever track —
     // reported by security-reviewer during this fix's own review: dirname() folds a
     // trailing ".." away textually BEFORE realpath() ever runs, so a path such as
-    // "..alone or "subdir/../.." resolves $parentReal to $realRoot itself and passes
+    // ".." alone or "subdir/../.." resolves $parentReal to $realRoot itself and passes
     // the containment check above, then re-joining $base onto $parentReal rebuilds
     // "$realRoot/.." — one directory OUTSIDE the very root containment just proved
     // safe. Reproduced: templates/gitattributes containing `.. export-ignore`
