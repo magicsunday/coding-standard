@@ -19,9 +19,9 @@
  *
  * "Same contract" is not an assertion this file makes about itself — it is
  * enforced from the other side: every biome.json/tsconfig.json case in
- * tests/check-consumer-config-cases.sh also runs THIS gate against the identical
+ * tests/CheckConsumerConfigTest.php also runs THIS gate against the identical
  * fixture directory and requires the identical accept/reject verdict (see
- * assert_accepts_js/assert_rejects_js there). A rule change that is not applied
+ * that class's assertBoth*() helpers). A rule change that is not applied
  * to both files fails that differential check, not a hand-kept comment.
  *
  * Usage (from a consumer repo root, wired as an npm script):
