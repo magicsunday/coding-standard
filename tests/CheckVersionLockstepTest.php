@@ -256,7 +256,7 @@ final class CheckVersionLockstepTest extends GateTestCase
      * bound is rejected. The counterpart, AT the cap: content that must be
      * read in FULL and matched, so a bound even one byte too small starts
      * rejecting it instead — mirroring the jscpd-at-the-size-cap fixture in
-     * check-consumer-config-cases.sh, for this gate's own MAX_LOCKSTEP_BYTES.
+     * CheckConsumerConfigTest, for this gate's own MAX_LOCKSTEP_BYTES.
      */
     #[Test]
     public function acceptsAPackageJsonExactlyAtTheSizeCap(): void

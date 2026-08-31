@@ -125,11 +125,11 @@ $violations = [];
  *
  * The boundary that makes the column-0 list-item alternative safe: a top-level key
  * stops the scan before it, so an entry written under a LATER key is not captured.
- * Both directions are driven in tests/check-consumer-config-cases.sh; list them
+ * Both directions are driven in tests/CheckConsumerConfigTest.php; list them
  * rather than copying their verdicts here, since a before/after table describes a
  * version of the code that no longer exists:
  *
- *     grep -n 'work/deptrac-\|work/phplint-' tests/check-consumer-config-cases.sh
+ *     grep -n 'function.*Deptrac\|function.*Phplint' tests/CheckConsumerConfigTest.php
  *
  * @param string $contents The file contents, line endings already normalised.
  * @param string $key      The top-level key whose block to isolate.

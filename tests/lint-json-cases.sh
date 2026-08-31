@@ -138,7 +138,7 @@ ln -s -- "$d/does-not-exist" "$d/dangling.json"
 assert_rejects "$d" "a dangling symlink named *.json" "MISSING  dangling.json"
 
 # --- unreadable: permissions revoked ---
-# Skipped for uid 0, the same as tests/check-consumer-config-cases.sh's own
+# Skipped for uid 0, the same as tests/CheckConsumerConfigTest.php's own
 # unreadable-config cases: root bypasses DAC, so mode 000 stays readable and
 # this would read as a false regression rather than a caught violation. CI
 # runs non-root, so the branch stays exercised there.

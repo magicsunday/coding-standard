@@ -1645,8 +1645,8 @@ harness_probe_ignore_scripts_suppresses_lifecycle_scripts
 # `check-js-config` entry into node_modules/.bin. Exercised here rather than
 # further down, at the exact point $work has neither biome.json nor
 # tsconfig.json yet — the same "nothing to check" shape
-# "PHP-only repo without biome.json or tsconfig.json" in
-# tests/check-consumer-config-cases.sh already proves the working-tree gate
+# acceptsPhpOnlyRepoWithoutBiomeOrTsconfig() in
+# tests/CheckConsumerConfigTest.php already proves the working-tree gate
 # accepts, so this reuses that verdict rather than needing its own fixture.
 # Mirrors this repository's own PHP-side pattern (the
 # Consumer smoke CI steps run .build/bin/phpstan etc. as actually installed,
@@ -1668,8 +1668,8 @@ fi
 # `--no-save`) already declared `@magicsunday/coding-standard` a dependency of
 # $work, so the malformed biome.json below is read under the ADOPTED path —
 # the one that reports a parse failure rather than silently ignoring it (see
-# "malformed biome.json in a repo that has not adopted the npm package" in
-# tests/check-consumer-config-cases.sh, the accepting twin of this same
+# acceptsMalformedBiomeInRepoWithoutAdoption() in
+# tests/CheckConsumerConfigTest.php, the accepting twin of this same
 # distinction).
 printf '{\n' > biome.json
 
@@ -1934,7 +1934,7 @@ mkdir -p src
 
 # The consumer configs are the SAME files the lockstep gate's canon fixture uses.
 # Keeping one copy means the gate and the real tools can never disagree about
-# what the canon is: tests/check-consumer-config-cases.sh proves the gate accepts
+# what the canon is: tests/CheckConsumerConfigTest.php proves the gate accepts
 # them, and this smoke proves Biome and tsc actually load them.
 cp "$root/tests/consumer/biome.json" biome.json
 cp "$root/tests/consumer/tsconfig.json" tsconfig.json
