@@ -294,14 +294,41 @@ printf '../traversal-target    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"
 assert_accepts "$d" "a template path escaping the repository root via .. is not applicable, not a violation"
 
+# --- a raw `..` template path must not escape containment through the LEAF. The
+# parent-directory containment check above resolves dirname("$root/..") to $root
+# itself (dirname() strips the trailing ".." textually before realpath() ever
+# runs), which correctly passes containment — but re-joining basename() of the
+# UNRESOLVED, attacker-controlled $target then rebuilds "$root/.." again, one
+# directory ABOVE the very root just proven safe. Found by security-reviewer
+# during GH-112's own review: reproduced against the parent-directory-containment
+# fix itself, not the pre-fix code, and confirmed to report a false violation for
+# a path that has nothing to do with this repository. ---
+d="$(mk_case bare-dotdot-not-applicable)"
+printf '..    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a bare .. template path is not applicable, not a violation"
+
+# --- the same escape one level DEEPER: a real subdirectory followed by two `..`
+# segments still resolves its parent to $root (the trailing ".." folds away
+# during dirname()'s own string handling before realpath() sees it), so the bug
+# is not limited to the single-token case above. ---
+d="$(mk_case nested-dotdot-not-applicable)"
+mkdir -p "$d/subdir"
+printf 'subdir/../..    export-ignore\n' > "$d/templates/gitattributes"
+printf '' > "$d/.gitattributes"
+assert_accepts "$d" "a nested a/../.. template path is not applicable, not a violation"
+
 # --- a git-tracked DANGLING symlink at a required path must not read as absent.
 # git tracks a symlink as a blob holding the literal target string, independent of
-# whether that target resolves, and `git archive` includes it unconditionally — so
-# a template-required path that is a dangling symlink is genuinely tracked and
-# genuinely needs the template's export-ignore line. realpath() on the FULL target
-# follows the link and fails once it cannot resolve the missing final target,
-# exactly the same outcome as "this repository does not have that path" — a
-# false ACCEPT that hides real drift (GH-112). ---
+# whether that target resolves, and `git archive` includes it unconditionally —
+# reproduced 2026-08-31: `git init`, `ln -s /nonexistent-target-xyz l`, commit, then
+# `git archive HEAD | tar -tv` lists `l` as a real symlink entry (`git ls-tree HEAD`
+# shows it as an ordinary mode-120000 blob) — so a template-required path that is a
+# dangling symlink is genuinely tracked and genuinely needs the template's
+# export-ignore line. realpath() on the FULL target follows the link and fails once
+# it cannot resolve the missing final target, exactly the same outcome as "this
+# repository does not have that path" — a false ACCEPT that hides real drift
+# (GH-112). ---
 d="$(mk_case dangling-symlink-required-path)"
 printf '/dangling-symlink    export-ignore\n' > "$d/templates/gitattributes"
 printf '' > "$d/.gitattributes"
