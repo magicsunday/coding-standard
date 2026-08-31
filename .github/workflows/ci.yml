@@ -111,9 +111,9 @@ jobs:
             # phpstan.neon's own include of phpstan/disallowed-function-calls.neon
             # has no other proof: bin/ and tests/ currently call none of the five
             # banned functions, so a broken include would leave the step above
-            # silently green. tests/check-disallowed-calls-cases.sh proves the ban
-            # LIST fires, but only through tests/consumer's installed copy, never
-            # phpstan.neon itself.
+            # silently green. CheckDisallowedCallsTest (run by the Case-folding
+            # self-test step below) proves the ban LIST fires, but only through
+            # tests/consumer's installed copy, never phpstan.neon itself.
             - name: PHP gate self-analysis self-test
               run: composer ci:test:php:analyse-cases
 
@@ -167,12 +167,13 @@ jobs:
               working-directory: tests/consumer
               run: .build/bin/rector process --config rector.php --dry-run
 
-            # Exercise the case-folding config: the harness first proves base.neon
-            # alone is clean on the fixture, then that base.neon + disallowed-calls.neon
+            # Exercise the case-folding config via CheckDisallowedCallsTest, which
+            # self-skipped when the plain "PHPUnit" step above ran — tests/consumer
+            # was not installed yet at that point. Positioned here, after Consumer
+            # smoke install, so it actually runs: first proves base.neon alone is
+            # clean on the fixture, then that base.neon + disallowed-calls.neon
             # reports all five banned functions, then that the same five come back
-            # through strict.neon. Without the control run a config that loaded but
-            # matched nothing would pass as "PHPStan is green"; the strict run is the
-            # only place that tier is loaded at all, so it doubles as its smoke test.
+            # through strict.neon, the only place that tier is loaded at all.
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
 

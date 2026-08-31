@@ -5,7 +5,7 @@
 # — the claim README and AGENTS make about `disallowed-calls.neon`.
 #
 # Scoped to the same `case-folding/` fixture as phpstan-disallowed-calls.neon, so the
-# run is EXPECTED TO FAIL: `tests/check-disallowed-calls-cases.sh` asserts every banned
+# run is EXPECTED TO FAIL: `tests/CheckDisallowedCallsTest.php` asserts every banned
 # function is reported THROUGH this config. Unlike the two-include run it does not
 # assert a report count — the shipmonk/symplify packs may legitimately add findings of
 # their own, and pinning their number here would turn every upstream rule addition into
