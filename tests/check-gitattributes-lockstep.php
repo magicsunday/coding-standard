@@ -279,6 +279,18 @@ $ownPaths    = array_flip($parseExportIgnorePaths($ownContents));
 // is proven here rather than assumed, the same rule this package's own security review
 // applies everywhere else. $realRoot is resolved once, outside the loop: it does not
 // change per iteration.
+//
+// Containment is proven on the PARENT directory below, not on the full target path:
+// git tracks a symlink as a blob holding the literal target string, independent of
+// whether that target resolves, and `git archive` ships a DANGLING symlink (one whose
+// target does not exist) unconditionally. realpath() on the full target FOLLOWS the
+// link and fails once it cannot resolve that missing target — exactly the same false
+// result as "this repository does not have that path", so a genuinely tracked,
+// genuinely shipped dangling symlink silently read as not applicable (GH-112). The
+// parent directory is a real, non-symlinked directory in every applicable case here
+// (a symlinked ANCESTOR directory is the separate, narrower gap GH-119 tracks), so
+// resolving it alone still proves containment without needing the leaf itself to
+// resolve.
 $realRoot = realpath($root);
 
 // $templateContents already read successfully above, so $root resolved to a real,
@@ -305,15 +317,29 @@ foreach ($templatePaths as $path) {
         continue;
     }
 
-    $real = realpath($root . '/' . ltrim($path, '/'));
+    $target     = $root . '/' . ltrim($path, '/');
+    $parentReal = realpath(\dirname($target));
 
     // Not applicable here — the qualifier this gate exists to apply. Silent, the
     // same way an absent .jscpd.json is silent for check-consumer-config.php: the
     // template lists a path a CONSUMER has, and this package legitimately does not
-    // have every one of them. A path realpath() cannot resolve under $realRoot —
-    // absent, or escaping it via `..` — falls in here too: neither is a path this
-    // repository "has" for this gate's purpose.
-    if (($real === false) || !str_starts_with($real, $realRoot . \DIRECTORY_SEPARATOR)) {
+    // have every one of them. A parent directory realpath() cannot resolve under
+    // $realRoot — absent, or escaping it via `..` — falls in here too: neither is
+    // a path this repository "has" for this gate's purpose.
+    if (($parentReal === false)
+        || (($parentReal !== $realRoot) && !str_starts_with($parentReal, $realRoot . \DIRECTORY_SEPARATOR))
+    ) {
+        continue;
+    }
+
+    $leaf = $parentReal . \DIRECTORY_SEPARATOR . basename($target);
+
+    // is_link() catches a git-tracked DANGLING symlink: file_exists() alone follows
+    // a symlink before testing existence, so it reports false for a symlink whose
+    // target does not exist even though git genuinely tracks and ships that symlink
+    // (see the comment above $realRoot). A resolving symlink satisfies either check;
+    // a genuinely absent leaf satisfies neither and is skipped as not applicable.
+    if (!is_link($leaf) && !file_exists($leaf)) {
         continue;
     }
 
