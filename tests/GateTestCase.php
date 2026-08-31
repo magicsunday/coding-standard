@@ -24,7 +24,11 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use function array_filter;
 use function count;
 use function explode;
+use function sprintf;
 use function str_contains;
+use function str_repeat;
+use function strlen;
+use function substr;
 
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
@@ -353,5 +357,30 @@ abstract class GateTestCase extends TestCase
     ): void {
         self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
         self::assertStringContainsString($expectedSubstring, $result->output, $message !== '' ? $message : $defaultMessage);
+    }
+
+    /**
+     * Builds a JSON document of EXACTLY $bound bytes: $body's closing brace
+     * is replaced with a padding key, so the document stays valid JSON and
+     * every other key in $body survives untouched for the gate under test to
+     * inspect. Ported from tests/harness.sh's harness_pad_json_to_cap();
+     * shared here once a second caller (CheckConsumerConfigTest, #78) needed
+     * it — tests/CheckVersionLockstepTest.php's own copy (#80) predates that
+     * and carried a private, non-shared reimplementation because it was the
+     * only caller at the time.
+     *
+     * @param int    $bound The exact byte length the returned document must have.
+     * @param string $body  A valid JSON object document ending in `}`.
+     *
+     * @return string
+     */
+    protected static function padJsonToCap(int $bound, string $body): string
+    {
+        $pad = $bound - strlen($body) - 8;
+        $out = substr($body, 0, -1) . ',"//":"' . str_repeat('p', $pad) . '"}';
+
+        self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
+
+        return $out;
     }
 }

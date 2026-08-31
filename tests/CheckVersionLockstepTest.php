@@ -22,7 +22,6 @@ use function json_encode;
 use function sprintf;
 use function str_repeat;
 use function strlen;
-use function substr;
 
 /**
  * Fixture-driven cases for tests/check-version-lockstep.php, migrated off
@@ -555,27 +554,6 @@ final class CheckVersionLockstepTest extends GateTestCase
     private static function gate(): array
     {
         return ['php', self::root() . '/tests/check-version-lockstep.php'];
-    }
-
-    /**
-     * Builds a JSON document of EXACTLY $bound bytes: $body's closing brace
-     * is replaced with a padding key, so the document stays valid JSON and
-     * every other key in $body survives untouched for the gate under test
-     * to inspect. Ported from tests/harness.sh's harness_pad_json_to_cap().
-     *
-     * @param int    $bound The exact byte length the returned document must have.
-     * @param string $body  A valid JSON object document ending in `}`.
-     *
-     * @return string
-     */
-    private static function padJsonToCap(int $bound, string $body): string
-    {
-        $pad = $bound - strlen($body) - 8;
-        $out = substr($body, 0, -1) . ',"//":"' . str_repeat('p', $pad) . '"}';
-
-        self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
-
-        return $out;
     }
 
     /**

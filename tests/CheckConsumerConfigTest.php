@@ -79,11 +79,15 @@ use const PREG_SET_ORDER;
  *
  * The four gate-vs-harness lockstep tables (required phpunit.xml root flags,
  * pinned tsconfig flags, the jscpd extension deny-list, and biome's per-
- * language walk) are read from the gate's own source at runtime, the same
- * way tests/CheckDisallowedCallsTest.php derives its banned-function list —
- * a copy of the gate's list here would catch it LOSING an entry and never
- * catch it GAINING one, which is the whole reason the bash original derived
- * these tables instead of retyping them.
+ * language walk) are each proven in BOTH directions: the gate's own list is
+ * read from its source at runtime (the same way
+ * tests/CheckDisallowedCallsTest.php derives its banned-function list), then
+ * compared against an independent, hand-kept list this suite actually drives
+ * a case for (REQUIRED_ROOT_FLAGS, PROVEN_LANGUAGES, PROVEN_SPELLINGS, and
+ * pinnedFlagsFromGate() vs. the ERGONOMICS_FLAGS/STRICT_FAMILY_FLAGS
+ * exceptions). A gate list read alone would only ever catch a flag the gate
+ * LOSES; the independent harness-side list is what catches one it GAINS —
+ * added but never exercised by a case here.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -225,30 +229,74 @@ final class CheckConsumerConfigTest extends GateTestCase
     // assert_*_js wrappers.
     // -------------------------------------------------------------------
 
+    /**
+     * The clean-verdict decision, on both the PHP and the Node gate.
+     *
+     * @param string $dir     The directory to run both gates against.
+     * @param string $message An optional assertion message; suffixed with " (node)" for the Node-gate half.
+     *
+     * @return void
+     */
     private function assertBothAccept(string $dir, string $message = ''): void
     {
         $this->assertGateAccepts(self::phpGate(), $dir, $message);
         $this->assertGateAccepts(self::nodeGate(), $dir, $message !== '' ? "{$message} (node)" : '');
     }
 
+    /**
+     * The drift-verdict decision, on both the PHP and the Node gate, with the SAME expected substring.
+     *
+     * @param string $dir               The directory to run both gates against.
+     * @param string $expectedSubstring The substring both reports must carry.
+     * @param string $message           An optional assertion message; suffixed with " (node)" for the Node-gate half.
+     *
+     * @return void
+     */
     private function assertBothReject(string $dir, string $expectedSubstring, string $message = ''): void
     {
         $this->assertGateRejects(self::phpGate(), $dir, $expectedSubstring, $message);
         $this->assertGateRejects(self::nodeGate(), $dir, $expectedSubstring, $message !== '' ? "{$message} (node)" : '');
     }
 
+    /**
+     * The could-not-run decision, on both the PHP and the Node gate.
+     *
+     * @param string $dir               The directory to run both gates against.
+     * @param string $expectedSubstring The substring both reports must carry.
+     * @param string $message           An optional assertion message; suffixed with " (node)" for the Node-gate half.
+     *
+     * @return void
+     */
     private function assertBothUsageError(string $dir, string $expectedSubstring, string $message = ''): void
     {
         $this->assertGateUsageError(self::phpGate(), $dir, $expectedSubstring, $message);
         $this->assertGateUsageError(self::nodeGate(), $dir, $expectedSubstring, $message !== '' ? "{$message} (node)" : '');
     }
 
+    /**
+     * The report-shape decision for consumer-controlled bytes, on both the PHP and the Node gate.
+     *
+     * @param string      $dir                       The directory to run both gates against.
+     * @param string|null $expectedScrubbedSubstring The scrubbed value both reports must carry, or null to skip that check.
+     * @param string      $message                   An optional assertion message; suffixed with " (node)" for the Node-gate half.
+     *
+     * @return void
+     */
     private function assertBothReportIsInert(string $dir, ?string $expectedScrubbedSubstring = null, string $message = ''): void
     {
         $this->assertGateReportIsInert(self::phpGate(), $dir, $expectedScrubbedSubstring, $message);
         $this->assertGateReportIsInert(self::nodeGate(), $dir, $expectedScrubbedSubstring, $message !== '' ? "{$message} (node)" : '');
     }
 
+    /**
+     * The "reported exactly once, as itself" decision, on both the PHP and the Node gate.
+     *
+     * @param string $dir        The directory to run both gates against.
+     * @param string $filePrefix The file label expected to appear exactly once in both reports.
+     * @param string $message    An optional assertion message; suffixed with " (node)" for the Node-gate half.
+     *
+     * @return void
+     */
     private function assertBothReportsOnce(string $dir, string $filePrefix, string $message = ''): void
     {
         $this->assertGateReportsOnce(self::phpGate(), $dir, $filePrefix, $message);
@@ -299,10 +347,8 @@ final class CheckConsumerConfigTest extends GateTestCase
 
     /**
      * mkCase() plus a package.json that declares no dependency on this
-     * package at all — four real consumers ship a standalone biome.json
-     * today while still pulling this package over Composer, so the extends
-     * contract keys on the npm dependency being declared, not on the file
-     * being present.
+     * package at all — see "the adoption gate" section further down for why
+     * that state must not be reported as drift.
      *
      * @return string This test's fixture directory.
      */
@@ -356,29 +402,6 @@ final class CheckConsumerConfigTest extends GateTestCase
         if (function_exists('posix_getuid') && (posix_getuid() === 0)) {
             self::markTestSkipped('running as root: mode 000 does not deny read.');
         }
-    }
-
-    /**
-     * Builds a JSON document of EXACTLY $bound bytes: $body's closing brace
-     * is replaced with a padding key, so the document stays valid JSON and
-     * every other key in $body survives untouched. Ported from
-     * tests/harness.sh's harness_pad_json_to_cap(); not shared with
-     * tests/CheckVersionLockstepTest.php's own copy — each caller carries
-     * its own, the same way that migration's did off the same bash function.
-     *
-     * @param int    $bound The exact byte length the returned document must have.
-     * @param string $body  A valid JSON object document ending in `}`.
-     *
-     * @return string
-     */
-    private static function padJsonToCap(int $bound, string $body): string
-    {
-        $pad = $bound - strlen($body) - 8;
-        $out = substr($body, 0, -1) . ',"//":"' . str_repeat('p', $pad) . '"}';
-
-        self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
-
-        return $out;
     }
 
     // -------------------------------------------------------------------
@@ -542,6 +565,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // The canon
     // -------------------------------------------------------------------
 
+    /**
+     * Canon fixture is accepted.
+     */
     #[Test]
     public function canonFixtureIsAccepted(): void
     {
@@ -566,6 +592,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         return $rows;
     }
 
+    /**
+     * Rejects required root flag set false.
+     */
     #[Test]
     #[DataProvider('requiredRootFlagProvider')]
     public function rejectsRequiredRootFlagSetFalse(string $flag): void
@@ -577,6 +606,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, $flag, "phpunit.xml with {$flag} set to false");
     }
 
+    /**
+     * Rejects required root flag removed.
+     */
     #[Test]
     #[DataProvider('requiredRootFlagProvider')]
     public function rejectsRequiredRootFlagRemoved(string $flag): void
@@ -615,6 +647,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects source restrict notices disabled.
+     */
     #[Test]
     public function rejectsSourceRestrictNoticesDisabled(): void
     {
@@ -625,6 +660,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'restrictNotices', '<source> restrictNotices disabled');
     }
 
+    /**
+     * Rejects source restrict warnings disabled.
+     */
     #[Test]
     public function rejectsSourceRestrictWarningsDisabled(): void
     {
@@ -639,6 +677,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // .phplint.yml
     // -------------------------------------------------------------------
 
+    /**
+     * Rejects phplint PHP under wrong block.
+     */
     #[Test]
     public function rejectsPhplintPhpUnderWrongBlock(): void
     {
@@ -648,6 +689,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, '`extensions:` block', '.phplint.yml with php under path, not extensions');
     }
 
+    /**
+     * Accepts phplint CRLF line endings.
+     */
     #[Test]
     public function acceptsPhplintCrlfLineEndings(): void
     {
@@ -657,6 +701,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, '.phplint.yml with CRLF line endings');
     }
 
+    /**
+     * Accepts phplint shapes after comment and blank line with no final newline.
+     */
     #[Test]
     public function acceptsPhplintShapesAfterCommentAndBlankLineWithNoFinalNewline(): void
     {
@@ -666,6 +713,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, '.phplint.yml listing php after a comment and a blank line, with no final newline');
     }
 
+    /**
+     * Rejects phplint PHP under a later top level key.
+     */
     #[Test]
     public function rejectsPhplintPhpUnderALaterTopLevelKey(): void
     {
@@ -675,6 +725,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must list', '.phplint.yml whose `php` sits under a later top-level key, not in extensions');
     }
 
+    /**
+     * Accepts phplint BOM.
+     */
     #[Test]
     public function acceptsPhplintBom(): void
     {
@@ -719,6 +772,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         self::assertLessThanOrEqual(5.0, $elapsed, "the .editorconfig parse took {$elapsed}s on a 256 KiB whitespace run — the quadratic shape is back");
     }
 
+    /**
+     * Rejects editorconfig star indent style tab.
+     */
     #[Test]
     public function rejectsEditorconfigStarIndentStyleTab(): void
     {
@@ -793,6 +849,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, '.editorconfig whose comment carries a U+0085 continuation byte before a settings-shaped tail');
     }
 
+    /**
+     * Accepts editorconfig comment carrying form feed.
+     */
     #[Test]
     public function acceptsEditorconfigCommentCarryingFormFeed(): void
     {
@@ -823,6 +882,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, '.editorconfig written with uppercase keys and values, and form feeds around a key');
     }
 
+    /**
+     * Rejects editorconfig root inside section.
+     */
     #[Test]
     public function rejectsEditorconfigRootInsideSection(): void
     {
@@ -832,6 +894,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'root = true', '.editorconfig with root inside a section');
     }
 
+    /**
+     * Rejects editorconfig without makefile override.
+     */
     #[Test]
     public function rejectsEditorconfigWithoutMakefileOverride(): void
     {
@@ -841,6 +906,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, '{Makefile,*.mk}', '.editorconfig without the Makefile tab override');
     }
 
+    /**
+     * Rejects editorconfig star indent size 2.
+     */
     #[Test]
     public function rejectsEditorconfigStarIndentSize2(): void
     {
@@ -850,6 +918,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must set `indent_size = 4`', '.editorconfig with indent_size = 2 in [*]');
     }
 
+    /**
+     * Rejects editorconfig without global star section.
+     */
     #[Test]
     public function rejectsEditorconfigWithoutGlobalStarSection(): void
     {
@@ -859,6 +930,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must define a global `[*]` section', '.editorconfig without a global [*] section');
     }
 
+    /**
+     * Rejects editorconfig lowercase makefile glob.
+     */
     #[Test]
     public function rejectsEditorconfigLowercaseMakefileGlob(): void
     {
@@ -872,6 +946,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // deptrac.yaml
     // -------------------------------------------------------------------
 
+    /**
+     * Rejects deptrac dropping the shared import.
+     */
     #[Test]
     public function rejectsDeptracDroppingTheSharedImport(): void
     {
@@ -881,6 +958,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml dropping the shared import');
     }
 
+    /**
+     * Accepts deptrac importing the shared ruleset.
+     */
     #[Test]
     public function acceptsDeptracImportingTheSharedRuleset(): void
     {
@@ -912,6 +992,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, 'deptrac.yaml carrying the shared import after a comment, a blank line, at column 0 and with no final newline');
     }
 
+    /**
+     * Rejects deptrac mismatched quotes around shared import.
+     */
     #[Test]
     public function rejectsDeptracMismatchedQuotesAroundSharedImport(): void
     {
@@ -921,6 +1004,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', "deptrac.yaml whose shared import opens on one quote and closes on the other");
     }
 
+    /**
+     * Rejects deptrac shared import under later top level key.
+     */
     #[Test]
     public function rejectsDeptracSharedImportUnderLaterTopLevelKey(): void
     {
@@ -947,6 +1033,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml whose shared import sits under a dash-prefixed key, not in imports');
     }
 
+    /**
+     * Rejects deptrac shared import in next yaml document.
+     */
     #[Test]
     public function rejectsDeptracSharedImportInNextYamlDocument(): void
     {
@@ -956,6 +1045,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml whose shared import sits in the next YAML document');
     }
 
+    /**
+     * Rejects deptrac shared path under wrong key.
+     */
     #[Test]
     public function rejectsDeptracSharedPathUnderWrongKey(): void
     {
@@ -965,6 +1057,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml with the shared path under the wrong key');
     }
 
+    /**
+     * Rejects deptrac near miss vendor namespace.
+     */
     #[Test]
     public function rejectsDeptracNearMissVendorNamespace(): void
     {
@@ -974,6 +1069,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml importing a near-miss (notmagicsunday) path');
     }
 
+    /**
+     * Accepts deptrac quoted import with inline comment.
+     */
     #[Test]
     public function acceptsDeptracQuotedImportWithInlineComment(): void
     {
@@ -1027,6 +1125,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // .jscpd.json
     // -------------------------------------------------------------------
 
+    /**
+     * Rejects jscpd removed 4 reporter name.
+     */
     #[Test]
     public function rejectsJscpdRemovedV4ReporterName(): void
     {
@@ -1036,6 +1137,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'console-full', '.jscpd.json on the removed v4 reporter name');
     }
 
+    /**
+     * Rejects jscpd min lines raised to disable detection.
+     */
     #[Test]
     public function rejectsJscpdMinLinesRaisedToDisableDetection(): void
     {
@@ -1066,36 +1170,35 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, 'full canonical template set, phpunit included, as templates/ ships it');
     }
 
-    #[Test]
-    public function rejectsJscpdThresholdAboveZero(): void
+    /**
+     * @return array<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function jscpdThresholdMutationProvider(): array
     {
-        $dir = $this->jscpdFixture();
-        $json = (string) file_get_contents($dir . '/.jscpd.json');
-        file_put_contents($dir . '/.jscpd.json', str_replace('"threshold": 0', '"threshold": 5', $json));
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'threshold', '.jscpd.json threshold raised above zero');
+        return [
+            'threshold raised above zero'          => ['"threshold": 0', '"threshold": 5', 'threshold'],
+            'exitCode not 1'                       => ['"exitCode": 1', '"exitCode": 0', 'exitCode'],
+            'minTokens raised to disable detection' => ['"minTokens": 100', '"minTokens": 9999', 'minTokens'],
+        ];
     }
 
+    /**
+     * Rejects jscpd threshold mutation.
+     */
     #[Test]
-    public function rejectsJscpdExitCodeNotOne(): void
+    #[DataProvider('jscpdThresholdMutationProvider')]
+    public function rejectsJscpdThresholdMutation(string $search, string $replace, string $expectedSubstring): void
     {
-        $dir = $this->jscpdFixture();
+        $dir  = $this->jscpdFixture();
         $json = (string) file_get_contents($dir . '/.jscpd.json');
-        file_put_contents($dir . '/.jscpd.json', str_replace('"exitCode": 1', '"exitCode": 0', $json));
+        file_put_contents($dir . '/.jscpd.json', str_replace($search, $replace, $json));
 
-        $this->assertGateRejects(self::phpGate(), $dir, 'exitCode', '.jscpd.json exitCode not 1');
+        $this->assertGateRejects(self::phpGate(), $dir, $expectedSubstring, ".jscpd.json {$replace}");
     }
 
-    #[Test]
-    public function rejectsJscpdMinTokensRaisedToDisableDetection(): void
-    {
-        $dir = $this->jscpdFixture();
-        $json = (string) file_get_contents($dir . '/.jscpd.json');
-        file_put_contents($dir . '/.jscpd.json', str_replace('"minTokens": 100', '"minTokens": 9999', $json));
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'minTokens', '.jscpd.json minTokens raised to disable detection');
-    }
-
+    /**
+     * Accepts jscpd own format names.
+     */
     #[Test]
     public function acceptsJscpdOwnFormatNames(): void
     {
@@ -1109,12 +1212,18 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, ".jscpd.json using jscpd's own format names");
     }
 
+    /**
+     * Accepts jscpd declaring no format at all.
+     */
     #[Test]
     public function acceptsJscpdDeclaringNoFormatAtAll(): void
     {
         $this->assertGateAccepts(self::phpGate(), $this->jscpdFixture(), '.jscpd.json declaring no format at all');
     }
 
+    /**
+     * Rejects jscpd BOM.
+     */
     #[Test]
     public function rejectsJscpdBom(): void
     {
@@ -1125,6 +1234,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, '.jscpd.json: starts with a UTF-8 BOM', '.jscpd.json saved with a UTF-8 BOM is reported as such, not as malformed');
     }
 
+    /**
+     * Rejects jscpd not valid JSON.
+     */
     #[Test]
     public function rejectsJscpdNotValidJson(): void
     {
@@ -1134,6 +1246,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'not valid JSON', '.jscpd.json not valid JSON');
     }
 
+    /**
+     * Rejects jscpd format scalar instead of list.
+     */
     #[Test]
     public function rejectsJscpdFormatScalarInsteadOfList(): void
     {
@@ -1144,6 +1259,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'Use "typescript"', '.jscpd.json with a scalar format instead of a list');
     }
 
+    /**
+     * Rejects jscpd format non string entry beside a bad one.
+     */
     #[Test]
     public function rejectsJscpdFormatNonStringEntryBesideABadOne(): void
     {
@@ -1154,6 +1272,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'Use "typescript"', '.jscpd.json with a non-string format entry beside a bad one');
     }
 
+    /**
+     * Rejects jscpd reporters scalar instead of list.
+     */
     #[Test]
     public function rejectsJscpdReportersScalarInsteadOfList(): void
     {
@@ -1164,24 +1285,33 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, '`reporters` must contain', '.jscpd.json with a scalar reporters instead of a list');
     }
 
-    #[Test]
-    public function rejectsJscpdOmittingMinTokensEntirely(): void
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function jscpdOmittableFieldProvider(): array
     {
-        $dir  = $this->jscpdFixture();
-        $json = (string) file_get_contents($dir . '/.jscpd.json');
-        file_put_contents($dir . '/.jscpd.json', (string) preg_replace('/^.*"minTokens".*$\n/m', '', $json));
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'minTokens', '.jscpd.json omitting minTokens entirely');
+        return [
+            'minTokens' => ['minTokens'],
+            'minLines'  => ['minLines'],
+        ];
     }
 
+    /**
+     * The "must be present" half of both thresholds: every other fixture
+     * always carries the key, so only the ">" comparison was exercised
+     * elsewhere.
+     *
+     * @return void
+     */
     #[Test]
-    public function rejectsJscpdOmittingMinLinesEntirely(): void
+    #[DataProvider('jscpdOmittableFieldProvider')]
+    public function rejectsJscpdOmittingFieldEntirely(string $field): void
     {
         $dir  = $this->jscpdFixture();
         $json = (string) file_get_contents($dir . '/.jscpd.json');
-        file_put_contents($dir . '/.jscpd.json', (string) preg_replace('/^.*"minLines".*$\n/m', '', $json));
+        file_put_contents($dir . '/.jscpd.json', (string) preg_replace("/^.*\"{$field}\".*\$\n/m", '', $json));
 
-        $this->assertGateRejects(self::phpGate(), $dir, 'minLines', '.jscpd.json omitting minLines entirely');
+        $this->assertGateRejects(self::phpGate(), $dir, $field, ".jscpd.json omitting {$field} entirely");
     }
 
     /**
@@ -1213,6 +1343,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, '`threshold` must be 0', 'a .jscpd.json exactly at the size cap is still read and checked');
     }
 
+    /**
+     * Rejects jscpd unreadable.
+     */
     #[Test]
     public function rejectsJscpdUnreadable(): void
     {
@@ -1248,6 +1381,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         return $rows;
     }
 
+    /**
+     * Rejects jscpd extension spelling as format name.
+     */
     #[Test]
     #[DataProvider('extensionSpellingProvider')]
     public function rejectsJscpdExtensionSpellingAsFormatName(string $spelling, string $canonical): void
@@ -1259,6 +1395,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, "Use \"{$canonical}\"", ".jscpd.json using the \"{$spelling}\" extension as a format name");
     }
 
+    /**
+     * Extension spellings bijection holds both directions.
+     */
     #[Test]
     public function extensionSpellingsBijectionHoldsBothDirections(): void
     {
@@ -1277,6 +1416,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // phpunit.xml layout checks
     // -------------------------------------------------------------------
 
+    /**
+     * Rejects phpunit source include no longer covering src.
+     */
     #[Test]
     public function rejectsPhpunitSourceIncludeNoLongerCoveringSrc(): void
     {
@@ -1287,6 +1429,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must cover the `src` directory', '<source><include> no longer covering src');
     }
 
+    /**
+     * Rejects phpunit test suite not running tests.
+     */
     #[Test]
     public function rejectsPhpunitTestSuiteNotRunningTests(): void
     {
@@ -1297,6 +1442,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must run the `tests` directory', 'test suite not running tests/');
     }
 
+    /**
+     * Rejects architecture directory present but not excluded.
+     */
     #[Test]
     public function rejectsArchitectureDirectoryPresentButNotExcluded(): void
     {
@@ -1306,6 +1454,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'must be excluded', 'tests/Architecture present but not excluded');
     }
 
+    /**
+     * Accepts architecture directory present and excluded.
+     */
     #[Test]
     public function acceptsArchitectureDirectoryPresentAndExcluded(): void
     {
@@ -1320,12 +1471,18 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, 'tests/Architecture present and excluded');
     }
 
+    /**
+     * Rejects phpunit missing.
+     */
     #[Test]
     public function rejectsPhpunitMissing(): void
     {
         $this->assertGateRejects(self::phpGate(), $this->fixture()->path(), 'missing', 'phpunit.xml missing');
     }
 
+    /**
+     * Rejects phpunit not well formed.
+     */
     #[Test]
     public function rejectsPhpunitNotWellFormed(): void
     {
@@ -1335,6 +1492,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateRejects(self::phpGate(), $dir, 'not well-formed', 'phpunit.xml not well-formed');
     }
 
+    /**
+     * Accepts phpunit xml dist fallback.
+     */
     #[Test]
     public function acceptsPhpunitXmlDistFallback(): void
     {
@@ -1344,6 +1504,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateAccepts(self::phpGate(), $dir, 'strict config discovered as phpunit.xml.dist');
     }
 
+    /**
+     * Rejects phpunit without source element.
+     */
     #[Test]
     public function rejectsPhpunitWithoutSourceElement(): void
     {
@@ -1432,6 +1595,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertGateReportsOnce(self::phpGate(), $dir, $file, "an oversized {$file} is reported once, as itself");
     }
 
+    /**
+     * Rejects unreadable phplint and fabricates no content drift.
+     */
     #[Test]
     public function rejectsUnreadablePhplintAndFabricatesNoContentDrift(): void
     {
@@ -1450,6 +1616,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects unreadable editorconfig and fabricates no content drift.
+     */
     #[Test]
     public function rejectsUnreadableEditorconfigAndFabricatesNoContentDrift(): void
     {
@@ -1468,6 +1637,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects unreadable deptrac and fabricates no content drift.
+     */
     #[Test]
     public function rejectsUnreadableDeptracAndFabricatesNoContentDrift(): void
     {
@@ -1511,6 +1683,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     // biome.json / tsconfig.json: the JS/TS extends contract
     // -------------------------------------------------------------------
 
+    /**
+     * Accepts canonical biome and tsconfig with JSONC comment.
+     */
     #[Test]
     public function acceptsCanonicalBiomeAndTsconfigWithJsoncComment(): void
     {
@@ -1532,6 +1707,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`"//"` key', 'biome.json with a "//" note key');
     }
 
+    /**
+     * Rejects biome note key nested.
+     */
     #[Test]
     public function rejectsBiomeNoteKeyNested(): void
     {
@@ -1544,6 +1722,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`"//"` key', 'biome.json with a nested "//" key');
     }
 
+    /**
+     * Rejects biome note key in local extends target.
+     */
     #[Test]
     public function rejectsBiomeNoteKeyInLocalExtendsTarget(): void
     {
@@ -1599,6 +1780,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReportIsInert($dir, 'a local `extends` target (./##?[error]forged) is larger than the ' . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose oversized local extends target carries a forged CI annotation');
     }
 
+    /**
+     * Rejects biome extending a lookalike package.
+     */
     #[Test]
     public function rejectsBiomeExtendingALookalikePackage(): void
     {
@@ -1608,6 +1792,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json extending a look-alike package');
     }
 
+    /**
+     * Accepts biome extending via explicit node modules path.
+     */
     #[Test]
     public function acceptsBiomeExtendingViaExplicitNodeModulesPath(): void
     {
@@ -1617,6 +1804,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json extending via an explicit node_modules path');
     }
 
+    /**
+     * Accepts biome extending via pnpm node modules path.
+     */
     #[Test]
     public function acceptsBiomeExtendingViaPnpmNodeModulesPath(): void
     {
@@ -1626,6 +1816,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json extending via a pnpm node_modules path');
     }
 
+    /**
+     * Rejects biome local lookalike outside node modules.
+     */
     #[Test]
     public function rejectsBiomeLocalLookalikeOutsideNodeModules(): void
     {
@@ -1635,6 +1828,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json extending a local look-alike copy outside node_modules');
     }
 
+    /**
+     * Rejects biome nested lookalike through unrelated node modules.
+     */
     #[Test]
     public function rejectsBiomeNestedLookalikeThroughUnrelatedNodeModules(): void
     {
@@ -1644,6 +1840,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json extending through a node_modules under an unrelated path');
     }
 
+    /**
+     * Rejects biome extending another repositorys node modules.
+     */
     #[Test]
     public function rejectsBiomeExtendingAnotherRepositorysNodeModules(): void
     {
@@ -1653,6 +1852,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', "biome.json extending another repository's node_modules");
     }
 
+    /**
+     * Rejects biome extending without JSON suffix.
+     */
     #[Test]
     public function rejectsBiomeExtendingWithoutJsonSuffix(): void
     {
@@ -1662,6 +1864,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json extending without the .json suffix');
     }
 
+    /**
+     * Rejects biome extending unscoped package name.
+     */
     #[Test]
     public function rejectsBiomeExtendingUnscopedPackageName(): void
     {
@@ -1671,6 +1876,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json extending the unscoped package name');
     }
 
+    /**
+     * Rejects tsconfig extending unscoped package name.
+     */
     #[Test]
     public function rejectsTsconfigExtendingUnscopedPackageName(): void
     {
@@ -1680,6 +1888,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'tsconfig.json extending the unscoped package name');
     }
 
+    /**
+     * Rejects tsconfig specifier with leading whitespace.
+     */
     #[Test]
     public function rejectsTsconfigSpecifierWithLeadingWhitespace(): void
     {
@@ -1689,6 +1900,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'tsconfig.json whose specifier carries leading whitespace');
     }
 
+    /**
+     * Rejects biome specifier with trailing whitespace.
+     */
     #[Test]
     public function rejectsBiomeSpecifierWithTrailingWhitespace(): void
     {
@@ -1698,6 +1912,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json whose specifier carries trailing whitespace');
     }
 
+    /**
+     * Rejects biome specifier ending in newline.
+     */
     #[Test]
     public function rejectsBiomeSpecifierEndingInNewline(): void
     {
@@ -1707,6 +1924,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json whose specifier ends in a newline');
     }
 
+    /**
+     * Rejects tsconfig specifier ending in newline.
+     */
     #[Test]
     public function rejectsTsconfigSpecifierEndingInNewline(): void
     {
@@ -1717,10 +1937,11 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * Biome accepts only `"//"` or an array for `extends` and answers a
-     * bare string with an explicit refusal — verified against 2.5.5. tsc,
-     * by contrast, takes a bare string, which is why the two are asserted
-     * in opposite directions elsewhere in this file.
+     * Biome accepts only `"//"` or an array for `extends` and answers a bare
+     * string with `The 'extends' field must be either '//' or an array of
+     * paths` — verified against 2.5.5. tsc, by contrast, takes a bare
+     * string, which is why the two are asserted in opposite directions
+     * elsewhere in this file.
      *
      * @return void
      */
@@ -1733,6 +1954,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', "biome.json whose extends is a bare string instead of a list");
     }
 
+    /**
+     * Rejects biome extends not a string at all.
+     */
     #[Test]
     public function rejectsBiomeExtendsNotAStringAtAll(): void
     {
@@ -1742,6 +1966,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'biome.json whose extends is not a specifier at all');
     }
 
+    /**
+     * Rejects biome linter disabled.
+     */
     #[Test]
     public function rejectsBiomeLinterDisabled(): void
     {
@@ -1751,6 +1978,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.enabled` must not be false', 'biome.json with the linter disabled');
     }
 
+    /**
+     * Rejects biome recommended set disabled.
+     */
     #[Test]
     public function rejectsBiomeRecommendedSetDisabled(): void
     {
@@ -1760,6 +1990,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.rules.recommended`', 'biome.json with the recommended set disabled');
     }
 
+    /**
+     * Rejects biome formatter disabled.
+     */
     #[Test]
     public function rejectsBiomeFormatterDisabled(): void
     {
@@ -1787,6 +2020,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`assist.enabled` must not be false', 'biome.json with assist disabled');
     }
 
+    /**
+     * Rejects biome assist disabled in override.
+     */
     #[Test]
     public function rejectsBiomeAssistDisabledInOverride(): void
     {
@@ -1814,6 +2050,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'carries no positive pattern', 'biome.json narrowed to no positive include');
     }
 
+    /**
+     * Accepts biome includes narrowed to a real path set.
+     */
     #[Test]
     public function acceptsBiomeIncludesNarrowedToARealPathSet(): void
     {
@@ -1839,6 +2078,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.rules.preset`', 'biome.json with the rule preset set to none');
     }
 
+    /**
+     * Accepts biome keeping recommended rule preset.
+     */
     #[Test]
     public function acceptsBiomeKeepingRecommendedRulePreset(): void
     {
@@ -1865,6 +2107,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.rules.suspicious.preset', "biome.json switching one rule group's preset to none");
     }
 
+    /**
+     * Rejects biome group recommended off.
+     */
     #[Test]
     public function rejectsBiomeGroupRecommendedOff(): void
     {
@@ -1874,6 +2119,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.rules.correctness.recommended', "biome.json switching one rule group's recommended off");
     }
 
+    /**
+     * Rejects biome override linter off.
+     */
     #[Test]
     public function rejectsBiomeOverrideLinterOff(): void
     {
@@ -1883,6 +2131,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'overrides[0].linter.enabled', 'biome.json disabling the linter through an overrides entry');
     }
 
+    /**
+     * Rejects biome override preset none.
+     */
     #[Test]
     public function rejectsBiomeOverridePresetNone(): void
     {
@@ -1925,6 +2176,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, "overrides[0].javascript.linter.enabled", "biome.json disabling a language's linter inside an overrides entry");
     }
 
+    /**
+     * Rejects biome override language second entry.
+     */
     #[Test]
     public function rejectsBiomeOverrideLanguageSecondEntry(): void
     {
@@ -1973,6 +2227,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, "{$language}.linter.enabled", "biome.json disabling the linter for {$language}");
     }
 
+    /**
+     * Language walk bijection holds both directions.
+     */
     #[Test]
     public function languageWalkBijectionHoldsBothDirections(): void
     {
@@ -1982,6 +2239,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         self::assertSame([], array_diff($gateLanguages, self::PROVEN_LANGUAGES), 'the gate now walks a language this suite does not name — add it rather than leaving the row unexercised');
     }
 
+    /**
+     * Accepts biome override language legitimate style option.
+     */
     #[Test]
     public function acceptsBiomeOverrideLanguageLegitimateStyleOption(): void
     {
@@ -1991,6 +2251,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json setting a per-language style option inside an overrides entry');
     }
 
+    /**
+     * Accepts biome language legitimate style option.
+     */
     #[Test]
     public function acceptsBiomeLanguageLegitimateStyleOption(): void
     {
@@ -2000,6 +2263,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json setting a per-language style option');
     }
 
+    /**
+     * Accepts biome override legitimate single rule narrowing.
+     */
     #[Test]
     public function acceptsBiomeOverrideLegitimateSingleRuleNarrowing(): void
     {
@@ -2009,6 +2275,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json narrowing a single rule for one path through overrides');
     }
 
+    /**
+     * Rejects biome malformed JSON.
+     */
     #[Test]
     public function rejectsBiomeMalformedJson(): void
     {
@@ -2035,6 +2304,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'biome.jsonc: ', 'biome.jsonc is discovered, parsed with comments, and named in the report');
     }
 
+    /**
+     * Accepts clean biome JSONC.
+     */
     #[Test]
     public function acceptsCleanBiomeJsonc(): void
     {
@@ -2045,6 +2317,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'a clean biome.jsonc is accepted');
     }
 
+    /**
+     * Rejects biome JSONC without shared extends.
+     */
     #[Test]
     public function rejectsBiomeJsoncWithoutSharedExtends(): void
     {
@@ -2055,6 +2330,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'biome.jsonc: must `extends`', 'biome.jsonc without the shared extends');
     }
 
+    /**
+     * Rejects biome JSONC linter disabled.
+     */
     #[Test]
     public function rejectsBiomeJsoncLinterDisabled(): void
     {
@@ -2065,6 +2343,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'biome.jsonc: `linter.enabled`', 'biome.jsonc with the linter disabled');
     }
 
+    /**
+     * Rejects tsconfig without shared extends.
+     */
     #[Test]
     public function rejectsTsconfigWithoutSharedExtends(): void
     {
@@ -2074,6 +2355,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'tsconfig.json without the shared extends');
     }
 
+    /**
+     * Rejects tsconfig overriding strict to false.
+     */
     #[Test]
     public function rejectsTsconfigOverridingStrictToFalse(): void
     {
@@ -2099,6 +2383,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'noUncheckedIndexedAccess', 'tsconfig.json disabling noUncheckedIndexedAccess');
     }
 
+    /**
+     * Accepts tsconfig with shared base in extends array.
+     */
     #[Test]
     public function acceptsTsconfigWithSharedBaseInExtendsArray(): void
     {
@@ -2108,6 +2395,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with the shared base in an extends array');
     }
 
+    /**
+     * Accepts tsconfig turning skip lib check off.
+     */
     #[Test]
     public function acceptsTsconfigTurningSkipLibCheckOff(): void
     {
@@ -2119,6 +2409,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json turning skipLibCheck off (stricter, not drift)');
     }
 
+    /**
+     * Accepts tsconfig with trailing commas.
+     */
     #[Test]
     public function acceptsTsconfigWithTrailingCommas(): void
     {
@@ -2128,6 +2421,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with trailing commas');
     }
 
+    /**
+     * Accepts tsconfig with comment marker inside string value.
+     */
     #[Test]
     public function acceptsTsconfigWithCommentMarkerInsideStringValue(): void
     {
@@ -2140,6 +2436,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with a // inside a string value');
     }
 
+    /**
+     * Accepts tsconfig extending without JSON suffix.
+     */
     #[Test]
     public function acceptsTsconfigExtendingWithoutJsonSuffix(): void
     {
@@ -2195,6 +2494,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json whose shared extends entry follows and undoes a local override');
     }
 
+    /**
+     * Accepts biome local extends target legitimate relaxation.
+     */
     #[Test]
     public function acceptsBiomeLocalExtendsTargetLegitimateRelaxation(): void
     {
@@ -2208,6 +2510,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json whose local extends target is a legitimate, non-drifting relaxation');
     }
 
+    /**
+     * Accepts biome second extends entry uninstalled package.
+     */
     #[Test]
     public function acceptsBiomeSecondExtendsEntryUninstalledPackage(): void
     {
@@ -2220,15 +2525,36 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json whose second extends entry is an uninstalled package, not a local file');
     }
 
+    /**
+     * Accepts biome local extends target escaping repository via dot dot.
+     */
     #[Test]
     public function acceptsBiomeLocalExtendsTargetEscapingRepositoryViaDotDot(): void
     {
         // A specifier that escapes the repository must not be followed —
         // the escape target genuinely disables the linter, so if it were
         // followed this case would reject; accepting proves it is not.
-        $dir = $this->mkJsCase();
+        //
+        // The "repository" is nested one level under this test's own
+        // fixture root (rather than using that root's parent, sys_get_temp_dir()
+        // itself, as the escape target's home) so the write stays inside a
+        // directory FixtureDirectory::cleanup() actually owns and removes.
+        $root = $this->fixture()->path();
+        $dir  = $root . '/repo';
+        mkdir($dir, 0o700);
+        copy(self::canon() . '/phpunit.xml', $dir . '/phpunit.xml');
+        copy(self::canon() . '/tsconfig.json', $dir . '/tsconfig.json');
+        file_put_contents($dir . '/package.json', <<<'JSON'
+            {
+                "name": "fixture",
+                "devDependencies": {
+                    "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"
+                }
+            }
+
+            JSON);
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"../escape.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
-        file_put_contents(dirname($dir) . '/escape.json', "{ \"linter\": { \"enabled\": false } }\n");
+        file_put_contents($root . '/escape.json', "{ \"linter\": { \"enabled\": false } }\n");
 
         $this->assertBothAccept($dir, 'biome.json whose local extends target escapes the repository via ../');
     }
@@ -2250,6 +2576,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', "biome.json switching a shared rule off by its bare-string value");
     }
 
+    /**
+     * Rejects biome rule off by options object level.
+     */
     #[Test]
     public function rejectsBiomeRuleOffByOptionsObjectLevel(): void
     {
@@ -2259,6 +2588,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', "biome.json switching a shared rule off via its options-object level");
     }
 
+    /**
+     * Rejects biome rule off in override.
+     */
     #[Test]
     public function rejectsBiomeRuleOffInOverride(): void
     {
@@ -2268,6 +2600,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'overrides[0].linter.rules.suspicious.noDoubleEquals` must not be "off"', 'biome.json switching a shared rule off inside an overrides entry');
     }
 
+    /**
+     * Accepts biome rule severity escalated not off.
+     */
     #[Test]
     public function acceptsBiomeRuleSeverityEscalatedNotOff(): void
     {
@@ -2277,6 +2612,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, "biome.json tightening a shared rule's severity (not drift)");
     }
 
+    /**
+     * Accepts biome rule off that shared config never turns on.
+     */
     #[Test]
     public function acceptsBiomeRuleOffThatSharedConfigNeverTurnsOn(): void
     {
@@ -2306,6 +2644,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json with a rule group literally named toString does not crash the gate');
     }
 
+    /**
+     * Rejects tsconfig later local extends target disabling flag.
+     */
     #[Test]
     public function rejectsTsconfigLaterLocalExtendsTargetDisablingFlag(): void
     {
@@ -2316,6 +2657,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'noUncheckedIndexedAccess', 'tsconfig.json whose LATER local extends target disables noUncheckedIndexedAccess');
     }
 
+    /**
+     * Accepts tsconfig shared extends entry following and undoing local override.
+     */
     #[Test]
     public function acceptsTsconfigSharedExtendsEntryFollowingAndUndoingLocalOverride(): void
     {
@@ -2326,6 +2670,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json whose shared extends entry follows and undoes a local override');
     }
 
+    /**
+     * Accepts tsconfig local extends target only adding paths.
+     */
     #[Test]
     public function acceptsTsconfigLocalExtendsTargetOnlyAddingPaths(): void
     {
@@ -2475,6 +2822,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`"//"` key', 'a biome.json exactly at the size cap is still read and checked');
     }
 
+    /**
+     * Rejects biome past the size cap is reported as oversized not scanned.
+     */
     #[Test]
     public function rejectsBiomePastTheSizeCapIsReportedAsOversizedNotScanned(): void
     {
@@ -2484,6 +2834,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'larger than the ' . self::MAX_JSONC_BYTES . ' bytes this gate checks', 'a biome.json past the size cap is reported as oversized, not scanned');
     }
 
+    /**
+     * Rejects tsconfig past the size cap is reported as oversized not scanned.
+     */
     #[Test]
     public function rejectsTsconfigPastTheSizeCapIsReportedAsOversizedNotScanned(): void
     {
@@ -2521,6 +2874,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'must `extends`', 'a package.json exactly at the size cap is still read and checked');
     }
 
+    /**
+     * Reports once when package JSON is past the size cap.
+     */
     #[Test]
     public function reportsOnceWhenPackageJsonIsPastTheSizeCap(): void
     {
@@ -2531,6 +2887,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReportsOnce($dir, 'package.json', 'an oversized package.json is reported once, as itself');
     }
 
+    /**
+     * Rejects biome DEL byte in rule group is scrubbed.
+     */
     #[Test]
     public function rejectsBiomeDelByteInRuleGroupIsScrubbed(): void
     {
@@ -2545,6 +2904,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.rules.a?b', 'a DEL byte in a rule-group key is scrubbed');
     }
 
+    /**
+     * Rejects biome overlong rule group key truncated with marker.
+     */
     #[Test]
     public function rejectsBiomeOverlongRuleGroupKeyTruncatedWithMarker(): void
     {
@@ -2585,6 +2947,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.rules.' . str_repeat('z', 63) . '…', 'a rule-group key whose multi-byte character straddles the 64-byte cut is not split');
     }
 
+    /**
+     * Accepts tsconfig with block comment.
+     */
     #[Test]
     public function acceptsTsconfigWithBlockComment(): void
     {
@@ -2594,6 +2959,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with a block comment');
     }
 
+    /**
+     * Rejects tsconfig block comment must not swallow rest of document.
+     */
     #[Test]
     public function rejectsTsconfigBlockCommentMustNotSwallowRestOfDocument(): void
     {
@@ -2603,6 +2971,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`compilerOptions.strict`', "tsconfig.json whose block comment must not swallow the rest");
     }
 
+    /**
+     * Rejects tsconfig unterminated block comment.
+     */
     #[Test]
     public function rejectsTsconfigUnterminatedBlockComment(): void
     {
@@ -2612,6 +2983,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json with an unterminated block comment');
     }
 
+    /**
+     * Accepts tsconfig invalid UTF 8 byte discarded inside comment.
+     */
     #[Test]
     public function acceptsTsconfigInvalidUtf8ByteDiscardedInsideComment(): void
     {
@@ -2621,6 +2995,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with an invalid UTF-8 byte discarded inside a comment');
     }
 
+    /**
+     * Rejects tsconfig invalid UTF 8 byte outside comment.
+     */
     #[Test]
     public function rejectsTsconfigInvalidUtf8ByteOutsideComment(): void
     {
@@ -2649,6 +3026,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json with a trailing comma before a non-breaking space, not a real comma-then-close');
     }
 
+    /**
+     * Rejects tsconfig unpaired UTF 16 surrogate escape.
+     */
     #[Test]
     public function rejectsTsconfigUnpairedUtf16SurrogateEscape(): void
     {
@@ -2658,6 +3038,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json with an unpaired UTF-16 surrogate escape');
     }
 
+    /**
+     * Accepts tsconfig properly paired surrogate escape.
+     */
     #[Test]
     public function acceptsTsconfigProperlyPairedSurrogateEscape(): void
     {
@@ -2707,6 +3090,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json nested to exactly the 512-level depth PHP rejects at');
     }
 
+    /**
+     * Accepts tsconfig nested to exactly 511 level depth.
+     */
     #[Test]
     public function acceptsTsconfigNestedToExactly511LevelDepth(): void
     {
@@ -2718,6 +3104,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json nested to exactly the 511-level depth PHP still accepts');
     }
 
+    /**
+     * Rejects package JSON nested past 512 level depth cap.
+     */
     #[Test]
     public function rejectsPackageJsonNestedPast512LevelDepthCap(): void
     {
@@ -2753,6 +3142,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'a package.json with an unpaired surrogate elsewhere in the manifest is reported');
     }
 
+    /**
+     * Accepts package JSON with paired surrogate elsewhere in manifest.
+     */
     #[Test]
     public function acceptsPackageJsonWithPairedSurrogateElsewhereInManifest(): void
     {
@@ -2763,6 +3155,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'a package.json with a properly paired surrogate elsewhere in the manifest is accepted');
     }
 
+    /**
+     * Rejects tsconfig comment splitting a token.
+     */
     #[Test]
     public function rejectsTsconfigCommentSplittingAToken(): void
     {
@@ -2790,6 +3185,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'tsconfig.json with an escaped quote before a comment opener inside a string');
     }
 
+    /**
+     * Rejects tsconfig not valid JSONC.
+     */
     #[Test]
     public function rejectsTsconfigNotValidJsonc(): void
     {
@@ -2800,12 +3198,15 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     // -------------------------------------------------------------------
-    // The adoption gate — four existing consumers ship a standalone
-    // biome.json today and pull this package over Composer, so the
+    // The adoption gate — a consumer may ship a standalone biome.json while
+    // still pulling this package over Composer rather than npm, so the
     // extends contract keys on the npm dependency being declared rather
     // than on the config file's mere presence.
     // -------------------------------------------------------------------
 
+    /**
+     * Accepts standalone biome in repo without adoption.
+     */
     #[Test]
     public function acceptsStandaloneBiomeInRepoWithoutAdoption(): void
     {
@@ -2815,6 +3216,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'standalone biome.json in a repo that has not adopted the npm package');
     }
 
+    /**
+     * Accepts standalone tsconfig in repo without adoption.
+     */
     #[Test]
     public function acceptsStandaloneTsconfigInRepoWithoutAdoption(): void
     {
@@ -2824,6 +3228,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'standalone tsconfig.json in a repo that has not adopted the npm package');
     }
 
+    /**
+     * Accepts standalone biome with no package JSON at all.
+     */
     #[Test]
     public function acceptsStandaloneBiomeWithNoPackageJsonAtAll(): void
     {
@@ -2850,6 +3257,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'malformed biome.json in a repo that has not adopted the npm package');
     }
 
+    /**
+     * Rejects malformed biome once npm package is declared.
+     */
     #[Test]
     public function rejectsMalformedBiomeOnceNpmPackageIsDeclared(): void
     {
@@ -2859,6 +3269,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'biome.json: not valid JSON(C)', 'malformed biome.json once the npm package is declared');
     }
 
+    /**
+     * Accepts biome saved with UTF 8 BOM.
+     */
     #[Test]
     public function acceptsBiomeSavedWithUtf8Bom(): void
     {
@@ -2872,6 +3285,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json saved with a UTF-8 BOM');
     }
 
+    /**
+     * Accepts tsconfig saved with UTF 8 BOM.
+     */
     #[Test]
     public function acceptsTsconfigSavedWithUtf8Bom(): void
     {
@@ -2902,6 +3318,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json with a second, leftover BOM once the first is stripped');
     }
 
+    /**
+     * Rejects package JSON with second leftover BOM.
+     */
     #[Test]
     public function rejectsPackageJsonWithSecondLeftoverBom(): void
     {
@@ -2914,6 +3333,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'a package.json with a second, leftover BOM once the first is stripped is reported');
     }
 
+    /**
+     * Rejects unparseable package JSON not treated as non adoption.
+     */
     #[Test]
     public function rejectsUnparseablePackageJsonNotTreatedAsNonAdoption(): void
     {
@@ -2927,6 +3349,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'an unparseable package.json is reported, not treated as non-adoption');
     }
 
+    /**
+     * Rejects BOM prefixed package JSON still read for dependency.
+     */
     #[Test]
     public function rejectsBomPrefixedPackageJsonStillReadForDependency(): void
     {
@@ -2953,6 +3378,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'larger than the ' . self::MAX_JSONC_BYTES . ' bytes this gate checks', 'an oversized biome.json is reported in a repository that never adopted the package');
     }
 
+    /**
+     * Rejects note key even without adoption.
+     */
     #[Test]
     public function rejectsNoteKeyEvenWithoutAdoption(): void
     {
@@ -2962,6 +3390,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`"//"` key', '"//" key is reported even without adoption');
     }
 
+    /**
+     * Rejects biome without extends once npm package is declared.
+     */
     #[Test]
     public function rejectsBiomeWithoutExtendsOnceNpmPackageIsDeclared(): void
     {
@@ -3020,6 +3451,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         return $rows;
     }
 
+    /**
+     * Base flag drift.
+     */
     #[Test]
     #[DataProvider('baseFlagProvider')]
     public function baseFlagDrift(string $flag): void
@@ -3152,6 +3586,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'an explicit null dependency value does not count as adoption');
     }
 
+    /**
+     * Rejects biome overrides second entry reported with its index.
+     */
     #[Test]
     public function rejectsBiomeOverridesSecondEntryReportedWithItsIndex(): void
     {
@@ -3163,6 +3600,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'overrides[1].linter.enabled', 'a violation in the SECOND overrides entry is reported with its index');
     }
 
+    /**
+     * Accepts PHP only repo not probed for JS TS contract at all.
+     */
     #[Test]
     public function acceptsPhpOnlyRepoNotProbedForJsTsContractAtAll(): void
     {
@@ -3174,6 +3614,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'a PHP-only repo is not probed for the JS/TS contract at all');
     }
 
+    /**
+     * Rejects typescript only consumer still held to tsconfig contract.
+     */
     #[Test]
     public function rejectsTypescriptOnlyConsumerStillHeldToTsconfigContract(): void
     {
@@ -3184,12 +3627,18 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`compilerOptions.strict`', 'a TypeScript-only consumer is still held to the tsconfig contract');
     }
 
+    /**
+     * Reports usage error when path is not a directory.
+     */
     #[Test]
     public function reportsUsageErrorWhenPathIsNotADirectory(): void
     {
         $this->assertBothUsageError($this->fixture()->path() . '/does-not-exist', 'Not a directory', 'a path that is not a directory');
     }
 
+    /**
+     * Rejects unreadable biome reports as unreadable not as malformed.
+     */
     #[Test]
     public function rejectsUnreadableBiomeReportsAsUnreadableNotAsMalformed(): void
     {
@@ -3206,6 +3655,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects unreadable tsconfig reports as unreadable not as malformed.
+     */
     #[Test]
     public function rejectsUnreadableTsconfigReportsAsUnreadableNotAsMalformed(): void
     {
@@ -3244,6 +3696,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects unreadable package JSON does not switch off JS TS contract.
+     */
     #[Test]
     public function rejectsUnreadablePackageJsonDoesNotSwitchOffJsTsContract(): void
     {
@@ -3261,6 +3716,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         }
     }
 
+    /**
+     * Rejects biome override entry not an object does not hide the next.
+     */
     #[Test]
     public function rejectsBiomeOverrideEntryNotAnObjectDoesNotHideTheNext(): void
     {
@@ -3288,6 +3746,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, '`linter.enabled` must not be false', "biome.json whose per-language block is a string, not an object");
     }
 
+    /**
+     * Accepts biome JSON read in preference to biome JSONC beside.
+     */
     #[Test]
     public function acceptsBiomeJsonReadInPreferenceToBiomeJsoncBeside(): void
     {
@@ -3299,6 +3760,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothAccept($dir, 'biome.json is read in preference to a biome.jsonc beside it');
     }
 
+    /**
+     * Rejects biome scalar linter rules does not hide enabled check.
+     */
     #[Test]
     public function rejectsBiomeScalarLinterRulesDoesNotHideEnabledCheck(): void
     {
@@ -3308,6 +3772,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.enabled', 'a scalar linter.rules does not hide the enabled check');
     }
 
+    /**
+     * Rejects biome scalar rule group does not hide next group.
+     */
     #[Test]
     public function rejectsBiomeScalarRuleGroupDoesNotHideNextGroup(): void
     {
@@ -3317,6 +3784,9 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->assertBothReject($dir, 'linter.rules.correctness.preset', 'a scalar rule group does not hide the next group');
     }
 
+    /**
+     * Accepts PHP only repo without biome or tsconfig.
+     */
     #[Test]
     public function acceptsPhpOnlyRepoWithoutBiomeOrTsconfig(): void
     {
