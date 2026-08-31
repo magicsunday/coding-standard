@@ -126,13 +126,19 @@ harness_require_executable() {
 # Builds a JSON document of EXACTLY <bound> bytes: <json-body>'s closing brace is
 # replaced with a padding key, so the document stays valid JSON and every other
 # key in <json-body> survives untouched for the gate under test to inspect.
-# Shared across every "at-the-size-cap" fixture, in every caller — the padding
-# arithmetic and its self-check used to be copied per fixture (twice inside one
-# file, then again inline in a second file once the first copy was deduplicated),
-# and a fixture that is not verifiably AT the bound proves nothing about a `>` in
-# a size check surviving a mutation to `>=`. Living here rather than in a single
-# caller is what makes it reachable from every `check-*-cases.sh` file, which
-# each run as their own process and cannot see a function another one defines.
+# Shared by the bash "at-the-size-cap" fixtures that use it (currently
+# tests/check-consumer-config-cases.sh and tests/check-gitattributes-lockstep-cases.sh) —
+# the padding arithmetic and its self-check used to be copied per fixture (twice
+# inside one file, then again inline in a second file once the first copy was
+# deduplicated), and a fixture that is not verifiably AT the bound proves nothing
+# about a `>` in a size check surviving a mutation to `>=`. Living here rather
+# than in a single caller is what makes it reachable from every `check-*-cases.sh`
+# file, which each run as their own process and cannot see a function another one
+# defines — not every bash at-cap fixture uses it, though: tests/lint-json-cases.sh
+# builds its own at-cap fixture inline instead. A suite migrated off this file to
+# PHPUnit (tests/CheckVersionLockstepTest.php, #80) carries its own private,
+# non-shared reimplementation instead of calling
+# this function — it is not a caller.
 #
 # Self-checking: the builder nets +8 fixed bytes (`,"//":"` plus the closing
 # `"}`, minus the `}` it replaces) around the padding — an earlier version used

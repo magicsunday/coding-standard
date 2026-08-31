@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-# CDPATH= — see check-version-lockstep-cases.sh's identical guard.
+# CDPATH= — see check-gitattributes-lockstep-cases.sh's identical guard.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 
