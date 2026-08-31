@@ -9,7 +9,7 @@
 # self-analysis config — actually wires in phpstan/disallowed-function-calls.neon,
 # rather than merely appearing to via its `includes:` line.
 #
-# tests/check-disallowed-calls-cases.sh already proves the ban LIST's own content
+# tests/CheckDisallowedCallsTest.php already proves the ban LIST's own content
 # exhaustively, but only through tests/consumer's installed, vendor-nested copy of
 # this package — it never runs phpstan.neon itself. A broken or missing include in
 # phpstan.neon would leave `composer ci:test:php:analyse` silently green: bin/ and
@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-# CDPATH= — see check-disallowed-calls-cases.sh's identical guard.
+# CDPATH= — see check-version-lockstep-cases.sh's identical guard.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 

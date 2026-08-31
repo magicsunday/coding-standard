@@ -17,10 +17,11 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
 
 /**
- * Invokes a gate (bin/check-consumer-config.php or bin/check-js-config.mjs)
- * as a real subprocess, array argv only (never a shell string), and captures
- * stdout+stderr combined into one string, in arrival order, matching
- * tests/harness.sh's `2>&1` semantics. Both gates can write to stdout and
+ * Invokes a command (one of this package's own gates, bin/check-consumer-config.php
+ * or bin/check-js-config.mjs, or a third-party binary such as CheckDisallowedCallsTest's
+ * phpstan invocation) as a real subprocess, array argv only (never a shell string), and
+ * captures stdout+stderr combined into one string, in arrival order, matching
+ * tests/harness.sh's `2>&1` semantics. The two gates can write to stdout and
  * stderr in the same run (an accept/reject message on one stream, a PHP
  * warning or Node diagnostic concurrently on the other), so
  * Process::run()'s streaming callback is used deliberately instead of
@@ -51,6 +52,9 @@ final readonly class GateProcess
      *                                 `['php', 'bin/check-consumer-config.php']`
      *                                 or `['node', 'bin/check-js-config.mjs']`.
      * @param string       $fixtureDir The sole positional argument passed to the gate.
+     * @param string|null  $cwd        The working directory the process starts in, or
+     *                                 null for the current process's own cwd (the
+     *                                 default every existing caller relies on).
      *
      * @return GateResult
      *
@@ -58,9 +62,9 @@ final readonly class GateProcess
      * @throws ProcessTimedOutException    If the process exceeds its timeout.
      * @throws ProcessSignaledException    If the process was killed by a signal.
      */
-    public function run(array $command, string $fixtureDir): GateResult
+    public function run(array $command, string $fixtureDir, ?string $cwd = null): GateResult
     {
-        $process = new Process([...$command, $fixtureDir]);
+        $process = new Process([...$command, $fixtureDir], $cwd);
         $output  = '';
 
         $process->run(static function (string $type, string $buffer) use (&$output): void {

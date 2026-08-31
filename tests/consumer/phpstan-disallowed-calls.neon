@@ -1,6 +1,6 @@
 # CI fixture: includes the shared case-folding config exactly as a consumer does.
 # Scoped to the `case-folding/` fixture directory, which holds one banned call per
-# function. This run is EXPECTED TO FAIL — `tests/check-disallowed-calls-cases.sh`
+# function. This run is EXPECTED TO FAIL — `tests/CheckDisallowedCallsTest.php`
 # asserts that it reports all five, proving the config loads from an installed
 # vendor layout and actually fires.
 includes:

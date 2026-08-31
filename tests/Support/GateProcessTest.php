@@ -16,12 +16,13 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
+use function realpath;
 use function sys_get_temp_dir;
 
 /**
  * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
- * the fixture-directory positional argument contract and best-effort
- * chronological stdout/stderr interleaving.
+ * the fixture-directory positional argument contract, the optional working-
+ * directory override, and best-effort chronological stdout/stderr interleaving.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -94,5 +95,19 @@ final class GateProcessTest extends TestCase
         $result = $process->run(['php', '-r', $script], sys_get_temp_dir());
 
         self::assertSame('ABC', $result->output);
+    }
+
+    /**
+     * Asserts that the optional $cwd argument starts the process in that
+     * directory, rather than the current process's own cwd.
+     */
+    #[Test]
+    public function runStartsTheProcessInTheGivenWorkingDirectory(): void
+    {
+        $process = new GateProcess();
+        $cwd     = realpath(sys_get_temp_dir());
+        $result  = $process->run(['php', '-r', 'fwrite(STDOUT, getcwd());'], sys_get_temp_dir(), $cwd);
+
+        self::assertSame($cwd, $result->output);
     }
 }
