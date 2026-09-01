@@ -11,10 +11,14 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Symfony\Component\Process\Exception\ProcessSignaledException;
+use Symfony\Component\Process\Exception\ProcessStartFailedException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function array_diff;
 use function array_filter;
@@ -75,7 +79,7 @@ use const PREG_SET_ORDER;
  * mkCase()/mkJsCase()/mkUnadoptedCase()/jscpdFixture() call below returns the
  * current test's own fixture directory.
  *
- * The four gate-vs-harness lockstep tables (required phpunit.xml root flags,
+ * The gate-vs-harness lockstep tables (required phpunit.xml root flags,
  * pinned tsconfig flags, the jscpd extension deny-list, and biome's per-
  * language walk) are each proven in BOTH directions: the gate's own list is
  * read from its source at runtime (the same way
@@ -234,6 +238,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * @param string $message An optional assertion message; suffixed with " (node)" for the Node-gate half.
      *
      * @return void
+     *
+     * @throws AssertionFailedError        If either gate exited non-zero or ran degraded.
+     * @throws ProcessStartFailedException If a gate process could not be started.
+     * @throws ProcessTimedOutException    If a gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If a gate process was killed by a signal.
      */
     private function assertBothAccept(string $dir, string $message = ''): void
     {
@@ -249,6 +258,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * @param string $message           An optional assertion message; suffixed with " (node)" for the Node-gate half.
      *
      * @return void
+     *
+     * @throws AssertionFailedError        If either gate did not reject for the expected reason, or ran degraded.
+     * @throws ProcessStartFailedException If a gate process could not be started.
+     * @throws ProcessTimedOutException    If a gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If a gate process was killed by a signal.
      */
     private function assertBothReject(string $dir, string $expectedSubstring, string $message = ''): void
     {
@@ -264,6 +278,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * @param string $message           An optional assertion message; suffixed with " (node)" for the Node-gate half.
      *
      * @return void
+     *
+     * @throws AssertionFailedError        If either gate did not refuse for the expected reason, or ran degraded.
+     * @throws ProcessStartFailedException If a gate process could not be started.
+     * @throws ProcessTimedOutException    If a gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If a gate process was killed by a signal.
      */
     private function assertBothUsageError(string $dir, string $expectedSubstring, string $message = ''): void
     {
@@ -279,6 +298,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * @param string      $message                   An optional assertion message; suffixed with " (node)" for the Node-gate half.
      *
      * @return void
+     *
+     * @throws AssertionFailedError        If either inertness check fails, or a gate ran degraded.
+     * @throws ProcessStartFailedException If a gate process could not be started.
+     * @throws ProcessTimedOutException    If a gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If a gate process was killed by a signal.
      */
     private function assertBothReportIsInert(string $dir, ?string $expectedScrubbedSubstring = null, string $message = ''): void
     {
@@ -294,6 +318,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * @param string $message    An optional assertion message; suffixed with " (node)" for the Node-gate half.
      *
      * @return void
+     *
+     * @throws AssertionFailedError        If either report carries zero or more than one matching line, or a gate ran degraded.
+     * @throws ProcessStartFailedException If a gate process could not be started.
+     * @throws ProcessTimedOutException    If a gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If a gate process was killed by a signal.
      */
     private function assertBothReportsOnce(string $dir, string $filePrefix, string $message = ''): void
     {
@@ -330,6 +359,23 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkCase();
         copy(self::canon() . '/biome.json', $dir . '/biome.json');
         copy(self::canon() . '/tsconfig.json', $dir . '/tsconfig.json');
+        self::writeAdoptingPackageJson($dir);
+
+        return $dir;
+    }
+
+    /**
+     * Writes a package.json declaring the npm devDependency on this
+     * package — the one file shape mkJsCase() and the local-extends
+     * escape-via-.. fixture (which needs the surrounding directory shape
+     * mkJsCase() does not produce) both need byte-for-byte.
+     *
+     * @param string $dir The directory to write package.json into.
+     *
+     * @return void
+     */
+    private static function writeAdoptingPackageJson(string $dir): void
+    {
         file_put_contents($dir . '/package.json', <<<'JSON'
             {
                 "name": "fixture",
@@ -339,8 +385,6 @@ final class CheckConsumerConfigTest extends GateTestCase
             }
 
             JSON);
-
-        return $dir;
     }
 
     /**
@@ -403,10 +447,10 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     // -------------------------------------------------------------------
-    // Gate-source extraction — the four lockstep tables, read at runtime
-    // the same way tests/CheckDisallowedCallsTest.php derives its banned-
-    // function list, so a table the gate loses or gains is caught rather
-    // than a hand-kept copy silently drifting from it.
+    // Gate-source extraction — the lockstep tables below (see the class
+    // docblock), read at runtime the same way tests/CheckDisallowedCallsTest.php
+    // derives its banned-function list, so a table the gate loses or gains is
+    // caught rather than a hand-kept copy silently drifting from it.
     // -------------------------------------------------------------------
 
     /**
@@ -577,17 +621,30 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
+     * Builds a DataProvider row set of the shape `[value => [value]]`, shared
+     * by every one-flag-or-language-per-row provider in this class.
+     *
+     * @param list<non-empty-string> $values The values, each becoming its own row.
+     *
+     * @return array<string, array{0: string}>
+     */
+    private static function singleArgProviderRows(array $values): array
+    {
+        $rows = [];
+
+        foreach ($values as $value) {
+            $rows[$value] = [$value];
+        }
+
+        return $rows;
+    }
+
+    /**
      * @return array<string, array{0: string}>
      */
     public static function requiredRootFlagProvider(): array
     {
-        $rows = [];
-
-        foreach (self::REQUIRED_ROOT_FLAGS as $flag) {
-            $rows[$flag] = [$flag];
-        }
-
-        return $rows;
+        return self::singleArgProviderRows(self::REQUIRED_ROOT_FLAGS);
     }
 
     /**
@@ -729,9 +786,11 @@ final class CheckConsumerConfigTest extends GateTestCase
     #[Test]
     public function acceptsPhplintBom(): void
     {
-        // As observed against the overtrue/phplint version composer.lock
-        // pins (`grep -A1 '"name": "overtrue/phplint"' composer.lock`),
-        // the tool reads a BOM'd config and runs normally, so the gate
+        // As observed against the overtrue/phplint version installed
+        // locally (composer.lock is gitignored, so re-check it against
+        // YOUR OWN `composer install` output: `grep -A1 '"name":
+        // "overtrue/phplint"' composer.lock`), the tool reads a BOM'd
+        // config and runs normally, so the gate
         // strips it — the `^extensions` anchor sits at offset 0 and the BOM
         // would displace it, reporting drift in a file the tool obeys.
         // `extensions:` is written first (not copied from templates/, which
@@ -1347,6 +1406,7 @@ final class CheckConsumerConfigTest extends GateTestCase
             'reporters' => ['console-full'],
             'format'    => ['php'],
         ]);
+
         file_put_contents($dir . '/.jscpd.json', self::padJsonToCap(self::MAX_TEXT_BYTES, $body));
 
         $this->assertGateRejects(self::phpGate(), $dir, '`threshold` must be 0', 'a .jscpd.json exactly at the size cap is still read and checked');
@@ -2081,9 +2141,11 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
-     * `preset: "none"` is the modern spelling of `recommended: false` —
-     * Biome deprecated the boolean in 2.5 — and silences exactly the same
-     * rules.
+     * `preset: "none"` is the modern spelling of `recommended: false` and
+     * silences exactly the same rules. As re-verified on 2026-08-31 against
+     * the Biome version package.json currently pins
+     * (`jq -r '.devDependencies["@biomejs/biome"]' package.json`), the
+     * boolean form still works but is flagged deprecated in the schema.
      *
      * @return void
      */
@@ -2111,8 +2173,9 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * Biome carries `recommended`/`preset` on every rule GROUP as well, so
      * switching one group off drops that group's floor while the top-level
-     * keys stay untouched. Verified: with this, `biome ci` passes a file
-     * containing `debugger;`.
+     * keys stay untouched. Re-verified 2026-08-31 against the version
+     * package.json currently pins: with this, `biome ci` passes a file
+     * containing `debugger;` (normally flagged by `suspicious/noDebugger`).
      *
      * @return void
      */
@@ -2219,13 +2282,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function languageProvider(): array
     {
-        $rows = [];
-
-        foreach (self::languagesFromGate() as $language) {
-            $rows[$language] = [$language];
-        }
-
-        return $rows;
+        return self::singleArgProviderRows(self::languagesFromGate());
     }
 
     /**
@@ -2565,15 +2622,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         mkdir($dir, 0o700);
         copy(self::canon() . '/phpunit.xml', $dir . '/phpunit.xml');
         copy(self::canon() . '/tsconfig.json', $dir . '/tsconfig.json');
-        file_put_contents($dir . '/package.json', <<<'JSON'
-            {
-                "name": "fixture",
-                "devDependencies": {
-                    "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"
-                }
-            }
-
-            JSON);
+        self::writeAdoptingPackageJson($dir);
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"../escape.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
         file_put_contents($root . '/escape.json', "{ \"linter\": { \"enabled\": false } }\n");
 
@@ -2730,7 +2779,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      * `extends` shaped as a JSON OBJECT rather than an array or string is
      * not accepted by either real tool: `Array.isArray` is false for a
      * plain object, so both sides must agree on ACCEPT, matching neither
-     * resolving the local target inside it.
+     * resolving the local target inside it. Found during this suite's own
+     * audit round: an early implementation iterated an object's VALUES as
+     * extends candidates in PHP but not in Node, so the same config could
+     * reach a different verdict on each side — this case pins both sides to
+     * the same ACCEPT so that divergence cannot come back unnoticed.
      *
      * @return void
      */
@@ -2890,6 +2943,7 @@ final class CheckConsumerConfigTest extends GateTestCase
             'name'            => 'fixture',
             'devDependencies' => ['@magicsunday/coding-standard' => 'github:magicsunday/coding-standard#1.7.0'],
         ]);
+
         file_put_contents($dir . '/package.json', self::padJsonToCap(self::MAX_TEXT_BYTES, $body));
 
         $this->assertBothReject($dir, 'must `extends`', 'a package.json exactly at the size cap is still read and checked');
@@ -3106,6 +3160,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir  = $this->mkJsCase();
         $json = '{"extends":"@magicsunday/coding-standard/tsconfig/base.json","deep":'
             . str_repeat('{"a":', 511) . '1' . str_repeat('}', 511) . '}';
+
         file_put_contents($dir . '/tsconfig.json', $json);
 
         $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json nested to exactly the 512-level depth PHP rejects at');
@@ -3120,6 +3175,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir  = $this->mkJsCase();
         $json = '{"extends":"@magicsunday/coding-standard/tsconfig/base.json","deep":'
             . str_repeat('{"a":', 510) . '1' . str_repeat('}', 510) . '}';
+
         file_put_contents($dir . '/tsconfig.json', $json);
 
         $this->assertBothAccept($dir, 'tsconfig.json nested to exactly the 511-level depth PHP still accepts');
@@ -3465,13 +3521,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function baseFlagProvider(): array
     {
-        $rows = [];
-
-        foreach (self::baseFlagsFromTsconfigBase() as $flag) {
-            $rows[$flag] = [$flag];
-        }
-
-        return $rows;
+        return self::singleArgProviderRows(self::baseFlagsFromTsconfigBase());
     }
 
     /**
@@ -3527,13 +3577,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function strictFamilyFlagProvider(): array
     {
-        $rows = [];
-
-        foreach (self::STRICT_FAMILY_FLAGS as $flag) {
-            $rows[$flag] = [$flag];
-        }
-
-        return $rows;
+        return self::singleArgProviderRows(self::STRICT_FAMILY_FLAGS);
     }
 
     /**
@@ -3576,8 +3620,10 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * The adoption probe reads four dependency sections; only
      * devDependencies (used throughout the rest of this file) was
-     * exercised elsewhere. peerDependencies included: npm >=7 auto-installs
-     * an unmet peer with no other declaration needed, so a consumer (or an
+     * exercised elsewhere. peerDependencies included: as observed on
+     * 2026-08-31 (npm is not a dependency of this repository, so there is
+     * no local copy to re-check this against), npm >=7 auto-installs an
+     * unmet peer with no other declaration needed, so a consumer (or an
      * adversarial PR) moving the entry there alone still has the package
      * on disk.
      *
