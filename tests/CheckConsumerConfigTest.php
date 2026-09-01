@@ -492,6 +492,40 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * Writes a biome.json extending the shared base config plus a local
+     * `./biome.loose.json` second entry, scoped to `src/**` — the shared
+     * document under test across the local-extends-target cases, which vary
+     * what `./biome.loose.json` itself contains.
+     *
+     * @param string $dir The directory to write biome.json into.
+     *
+     * @return void
+     */
+    private static function writeBiomeWithLocalLooseExtendsTarget(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/biome.json',
+            "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n",
+        );
+    }
+
+    /**
+     * Writes a package.json truncated mid-object — valid start, no closing
+     * braces — used by the "unparseable package.json" cases.
+     *
+     * @param string $dir The directory to write package.json into.
+     *
+     * @return void
+     */
+    private static function writeTruncatedPackageJson(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/package.json',
+            "{\n    \"devDependencies\": {\n",
+        );
+    }
+
+    /**
      * The JSON body used to build past-the-size-cap fixtures — a single key
      * whose escaped-quote run alone exceeds MAX_JSONC_BYTES.
      *
@@ -1926,7 +1960,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         // package.json`): the note key makes `./biome.loose.json` unloadable
         // regardless of what the document that extends it looks like.
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
+        self::writeBiomeWithLocalLooseExtendsTarget($dir);
         file_put_contents($dir . '/biome.loose.json', "{ \"//\": \"note\", \"linter\": { \"enabled\": true } }\n");
 
         $this->assertBothReject($dir, 'a local `extends` target contains a `"//"` key', "biome.json whose local extends target carries a \"//\" key");
@@ -1948,7 +1982,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsBiomeLocalExtendsTargetPastTheSizeCap(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
+        self::writeBiomeWithLocalLooseExtendsTarget($dir);
         file_put_contents($dir . '/biome.loose.json', self::oversizedJsonBody());
 
         $this->assertBothReject($dir, "a local `extends` target (./biome.loose.json) is larger than the " . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose local extends target is past the size cap');
@@ -2662,7 +2696,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsBiomeLaterLocalExtendsTargetDisablingLinter(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
+        self::writeBiomeWithLocalLooseExtendsTarget($dir);
         self::writeMinimalBiomeLooseJson($dir);
 
         $this->assertBothReject($dir, '`linter.enabled` must not be false', 'biome.json whose LATER local extends target disables the linter');
@@ -3537,7 +3571,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsUnparseablePackageJsonNotTreatedAsNonAdoption(): void
     {
         $dir = $this->mkCase();
-        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\n");
+        self::writeTruncatedPackageJson($dir);
         self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'an unparseable package.json is reported, not treated as non-adoption');
@@ -3793,7 +3827,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function acceptsPhpOnlyRepoNotProbedForJsTsContractAtAll(): void
     {
         $dir = $this->mkCase();
-        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\n");
+        self::writeTruncatedPackageJson($dir);
 
         $this->assertBothAccept($dir, 'a PHP-only repo is not probed for the JS/TS contract at all');
     }
