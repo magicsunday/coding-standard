@@ -388,6 +388,22 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * Writes a minimal, standalone biome.json (no `extends`) whose only
+     * content is the top-level `linter.enabled` flag — the "some valid
+     * biome.json exists, only adoption/parsing is under test" stand-in used
+     * across a wide range of otherwise-unrelated cases in this file.
+     *
+     * @param string $dir     The directory to write biome.json into.
+     * @param bool   $enabled The value of `linter.enabled`.
+     *
+     * @return void
+     */
+    private static function writeMinimalBiomeJson(string $dir, bool $enabled): void
+    {
+        file_put_contents($dir . '/biome.json', '{' . "\n    \"linter\": { \"enabled\": " . ($enabled ? 'true' : 'false') . " }\n}\n");
+    }
+
+    /**
      * mkCase() plus a package.json that declares no dependency on this
      * package at all — see "the adoption gate" section further down for why
      * that state must not be reported as drift.
@@ -1358,10 +1374,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function jscpdOmittableFieldProvider(): array
     {
-        return [
-            'minTokens' => ['minTokens'],
-            'minLines'  => ['minLines'],
-        ];
+        return self::singleArgProviderRows(['minTokens', 'minLines']);
     }
 
     /**
@@ -1640,13 +1653,13 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function oversizeFileProvider(): array
     {
-        return [
-            'phpunit.xml'    => ['phpunit.xml'],
-            '.jscpd.json'    => ['.jscpd.json'],
-            '.phplint.yml'   => ['.phplint.yml'],
-            '.editorconfig'  => ['.editorconfig'],
-            'deptrac.yaml'   => ['deptrac.yaml'],
-        ];
+        return self::singleArgProviderRows([
+            'phpunit.xml',
+            '.jscpd.json',
+            '.phplint.yml',
+            '.editorconfig',
+            'deptrac.yaml',
+        ]);
     }
 
     /**
@@ -2938,7 +2951,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsPackageJsonExactlyAtTheSizeCapIsStillReadAndChecked(): void
     {
         $dir = $this->mkCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
         $body = (string) json_encode([
             'name'            => 'fixture',
             'devDependencies' => ['@magicsunday/coding-standard' => 'github:magicsunday/coding-standard#1.7.0'],
@@ -3194,7 +3207,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir  = $this->mkCase();
         $body = str_repeat('{"a":', 511) . '1' . str_repeat('}', 511);
         file_put_contents($dir . '/package.json', '{"devDependencies":' . $body . '}');
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": false }\n}\n");
+        self::writeMinimalBiomeJson($dir, false);
 
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'a package.json nested past the 512-level depth cap is reported, not crashed on');
     }
@@ -3290,7 +3303,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function acceptsStandaloneBiomeInRepoWithoutAdoption(): void
     {
         $dir = $this->mkUnadoptedCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothAccept($dir, 'standalone biome.json in a repo that has not adopted the npm package');
     }
@@ -3314,7 +3327,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function acceptsStandaloneBiomeWithNoPackageJsonAtAll(): void
     {
         $dir = $this->mkCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothAccept($dir, 'standalone biome.json with no package.json at all');
     }
@@ -3423,7 +3436,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\n");
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'an unparseable package.json is reported, not treated as non-adoption');
     }
@@ -3436,7 +3449,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "\xEF\xBB\xBF{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n");
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothReject($dir, 'must `extends`', 'a BOM-prefixed package.json is still read for the dependency');
     }
@@ -3476,7 +3489,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsBiomeWithoutExtendsOnceNpmPackageIsDeclared(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothReject($dir, 'must `extends`', 'biome.json without extends once the npm package is declared');
     }
@@ -3610,11 +3623,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     public static function dependencySectionProvider(): array
     {
-        return [
-            'dependencies'         => ['dependencies'],
-            'optionalDependencies' => ['optionalDependencies'],
-            'peerDependencies'     => ['peerDependencies'],
-        ];
+        return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
     }
 
     /**
@@ -3635,7 +3644,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"{$section}\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n");
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
 
         $this->assertBothReject($dir, 'must `extends`', "the npm dependency declared under {$section} counts as adoption");
     }
@@ -3653,7 +3662,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": null }\n}\n");
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": false }\n}\n");
+        self::writeMinimalBiomeJson($dir, false);
 
         $this->assertBothAccept($dir, 'an explicit null dependency value does not count as adoption');
     }
@@ -3779,7 +3788,7 @@ final class CheckConsumerConfigTest extends GateTestCase
 
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n");
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true }\n}\n");
+        self::writeMinimalBiomeJson($dir, true);
         chmod($dir . '/package.json', 0o000);
 
         try {
