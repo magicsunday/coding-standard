@@ -400,7 +400,10 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     private static function writeMinimalBiomeJson(string $dir, bool $enabled): void
     {
-        file_put_contents($dir . '/biome.json', '{' . "\n    \"linter\": { \"enabled\": " . ($enabled ? 'true' : 'false') . " }\n}\n");
+        file_put_contents(
+            $dir . '/biome.json',
+            '{' . "\n    \"linter\": { \"enabled\": " . ($enabled ? 'true' : 'false') . " }\n}\n",
+        );
     }
 
     /**
@@ -638,7 +641,10 @@ final class CheckConsumerConfigTest extends GateTestCase
 
     /**
      * Builds a DataProvider row set of the shape `[value => [value]]`, shared
-     * by every one-flag-or-language-per-row provider in this class.
+     * by every provider in this class whose rows carry a single value each
+     * (a flag, a language, a jscpd field, a filename, or a dependency
+     * section) — every provider whose rows carry more than that argument
+     * builds its own array literal instead.
      *
      * @param list<non-empty-string> $values The values, each becoming its own row.
      *
