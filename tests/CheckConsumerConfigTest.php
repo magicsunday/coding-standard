@@ -407,6 +407,102 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * Writes a tsconfig.json extending the shared base config WITHOUT the
+     * `.json` suffix — tsc appends it itself, so this resolves to the same
+     * file as `.../tsconfig/base.json`.
+     *
+     * @param string $dir The directory to write tsconfig.json into.
+     *
+     * @return void
+     */
+    private static function writeTsconfigExtendingWithoutJsonSuffix(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/tsconfig.json',
+            "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n",
+        );
+    }
+
+    /**
+     * Writes a tsconfig.json extending the shared base config with
+     * `compilerOptions.strict` forced back to `false`.
+     *
+     * @param string $dir The directory to write tsconfig.json into.
+     *
+     * @return void
+     */
+    private static function writeTsconfigWithStrictFalse(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/tsconfig.json',
+            "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"strict\": false }\n}\n",
+        );
+    }
+
+    /**
+     * Writes a package.json declaring the npm devDependency on this package
+     * without a `name` key — a second, distinct fixture from
+     * writeAdoptingPackageJson(), which also sets `name`.
+     *
+     * @param string $dir The directory to write package.json into.
+     *
+     * @return void
+     */
+    private static function writePackageJsonWithoutNameKey(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/package.json',
+            "{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n",
+        );
+    }
+
+    /**
+     * Writes a minimal biome.loose.json (`{ "linter": { "enabled": false } }`)
+     * — the local `extends` target fixtures use to disable the linter one
+     * level removed from the biome.json under test.
+     *
+     * @param string $dir The directory to write biome.loose.json into.
+     *
+     * @return void
+     */
+    private static function writeMinimalBiomeLooseJson(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/biome.loose.json',
+            "{ \"linter\": { \"enabled\": false } }\n",
+        );
+    }
+
+    /**
+     * Writes a minimal tsconfig.loose.json (`{ "compilerOptions": {
+     * "noUncheckedIndexedAccess": false } }`) — the local `extends` target
+     * fixtures use to disable the flag one level removed from the
+     * tsconfig.json under test.
+     *
+     * @param string $dir The directory to write tsconfig.loose.json into.
+     *
+     * @return void
+     */
+    private static function writeMinimalTsconfigLooseJson(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/tsconfig.loose.json',
+            "{ \"compilerOptions\": { \"noUncheckedIndexedAccess\": false } }\n",
+        );
+    }
+
+    /**
+     * The JSON body used to build past-the-size-cap fixtures — a single key
+     * whose escaped-quote run alone exceeds MAX_JSONC_BYTES.
+     *
+     * @return string The oversized JSON body, past MAX_JSONC_BYTES.
+     */
+    private static function oversizedJsonBody(): string
+    {
+        return '{"a":' . str_repeat('\\"', 70000);
+    }
+
+    /**
      * mkCase() plus a package.json that declares no dependency on this
      * package at all — see "the adoption gate" section further down for why
      * that state must not be reported as drift.
@@ -1853,7 +1949,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
-        file_put_contents($dir . '/biome.loose.json', '{"a":' . str_repeat('\\"', 70000));
+        file_put_contents($dir . '/biome.loose.json', self::oversizedJsonBody());
 
         $this->assertBothReject($dir, "a local `extends` target (./biome.loose.json) is larger than the " . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose local extends target is past the size cap');
     }
@@ -1872,7 +1968,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./##[error]forged\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
-        file_put_contents($dir . '/##[error]forged', '{"a":' . str_repeat('\\"', 70000));
+        file_put_contents($dir . '/##[error]forged', self::oversizedJsonBody());
 
         $this->assertBothReportIsInert($dir, 'a local `extends` target (./##?[error]forged) is larger than the ' . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose oversized local extends target carries a forged CI annotation');
     }
@@ -2460,7 +2556,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsTsconfigOverridingStrictToFalse(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"strict\": false }\n}\n");
+        self::writeTsconfigWithStrictFalse($dir);
 
         $this->assertBothReject($dir, '`compilerOptions.strict`', 'tsconfig.json overriding strict to false');
     }
@@ -2544,7 +2640,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         // file — re-verified 2026-08-31 against the version package.json
         // currently pins (`jq -r '.devDependencies.typescript' package.json`).
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n");
+        self::writeTsconfigExtendingWithoutJsonSuffix($dir);
 
         $this->assertBothAccept($dir, 'tsconfig.json extending without the .json suffix');
     }
@@ -2567,7 +2663,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
-        file_put_contents($dir . '/biome.loose.json', "{ \"linter\": { \"enabled\": false } }\n");
+        self::writeMinimalBiomeLooseJson($dir);
 
         $this->assertBothReject($dir, '`linter.enabled` must not be false', 'biome.json whose LATER local extends target disables the linter');
     }
@@ -2586,7 +2682,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"./biome.loose.json\", \"@magicsunday/coding-standard/biome/base.json\"],\n    \"files\": { \"includes\": [\"src/**\"] }\n}\n");
-        file_put_contents($dir . '/biome.loose.json', "{ \"linter\": { \"enabled\": false } }\n");
+        self::writeMinimalBiomeLooseJson($dir);
 
         $this->assertBothAccept($dir, 'biome.json whose shared extends entry follows and undoes a local override');
     }
@@ -2741,7 +2837,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/tsconfig/base.json\", \"./tsconfig.loose.json\"],\n    \"include\": [\"src\"]\n}\n");
-        file_put_contents($dir . '/tsconfig.loose.json', "{ \"compilerOptions\": { \"noUncheckedIndexedAccess\": false } }\n");
+        self::writeMinimalTsconfigLooseJson($dir);
 
         $this->assertBothReject($dir, 'noUncheckedIndexedAccess', 'tsconfig.json whose LATER local extends target disables noUncheckedIndexedAccess');
     }
@@ -2754,7 +2850,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": [\"./tsconfig.loose.json\", \"@magicsunday/coding-standard/tsconfig/base.json\"],\n    \"include\": [\"src\"]\n}\n");
-        file_put_contents($dir . '/tsconfig.loose.json', "{ \"compilerOptions\": { \"noUncheckedIndexedAccess\": false } }\n");
+        self::writeMinimalTsconfigLooseJson($dir);
 
         $this->assertBothAccept($dir, 'tsconfig.json whose shared extends entry follows and undoes a local override');
     }
@@ -2789,7 +2885,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] },\n    \"linter\": {}\n}\n");
-        file_put_contents($dir . '/biome.loose.json', "{ \"linter\": { \"enabled\": false } }\n");
+        self::writeMinimalBiomeLooseJson($dir);
 
         $this->assertBothReject($dir, '`linter.enabled` must not be false', "biome.json whose empty top-level object does not mask an unresolved disable");
     }
@@ -2811,7 +2907,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": { \"shared\": \"@magicsunday/coding-standard/biome/base.json\", \"local\": \"./biome.loose.json\" }\n}\n");
-        file_put_contents($dir . '/biome.loose.json', "{ \"linter\": { \"enabled\": false } }\n");
+        self::writeMinimalBiomeLooseJson($dir);
 
         $this->assertBothAccept($dir, 'biome.json whose extends is a JSON object rather than an array');
     }
@@ -2922,7 +3018,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsBiomePastTheSizeCapIsReportedAsOversizedNotScanned(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', '{"a":' . str_repeat('\\"', 70000));
+        file_put_contents($dir . '/biome.json', self::oversizedJsonBody());
 
         $this->assertBothReject($dir, 'larger than the ' . self::MAX_JSONC_BYTES . ' bytes this gate checks', 'a biome.json past the size cap is reported as oversized, not scanned');
     }
@@ -2937,7 +3033,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         // size guard — a gate missing this one silently prints OK for a
         // tsconfig.json it never read.
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/tsconfig.json', '{"a":' . str_repeat('\\"', 70000));
+        file_put_contents($dir . '/tsconfig.json', self::oversizedJsonBody());
 
         $this->assertBothReject($dir, 'larger than the ' . self::MAX_JSONC_BYTES . ' bytes this gate checks', 'a tsconfig.json past the size cap is reported as oversized, not scanned');
     }
@@ -3233,7 +3329,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"name\": \"consumer\",\n    \"description\": \"bad \\uD800 escape\",\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"^3.0.0\" }\n}\n");
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n");
+        self::writeTsconfigExtendingWithoutJsonSuffix($dir);
 
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'a package.json with an unpaired surrogate elsewhere in the manifest is reported');
     }
@@ -3246,7 +3342,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     {
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "{\n    \"name\": \"consumer\",\n    \"description\": \"an emoji: \\uD83D\\uDE00\",\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"^3.0.0\" }\n}\n");
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n");
+        self::writeTsconfigExtendingWithoutJsonSuffix($dir);
 
         $this->assertBothAccept($dir, 'a package.json with a properly paired surrogate elsewhere in the manifest is accepted');
     }
@@ -3427,7 +3523,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         // so the same leftover-BOM parity gap applies to the npm probe's own read.
         $dir = $this->mkCase();
         file_put_contents($dir . '/package.json', "\xEF\xBB\xBF\xEF\xBB\xBF{\n    \"name\": \"consumer\",\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"^3.0.0\" }\n}\n");
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base\"\n}\n");
+        self::writeTsconfigExtendingWithoutJsonSuffix($dir);
 
         $this->assertBothReject($dir, 'package.json: is not valid JSON', 'a package.json with a second, leftover BOM once the first is stripped is reported');
     }
@@ -3471,7 +3567,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsOversizedBiomeInRepoThatNeverAdopted(): void
     {
         $dir = $this->mkUnadoptedCase();
-        file_put_contents($dir . '/biome.json', '{"a":' . str_repeat('\\"', 70000));
+        file_put_contents($dir . '/biome.json', self::oversizedJsonBody());
 
         $this->assertBothReject($dir, 'larger than the ' . self::MAX_JSONC_BYTES . ' bytes this gate checks', 'an oversized biome.json is reported in a repository that never adopted the package');
     }
@@ -3709,8 +3805,8 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsTypescriptOnlyConsumerStillHeldToTsconfigContract(): void
     {
         $dir = $this->mkCase();
-        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n");
-        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"strict\": false }\n}\n");
+        self::writePackageJsonWithoutNameKey($dir);
+        self::writeTsconfigWithStrictFalse($dir);
 
         $this->assertBothReject($dir, '`compilerOptions.strict`', 'a TypeScript-only consumer is still held to the tsconfig contract');
     }
@@ -3793,7 +3889,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $this->skipIfRunningAsRoot();
 
         $dir = $this->mkCase();
-        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": { \"@magicsunday/coding-standard\": \"github:magicsunday/coding-standard#1.7.0\" }\n}\n");
+        self::writePackageJsonWithoutNameKey($dir);
         self::writeMinimalBiomeJson($dir, true);
         chmod($dir . '/package.json', 0o000);
 
