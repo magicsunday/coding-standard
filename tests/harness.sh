@@ -131,9 +131,10 @@ harness_require_executable() {
 # <suffix> the newline that closes it). Shared by tests/check-gitattributes-lockstep-cases.sh —
 # a JSON-shaped sibling of this builder (padding via a trailing `"//"` key rather than
 # a filler run) existed here too until #78 removed its only remaining bash caller;
-# every PHPUnit suite that needs the JSON shape carries its own private
-# reimplementation (see e.g. tests/CheckVersionLockstepTest.php's padJsonToCap()) since
-# each test class runs in its own process, same as this file's bash callers did.
+# the JSON shape now lives once, shared, as GateTestCase::padJsonToCap() (moved there
+# by #78 once CheckConsumerConfigTest became a second PHPUnit caller alongside
+# CheckVersionLockstepTest) — this bash builder stays separate because a bash
+# process cannot share a PHP static method with its PHPUnit callers.
 harness_pad_text_to_cap() {
     local bound="$1" prefix="$2" filler="$3" suffix="$4" out_file="$5"
     php -r '
