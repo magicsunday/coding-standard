@@ -11,20 +11,17 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
-use MagicSunday\CodingStandard\Test\Support\GateProcess;
+use MagicSunday\CodingStandard\Test\Support\ConsumerPhpstanGateTestCase;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessStartFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function count;
-use function dirname;
 use function file_get_contents;
-use function is_executable;
 use function preg_match_all;
 use function preg_replace;
 use function sprintf;
@@ -39,10 +36,11 @@ use function substr_count;
  *
  * Migrated off tests/check-disallowed-calls-cases.sh. Requires tests/consumer
  * to be installed (`composer install` inside that directory); every test
- * self-skips via setUp() until it is, rather than failing, because this class
- * is also reached by the plain `composer ci:test:phpunit` step that runs
- * BEFORE the consumer fixture is installed in CI — see .github/workflows/ci.yml,
- * where `composer ci:test:disallowed-calls` (this class, filtered) is the step
+ * self-skips via ConsumerPhpstanGateTestCase::setUp() until it is, rather
+ * than failing, because this class is also reached by the plain
+ * `composer ci:test:phpunit` step that runs BEFORE the consumer fixture is
+ * installed in CI — see .github/workflows/ci.yml, where
+ * `composer ci:test:disallowed-calls` (this class, filtered) is the step
  * that actually exercises it, positioned after the consumer install step.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -50,7 +48,7 @@ use function substr_count;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversNothing]
-final class CheckDisallowedCallsTest extends TestCase
+final class CheckDisallowedCallsTest extends ConsumerPhpstanGateTestCase
 {
     /**
      * @var list<non-empty-string>|null Memoized across every test in this class; see bannedFunctions().
@@ -71,25 +69,6 @@ final class CheckDisallowedCallsTest extends TestCase
      * Memoized across every test in this class; see wiringResult().
      */
     private static ?GateResult $wiringResult = null;
-
-    /**
-     * Skips every test in this class until tests/consumer is installed,
-     * instead of failing it the way the bash original's
-     * harness_require_executable() exits 2 — this class is also reached by
-     * the plain `composer ci:test:phpunit` step that runs before the
-     * consumer fixture is installed in CI.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        if (!is_executable(self::phpstanBinary())) {
-            self::markTestSkipped(sprintf(
-                '%s is missing — run `composer install` in tests/consumer first.',
-                self::phpstanBinary(),
-            ));
-        }
-    }
 
     /**
      * The control run: the same fixture under base.neon alone must be clean,
@@ -209,30 +188,6 @@ final class CheckDisallowedCallsTest extends TestCase
     }
 
     /**
-     * @return string Absolute path to the repository root.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
-    }
-
-    /**
-     * @return string Absolute path to tests/consumer, an installed consumer layout.
-     */
-    private static function consumer(): string
-    {
-        return self::root() . '/tests/consumer';
-    }
-
-    /**
-     * @return string Absolute path to the phpstan binary tests/consumer installs.
-     */
-    private static function phpstanBinary(): string
-    {
-        return self::consumer() . '/.build/bin/phpstan';
-    }
-
-    /**
      * Parses phpstan/disallowed-function-calls.neon for every declared
      * `function: '...()'` ban, then cross-checks the parsed count against a
      * plain occurrence count of the same key — so a spelling the pattern
@@ -288,7 +243,7 @@ final class CheckDisallowedCallsTest extends TestCase
      */
     private static function controlResult(): GateResult
     {
-        return self::$controlResult ??= self::runPhpstan(self::consumer() . '/phpstan.neon');
+        return self::$controlResult ??= self::runPhpstan(self::consumer() . '/phpstan.neon', 'case-folding');
     }
 
     /**
@@ -300,7 +255,7 @@ final class CheckDisallowedCallsTest extends TestCase
      */
     private static function positiveResult(): GateResult
     {
-        return self::$positiveResult ??= self::runPhpstan(self::consumer() . '/phpstan-disallowed-calls.neon');
+        return self::$positiveResult ??= self::runPhpstan(self::consumer() . '/phpstan-disallowed-calls.neon', 'case-folding');
     }
 
     /**
@@ -312,54 +267,7 @@ final class CheckDisallowedCallsTest extends TestCase
      */
     private static function wiringResult(): GateResult
     {
-        return self::$wiringResult ??= self::runPhpstan(self::consumer() . '/phpstan-strict.neon');
-    }
-
-    /**
-     * Runs `phpstan analyse --configuration <config> case-folding` from
-     * tests/consumer via GateProcess (combined stdout+stderr, matching the
-     * bash original's `2>&1`). The `case-folding` positional path argument is
-     * unconditional, not conditional on which config is passed: without it,
-     * `$config` alone would fall back to that neon file's OWN `paths:` entry
-     * — which for phpstan.neon (the control config) is `src`, a different
-     * fixture entirely, silently scoping the control run away from the
-     * fixture the positive/wiring runs actually analyse. The other two
-     * configs already declare `paths: [case-folding]` themselves, so the
-     * explicit argument is redundant but harmless there.
-     *
-     * @param string $config Absolute path to the configuration file to analyse with.
-     *
-     * @return GateResult
-     *
-     * @throws ProcessStartFailedException If the phpstan process could not be started.
-     * @throws ProcessTimedOutException    If the phpstan process exceeds its timeout.
-     * @throws ProcessSignaledException    If the phpstan process was killed by a signal.
-     */
-    private static function runPhpstan(string $config): GateResult
-    {
-        $command = [
-            self::phpstanBinary(),
-            'analyse',
-            '--configuration',
-            $config,
-            '--error-format=raw',
-            '--no-progress',
-            '--memory-limit=-1',
-        ];
-
-        return (new GateProcess())->run($command, 'case-folding', self::consumer());
-    }
-
-    /**
-     * Shared "not degraded" precondition every #[Test] method above starts from.
-     *
-     * @param GateResult $result The captured phpstan run to check.
-     *
-     * @return void
-     */
-    private static function assertResultIsNotDegraded(GateResult $result): void
-    {
-        self::assertFalse($result->isDegraded(), 'phpstan emitted a diagnostic of its own.');
+        return self::$wiringResult ??= self::runPhpstan(self::consumer() . '/phpstan-strict.neon', 'case-folding');
     }
 
     /**
