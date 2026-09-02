@@ -224,6 +224,58 @@ done
 
 unset harness_degraded_probe
 
+# harness_skip_if_root <what a skip explains, e.g. "the unreadable-file case">
+#
+# Root bypasses DAC, so a `chmod 000` fixture stays readable under it — the
+# case would read as a false regression rather than a caught violation. CI
+# runs non-root, so the guarded branch stays exercised there regardless.
+#
+# Returns 0 (skip, message already printed) when running as root, 1 (do not
+# skip) otherwise — call as `if ! harness_skip_if_root "..."; then
+# ...fixture body...; fi`.
+harness_skip_if_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        printf 'skip (running as root: mode 000 does not deny read): %s\n' "$1"
+        return 0
+    fi
+    return 1
+}
+
+# Driven rather than merely asserted, the same discipline every shared
+# decision function in this file is held to: an inverted `if`, or a
+# `return 1` swapped for `return 0`, would let every guarded fixture body
+# silently never run while CI stayed green. `id` is shadowed with a bash
+# function the same way `harness_probe_assert_shapes`/`harness_probe_inert_shapes`
+# below shadow `php`: a function definition takes precedence over the PATH
+# binary for any invocation at any call depth reached from the shell that
+# defined it, command substitution included — so `harness_skip_if_root`'s own
+# `"$(id -u)"` sees the probe's canned uid without needing to run as anyone.
+# The stub rejects any call not shaped exactly `id -u` — a mutation calling
+# `id` bare or `id -g` instead would otherwise still return the canned value
+# and pass, verifying nothing about which flag the wrapper actually asks for.
+# Run inside a subshell so the shadow and the probe's own variable are gone
+# the instant it returns, the same way the `verdict` direction-check further
+# down uses a subshell rather than `unset -f` afterward.
+probe_skip_if_root_wiring() {
+    id() {
+        [ "$#" -eq 1 ] && [ "$1" = '-u' ] || return 2
+        printf '%s\n' "$harness_fake_uid"
+    }
+
+    harness_fake_uid=0
+    harness_skip_if_root 'probe: root' >/dev/null || return 1
+
+    harness_fake_uid=1000
+    harness_skip_if_root 'probe: not root' >/dev/null && return 1
+
+    return 0
+}
+
+if ! (probe_skip_if_root_wiring); then
+    printf 'FAILED  harness bookkeeping: harness_skip_if_root does not correctly gate on root vs non-root\n' >&2
+    exit 1
+fi
+
 # verdict
 #
 # The run's single exit point. **Do not turn the `exit` below into `return`.**
