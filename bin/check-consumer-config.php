@@ -173,10 +173,11 @@ $fail = static function (array &$violations, string $file, string $detail): void
     $violations[] = sprintf('%s: %s', $file, $detail);
 };
 
-// safeReportValue() and readQuietly() — shared, see each header for the boundary
-// and the requirers. Required rather than duplicated.
+// safeReportValue(), readQuietly() and mergeConfigLayer() — shared, see each
+// header for the boundary and the requirers. Required rather than duplicated.
 require_once __DIR__ . '/support/safe-report-value.php';
 require_once __DIR__ . '/support/read-quietly.php';
+require_once __DIR__ . '/support/merge-config-layer.php';
 
 /**
  * The oversize verdict, held once — the wording was edited at each reader separately
@@ -941,90 +942,6 @@ $extendsShared = static function (array $config, string $sharedStem, bool $suffi
 };
 
 /**
- * Deep-merges two decoded JSON/JSONC documents the way a real tool folds an
- * `extends` chain: nested objects merge key-by-key, `overrides` arrays
- * CONCATENATE rather than replace, and every other value in $overlay wins over
- * $base outright — matching a later `extends` entry (or the document itself)
- * overriding an earlier one.
- *
- * Verified against Biome 2.5.5, not assumed: a document's own `overrides` entry
- * and a local `extends` target's `overrides` entry both applied to their
- * respective file globs in the same run, so `overrides` accumulates rather than
- * being replaced — unlike every other array-valued key. `files.includes`
- * measured the opposite way: a later layer's list REPLACES an earlier one
- * wholesale, so the general rule stays "overlay wins outright" and `overrides`
- * is the one named exception.
- *
- * **An empty JSON object is indistinguishable from an empty JSON array once
- * decoded** — `json_decode('{}', true)` and `json_decode('[]', true)` are both
- * `[]`, and `array_is_list([])` is `true` (verified: PHP has no third state for
- * "empty associative array"). Naively requiring `!array_is_list($value)` on
- * BOTH sides to recurse therefore mis-classifies an empty overlay OBJECT
- * (`{"linter": {}}`) as a list and falls through to whole-value replacement —
- * wiping every key the layers below it set, rather than leaving them untouched
- * as a real merge-patch would. Verified against Biome 2.5.5: with a chain that
- * disables the linter and then re-enables it via a later `extends` entry, an
- * empty `"linter": {}` on the document itself still reports the lint findings
- * the re-enable restored — an empty object contributes nothing, it does not
- * clear what came before. The list/object decision below therefore asks
- * "is either the NON-EMPTY side a list" rather than "is the overlay a list":
- * an empty side carries no signal either way, so it defers to whichever side
- * actually has content, and when both sides are empty the two candidate
- * results (recurse vs. replace) are identical (`[]`) and the ambiguity is
- * moot. `overrides` needs no such guard — concatenating an empty list with a
- * non-empty one already produces the non-empty one on either side, so the
- * ambiguity never changes its result.
- *
- * The choice above (defer to the non-empty side) has one residual asymmetry
- * with the JS mirror, found and verified during this change's own audit
- * round: a genuinely EMPTY JSON ARRAY on a key whose valid schema type is
- * always an object — `"linter": []`, never a real Biome/tsc shape — recurses
- * here (base preserved) rather than replacing (JS's `Array.isArray([])` is
- * unconditionally true, so it replaces). Not fixed: Biome itself hard-rejects
- * this shape before either gate's verdict would matter — verified against
- * 2.5.5, `linter has an incorrect type, expected an object, but received an
- * array` kills the whole config load — so a config that reaches this
- * divergence never successfully loads for a real consumer in the first place.
- * Resolving it would mean preserving the object/array distinction through
- * every decode in this file (PHP's `json_decode(..., true)` collapses both to
- * `[]` even when NON-empty content differs in shape, which this file relies
- * on elsewhere), not a local fix to this function.
- *
- * @param array<array-key, mixed> $base    The lower-precedence layer.
- * @param array<array-key, mixed> $overlay The higher-precedence layer.
- *
- * @return array<array-key, mixed>
- */
-$mergeConfigLayer = static function (array $base, array $overlay) use (&$mergeConfigLayer): array {
-    foreach ($overlay as $key => $value) {
-        if (
-            ($key === 'overrides')
-            && is_array($value) && array_is_list($value)
-            && is_array($base[$key] ?? null) && array_is_list($base[$key])
-        ) {
-            $base[$key] = [...$base[$key], ...$value];
-
-            continue;
-        }
-
-        if (is_array($value) && is_array($base[$key] ?? null)) {
-            $baseIsList    = ($base[$key] !== []) && array_is_list($base[$key]);
-            $overlayIsList = ($value !== []) && array_is_list($value);
-
-            if (!$baseIsList && !$overlayIsList) {
-                $base[$key] = $mergeConfigLayer($base[$key], $value);
-
-                continue;
-            }
-        }
-
-        $base[$key] = $value;
-    }
-
-    return $base;
-};
-
-/**
  * Loads a config this package itself ships (`biome/base.json`,
  * `tsconfig/base.json`), so its own content can take part in a resolved
  * `extends` chain exactly where the consumer lists it (GH-36) — including
@@ -1166,7 +1083,7 @@ $resolveExtendsLayers = static function (string $repoRoot, array $config, string
     //
     // One residual PHP/JS asymmetry, found and verified during this change's
     // own audit round, deliberately left unfixed for the same reason the
-    // `$mergeConfigLayer` empty-array ambiguity is: a JSON OBJECT whose keys
+    // `mergeConfigLayer()` empty-array ambiguity is: a JSON OBJECT whose keys
     // happen to be the sequential strings `"0"`, `"1"`, … decodes in PHP to an
     // array indexed by the equivalent INTEGERS — a long-standing PHP behaviour
     // for every array, not specific to `json_decode` — and `array_is_list`
@@ -1254,14 +1171,14 @@ $resolveExtendsLayers = static function (string $repoRoot, array $config, string
  *
  * @return array<array-key, mixed>
  */
-$foldExtendsChain = static function (array $layers, array $document) use ($mergeConfigLayer): array {
+$foldExtendsChain = static function (array $layers, array $document): array {
     $effective = [];
 
     foreach ($layers as $layer) {
-        $effective = $mergeConfigLayer($effective, $layer);
+        $effective = mergeConfigLayer($effective, $layer);
     }
 
-    return $mergeConfigLayer($effective, $document);
+    return mergeConfigLayer($effective, $document);
 };
 
 /**

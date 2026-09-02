@@ -18,7 +18,8 @@
         "biome",
         "tsconfig",
         "bin/check-js-config.mjs",
-        "bin/support/safe-report-value.mjs"
+        "bin/support/safe-report-value.mjs",
+        "bin/support/merge-config-layer.mjs"
     ],
     "bin": {
         "check-js-config": "bin/check-js-config.mjs"
@@ -34,7 +35,7 @@
         }
     },
     "scripts": {
-        "ci:test:js": "bash tests/check-js-configs.sh"
+        "ci:test:js": "bash tests/check-js-configs.sh && node --test tests/*.test.mjs"
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.9",

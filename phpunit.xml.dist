@@ -34,6 +34,7 @@
         <include>
             <directory>tests/Support</directory>
             <file>tests/GateTestCase.php</file>
+            <file>bin/support/merge-config-layer.php</file>
         </include>
         <exclude>
             <directory suffix="Test.php">tests/Support</directory>
