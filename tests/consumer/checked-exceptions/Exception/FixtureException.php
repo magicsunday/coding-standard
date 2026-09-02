@@ -17,8 +17,11 @@ use RuntimeException;
  * A first-party exception namespaced under MagicSunday\, so it matches
  * strict.neon's `checkedExceptionRegexes` and is treated as a checked
  * exception by CheckCheckedExceptionsTest's fixture. Lives in its own
- * `Exception` sub-namespace per the strict tier's own
- * symplify/phpstan-rules RequireExceptionNamespaceRule.
+ * `Exception` sub-namespace per the strict tier's own symplify/phpstan-rules
+ * RequireExceptionNamespaceRule (observed 2026-09-02 against
+ * symplify/phpstan-rules 14.x; re-derive: `grep -rn
+ * RequireExceptionNamespaceRule .build/vendor/symplify/phpstan-rules/config`
+ * from an installed consumer if this rule is ever renamed or removed).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT MIT License
