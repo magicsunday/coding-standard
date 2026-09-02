@@ -9,13 +9,13 @@
 
 declare(strict_types=1);
 
-namespace MagicSunday\CodingStandard\Test\Support;
+namespace MagicSunday\CodingStandard\Test;
 
 use PHPUnit\Framework\Attributes\CoversFunction;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
-require_once __DIR__ . '/../../bin/support/merge-config-layer.php';
+require_once __DIR__ . '/../bin/support/merge-config-layer.php';
 
 /**
  * Tests for the global mergeConfigLayer() function
@@ -29,6 +29,13 @@ require_once __DIR__ . '/../../bin/support/merge-config-layer.php';
  * no CLI-level fixture in CheckConsumerConfigTest can observe because every
  * violation check there fires only on an explicit bad value, never on an
  * ABSENT key.
+ *
+ * Lives at the flat tests/ root, not tests/Support/ — that directory is for
+ * test-INFRASTRUCTURE helper classes GateTestCase composes (GateResult,
+ * GateProcess, FixtureDirectory), each defined there itself with its own
+ * Test colocated. This suite's subject is a bin/support/ PRODUCTION script,
+ * the same relationship CheckConsumerConfigTest/CheckVersionLockstepTest
+ * have to their own bin/*.php gate scripts.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -92,6 +99,25 @@ final class MergeConfigLayerTest extends TestCase
                 ],
             ],
             mergeConfigLayer($base, $overlay)
+        );
+    }
+
+    /**
+     * The concat guard requires BOTH sides to already carry a list
+     * `overrides` — a base that has no `overrides` key at all falls through
+     * to plain wholesale replace, same as any other array-valued key. Not
+     * the same case as the concat test above, which needs both sides
+     * present to prove concatenation rather than replacement; this one
+     * proves the guard does not fire on a one-sided `overrides`.
+     */
+    #[Test]
+    public function overridesAbsentFromBaseReplacesWholesaleInsteadOfConcatenating(): void
+    {
+        $overlay = ['overrides' => [['includes' => ['tests/**']]]];
+
+        self::assertSame(
+            $overlay,
+            mergeConfigLayer([], $overlay)
         );
     }
 

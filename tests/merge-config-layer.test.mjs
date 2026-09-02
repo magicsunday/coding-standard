@@ -10,7 +10,7 @@
  * extracted per GH-116 so the merge behaviour can be asserted directly on a
  * decoded base + overlay pair, instead of only through
  * tests/check-js-configs.sh's accept/reject CLI interface. Mirrors
- * tests/Support/MergeConfigLayerTest.php's PHP cases; see that function's own
+ * tests/MergeConfigLayerTest.php's PHP cases; see that function's own
  * docblock (bin/support/merge-config-layer.mjs) for the Biome 2.5.5
  * measurements this behaviour is based on.
  */
@@ -43,6 +43,12 @@ test('overrides arrays concatenate instead of replacing', () => {
     });
 });
 
+test('overrides absent from the base replaces wholesale instead of concatenating', () => {
+    const overlay = { overrides: [{ includes: ['tests/**'] }] };
+
+    assert.deepStrictEqual(mergeConfigLayer({}, overlay), overlay);
+});
+
 test('a non-overrides list replaces wholesale', () => {
     const base = { files: { includes: ['src/**'] } };
     const overlay = { files: { includes: ['tests/**'] } };
@@ -71,12 +77,19 @@ test('a key absent from the overlay is untouched', () => {
     assert.deepStrictEqual(mergeConfigLayer(base, {}), { a: 1, b: { c: 2 } });
 });
 
-test('__proto__/constructor/prototype keys are skipped, never assigned onto the merged object', () => {
-    const overlay = JSON.parse('{"__proto__": {"polluted": true}, "safe": 1}');
+// One case per key, not one shared fixture carrying all three: a shared
+// fixture only ever exercises the FIRST guard a short-circuiting `||` chain
+// reaches for a given input, so removing or misspelling the `constructor`/
+// `prototype` arms individually would still leave a single combined test
+// green (found by an independent cross-model review of this change).
+for (const key of ['__proto__', 'constructor', 'prototype']) {
+    test(`a ${key} overlay key is skipped, never assigned onto the merged object`, () => {
+        const overlay = JSON.parse(`{"${key}": {"polluted": true}, "safe": 1}`);
 
-    const merged = mergeConfigLayer({}, overlay);
+        const merged = mergeConfigLayer({}, overlay);
 
-    assert.strictEqual(Object.prototype.hasOwnProperty.call(merged, '__proto__'), false);
-    assert.strictEqual(merged.polluted, undefined);
-    assert.strictEqual(merged.safe, 1);
-});
+        assert.strictEqual(Object.prototype.hasOwnProperty.call(merged, key), false);
+        assert.strictEqual(merged.polluted, undefined);
+        assert.strictEqual(merged.safe, 1);
+    });
+}

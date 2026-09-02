@@ -6,8 +6,9 @@
  */
 
 /**
- * The node counterpart of bin/support/merge-config-layer.php — see that
- * file's header for the trust boundary and why the merge is shaped this way.
+ * The node counterpart of bin/support/merge-config-layer.php — see
+ * mergeConfigLayer()'s own docblock below (and that PHP function's) for why
+ * the merge is shaped this way, including the prototype-pollution guard.
  * Required rather than duplicated inline for the same reason the PHP gate
  * requires its copy instead of retyping it: bin/check-js-config.mjs and any
  * later node-side gate share ONE definition. Extracted (GH-116) so a small
