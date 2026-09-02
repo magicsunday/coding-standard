@@ -36,7 +36,7 @@ use function sprintf;
  * @license https://opensource.org/licenses/MIT
  * @link    https://github.com/magicsunday/coding-standard/
  */
-abstract class ConsumerPhpstanGateTestCase extends TestCase
+abstract class AbstractConsumerPhpstanGateTestCase extends TestCase
 {
     /**
      * Skips every test in this class until tests/consumer is installed,
