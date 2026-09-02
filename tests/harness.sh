@@ -1048,6 +1048,19 @@ harness_assert_tool_rejects() { # <status> <log> <accepted-msg> <pass-msg> <mism
         return
     fi
 
+    # Same failure shape, one operand narrower: an EMPTY pattern (a caller
+    # passing "" rather than omitting the argument) is not caught by the
+    # count check above, and `grep -qE ''` matches any non-empty log line —
+    # so the mismatch branch below would never fire for it either, silently
+    # degrading the same discriminating power the count guard exists to
+    # protect.
+    for harness_reject_pattern in "$@"; do
+        if [ -z "$harness_reject_pattern" ]; then
+            fail "harness bookkeeping: harness_assert_tool_rejects called with an empty pattern operand"
+            return
+        fi
+    done
+
     if [ "$harness_reject_status" -eq 0 ]; then
         fail "$harness_reject_accepted_msg" "$harness_reject_log"
         return
@@ -1104,10 +1117,16 @@ harness_probe_assert_tool_rejects() {
     harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
         'probe: accepted' 'probe: pass' 'probe: mismatch'
 
+    # rejected, an EMPTY pattern operand among real ones -> must fail (the
+    # narrower guard above; `grep -qE ''` would otherwise match the log
+    # unconditionally and this call would wrongly pass)
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' 'pattern is here' ''
+
     rm -f "$harness_reject_probe_log"
 }
 
-harness_probe_reporters 4 harness_probe_assert_tool_rejects \
+harness_probe_reporters 5 harness_probe_assert_tool_rejects \
     'a triad arm of harness_assert_tool_rejects no longer decides'
 
 # This file's own increments, through the same helper the callers use: harness_settle
