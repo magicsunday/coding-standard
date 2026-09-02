@@ -193,8 +193,12 @@ jobs:
             # flags the fixture's separate stale-throws-annotation case via
             # PHPStan's own default — see the test's own docblocks), then
             # that strict.neon reports the undocumented throw, stays quiet on
-            # the documented one, and exempts the unchecked programmer-error
-            # exceptions by inheritance.
+            # the documented one, stays quiet on a plain unchecked
+            # programmer-error exception (outside checkedExceptionRegexes
+            # entirely), and separately stays quiet on a checked-namespace
+            # exception exempted only by LogicException inheritance
+            # (uncheckedExceptionClasses) — two different mechanisms, see the
+            # test's own docblocks for why they need separate fixture cases.
             - name: Checked-exceptions self-test
               run: composer ci:test:checked-exceptions
 

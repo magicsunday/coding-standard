@@ -16,19 +16,26 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureExcept
 use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureLogicException;
 
 /**
- * Two deliberately paired methods proving the checked-exceptions config
- * (phpstan/strict.neon, GH-139) both fires on an undocumented throw and
- * stays quiet on a correctly documented one — a config that only fires
- * would pass a plain "it reports something" check while a stray extra
- * finding elsewhere in the fixture would go unnoticed.
+ * Deliberately paired/discriminating methods proving the checked-exceptions
+ * config (phpstan/strict.neon, GH-139) fires on an undocumented throw, stays
+ * quiet on a correctly documented one, exempts unchecked exceptions by
+ * namespace and — separately, via a different mechanism — by inheritance,
+ * and still reports a stale throws annotation. Each method's own docblock
+ * states the specific case it proves; a config that only fires would pass a
+ * plain "it reports something" check while a stray extra finding elsewhere
+ * in the fixture would go unnoticed, which is why each case gets its own
+ * paired discriminating assertion in CheckCheckedExceptionsTest rather than
+ * one blanket check.
  *
- * Throws FixtureException (Exception\ sub-namespace, below) rather than a
- * plain SPL exception: `checkedExceptionRegexes: ['#^MagicSunday\\#']` in
- * strict.neon only treats a MagicSunday-namespaced class as checked,
- * matching the decision table's row 5 (a third-party/SPL exception is
- * unchecked purely by not matching the regex, with no separate
- * "third-party" concept in PHPStan itself) — an SPL exception here would
- * prove nothing.
+ * undocumentedThrow()/documentedThrow()/staleThrows() throw FixtureException
+ * (Exception\ sub-namespace, below) rather than a plain SPL exception:
+ * `checkedExceptionRegexes: ['#^MagicSunday\\#']` in strict.neon only treats
+ * a MagicSunday-namespaced class as checked, matching the decision table's
+ * row 5 (a third-party/SPL exception is unchecked purely by not matching the
+ * regex, with no separate "third-party" concept in PHPStan itself) — an SPL
+ * exception here would prove nothing for those three methods.
+ * uncheckedProgrammerError() and uncheckedByInheritanceOnly() deliberately
+ * throw different exception shapes instead — see their own docblocks.
  *
  * It lives outside `src/` for the same reason `case-folding/` does: the
  * php-cs-fixer and Rector consumer smoke runs are scoped to `src/`, so this
@@ -102,7 +109,7 @@ final readonly class CheckedExceptionsFixture
      * (see README's "Checked exceptions" section on why a non-final class's
      * first-declared method would NOT be checkable here).
      *
-     * @throws FixtureException
+     * @throws FixtureException Never thrown — the tag is deliberately stale, to prove tooWideThrowType.
      *
      * @return void
      */
