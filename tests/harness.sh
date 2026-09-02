@@ -224,34 +224,6 @@ done
 
 unset harness_degraded_probe
 
-# harness_uid_is_root <uid>
-#
-# A pure predicate, not `[ "$(id -u)" -eq 0 ]` inline at each call site: taking
-# the uid as an ARGUMENT rather than calling `id -u` itself is what makes this
-# directly probable below, the same way `harness_decide_rejects` takes `$out`/
-# `$rc` rather than invoking the gate itself — a real uid cannot be faked the
-# way `php`/`node` output can, but a plain integer argument needs no faking at
-# all.
-harness_uid_is_root() {
-    [ "$1" -eq 0 ]
-}
-
-for harness_uid_probe in 0; do
-    if ! harness_uid_is_root "$harness_uid_probe"; then
-        printf 'FAILED  harness bookkeeping: harness_uid_is_root(%s) does not recognise root\n' "$harness_uid_probe" >&2
-        exit 1
-    fi
-done
-
-for harness_uid_probe in 1 1000; do
-    if harness_uid_is_root "$harness_uid_probe"; then
-        printf 'FAILED  harness bookkeeping: harness_uid_is_root(%s) misreads a non-root uid as root\n' "$harness_uid_probe" >&2
-        exit 1
-    fi
-done
-
-unset harness_uid_probe
-
 # harness_skip_if_root <what a skip explains, e.g. "the unreadable-file case">
 #
 # Root bypasses DAC, so a `chmod 000` fixture stays readable under it — the
@@ -262,28 +234,33 @@ unset harness_uid_probe
 # skip) otherwise — call as `if ! harness_skip_if_root "..."; then
 # ...fixture body...; fi`.
 harness_skip_if_root() {
-    if harness_uid_is_root "$(id -u)"; then
+    if [ "$(id -u)" -eq 0 ]; then
         printf 'skip (running as root: mode 000 does not deny read): %s\n' "$1"
         return 0
     fi
     return 1
 }
 
-# `harness_uid_is_root` being probed does not prove this wrapper's OWN
-# `id -u` wiring and return-code contract — an inverted `if`, or a `return 1`
-# swapped for `return 0`, would still let every call above pass a probe of
-# the predicate alone, and every guarded fixture body would then silently
-# never run while CI stayed green. `id` is shadowed with a bash function the
-# same way `probe_assert_ok_inert_shapes` above shadows `php`: a function
-# definition takes precedence over the PATH binary for any invocation
-# (`-u` argument included) at any call depth reached from the shell that
+# Driven rather than merely asserted, the same discipline every shared
+# decision function in this file is held to: an inverted `if`, or a
+# `return 1` swapped for `return 0`, would let every guarded fixture body
+# silently never run while CI stayed green. `id` is shadowed with a bash
+# function the same way `harness_probe_assert_shapes`/`harness_probe_inert_shapes`
+# below shadow `php`: a function definition takes precedence over the PATH
+# binary for any invocation at any call depth reached from the shell that
 # defined it, command substitution included — so `harness_skip_if_root`'s own
 # `"$(id -u)"` sees the probe's canned uid without needing to run as anyone.
+# The stub rejects any call not shaped exactly `id -u` — a mutation calling
+# `id` bare or `id -g` instead would otherwise still return the canned value
+# and pass, verifying nothing about which flag the wrapper actually asks for.
 # Run inside a subshell so the shadow and the probe's own variable are gone
 # the instant it returns, the same way the `verdict` direction-check above
 # uses a subshell rather than `unset -f` afterward.
 probe_skip_if_root_wiring() {
-    id() { printf '%s\n' "$harness_fake_uid"; }
+    id() {
+        [ "$#" -eq 1 ] && [ "$1" = '-u' ] || return 2
+        printf '%s\n' "$harness_fake_uid"
+    }
 
     harness_fake_uid=0
     harness_skip_if_root 'probe: root' >/dev/null || return 1
