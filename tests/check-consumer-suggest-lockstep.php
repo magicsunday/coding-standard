@@ -23,9 +23,13 @@ declare(strict_types=1);
  * the OLD major while the install text already promises the new one.
  *
  * The packages checked are derived from the OVERLAP between `suggest` and
- * the fixture's `require-dev`, never a hand-kept list of the three current
- * names — a future package added to (or dropped from) either side is picked
- * up without editing this gate.
+ * the fixture's `require-dev`, never a hand-kept list of names — re-derive
+ * the current set rather than trusting a count here: `php -r '$c =
+ * json_decode(file_get_contents("composer.json"), true); $f =
+ * json_decode(file_get_contents("tests/consumer/composer.json"), true);
+ * var_export(array_keys(array_intersect_key($c["suggest"],
+ * $f["require-dev"])));'`. A future package added to (or dropped from)
+ * either side is picked up without editing this gate.
  *
  * Run from the package root: php tests/check-consumer-suggest-lockstep.php
  *
@@ -38,20 +42,22 @@ declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__);
 
-// safeReportValue() and readCapped() — the same guards the shipped gates
-// under bin/ use, for the same reason: this gate also runs over
-// pull-request branch content (both composer.json files can be edited by a
-// PR). Its findings go to STDERR and its summary to STDOUT, and the runner
-// scans both for workflow commands.
+// safeReportValue(), readCapped() and readCappedJsonObject() — the same
+// guards the shipped gates under bin/ use, for the same reason: this gate
+// also runs over pull-request branch content (both composer.json files can
+// be edited by a PR). Its findings go to STDERR and its summary to STDOUT,
+// and the runner scans both for workflow commands.
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
 require_once __DIR__ . '/../bin/support/read-quietly.php';
+require_once __DIR__ . '/../bin/support/read-capped-json.php';
 
 /**
  * The largest file this gate reads, in bytes.
  *
- * This repository's own composer.json is under 8 KB and tests/consumer/composer.json
- * under 1 KB, and the gate runs over pull-request content. Re-derive before
- * raising it: `wc -c composer.json tests/consumer/composer.json`.
+ * Both files this gate reads sit far below the cap — re-derive rather than
+ * trusting a number here: `wc -c composer.json tests/consumer/composer.json`.
+ * The gate runs over pull-request content, so the cap stays generous rather
+ * than tracking either file's current size.
  */
 const MAX_LOCKSTEP_BYTES = 1048576;
 
@@ -59,12 +65,13 @@ const MAX_LOCKSTEP_BYTES = 1048576;
  * Whether $token is shaped like a composer version constraint this gate can
  * compare (`^4.0`, `~1.2.3`, `^4.0 || ^5.0`, ...).
  *
- * Deliberately narrower than the full composer constraint grammar: every
- * `suggest` entry this repository writes today ends in a plain caret
- * constraint, and a shape this permissive already tells apart "a real
- * constraint" from "the extraction landed on trailing prose" (a suggest
- * entry with no version at the end, like roave/backward-compatibility-check's),
- * which is the only distinction this gate needs to make.
+ * Deliberately narrower than the full composer constraint grammar: this
+ * shape only needs to tell apart "a real constraint" from "the extraction
+ * landed on trailing prose" (a suggest entry with no version at the end,
+ * like roave/backward-compatibility-check's) — re-derive whether every
+ * CHECKED entry still fits it rather than trusting that it does:
+ * `grep -A6 '"suggest"' composer.json`. A suggest entry this shape rejects
+ * is reported as UNRECOGNISED, not silently accepted or silently dropped.
  *
  * @param string $token The candidate version constraint.
  *
@@ -76,11 +83,10 @@ function isComposerConstraintShaped(string $token): bool
 }
 
 /**
- * Reads $path and returns its $section as an array (empty when the key is
- * absent but the file otherwise parses), or exits(2) with one of three
- * distinct diagnoses a caller cannot usefully recover from itself: the file
- * is larger than $maxBytes, the file cannot be read, or the file does not
- * parse as a JSON object.
+ * Reads $path via readCappedJsonObject() and returns its $section as an
+ * array (empty when the key is absent but the file otherwise parses), or
+ * exits(2) when $section is present but not itself a JSON object — on top
+ * of that function's own three read/decode diagnoses.
  *
  * @param string $path     Path to the composer.json to read.
  * @param string $section  The top-level key to return (`suggest`, `require-dev`).
@@ -90,25 +96,7 @@ function isComposerConstraintShaped(string $token): bool
  */
 function readComposerSection(string $path, string $section, int $maxBytes): array
 {
-    $contents = readCapped($path, $maxBytes);
-
-    if ($contents === null) {
-        fwrite(\STDERR, sprintf("%s is larger than the %d bytes this gate reads.\n", $path, $maxBytes));
-        exit(2);
-    }
-
-    if ($contents === false) {
-        fwrite(\STDERR, sprintf("Cannot read %s.\n", $path));
-        exit(2);
-    }
-
-    $decoded = json_decode($contents, true);
-
-    if (!is_array($decoded)) {
-        fwrite(\STDERR, sprintf("%s is not valid JSON.\n", $path));
-        exit(2);
-    }
-
+    $decoded      = readCappedJsonObject($path, $maxBytes);
     $sectionValue = $decoded[$section] ?? [];
 
     if (!is_array($sectionValue)) {

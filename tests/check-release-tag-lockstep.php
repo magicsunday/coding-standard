@@ -97,6 +97,7 @@ $root = $argv[1] ?? dirname(__DIR__);
 
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
 require_once __DIR__ . '/../bin/support/read-quietly.php';
+require_once __DIR__ . '/../bin/support/read-capped-json.php';
 require_once __DIR__ . '/../bin/support/read-package-json-version.php';
 require_once __DIR__ . '/../bin/support/version-tag-shape.php';
 

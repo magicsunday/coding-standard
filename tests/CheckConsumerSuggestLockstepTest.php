@@ -156,9 +156,8 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
 
     /**
      * The set of packages checked is the OVERLAP, derived dynamically —
-     * not a hand-kept list of the three names this repository happens to
-     * carry today. A fourth, unrelated package present on both sides must
-     * be checked exactly like the real three are.
+     * not a hand-kept list of names. An unrelated package present on both
+     * sides must be checked exactly like a real suggested package is.
      */
     #[Test]
     public function checksAnyOverlappingPackageNotJustTheKnownThree(): void
@@ -326,8 +325,8 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
      * Writes a composer.json/tests/consumer/composer.json pair into this
      * test's fixture directory.
      *
-     * @param array<string, string> $suggest    composer.json's `suggest` block.
-     * @param array<string, string> $requireDev tests/consumer/composer.json's `require-dev` block.
+     * @param array<string, string> $suggest    The `suggest` block written to composer.json.
+     * @param array<string, string> $requireDev The `require-dev` block written to tests/consumer/composer.json.
      *
      * @return string The fixture directory's path.
      */
