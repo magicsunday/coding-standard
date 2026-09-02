@@ -510,6 +510,23 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * Writes a biome.json truncated mid-object — valid start, no closing
+     * braces — shared by the adoption-gated and adoption-exempt malformed
+     * biome.json cases below.
+     *
+     * @param string $dir The directory to write biome.json into.
+     *
+     * @return void
+     */
+    private static function writeMalformedBiomeJson(string $dir): void
+    {
+        file_put_contents(
+            $dir . '/biome.json',
+            "{\n    \"linter\": { \"enabled\": true\n",
+        );
+    }
+
+    /**
      * Writes a package.json truncated mid-object — valid start, no closing
      * braces — used by the "unparseable package.json" cases.
      *
@@ -3480,7 +3497,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function acceptsMalformedBiomeInRepoWithoutAdoption(): void
     {
         $dir = $this->mkUnadoptedCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true\n");
+        self::writeMalformedBiomeJson($dir);
 
         $this->assertBothAccept($dir, 'malformed biome.json in a repo that has not adopted the npm package');
     }
@@ -3493,7 +3510,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     public function rejectsMalformedBiomeOnceNpmPackageIsDeclared(): void
     {
         $dir = $this->mkJsCase();
-        file_put_contents($dir . '/biome.json', "{\n    \"linter\": { \"enabled\": true\n");
+        self::writeMalformedBiomeJson($dir);
 
         $this->assertBothReject($dir, 'biome.json: not valid JSON(C)', 'malformed biome.json once the npm package is declared');
     }
