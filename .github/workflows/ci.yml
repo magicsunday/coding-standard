@@ -138,6 +138,22 @@ jobs:
             - name: PHPUnit
               run: composer ci:test:phpunit${{ matrix.coverage != 'none' && ' -- --coverage-text' || '' }}
 
+            # tests/consumer/composer.json's require-dev hand-copies each
+            # opt-in strict-tier package's version constraint from composer.json's
+            # own suggest block, so the Case-folding self-test step below (the
+            # only place strict.neon is loaded — see its own comment) proves that
+            # tier against the same version the suggest text tells a real consumer
+            # to install. Nothing else ties the two copies together — a suggest
+            # bump with no matching fixture bump would keep that step green on the OLD
+            # major while the install text already promises the new one.
+            #
+            # Positioned here, before the Consumer smoke install below, so a stale
+            # pin fails fast: this gate needs no installed vendor layout, so
+            # running it first skips several minutes of install/PHPStan/Rector
+            # work on a leg that would fail anyway.
+            - name: Consumer suggest lockstep gate
+              run: composer ci:test:consumer-suggest-lockstep
+
             # The steps below install this package into a fixture project exactly the
             # way a real repository consumes it, then run each shared config against
             # the fixture source. This is what proves the relative `includes` in
@@ -183,17 +199,6 @@ jobs:
             # install instructions pointing at a tag without the fix.
             - name: Version lockstep gate
               run: composer ci:test:version
-
-            # tests/consumer/composer.json's require-dev hand-copies each
-            # opt-in strict-tier package's version constraint from composer.json's
-            # own suggest block, so the Case-folding self-test step above (the
-            # only place strict.neon is loaded — see its own comment) proves that
-            # tier against the same version the suggest text tells a real consumer
-            # to install. Nothing else ties the two copies together — a suggest
-            # bump with no matching fixture bump would keep that step green on the OLD
-            # major while the install text already promises the new one.
-            - name: Consumer suggest lockstep gate
-              run: composer ci:test:consumer-suggest-lockstep
 
             # GH-38: asserts this repository's own .gitattributes export-ignores
             # every templates/gitattributes entry that names a path this
