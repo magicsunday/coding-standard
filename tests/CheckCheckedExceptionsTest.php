@@ -134,7 +134,7 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     /**
      * The correctly documented sibling method must NOT be reported — proves
      * the config discriminates rather than flagging every throw regardless
-     * of its @throws tag.
+     * of its throws annotation.
      *
      * @return void
      */
@@ -144,6 +144,7 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         // "::documentedThrow()", not "documentedThrow()" — the latter is
         // also a substring of "undocumentedThrow()" and would false-positive
         // against the previous test's own, expected finding.
+        self::assertResultIsNotDegraded(self::strictResult());
         self::assertStringNotContainsString(
             '::documentedThrow()',
             self::strictResult()->output,
@@ -152,20 +153,48 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * The unchecked programmer-error exception must NOT be reported either —
-     * proves `uncheckedExceptionClasses: ['LogicException']` in strict.neon
-     * exempts InvalidArgumentException by inheritance, without listing it
-     * separately.
+     * The unchecked programmer-error exception must NOT be reported either.
+     * This does NOT discriminate uncheckedExceptionClasses's inheritance
+     * matching by itself: uncheckedProgrammerError()'s InvalidArgumentException
+     * is a plain SPL class outside checkedExceptionRegexes, so it would stay
+     * unreported even with `uncheckedExceptionClasses: ['LogicException']`
+     * deleted from strict.neon entirely — see
+     * strictRunDoesNotReportTheUncheckedByInheritanceOnly() below for the
+     * fixture shape that actually needs the inheritance match.
      *
      * @return void
      */
     #[Test]
     public function strictRunDoesNotReportTheUncheckedProgrammerError(): void
     {
+        self::assertResultIsNotDegraded(self::strictResult());
         self::assertStringNotContainsString(
             '::uncheckedProgrammerError()',
             self::strictResult()->output,
-            "the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.\n" . self::strictResult()->output,
+            "the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway.\n" . self::strictResult()->output,
+        );
+    }
+
+    /**
+     * The genuinely discriminating case for `uncheckedExceptionClasses:
+     * ['LogicException']`'s inheritance matching: uncheckedByInheritanceOnly()
+     * throws a MagicSunday-namespaced exception (so it IS inside
+     * checkedExceptionRegexes, unlike uncheckedProgrammerError() above) that
+     * also extends LogicException (so it is exempted only by the inheritance
+     * match). Deleting the uncheckedExceptionClasses line from strict.neon
+     * turns this test red; it does not affect
+     * strictRunDoesNotReportTheUncheckedProgrammerError() above at all.
+     *
+     * @return void
+     */
+    #[Test]
+    public function strictRunDoesNotReportTheUncheckedByInheritanceOnly(): void
+    {
+        self::assertResultIsNotDegraded(self::strictResult());
+        self::assertStringNotContainsString(
+            '::uncheckedByInheritanceOnly()',
+            self::strictResult()->output,
+            "the exception in uncheckedByInheritanceOnly() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.\n" . self::strictResult()->output,
         );
     }
 
@@ -209,8 +238,9 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * The strict run must report EXACTLY one missing-@throws finding and
-     * exactly one stale-@throws finding — a stray second one (the
+     * The strict run must report EXACTLY one missing-throws-annotation
+     * finding and exactly one stale-throws-annotation finding — a stray
+     * second one (the
      * documented or unchecked method getting flagged too, or the stale-tag
      * direction firing twice) would pass the assertions above individually
      * while still being wrong. Scoped to these two messages specifically,
