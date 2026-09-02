@@ -336,16 +336,16 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
      * Creates tests/consumer/ under $dir and writes its composer.json with
      * $requireDev as the `require-dev` value.
      *
-     * `mixed`, not `array`: one caller (the malformed-manifest case) needs a
-     * scalar `require-dev` value, so a narrower type would not fit every
-     * site this helper collapses.
+     * `array|string`, not `array`: one caller (the malformed-manifest case)
+     * needs a scalar `require-dev` value, and this union covers every site
+     * this helper collapses.
      *
-     * @param string $dir        The fixture directory.
-     * @param mixed  $requireDev The value to encode as `require-dev`.
+     * @param string                           $dir        The fixture directory.
+     * @param array<string, int|string>|string $requireDev The value to encode as `require-dev`.
      *
      * @return void
      */
-    private function writeConsumerComposerJson(string $dir, mixed $requireDev): void
+    private function writeConsumerComposerJson(string $dir, array|string $requireDev): void
     {
         mkdir($dir . '/tests/consumer', 0o700, true);
         file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => $requireDev]));
