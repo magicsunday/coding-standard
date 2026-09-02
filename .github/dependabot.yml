@@ -1,6 +1,13 @@
 version: 2
 
 updates:
+    # tests/consumer/composer.json is deliberately not a second `directory` here:
+    # it is a `path`-repository, `minimum-stability: dev` fixture that installs
+    # this package from the working tree itself, not from a tagged release, so
+    # a Dependabot PR against it would either fail to resolve or offer to bump
+    # a requirement that is not a real upstream dependency. Its own require-dev
+    # copy of the opt-in strict-tier packages is kept in step with composer.json's
+    # suggest block by tests/check-consumer-suggest-lockstep.php instead.
     -   package-ecosystem: composer
         directory: /
         schedule:
