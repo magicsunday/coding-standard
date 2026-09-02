@@ -71,8 +71,11 @@ declare(strict_types=1);
  * config load — so a config that reaches this divergence never successfully
  * loads for a real consumer in the first place. Resolving it would mean
  * preserving the object/array distinction through every decode in the calling
- * gate (PHP's `json_decode(..., true)` collapses both to `[]` even when
- * NON-empty content differs in shape), not a local fix to this function.
+ * gate — PHP's `json_decode(..., true)` collapses both shapes to the SAME
+ * `array` type (only an EMPTY object/array is literally the identical `[]`
+ * value; a non-empty one keeps distinguishable content, but the type itself
+ * still carries no object/array tag either way) — not a local fix to this
+ * function.
  *
  * @param array<array-key, mixed> $base    The lower-precedence layer.
  * @param array<array-key, mixed> $overlay The higher-precedence layer.
