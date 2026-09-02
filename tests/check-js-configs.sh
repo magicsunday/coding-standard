@@ -1980,13 +1980,13 @@ export const loose = (a: string, b: string): boolean => {
 };
 TS
 
-if biome_ci "$work/biome-dirty.log"; then
-    fail "biome control — a rule violation passed, the shared linter is not in force"
-elif grep -q 'lint/suspicious/noDoubleEquals' "$work/biome-dirty.log"; then
-    pass "biome control — rule violation rejected"
-else
-    fail "biome control — biome ci failed, but not on noDoubleEquals" "$work/biome-dirty.log"
-fi
+status=0
+biome_ci "$work/biome-dirty.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/biome-dirty.log" \
+    "biome control — a rule violation passed, the shared linter is not in force" \
+    "biome control — rule violation rejected" \
+    "biome control — biome ci failed, but not on noDoubleEquals" \
+    'lint/suspicious/noDoubleEquals'
 
 rm src/dirty.ts
 
@@ -2003,13 +2003,13 @@ TS
 # shared config's own key names contain it, so a CONFIGURATION error — the state
 # these controls exist to distinguish from a finding — matches it too. Assert the
 # fixture and the diagnostic, as the tsc control does.
-if biome_ci "$work/biome-format.log"; then
-    fail "biome control — formatter drift passed, the shared formatter is not in force"
-elif grep -q 'src/unformatted.ts' "$work/biome-format.log" && grep -q 'File content differs from formatting output' "$work/biome-format.log"; then
-    pass "biome control — formatter drift rejected"
-else
-    fail "biome control — biome ci failed, but not on the unformatted fixture" "$work/biome-format.log"
-fi
+status=0
+biome_ci "$work/biome-format.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/biome-format.log" \
+    "biome control — formatter drift passed, the shared formatter is not in force" \
+    "biome control — formatter drift rejected" \
+    "biome control — biome ci failed, but not on the unformatted fixture" \
+    'src/unformatted.ts' 'File content differs from formatting output'
 
 rm src/unformatted.ts
 
@@ -2023,13 +2023,13 @@ export const trace = (): void => {
 };
 TS
 
-if biome_ci "$work/biome-preset.log"; then
-    fail "biome control — the recommended rule preset is not in force"
-elif grep -q 'lint/suspicious/noDebugger' "$work/biome-preset.log"; then
-    pass "biome control — the recommended preset rejected a debugger statement"
-else
-    fail "biome control — biome ci failed, but not on noDebugger; the preset may be off" "$work/biome-preset.log"
-fi
+status=0
+biome_ci "$work/biome-preset.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/biome-preset.log" \
+    "biome control — the recommended rule preset is not in force" \
+    "biome control — the recommended preset rejected a debugger statement" \
+    "biome control — biome ci failed, but not on noDebugger; the preset may be off" \
+    'lint/suspicious/noDebugger'
 
 rm src/debugger.ts
 
@@ -2070,13 +2070,13 @@ import { value } from "./imported";
 export const doubled = (): number => value * 2;
 TS
 
-if biome_ci "$work/biome-import-bare.log"; then
-    fail "biome control — an extensionless import passed, useImportExtensions is not in force"
-elif grep -q 'lint/correctness/useImportExtensions' "$work/biome-import-bare.log"; then
-    pass "biome control — extensionless import rejected"
-else
-    fail "biome control — biome ci failed, but not on useImportExtensions" "$work/biome-import-bare.log"
-fi
+status=0
+biome_ci "$work/biome-import-bare.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/biome-import-bare.log" \
+    "biome control — an extensionless import passed, useImportExtensions is not in force" \
+    "biome control — extensionless import rejected" \
+    "biome control — biome ci failed, but not on useImportExtensions" \
+    'lint/correctness/useImportExtensions'
 
 
 rm src/importer.ts
@@ -2141,6 +2141,9 @@ while IFS=' ' read -r source_ext target_ext; do
         continue
     fi
 
+    # shellcheck disable=SC2034 # read via a `local -n` nameref inside
+    # harness_assert_lockstep_complete (tests/harness.sh), which shellcheck's
+    # single-file analysis cannot trace across the source boundary.
     seen_row[$source_ext]=1
 
     if [ "$target_ext" != "$want" ]; then
@@ -2171,13 +2174,13 @@ while IFS=' ' read -r source_ext target_ext; do
     printf 'import { value } from "./mod";\n\nexport const tripled = (): number => value * 3;\n' \
         > "src/bare.$source_ext"
 
-    if biome_ci "$work/biome-map-neg-$source_ext.log"; then
-        fail "biome — an extensionless import from a .$(safe_report "$source_ext") source was accepted, so useImportExtensions is not in force for that extension"
-    elif grep -q 'lint/correctness/useImportExtensions' "$work/biome-map-neg-$source_ext.log"; then
-        pass "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is in force"
-    else
-        fail "biome — biome ci failed on a .$(safe_report "$source_ext") source, but not on useImportExtensions" "$work/biome-map-neg-$source_ext.log"
-    fi
+    status=0
+    biome_ci "$work/biome-map-neg-$source_ext.log" || status=$?
+    harness_assert_tool_rejects "$status" "$work/biome-map-neg-$source_ext.log" \
+        "biome — an extensionless import from a .$(safe_report "$source_ext") source was accepted, so useImportExtensions is not in force for that extension" \
+        "biome — the extensionMappings row .$(safe_report "$source_ext") -> .$want is in force" \
+        "biome — biome ci failed on a .$(safe_report "$source_ext") source, but not on useImportExtensions" \
+        'lint/correctness/useImportExtensions'
 
     rm "src/bare.$source_ext"
     rm "src/mod.$source_ext" "src/use.$source_ext"
@@ -2185,11 +2188,9 @@ done <<<"$mappings"
 
 # A row DELETED from the base leaves the derived list without that line, so the
 # loop never reaches it and no assertion runs — silence that reads as success.
-for source_ext in "${!expected_target[@]}"; do
-    if [ -z "${seen_row[$source_ext]:-}" ]; then
-        fail "biome/base.json no longer maps the .$(safe_report "$source_ext") extension, which this smoke proves — the row was dropped rather than retargeted"
-    fi
-done
+harness_assert_lockstep_complete \
+    'biome/base.json no longer maps the .%s extension, which this smoke proves — the row was dropped rather than retargeted' \
+    expected_target seen_row
 
 # The other half of the same option choice, and the one that made the blunt
 # spelling wrong for a SHARED base. `forceJsExtensions: true` settles the TS/tsc
@@ -2256,13 +2257,13 @@ cp "$root/tests/consumer/tsconfig.json" tsconfig.json
 
 printf '{\n    "extends": ["@magicsunday/coding-standard/biome/base"]\n}\n' > biome.json
 
-if biome_ci "$work/biome-extensionless.log"; then
-    fail "biome — resolved the extensionless specifier; the gate rejects a config that works" "$work/biome-extensionless.log"
-elif grep -qi 'not found\|could not resolve' "$work/biome-extensionless.log"; then
-    pass "biome — refuses the extensionless specifier, as the gate assumes"
-else
-    fail "biome — failed on the extensionless specifier, but not by failing to resolve it" "$work/biome-extensionless.log"
-fi
+status=0
+biome_ci "$work/biome-extensionless.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/biome-extensionless.log" \
+    "biome — resolved the extensionless specifier; the gate rejects a config that works" \
+    "biome — refuses the extensionless specifier, as the gate assumes" \
+    "biome — failed on the extensionless specifier, but not by failing to resolve it" \
+    -i 'not found|could not resolve'
 
 cp "$root/tests/consumer/biome.json" biome.json
 
@@ -2297,13 +2298,13 @@ TS
 # `files` allow-list ever stopped shipping tsconfig/, tsc would exit non-zero
 # with TS5083 "Cannot read file …/tsconfig/base.json" — and an exit-status
 # control would report the shared base as in force precisely because it is gone.
-if run_tsc "$work/tsc-dirty.log"; then
-    fail "tsc control — noUncheckedIndexedAccess did not bite, the shared base is not in force"
-elif grep -q 'unchecked.ts' "$work/tsc-dirty.log" && grep -q 'TS2322' "$work/tsc-dirty.log"; then
-    pass "tsc control — noUncheckedIndexedAccess rejected the unchecked index"
-else
-    fail "tsc control — tsc failed, but not on the unchecked index" "$work/tsc-dirty.log"
-fi
+status=0
+run_tsc "$work/tsc-dirty.log" || status=$?
+harness_assert_tool_rejects "$status" "$work/tsc-dirty.log" \
+    "tsc control — noUncheckedIndexedAccess did not bite, the shared base is not in force" \
+    "tsc control — noUncheckedIndexedAccess rejected the unchecked index" \
+    "tsc control — tsc failed, but not on the unchecked index" \
+    'unchecked.ts' 'TS2322'
 
 rm src/unchecked.ts
 
@@ -2386,13 +2387,13 @@ declare -A jscpd_json5_case=(
 for feature in "${!jscpd_json5_case[@]}"; do
     printf '%s\n' "${jscpd_json5_case[$feature]}" > jscpd-json5.json
 
-    if npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1; then
-        fail "jscpd control — a config carrying $feature loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" "$work/jscpd-json5.log"
-    elif grep -q 'config file .* line' "$work/jscpd-json5.log"; then
-        pass "jscpd — $feature is rejected with a config-parse diagnostic; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php"
-    else
-        fail "jscpd control — the \"$(safe_report "$feature")\" run failed, but not with a config-parse diagnostic" "$work/jscpd-json5.log"
-    fi
+    status=0
+    npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1 || status=$?
+    harness_assert_tool_rejects "$status" "$work/jscpd-json5.log" \
+        "jscpd control — a config carrying $feature loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" \
+        "jscpd — $feature is rejected with a config-parse diagnostic; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php" \
+        "jscpd control — the \"$(safe_report "$feature")\" run failed, but not with a config-parse diagnostic" \
+        'config file .* line'
 done
 
 rm -f jscpd-json5.json
@@ -2470,6 +2471,9 @@ while IFS= read -r format; do
         continue
     fi
 
+    # shellcheck disable=SC2034 # read via a `local -n` nameref inside
+    # harness_assert_lockstep_complete (tests/harness.sh), which shellcheck's
+    # single-file analysis cannot trace across the source boundary.
     seen_format[$format]=1
 
     rm -rf jscpd-fixture
@@ -2479,24 +2483,22 @@ while IFS= read -r format; do
 
     # minTokens/minLines come from the template; the fixture has to clear them, or
     # a clean run would prove the thresholds rather than the format names.
-    if npx --no-install jscpd --config .jscpd.json --pattern "**/*.$extension" jscpd-fixture/src > "$work/jscpd-$format.log" 2>&1; then
-        fail "jscpd control — no clone found in two identical .$(safe_report "$extension") files; the \"$(safe_report "$format")\" format name no longer analyses anything" "$work/jscpd-$format.log"
-    elif grep -qiE 'clone|duplicat' "$work/jscpd-$format.log"; then
-        pass "jscpd — the template's \"$(safe_report "$format")\" format name is recognised and the clone is found"
-    else
-        fail "jscpd control — the \"$(safe_report "$format")\" run failed, but not by reporting the clone" "$work/jscpd-$format.log"
-    fi
+    status=0
+    npx --no-install jscpd --config .jscpd.json --pattern "**/*.$extension" jscpd-fixture/src > "$work/jscpd-$format.log" 2>&1 || status=$?
+    harness_assert_tool_rejects "$status" "$work/jscpd-$format.log" \
+        "jscpd control — no clone found in two identical .$(safe_report "$extension") files; the \"$(safe_report "$format")\" format name no longer analyses anything" \
+        "jscpd — the template's \"$(safe_report "$format")\" format name is recognised and the clone is found" \
+        "jscpd control — the \"$(safe_report "$format")\" run failed, but not by reporting the clone" \
+        -i 'clone|duplicat'
 done <<<"$jscpd_formats"
 
 # A format DROPPED from the template leaves the derived list without that line,
 # so the loop never reaches it and no assertion runs — the same silence the
 # extensionMappings completeness pass above exists for. Every consumer copying
 # the narrowed template would then run a clone gate blind to that format.
-for format in "${!jscpd_extension[@]}"; do
-    if [ -z "${seen_format[$format]:-}" ]; then
-        fail "templates/jscpd.json no longer names the \"$(safe_report "$format")\" format, which this smoke proves — the entry was dropped rather than renamed"
-    fi
-done
+harness_assert_lockstep_complete \
+    'templates/jscpd.json no longer names the "%s" format, which this smoke proves — the entry was dropped rather than renamed' \
+    jscpd_extension seen_format
 
 rm -rf jscpd-fixture .jscpd.json
 
