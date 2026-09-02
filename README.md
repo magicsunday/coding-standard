@@ -243,7 +243,8 @@ something.
 `strict.neon` (which includes `base.neon`) is the **target** — the tier every
 repository is expected to reach, not a permanent alternative. It adds the
 shipmonk/symplify rule packs, the case-folding bans from `disallowed-calls.neon`,
-and the extra-strict report parameters. The reason it
+checked-exceptions enforcement (see "Checked exceptions" below), and the
+extra-strict report parameters. The reason it
 is staged rather than folded into the base is cost, not preference: turning it on
 surfaces real findings that need triaging per repository, so forcing it into the
 base would block every adoption on an unrelated backlog.

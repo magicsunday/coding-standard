@@ -1,8 +1,9 @@
 # Opt-in strict PHPStan tier for magicsunday/* projects.
 #
 # Adds the shipmonk/symplify rule packs, the case-folding bans from
-# disallowed-calls.neon, and the extra-strict report parameters on top of
-# base.neon. Requires the consumer to install all three packs:
+# disallowed-calls.neon, checked-exceptions enforcement (see README's
+# "Checked exceptions" section), and the extra-strict report parameters on
+# top of base.neon. Requires the consumer to install all three packs:
 #
 #     composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules spaze/phpstan-disallowed-calls
 #
