@@ -54,10 +54,9 @@ export function isArrayLike(value) {
  * empty JSON ARRAY on a key whose valid schema shape is always an object
  * (`"linter": []`, never real Biome/tsc config) replaces here (this file's
  * `Array.isArray([])` is unconditionally `true`) while PHP's `array_is_list`
- * ambiguity makes it recurse instead. Not reachable by a config that
- * successfully loads in the real tool — Biome answers that exact shape with
- * `linter has an incorrect type, expected an object, but received an array`
- * before either gate's verdict would matter.
+ * ambiguity makes it recurse instead — see `mergeConfigLayer()`'s PHP
+ * docblock (same GH-36 audit round) for why that shape is unreachable in a
+ * config that successfully loads in the real tool.
  *
  * `__proto__`/`constructor`/`prototype` are skipped outright — a
  * `JSON.parse`'d document with a literal `"__proto__"` key creates a real OWN
