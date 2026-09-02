@@ -21,10 +21,17 @@ declare(strict_types=1);
  * tests/CheckVersionLockstepTest.php asserts each one's wording verbatim
  * (a substring match, not full-string equality).
  *
- * Depends on readCapped() from bin/support/read-quietly.php — a caller must
- * `require_once` that file first, the same convention every other bin/support/
- * file already leaves to its callers rather than requiring itself and risking a
- * double include guard mismatch.
+ * The read-decode-validate-object prefix of that sequence moved on again
+ * (GH-57) into bin/support/read-capped-json.php's readCappedJsonObject() once
+ * a second caller needed it for a different top-level shape — this file now
+ * calls that one for its first three exit(2) causes and keeps only the
+ * `version`-specific fourth check.
+ *
+ * Depends on readCappedJsonObject() from bin/support/read-capped-json.php,
+ * which itself depends on readCapped() from bin/support/read-quietly.php — a
+ * caller must `require_once` both, in that order, the same convention every
+ * other bin/support/ file already leaves to its callers rather than requiring
+ * itself and risking a double include guard mismatch.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -46,25 +53,7 @@ declare(strict_types=1);
  */
 function readPackageJsonVersion(string $root, int $maxBytes): string
 {
-    $contents = readCapped($root . '/package.json', $maxBytes);
-
-    if ($contents === null) {
-        fwrite(\STDERR, sprintf("%s/package.json is larger than the %d bytes this gate reads.\n", $root, $maxBytes));
-
-        exit(2);
-    }
-
-    if ($contents === false) {
-        fwrite(\STDERR, sprintf("Cannot read %s/package.json.\n", $root));
-        exit(2);
-    }
-
-    $packageJson = json_decode($contents, true);
-
-    if (!is_array($packageJson)) {
-        fwrite(\STDERR, sprintf("%s/package.json is not valid JSON.\n", $root));
-        exit(2);
-    }
+    $packageJson = readCappedJsonObject($root . '/package.json', $maxBytes);
 
     if (!is_string($packageJson['version'] ?? null)) {
         fwrite(\STDERR, "package.json has no string `version`.\n");
