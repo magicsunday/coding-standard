@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
-use MagicSunday\CodingStandard\Test\Support\ConsumerPhpstanGateTestCase;
+use MagicSunday\CodingStandard\Test\Support\AbstractConsumerPhpstanGateTestCase;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
@@ -34,7 +34,7 @@ use function substr_count;
  * drift from what strict.neon actually ships.
  *
  * Migrated pattern from tests/CheckDisallowedCallsTest.php; see
- * ConsumerPhpstanGateTestCase for why every test self-skips via setUp()
+ * AbstractConsumerPhpstanGateTestCase for why every test self-skips via setUp()
  * until tests/consumer is installed, rather than failing.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -42,7 +42,7 @@ use function substr_count;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversNothing]
-final class CheckCheckedExceptionsTest extends ConsumerPhpstanGateTestCase
+final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCase
 {
     /**
      * Memoized across every test in this class; see controlResult().
@@ -180,11 +180,13 @@ final class CheckCheckedExceptionsTest extends ConsumerPhpstanGateTestCase
      * only genuine contribution to this direction) does not affect it
      * either way — that flag's own distinct effect (a non-final override
      * becoming checkable) has no fixture here, and is documented as a known
-     * gap in README instead. This test exists so a config change that
-     * silently disabled `missingCheckedExceptionInThrows` entirely (e.g. an
-     * accidental empty `exceptions.check: {}`) would not also silently mask
-     * this direction — every other test here only exercises
-     * missingCheckedExceptionInThrows.
+     * gap in README instead. This test exists so a strict-tier run
+     * specifically (not just the control run above) is proven to still
+     * carry the stale-throws finding through — the four tests asserting a
+     * single named method (strictRunReportsTheUndocumentedThrow,
+     * strictRunDoesNotReportTheDocumentedThrow,
+     * strictRunDoesNotReportTheUncheckedProgrammerError, and this one) each
+     * cover one method; only this one covers staleThrows().
      *
      * @return void
      */
@@ -245,7 +247,10 @@ final class CheckCheckedExceptionsTest extends ConsumerPhpstanGateTestCase
      */
     private static function controlResult(): GateResult
     {
-        return self::$controlResult ??= self::runPhpstan(self::consumer() . '/phpstan.neon', 'checked-exceptions');
+        return self::$controlResult ??= self::runPhpstan(
+            self::consumer() . '/phpstan.neon',
+            'checked-exceptions',
+        );
     }
 
     /**
@@ -257,6 +262,9 @@ final class CheckCheckedExceptionsTest extends ConsumerPhpstanGateTestCase
      */
     private static function strictResult(): GateResult
     {
-        return self::$strictResult ??= self::runPhpstan(self::consumer() . '/phpstan-strict.neon', 'checked-exceptions');
+        return self::$strictResult ??= self::runPhpstan(
+            self::consumer() . '/phpstan-strict.neon',
+            'checked-exceptions',
+        );
     }
 }

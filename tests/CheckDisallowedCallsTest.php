@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
-use MagicSunday\CodingStandard\Test\Support\ConsumerPhpstanGateTestCase;
+use MagicSunday\CodingStandard\Test\Support\AbstractConsumerPhpstanGateTestCase;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
@@ -36,7 +36,7 @@ use function substr_count;
  *
  * Migrated off tests/check-disallowed-calls-cases.sh. Requires tests/consumer
  * to be installed (`composer install` inside that directory); every test
- * self-skips via ConsumerPhpstanGateTestCase::setUp() until it is, rather
+ * self-skips via AbstractConsumerPhpstanGateTestCase::setUp() until it is, rather
  * than failing, because this class is also reached by the plain
  * `composer ci:test:phpunit` step that runs BEFORE the consumer fixture is
  * installed in CI — see .github/workflows/ci.yml, where
@@ -48,7 +48,7 @@ use function substr_count;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversNothing]
-final class CheckDisallowedCallsTest extends ConsumerPhpstanGateTestCase
+final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
 {
     /**
      * @var list<non-empty-string>|null Memoized across every test in this class; see bannedFunctions().
@@ -243,7 +243,10 @@ final class CheckDisallowedCallsTest extends ConsumerPhpstanGateTestCase
      */
     private static function controlResult(): GateResult
     {
-        return self::$controlResult ??= self::runPhpstan(self::consumer() . '/phpstan.neon', 'case-folding');
+        return self::$controlResult ??= self::runPhpstan(
+            self::consumer() . '/phpstan.neon',
+            'case-folding',
+        );
     }
 
     /**
@@ -255,7 +258,10 @@ final class CheckDisallowedCallsTest extends ConsumerPhpstanGateTestCase
      */
     private static function positiveResult(): GateResult
     {
-        return self::$positiveResult ??= self::runPhpstan(self::consumer() . '/phpstan-disallowed-calls.neon', 'case-folding');
+        return self::$positiveResult ??= self::runPhpstan(
+            self::consumer() . '/phpstan-disallowed-calls.neon',
+            'case-folding',
+        );
     }
 
     /**
@@ -267,7 +273,10 @@ final class CheckDisallowedCallsTest extends ConsumerPhpstanGateTestCase
      */
     private static function wiringResult(): GateResult
     {
-        return self::$wiringResult ??= self::runPhpstan(self::consumer() . '/phpstan-strict.neon', 'case-folding');
+        return self::$wiringResult ??= self::runPhpstan(
+            self::consumer() . '/phpstan-strict.neon',
+            'case-folding',
+        );
     }
 
     /**
