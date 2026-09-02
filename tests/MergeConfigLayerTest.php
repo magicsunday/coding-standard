@@ -139,6 +139,40 @@ final class MergeConfigLayerTest extends TestCase
     }
 
     /**
+     * A mixed shape (base a list, overlay an object, or the reverse) never
+     * recurses — the `!$baseIsList && !$overlayIsList` guard requires BOTH
+     * sides to be non-list for a merge, so either direction of a shape
+     * mismatch falls through to plain wholesale replacement, same as any
+     * other non-`overrides` key.
+     */
+    #[Test]
+    public function baseListOverlayObjectReplacesWholesale(): void
+    {
+        $base    = ['linter' => ['a', 'b']];
+        $overlay = ['linter' => ['enabled' => true]];
+
+        self::assertSame(
+            ['linter' => ['enabled' => true]],
+            mergeConfigLayer($base, $overlay)
+        );
+    }
+
+    /**
+     * The reverse mixed shape: base an object, overlay a list.
+     */
+    #[Test]
+    public function baseObjectOverlayListReplacesWholesale(): void
+    {
+        $base    = ['linter' => ['enabled' => true]];
+        $overlay = ['linter' => ['a', 'b']];
+
+        self::assertSame(
+            ['linter' => ['a', 'b']],
+            mergeConfigLayer($base, $overlay)
+        );
+    }
+
+    /**
      * Nested objects merge key-by-key: a key the overlay does not mention
      * survives from the base, one it does mention is overridden.
      */

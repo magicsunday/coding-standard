@@ -59,6 +59,25 @@ test('a non-overrides list replaces wholesale', () => {
     assert.deepStrictEqual(mergeConfigLayer(base, overlay), { files: { includes: ['tests/**'] } });
 });
 
+// A mixed shape (base a list, overlay an object, or the reverse) never
+// recurses — the `isArrayLike(value) && !Array.isArray(value)` check
+// requires BOTH sides to be a non-array object for a merge, so either
+// direction of a shape mismatch falls through to plain wholesale
+// replacement, same as any other non-`overrides` key.
+test('a list base with an object overlay replaces wholesale', () => {
+    const base = { linter: ['a', 'b'] };
+    const overlay = { linter: { enabled: true } };
+
+    assert.deepStrictEqual(mergeConfigLayer(base, overlay), { linter: { enabled: true } });
+});
+
+test('an object base with a list overlay replaces wholesale', () => {
+    const base = { linter: { enabled: true } };
+    const overlay = { linter: ['a', 'b'] };
+
+    assert.deepStrictEqual(mergeConfigLayer(base, overlay), { linter: ['a', 'b'] });
+});
+
 test('nested objects merge key by key', () => {
     const base = { linter: { enabled: true, ignore: ['dist'] } };
     const overlay = { linter: { enabled: false } };
