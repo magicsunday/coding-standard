@@ -232,8 +232,8 @@ assert_usage_error "$d" "a symlinked templates/gitattributes reports as unreadab
 # content defect. Skipped for uid 0: root bypasses DAC, so mode 000 stays
 # readable and both cases would read as a false regression — the same skip
 # every other harness in this repository applies for the identical reason. ---
-if [ "$(id -u)" -eq 0 ]; then
-    printf 'skip (running as root: mode 000 does not deny read): the unreadable-file cases\n'
+if harness_skip_if_root "the unreadable-file cases"; then
+    :
 else
     d="$(mk_case unreadable-template)"
     printf '/.github    export-ignore\n' > "$d/templates/gitattributes"

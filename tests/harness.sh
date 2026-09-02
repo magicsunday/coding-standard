@@ -224,6 +224,55 @@ done
 
 unset harness_degraded_probe
 
+# harness_uid_is_root <uid>
+#
+# A pure predicate, not `[ "$(id -u)" -eq 0 ]` inline at each call site: taking
+# the uid as an ARGUMENT rather than calling `id -u` itself is what makes this
+# directly probable below, the same way `harness_decide_rejects` takes `$out`/
+# `$rc` rather than invoking the gate itself — a real uid cannot be faked the
+# way `php`/`node` output can, but a plain integer argument needs no faking at
+# all. GH-105 deferred exactly this design question out of GH-41 rather than
+# fold it in; this is the resolution.
+harness_uid_is_root() {
+    [ "$1" -eq 0 ]
+}
+
+for harness_uid_probe in 0; do
+    if ! harness_uid_is_root "$harness_uid_probe"; then
+        printf 'FAILED  harness bookkeeping: harness_uid_is_root(%s) does not recognise root\n' "$harness_uid_probe" >&2
+        exit 1
+    fi
+done
+
+for harness_uid_probe in 1 1000; do
+    if harness_uid_is_root "$harness_uid_probe"; then
+        printf 'FAILED  harness bookkeeping: harness_uid_is_root(%s) misreads a non-root uid as root\n' "$harness_uid_probe" >&2
+        exit 1
+    fi
+done
+
+unset harness_uid_probe
+
+# harness_skip_if_root <what a skip explains, e.g. "the unreadable-file case">
+#
+# Root bypasses DAC, so a `chmod 000` fixture stays readable under it — the
+# case would read as a false regression rather than a caught violation. CI
+# runs non-root, so the guarded branch stays exercised there regardless.
+#
+# Returns 0 (skip, message already printed) when running as root, 1 (do not
+# skip) otherwise — call as `if harness_skip_if_root "..."; then :; else
+# ...fixture body...; fi`, the same shape the four inline guards this
+# replaces already used. Thin on purpose: the only decision here is
+# `harness_uid_is_root`, already probed above; this wrapper adds nothing a
+# probe would need to drive separately.
+harness_skip_if_root() {
+    if harness_uid_is_root "$(id -u)"; then
+        printf 'skip (running as root: mode 000 does not deny read): %s\n' "$1"
+        return 0
+    fi
+    return 1
+}
+
 # verdict
 #
 # The run's single exit point. **Do not turn the `exit` below into `return`.**
