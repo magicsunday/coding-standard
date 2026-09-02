@@ -186,6 +186,16 @@ jobs:
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
 
+            # Same shape and same reason as the Case-folding self-test above:
+            # CheckCheckedExceptionsTest self-skipped under the plain "PHPUnit"
+            # step, tests/consumer was not installed yet. Proves base.neon
+            # alone is clean on the checked-exceptions fixture, then that
+            # strict.neon reports the undocumented throw, stays quiet on the
+            # documented one, and exempts the unchecked programmer-error
+            # exception by inheritance.
+            - name: Checked-exceptions self-test
+              run: composer ci:test:checked-exceptions
+
             # This step sits AFTER the consumer smoke steps on purpose. A failing
             # step skips every later one, and what it catches is a documentation
             # mismatch — a release that
