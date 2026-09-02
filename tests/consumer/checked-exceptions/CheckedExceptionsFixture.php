@@ -75,4 +75,22 @@ final readonly class CheckedExceptionsFixture
             throw new InvalidArgumentException('unchecked, no @throws needed');
         }
     }
+
+    /**
+     * A stale @throws — the body no longer raises FixtureException, as if
+     * after a refactor. Proves `tooWideThrowType`, the OTHER direction from
+     * undocumentedThrow() above: this class is final, so it stays checkable
+     * regardless of `checkTooWideThrowTypesInProtectedAndPublicMethods`
+     * (see README's "Checked exceptions" section on why a non-final class's
+     * first-declared method would NOT be checkable here).
+     *
+     * @throws FixtureException
+     *
+     * @return void
+     */
+    public function staleThrows(): void
+    {
+        // Deliberately empty — proves the stale-tag direction, not the
+        // undocumented-throw direction above.
+    }
 }

@@ -37,17 +37,38 @@ parameters:
     # Checked exceptions (GH-139): a throwing method documents it in @throws,
     # and @throws names only what the body can actually raise.
     #
-    # `tooWideThrowType: true` reports through the identifier `throws.unusedType`
-    # — PHPStan has no diagnostic literally named `tooWideThrowType`, only the
-    # config flag; grepping CI output for that string finds nothing.
+    # The specific behaviours documented below were verified against a
+    # running phpstan/phpstan 2.2.12 + shipmonk/phpstan-rules 4.x +
+    # symplify/phpstan-rules 14.x in a throwaway fixture (2026-09-02), not
+    # assumed from docs — re-verify against the pins actually installed if
+    # any of these claims stop holding after a version bump.
     #
-    # `checkTooWideThrowTypesInProtectedAndPublicMethods` is a SEPARATE top-level
-    # parameter (not nested under exceptions.check) and is load-bearing here: a
-    # stale/wrong @throws on a non-final public or protected method is silently
-    # never checked without it, and even then only once the method OVERRIDES a
-    # base/interface declaration — a non-final class's first-declared public
-    # method stays uncheckable for this direction regardless. `missingCheckedExceptionInThrows`
-    # (the undocumented-throw direction) has no such gate and applies unconditionally.
+    # PHPStan already ships `exceptions.check.tooWideThrowType: true` as its
+    # OWN default (conf/config.neon in the phpstan/phpstan phar) — a stale or
+    # unrelated @throws tag is flagged on base.neon alone, unconditionally,
+    # with NO dependency on checkedExceptionRegexes/uncheckedExceptionClasses
+    # below. Deliberately NOT restated here — setting it explicitly would be
+    # a pure no-op that reads as if this config newly enables it. It reports
+    # through the identifier `throws.unusedType` — PHPStan has no diagnostic
+    # literally named `tooWideThrowType`, only the (already-default) config
+    # flag; grepping CI output for that string finds nothing.
+    #
+    # `checkTooWideThrowTypesInProtectedAndPublicMethods` IS the genuinely new
+    # part of that direction: it defaults to false, and it is a SEPARATE
+    # top-level parameter (not nested under exceptions.check). Even set true,
+    # a stale/wrong @throws on a non-final public or protected method is
+    # never checked unless the method OVERRIDES a base/interface declaration
+    # — a non-final class's own first-declared public method stays
+    # uncheckable for this direction regardless. Every fixture-provable case
+    # in this repository so far is a `final` class, which this gate does not
+    # affect at all (a final class/method is always checked, with or without
+    # it) — kept enabled for the override case it does reach, in other
+    # consumers.
+    #
+    # `missingCheckedExceptionInThrows` is the genuinely NEW direction this
+    # config enables: PHPStan defaults it to `false`. It applies
+    # unconditionally, to every method regardless of visibility or class
+    # finality — no equivalent gate to the one above.
     #
     # `uncheckedExceptionClasses` matches by inheritance, not exact class name —
     # `LogicException` alone also exempts InvalidArgumentException/DomainException/
@@ -56,7 +77,6 @@ parameters:
     exceptions:
         check:
             missingCheckedExceptionInThrows: true
-            tooWideThrowType: true
         checkedExceptionRegexes:
             - '#^MagicSunday\\#'
         uncheckedExceptionClasses:

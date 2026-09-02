@@ -345,7 +345,6 @@ checkTooWideThrowTypesInProtectedAndPublicMethods: true
 exceptions:
     check:
         missingCheckedExceptionInThrows: true
-        tooWideThrowType: true
     checkedExceptionRegexes:
         - '#^MagicSunday\\#'
     uncheckedExceptionClasses:
@@ -359,22 +358,26 @@ matches **by inheritance**, so `LogicException` alone also exempts
 `InvalidArgumentException`, `DomainException`, `OutOfRangeException` and every other
 SPL subclass — no need to enumerate them.
 
-**Two diagnostics, two directions, and the config flag names do not match the
-diagnostic identifiers:**
+**Two diagnostics, two directions — only one of which this config actually enables:**
 
 - Undocumented throw (`missingCheckedExceptionInThrows`) → identifier
-  `missingType.checkedException`. Applies unconditionally, to every method
-  regardless of visibility or class finality.
-- Stale or wrong `@throws` (`tooWideThrowType`) → identifier `throws.unusedType`
-  — **not** a `tooWideThrowType` identifier; that string never appears as a
-  diagnostic, only as the config flag. This direction is gated:
-  `checkTooWideThrowTypesInProtectedAndPublicMethods` is a separate **top-level**
-  parameter (not nested under `exceptions.check`), and even with it enabled, a
-  non-final class's own first-declared public or protected method stays
-  uncheckable — only a `final` class/method, a `private` method, or an
-  **override** of a base/interface declaration gets checked. This is a known,
-  accepted gap: the undocumented-throw direction above has no such restriction
-  and is where most of the value is.
+  `missingType.checkedException`. This is the direction `strict.neon` genuinely
+  turns on: PHPStan defaults it to `false`. Applies unconditionally, to every
+  method regardless of visibility or class finality.
+- Stale or wrong `@throws` → identifier `throws.unusedType` — **not** a
+  `tooWideThrowType` identifier; that string never appears as a diagnostic, only
+  as the config flag it names. **PHPStan already enables this check by default**
+  (`exceptions.check.tooWideThrowType: true` out of the box), independently of
+  `checkedExceptionRegexes`/`uncheckedExceptionClasses` — a stale `@throws` on a
+  `final` class or method is flagged even on plain `base.neon`, with none of the
+  config above. What `strict.neon` genuinely adds for this direction is only
+  `checkTooWideThrowTypesInProtectedAndPublicMethods` (a separate **top-level**
+  parameter, not nested under `exceptions.check`, defaulting to `false`), which
+  extends the check to non-final methods that **override** a base/interface
+  declaration — a non-final class's own first-declared public or protected
+  method still stays uncheckable for this direction regardless of the flag.
+  This is a known, accepted gap: the undocumented-throw direction above has no
+  such restriction and is where most of the value is.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
@@ -382,7 +385,18 @@ flagged as "too wide" — PHPStan treats a supertype `@throws` as valid. A `catc
 fully absorbs a callee's checked-exception obligation: a method that catches and
 rethrows a different, documented exception type needs no `@throws` for the caught
 one. A `throw` inside a closure is attributed to the **enclosing method**, not
-hidden from its contract.
+hidden from its contract — but `@throws` documentation does not silence it fully:
+`shipmonk/phpstan-rules`' `ForbidCheckedExceptionInCallableRule` (already included
+via `strict.neon`) separately and unconditionally forbids throwing a checked
+exception inside a closure or arrow function, regardless of documentation on the
+enclosing method. That is a different diagnostic
+(`shipmonk.checkedExceptionInCallable`) with no override via `@throws`, only via
+`@param-immediately-invoked-callable` or by not using a closure.
+
+Verified against a running phpstan/phpstan 2.2.12, shipmonk/phpstan-rules 4.x and
+symplify/phpstan-rules 14.x in a throwaway fixture (2026-09-02), not assumed from
+docs — re-verify against the pins actually installed if any of the above stops
+holding after a version bump.
 
 ### Rector — `rector/base.php`
 
