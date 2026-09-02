@@ -934,6 +934,86 @@ harness_assert_no_stray_increments() {
     fi
 }
 
+# The "reverse direction" of a derived-vs-proven lockstep control: after a
+# caller's loop has walked every DERIVED entry and marked each one it
+# recognised in $3 (an associative array the caller populates as
+# `seen[$key]=1` while it runs), this asserts every key of the PROVEN table $2
+# was marked. A proven key the loop never reached means the derived source
+# dropped or renamed the entry, and whatever per-row assertion the loop runs
+# never even ran for it — silence that reads as success.
+#
+# Calls the CALLER's own `fail`, resolved dynamically at call time the same
+# way `harness_probe_reporters` below calls a caller-supplied driver by name —
+# this file defines no `fail` of its own (see `harness_fail` instead, a
+# differently-shaped reporter with its own callers).
+#
+# $1 is a printf format string with exactly one %s for the key, already
+# through `safe_report` (the key can come from consumer-controlled JSON) —
+# callers keep their own message wording this way rather than sharing one
+# generic sentence, since the two current call sites name a different source
+# file and a different verb ("dropped rather than retargeted" vs "dropped
+# rather than renamed").
+harness_assert_lockstep_complete() { # <fail-fmt> <proven-array-name> <seen-array-name>
+    local -n harness_lockstep_proven="$2"
+    local -n harness_lockstep_seen="$3"
+    local harness_lockstep_key
+
+    for harness_lockstep_key in "${!harness_lockstep_proven[@]}"; do
+        if [ -z "${harness_lockstep_seen[$harness_lockstep_key]:-}" ]; then
+            # shellcheck disable=SC2059 # $1 is a caller-supplied printf format, by design
+            fail "$(printf "$1" "$(safe_report "$harness_lockstep_key")")"
+        fi
+    done
+}
+
+# The "run a tool, reject it with a diagnostic" triad written at every
+# negative control in tests/check-js-configs.sh: the tool's outcome is wrong
+# in two different ways — it ACCEPTED input the control expects rejected, or
+# it rejected for a reason other than the one under test. Only the REJECTING
+# direction fits this shape; the mirrored "must accept, and a forbidden
+# pattern in the log is the failure" control (an asset import left alone by
+# useImportExtensions) is a different assertion and is not this function.
+#
+# $1 is the tool's own exit status, already captured by the caller — how the
+# tool is invoked differs at every site (a wrapped `biome_ci`/`run_tsc`, or a
+# bare `npx … jscpd`), so this function never runs the tool itself. $2 the log
+# file, attached as an excerpt to EVERY `fail` this reports (the nine sites
+# this replaced were inconsistent — three attached it on the accepted branch,
+# five did not — always attaching it is the union of what they wrote, never a
+# loss). $3/$4/$5 the three messages this triad can report, in outcome order:
+# accepted-when-it-should-reject, pass, rejected-for-the-wrong-reason. An
+# optional `-i` before the pattern list makes matching case-insensitive for
+# every pattern in this call (two of the current call sites need it, the rest
+# don't); every pattern is ERE (`grep -E`) and ALL of them must match — AND,
+# not OR, since a `|` alternation inside one pattern already gets the OR case.
+harness_assert_tool_rejects() { # <status> <log> <accepted-msg> <pass-msg> <mismatch-msg> [-i] <pattern>...
+    local harness_reject_status="$1" harness_reject_log="$2"
+    local harness_reject_accepted_msg="$3" harness_reject_pass_msg="$4" harness_reject_mismatch_msg="$5"
+    local -a harness_reject_grep_flags=(-qE)
+    local harness_reject_pattern
+
+    shift 5
+
+    if [ "${1:-}" = '-i' ]; then
+        harness_reject_grep_flags=(-qiE)
+        shift
+    fi
+
+    if [ "$harness_reject_status" -eq 0 ]; then
+        fail "$harness_reject_accepted_msg" "$harness_reject_log"
+        return
+    fi
+
+    for harness_reject_pattern in "$@"; do
+        if ! grep "${harness_reject_grep_flags[@]}" "$harness_reject_pattern" "$harness_reject_log"; then
+            fail "$harness_reject_mismatch_msg" "$harness_reject_log"
+            return
+        fi
+    done
+
+    pass "$harness_reject_pass_msg"
+}
+
 # This file's own increments, through the same helper the callers use: harness_settle
 # and harness_fail, the two report sites every caller now routes through. Called from
 # the top level of the file that DEFINES it, `${BASH_SOURCE[1]}` resolves to this file
