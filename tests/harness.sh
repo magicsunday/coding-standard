@@ -254,8 +254,8 @@ harness_skip_if_root() {
 # `id` bare or `id -g` instead would otherwise still return the canned value
 # and pass, verifying nothing about which flag the wrapper actually asks for.
 # Run inside a subshell so the shadow and the probe's own variable are gone
-# the instant it returns, the same way the `verdict` direction-check above
-# uses a subshell rather than `unset -f` afterward.
+# the instant it returns, the same way the `verdict` direction-check further
+# down uses a subshell rather than `unset -f` afterward.
 probe_skip_if_root_wiring() {
     id() {
         [ "$#" -eq 1 ] && [ "$1" = '-u' ] || return 2
