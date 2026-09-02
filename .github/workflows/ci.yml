@@ -186,10 +186,11 @@ jobs:
 
             # tests/consumer/composer.json's require-dev hand-copies each
             # opt-in strict-tier package's version constraint from composer.json's
-            # own suggest block, so the Consumer smoke steps above prove that tier
-            # against the same version the suggest text tells a real consumer to
-            # install. Nothing else ties the two copies together — a suggest bump
-            # with no matching fixture bump would keep every leg green on the OLD
+            # own suggest block, so the Case-folding self-test step above (the
+            # only place strict.neon is loaded — see its own comment) proves that
+            # tier against the same version the suggest text tells a real consumer
+            # to install. Nothing else ties the two copies together — a suggest
+            # bump with no matching fixture bump would keep that step green on the OLD
             # major while the install text already promises the new one.
             - name: Consumer suggest lockstep gate
               run: composer ci:test:consumer-suggest-lockstep
