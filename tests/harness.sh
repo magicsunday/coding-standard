@@ -260,9 +260,7 @@ unset harness_uid_probe
 #
 # Returns 0 (skip, message already printed) when running as root, 1 (do not
 # skip) otherwise — call as `if ! harness_skip_if_root "..."; then
-# ...fixture body...; fi`. Thin on purpose: the only decision here is
-# `harness_uid_is_root`, already probed above; this wrapper adds nothing a
-# probe would need to drive separately.
+# ...fixture body...; fi`.
 harness_skip_if_root() {
     if harness_uid_is_root "$(id -u)"; then
         printf 'skip (running as root: mode 000 does not deny read): %s\n' "$1"
@@ -270,6 +268,36 @@ harness_skip_if_root() {
     fi
     return 1
 }
+
+# `harness_uid_is_root` being probed does not prove this wrapper's OWN
+# `id -u` wiring and return-code contract — an inverted `if`, or a `return 1`
+# swapped for `return 0`, would still let every call above pass a probe of
+# the predicate alone, and every guarded fixture body would then silently
+# never run while CI stayed green. `id` is shadowed with a bash function the
+# same way `probe_assert_ok_inert_shapes` above shadows `php`: a function
+# definition takes precedence over the PATH binary for any invocation
+# (`-u` argument included) at any call depth reached from the shell that
+# defined it, command substitution included — so `harness_skip_if_root`'s own
+# `"$(id -u)"` sees the probe's canned uid without needing to run as anyone.
+# Run inside a subshell so the shadow and the probe's own variable are gone
+# the instant it returns, the same way the `verdict` direction-check above
+# uses a subshell rather than `unset -f` afterward.
+probe_skip_if_root_wiring() {
+    id() { printf '%s\n' "$harness_fake_uid"; }
+
+    harness_fake_uid=0
+    harness_skip_if_root 'probe: root' >/dev/null || return 1
+
+    harness_fake_uid=1000
+    harness_skip_if_root 'probe: not root' >/dev/null && return 1
+
+    return 0
+}
+
+if ! (probe_skip_if_root_wiring); then
+    printf 'FAILED  harness bookkeeping: harness_skip_if_root does not correctly gate on root vs non-root\n' >&2
+    exit 1
+fi
 
 # verdict
 #
