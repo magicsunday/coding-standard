@@ -953,6 +953,16 @@ harness_assert_no_stray_increments() {
 # generic sentence, since the two current call sites name a different source
 # file and a different verb ("dropped rather than retargeted" vs "dropped
 # rather than renamed").
+#
+# $2/$3 order is unenforced: swapping them makes this check silently vacuous
+# for both real callers below, since `seen`'s keys are always a subset of
+# `proven`'s there — nothing (not bash, not shellcheck, not the probe just
+# below, which only ever exercises already-correctly-ordered arrays) would
+# catch a future swap. Deliberately not guarded at runtime: that subset
+# relationship is an artifact of how the two current callers populate `seen`,
+# not part of this function's general contract, so enforcing it here would
+# overfit one call shape onto a general-purpose helper. Getting the order
+# right is on the caller — read this comment before adding a third one.
 harness_assert_lockstep_complete() { # <fail-fmt> <proven-array-name> <seen-array-name>
     local -n harness_lockstep_proven="$2"
     local -n harness_lockstep_seen="$3"
