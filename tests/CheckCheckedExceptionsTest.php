@@ -211,12 +211,8 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * becoming checkable) has no fixture here, and is documented as a known
      * gap in README instead. This test exists so a strict-tier run
      * specifically (not just the control run above) is proven to still
-     * carry the stale-throws finding through — the five tests asserting a
-     * single named method (strictRunReportsTheUndocumentedThrow,
-     * strictRunDoesNotReportTheDocumentedThrow,
-     * strictRunDoesNotReportTheUncheckedProgrammerError,
-     * strictRunDoesNotReportTheUncheckedByInheritanceOnly, and this one) each
-     * cover one method; only this one covers staleThrows().
+     * carry the stale-throws finding through — this is the only test in
+     * this class that asserts on staleThrows().
      *
      * @return void
      */
