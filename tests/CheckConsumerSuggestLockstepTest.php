@@ -132,8 +132,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => ['foo/bar' => 'Required: ^4.0']]));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => 4]]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => 4]);
 
         $this->assertGateRejects(self::gate(), $dir, 'UNRECOGNISED  tests/consumer/composer.json pins foo/bar to a non-string constraint');
     }
@@ -148,8 +147,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => ['foo/bar' => 40]]));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateRejects(self::gate(), $dir, 'UNRECOGNISED  composer.json suggests foo/bar with a non-string description');
     }
@@ -179,8 +177,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
     {
         $dir = $this->fixture()->path();
 
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateUsageError(self::gate(), $dir, 'Cannot read');
     }
@@ -208,8 +205,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', "{\n    \"suggest\":\n");
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateUsageError(self::gate(), $dir, 'composer.json is not valid JSON');
     }
@@ -224,8 +220,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => 'not an object']));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateUsageError(self::gate(), $dir, "`suggest` is not a JSON object");
     }
@@ -239,8 +234,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => ['foo/bar' => 'Required: ^4.0']]));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => 'not an object']));
+        $this->writeConsumerComposerJson($dir, 'not an object');
 
         $this->assertGateUsageError(self::gate(), $dir, "`require-dev` is not a JSON object");
     }
@@ -256,8 +250,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', str_repeat('x', self::MAX_LOCKSTEP_BYTES + 1));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateUsageError(
             self::gate(),
@@ -278,8 +271,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $body = (string) json_encode(['suggest' => ['foo/bar' => 'Required: ^4.0']]);
 
         file_put_contents($dir . '/composer.json', self::padJsonToCap(self::MAX_LOCKSTEP_BYTES, $body));
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => ['foo/bar' => '^4.0']]));
+        $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
         $this->assertGateAccepts(self::gate(), $dir);
     }
@@ -335,11 +327,28 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         $dir = $this->fixture()->path();
 
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => $suggest]));
-
-        mkdir($dir . '/tests/consumer', 0o700, true);
-        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => $requireDev]));
+        $this->writeConsumerComposerJson($dir, $requireDev);
 
         return $dir;
+    }
+
+    /**
+     * Creates tests/consumer/ under $dir and writes its composer.json with
+     * $requireDev as the `require-dev` value.
+     *
+     * `mixed`, not `array`: one caller (the malformed-manifest case) needs a
+     * scalar `require-dev` value, so a narrower type would not fit every
+     * site this helper collapses.
+     *
+     * @param string $dir        The fixture directory.
+     * @param mixed  $requireDev The value to encode as `require-dev`.
+     *
+     * @return void
+     */
+    private function writeConsumerComposerJson(string $dir, mixed $requireDev): void
+    {
+        mkdir($dir . '/tests/consumer', 0o700, true);
+        file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => $requireDev]));
     }
 
     /**
