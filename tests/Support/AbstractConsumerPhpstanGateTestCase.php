@@ -121,6 +121,8 @@ abstract class AbstractConsumerPhpstanGateTestCase extends TestCase
     }
 
     /**
+     * Shared "not degraded" precondition every #[Test] method above starts from.
+     *
      * @param GateResult $result The captured phpstan run to check.
      *
      * @return void

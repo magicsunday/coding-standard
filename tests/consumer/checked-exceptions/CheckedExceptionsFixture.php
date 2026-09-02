@@ -13,6 +13,7 @@ namespace MagicSunday\CodingStandard\Fixture\CheckedExceptions;
 
 use InvalidArgumentException;
 use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureException;
+use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureLogicException;
 
 /**
  * Two deliberately paired methods proving the checked-exceptions config
@@ -40,7 +41,7 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureExcept
 final readonly class CheckedExceptionsFixture
 {
     /**
-     * Throws a first-party checked exception with no @throws tag at all.
+     * Throws a first-party checked exception with no throws annotation at all.
      *
      * @return void
      */
@@ -63,7 +64,7 @@ final readonly class CheckedExceptionsFixture
 
     /**
      * A programmer-error exception, unchecked by config — must not be reported
-     * even without a @throws tag.
+     * even without a throws annotation.
      *
      * @param int $value The value to validate.
      *
@@ -72,15 +73,32 @@ final readonly class CheckedExceptionsFixture
     public function uncheckedProgrammerError(int $value): void
     {
         if ($value < 0) {
-            throw new InvalidArgumentException('unchecked, no @throws needed');
+            throw new InvalidArgumentException('unchecked, no throws annotation needed');
         }
     }
 
     /**
-     * A stale @throws — the body no longer raises FixtureException, as if
-     * after a refactor. Proves `tooWideThrowType`, the OTHER direction from
-     * undocumentedThrow() above: this class is final, so it stays checkable
-     * regardless of `checkTooWideThrowTypesInProtectedAndPublicMethods`
+     * A MagicSunday-namespaced exception that is ALSO a LogicException — the
+     * case uncheckedExceptionClasses's inheritance matching actually needs to
+     * discriminate. Unlike uncheckedProgrammerError() above (a plain SPL
+     * InvalidArgumentException, already unchecked purely by not matching
+     * checkedExceptionRegexes — deleting `uncheckedExceptionClasses:
+     * ['LogicException']` from strict.neon would NOT turn that test red),
+     * this one lives inside `#^MagicSunday\\#` and would be flagged as
+     * missingCheckedExceptionInThrows without the exemption.
+     *
+     * @return void
+     */
+    public function uncheckedByInheritanceOnly(): void
+    {
+        throw new FixtureLogicException('checked-namespace, unchecked only by LogicException inheritance');
+    }
+
+    /**
+     * A stale throws annotation — the body no longer raises FixtureException,
+     * as if after a refactor. Proves `tooWideThrowType`, the OTHER direction
+     * from undocumentedThrow() above: this class is final, so it stays
+     * checkable regardless of `checkTooWideThrowTypesInProtectedAndPublicMethods`
      * (see README's "Checked exceptions" section on why a non-final class's
      * first-declared method would NOT be checkable here).
      *
