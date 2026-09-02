@@ -966,6 +966,35 @@ harness_assert_lockstep_complete() { # <fail-fmt> <proven-array-name> <seen-arra
     done
 }
 
+# Both real call sites (extensionMappings rows, jscpd formats) only ever populate
+# `seen` with keys that already passed the `proven` lookup, so neither can drive
+# the fail arm from this repository's own fixtures alone — the same shape
+# harness_probe_assert_shapes documents above for the shared decision helpers.
+# `fail`/`safe_report` are not yet defined at file-source time (the sourcing
+# script defines its own, after sourcing this file), so the probe supplies its
+# own — `fail` delegates to `harness_fail`, the file's own already-counted
+# reporter, rather than incrementing `fails` itself, or this probe would add a
+# THIRD raw increment site and break the "2" at the foot of this file.
+harness_probe_assert_lockstep_complete() {
+    fail() { harness_fail "$1"; }
+    safe_report() { printf '%s' "$1"; }
+
+    # shellcheck disable=SC2034 # read via a `local -n` nameref inside
+    # harness_assert_lockstep_complete, called by name two lines below —
+    # a nameref target passed as a string argument is not traceable statically.
+    declare -A harness_lockstep_probe_proven=([a]=1 [b]=1)
+    # shellcheck disable=SC2034 # same as above
+    declare -A harness_lockstep_probe_seen_complete=([a]=1 [b]=1)
+    # shellcheck disable=SC2034 # same as above
+    declare -A harness_lockstep_probe_seen_incomplete=([a]=1)
+
+    harness_assert_lockstep_complete 'probe: dropped %s' harness_lockstep_probe_proven harness_lockstep_probe_seen_complete
+    harness_assert_lockstep_complete 'probe: dropped %s' harness_lockstep_probe_proven harness_lockstep_probe_seen_incomplete
+}
+
+harness_probe_reporters 1 harness_probe_assert_lockstep_complete \
+    'harness_assert_lockstep_complete does not fire when a proven key was never seen'
+
 # The "run a tool, reject it with a diagnostic" triad written at every
 # negative control in tests/check-js-configs.sh: the tool's outcome is wrong
 # in two different ways — it ACCEPTED input the control expects rejected, or
@@ -979,7 +1008,7 @@ harness_assert_lockstep_complete() { # <fail-fmt> <proven-array-name> <seen-arra
 # bare `npx … jscpd`), so this function never runs the tool itself. $2 the log
 # file, attached as an excerpt to EVERY `fail` this reports (the nine sites
 # this replaced were inconsistent — three attached it on the accepted branch,
-# five did not — always attaching it is the union of what they wrote, never a
+# six did not — always attaching it is the union of what they wrote, never a
 # loss). $3/$4/$5 the three messages this triad can report, in outcome order:
 # accepted-when-it-should-reject, pass, rejected-for-the-wrong-reason. An
 # optional `-i` before the pattern list makes matching case-insensitive for
@@ -999,6 +1028,16 @@ harness_assert_tool_rejects() { # <status> <log> <accepted-msg> <pass-msg> <mism
         shift
     fi
 
+    # A caller mistake — no pattern operand at all — would otherwise fall
+    # through the loop below with zero iterations and land on the PASS
+    # branch: a tool that failed for a completely unrelated reason would be
+    # reported as "the rule fired." Fail loudly instead of degrading the
+    # discriminating power the whole triad exists for.
+    if [ "$#" -eq 0 ]; then
+        fail "harness bookkeeping: harness_assert_tool_rejects called with no pattern to check"
+        return
+    fi
+
     if [ "$harness_reject_status" -eq 0 ]; then
         fail "$harness_reject_accepted_msg" "$harness_reject_log"
         return
@@ -1013,6 +1052,53 @@ harness_assert_tool_rejects() { # <status> <log> <accepted-msg> <pass-msg> <mism
 
     pass "$harness_reject_pass_msg"
 }
+
+# None of the real call sites can drive the accepted/mismatch/empty-pattern arms
+# from this repository's own fixtures — every one is a negative control where the
+# tool is EXPECTED to reject on a green run, so `status` is never 0 there and the
+# pattern list is never empty. Same shape and same reason as
+# harness_probe_assert_lockstep_complete above. `fail`/`pass` delegate to this
+# file's own already-counted `harness_fail` (a no-op for `pass`, since a pass
+# reports nothing that needs counting) rather than reimplementing a reporter, for
+# the same "would add a THIRD raw increment site" reason.
+harness_probe_assert_tool_rejects() {
+    fail() { harness_fail "$1"; }
+    pass() { :; }
+
+    local harness_reject_probe_log
+    harness_reject_probe_log="$(mktemp)" || return
+
+    printf 'the pattern is here\n' > "$harness_reject_probe_log"
+
+    # accepted (status 0) -> must fail
+    harness_assert_tool_rejects 0 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' 'pattern'
+
+    # rejected, matching single pattern -> must pass
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' 'pattern is here'
+
+    # rejected, non-matching pattern -> must fail (wrong reason)
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' 'a substring never in the log'
+
+    # rejected, AND semantics: first matches, second does not -> must fail
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' 'pattern is here' 'a substring never in the log'
+
+    # rejected, case-insensitive match via -i -> must pass
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch' -i 'THE PATTERN'
+
+    # rejected, no pattern operand at all -> must fail (the guard above)
+    harness_assert_tool_rejects 1 "$harness_reject_probe_log" \
+        'probe: accepted' 'probe: pass' 'probe: mismatch'
+
+    rm -f "$harness_reject_probe_log"
+}
+
+harness_probe_reporters 4 harness_probe_assert_tool_rejects \
+    'a triad arm of harness_assert_tool_rejects no longer decides'
 
 # This file's own increments, through the same helper the callers use: harness_settle
 # and harness_fail, the two report sites every caller now routes through. Called from
