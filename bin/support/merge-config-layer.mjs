@@ -7,8 +7,10 @@
 
 /**
  * The node counterpart of bin/support/merge-config-layer.php — see
- * mergeConfigLayer()'s own docblock below (and that PHP function's) for why
- * the merge is shaped this way, including the prototype-pollution guard.
+ * mergeConfigLayer()'s own docblock below (and that PHP function's) for the
+ * shared merge-shape rationale both languages need. The prototype-pollution
+ * guard below is JS-only and has no PHP counterpart to point at — PHP arrays
+ * have no prototype chain, so that PHP docblock never discusses it.
  * Required rather than duplicated inline for the same reason the PHP gate
  * requires its copy instead of retyping it: bin/check-js-config.mjs and any
  * later node-side gate share ONE definition. Extracted (GH-116) so a small

@@ -77,11 +77,12 @@ test('a key absent from the overlay is untouched', () => {
     assert.deepStrictEqual(mergeConfigLayer(base, {}), { a: 1, b: { c: 2 } });
 });
 
-// One case per key, not one shared fixture carrying all three: a shared
-// fixture only ever exercises the FIRST guard a short-circuiting `||` chain
-// reaches for a given input, so removing or misspelling the `constructor`/
-// `prototype` arms individually would still leave a single combined test
-// green (found by an independent cross-model review of this change).
+// One case per key: the original single combined test's overlay carried only
+// `__proto__`, so it never actually exercised the `constructor`/`prototype`
+// guard arms at all — removing or misspelling either one would still leave
+// that test green (found by an independent cross-model review of this
+// change). Three separate fixtures, each carrying exactly one of the keys,
+// make every arm load-bearing on its own case.
 for (const key of ['__proto__', 'constructor', 'prototype']) {
     test(`a ${key} overlay key is skipped, never assigned onto the merged object`, () => {
         const overlay = JSON.parse(`{"${key}": {"polluted": true}, "safe": 1}`);
