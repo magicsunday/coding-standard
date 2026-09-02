@@ -33,3 +33,31 @@ parameters:
     reportAnyTypeWideningInVarTag: true
     reportPossiblyNonexistentConstantArrayOffset: true
     reportPossiblyNonexistentGeneralArrayOffset: true
+
+    # Checked exceptions (GH-139): a throwing method documents it in @throws,
+    # and @throws names only what the body can actually raise.
+    #
+    # `tooWideThrowType: true` reports through the identifier `throws.unusedType`
+    # — PHPStan has no diagnostic literally named `tooWideThrowType`, only the
+    # config flag; grepping CI output for that string finds nothing.
+    #
+    # `checkTooWideThrowTypesInProtectedAndPublicMethods` is a SEPARATE top-level
+    # parameter (not nested under exceptions.check) and is load-bearing here: a
+    # stale/wrong @throws on a non-final public or protected method is silently
+    # never checked without it, and even then only once the method OVERRIDES a
+    # base/interface declaration — a non-final class's first-declared public
+    # method stays uncheckable for this direction regardless. `missingCheckedExceptionInThrows`
+    # (the undocumented-throw direction) has no such gate and applies unconditionally.
+    #
+    # `uncheckedExceptionClasses` matches by inheritance, not exact class name —
+    # `LogicException` alone also exempts InvalidArgumentException/DomainException/
+    # OutOfRangeException/etc.
+    checkTooWideThrowTypesInProtectedAndPublicMethods: true
+    exceptions:
+        check:
+            missingCheckedExceptionInThrows: true
+            tooWideThrowType: true
+        checkedExceptionRegexes:
+            - '#^MagicSunday\\#'
+        uncheckedExceptionClasses:
+            - 'LogicException'

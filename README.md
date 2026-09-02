@@ -334,6 +334,56 @@ Such an entry **replaces** the shipped one rather than merging into it, so an
 override restates the `message` it wants to keep. When PHPStan does not run from
 the repository root, set `filesRootDir` so the `allowIn` paths still resolve.
 
+### Checked exceptions — `phpstan/strict.neon`
+
+`strict.neon` enforces `@throws` contracts through PHPStan's native checked-exceptions
+extension: a method that throws a checked exception must document it, and a `@throws`
+tag must name something the body can actually raise.
+
+```neon
+checkTooWideThrowTypesInProtectedAndPublicMethods: true
+exceptions:
+    check:
+        missingCheckedExceptionInThrows: true
+        tooWideThrowType: true
+    checkedExceptionRegexes:
+        - '#^MagicSunday\\#'
+    uncheckedExceptionClasses:
+        - 'LogicException'
+```
+
+`checkedExceptionRegexes` scopes what counts as "checked" to the `MagicSunday\`
+namespace — an SPL or third-party exception is unchecked purely by not matching that
+regex; PHPStan has no separate "third-party" concept. `uncheckedExceptionClasses`
+matches **by inheritance**, so `LogicException` alone also exempts
+`InvalidArgumentException`, `DomainException`, `OutOfRangeException` and every other
+SPL subclass — no need to enumerate them.
+
+**Two diagnostics, two directions, and the config flag names do not match the
+diagnostic identifiers:**
+
+- Undocumented throw (`missingCheckedExceptionInThrows`) → identifier
+  `missingType.checkedException`. Applies unconditionally, to every method
+  regardless of visibility or class finality.
+- Stale or wrong `@throws` (`tooWideThrowType`) → identifier `throws.unusedType`
+  — **not** a `tooWideThrowType` identifier; that string never appears as a
+  diagnostic, only as the config flag. This direction is gated:
+  `checkTooWideThrowTypesInProtectedAndPublicMethods` is a separate **top-level**
+  parameter (not nested under `exceptions.check`), and even with it enabled, a
+  non-final class's own first-declared public or protected method stays
+  uncheckable — only a `final` class/method, a `private` method, or an
+  **override** of a base/interface declaration gets checked. This is a known,
+  accepted gap: the undocumented-throw direction above has no such restriction
+  and is where most of the value is.
+
+A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
+\RuntimeException` where the body throws a subclass) is accepted as correct, not
+flagged as "too wide" — PHPStan treats a supertype `@throws` as valid. A `catch`
+fully absorbs a callee's checked-exception obligation: a method that catches and
+rethrows a different, documented exception type needs no `@throws` for the caught
+one. A `throw` inside a closure is attributed to the **enclosing method**, not
+hidden from its contract.
+
 ### Rector — `rector/base.php`
 
 The factory takes the target PHP floor as its second argument and both sets it on
