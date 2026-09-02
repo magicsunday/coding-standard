@@ -231,8 +231,7 @@ unset harness_degraded_probe
 # directly probable below, the same way `harness_decide_rejects` takes `$out`/
 # `$rc` rather than invoking the gate itself — a real uid cannot be faked the
 # way `php`/`node` output can, but a plain integer argument needs no faking at
-# all. GH-105 deferred exactly this design question out of GH-41 rather than
-# fold it in; this is the resolution.
+# all.
 harness_uid_is_root() {
     [ "$1" -eq 0 ]
 }
@@ -260,9 +259,8 @@ unset harness_uid_probe
 # runs non-root, so the guarded branch stays exercised there regardless.
 #
 # Returns 0 (skip, message already printed) when running as root, 1 (do not
-# skip) otherwise — call as `if harness_skip_if_root "..."; then :; else
-# ...fixture body...; fi`, the same shape the four inline guards this
-# replaces already used. Thin on purpose: the only decision here is
+# skip) otherwise — call as `if ! harness_skip_if_root "..."; then
+# ...fixture body...; fi`. Thin on purpose: the only decision here is
 # `harness_uid_is_root`, already probed above; this wrapper adds nothing a
 # probe would need to drive separately.
 harness_skip_if_root() {

@@ -142,9 +142,7 @@ assert_rejects "$d" "a dangling symlink named *.json" "MISSING  dangling.json"
 # unreadable-config cases: root bypasses DAC, so mode 000 stays readable and
 # this would read as a false regression rather than a caught violation. CI
 # runs non-root, so the branch stays exercised there.
-if harness_skip_if_root "the unreadable-file case"; then
-    :
-else
+if ! harness_skip_if_root "the unreadable-file case"; then
     d="$work/unreadable"
     mkdir -p "$d"
     printf '{"a": 1}\n' > "$d/locked.json"
@@ -206,9 +204,7 @@ ln -s -- "$d/does-not-exist" "$d/$forged"
 assert_report_is_inert "$d" "a dangling symlink named to carry a legacy workflow command" "$scrubbed"
 
 # Same root-uid skip as the "unreadable: permissions revoked" case above.
-if harness_skip_if_root "the unreadable-file inert case"; then
-    :
-else
+if ! harness_skip_if_root "the unreadable-file inert case"; then
     d="$work/inert-unreadable"
     mkdir -p "$d"
     printf '{"a": 1}\n' > "$d/$forged"
@@ -293,9 +289,7 @@ assert_rejects "$f" "the root argument is an existing file, not a directory" "No
 # enumerable (and empty), and the run would exit 1 through the VACUITY guard
 # instead of through the scan-abort path this case exists to exercise: a
 # silent pass for the wrong reason, not a caught violation either way.
-if harness_skip_if_root "the unreadable-subdirectory case"; then
-    :
-else
+if ! harness_skip_if_root "the unreadable-subdirectory case"; then
     d="$work/scan-aborts"
     mkdir -p "$d/${forged}-dir"
     chmod 000 "$d/${forged}-dir"
