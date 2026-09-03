@@ -401,7 +401,13 @@ from `LogicException`, so this inheritance clause does not reach them.
   bisected the same way, install-and-test, not source-read. **14.7.0** is the
   first version that installs and passes clean; this package's own `suggest`
   block was raised from the previously-untested `^14.0` to `^14.7` for that
-  reason.
+  reason. `^14.7` itself resolves to a DIFFERENT `symplify/phpstan-rules`
+  minor per PHP version, not one uniform release: `symplify/phpstan-rules`
+  raised its own floor to `php: ^8.4` at 14.11.0 (observed 2026-09-03 via
+  `curl -s https://repo.packagist.org/p2/symplify/phpstan-rules.json`), so a
+  PHP 8.3 consumer's resolver is capped at 14.10.x while PHP 8.4/8.5 get the
+  newest 14.x — this repository's own CI matrix (8.3/8.4/8.5) exercises both
+  lines every run, both inside the verified-working `14.7.0+` range.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
