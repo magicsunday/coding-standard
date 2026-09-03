@@ -214,9 +214,11 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * separately by strictRunReportsTheStaleOverride() below; the actual
      * known gap (a non-final class's own first-declared method) has no
      * fixture here, matching README. This test exists so a strict-tier run
-     * specifically (not just the control run above) is proven to still
-     * carry the stale-throws finding through — this is the only test in
-     * this class that asserts on staleThrows().
+     * specifically is proven to still carry the stale-throws finding
+     * through — this is the only test in this class that asserts on
+     * staleThrows() against the STRICT result specifically;
+     * controlRunAlreadyReportsTheStaleThrows() above asserts on it too,
+     * but against the control result.
      *
      * @return void
      */

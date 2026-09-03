@@ -29,6 +29,10 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureExcept
 class CheckedExceptionsOverrideFixture extends AbstractCheckedExceptionsOverrideFixture
 {
     /**
+     * Overrides the base declaration with a deliberately stale throws
+     * annotation — proves checkTooWideThrowTypesInProtectedAndPublicMethods
+     * reaches an override (see class docblock).
+     *
      * @throws FixtureException Never thrown — deliberately stale.
      *
      * @return void
