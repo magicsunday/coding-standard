@@ -99,6 +99,22 @@ test('a key absent from the overlay is untouched', () => {
     assert.deepStrictEqual(mergeConfigLayer(base, {}), { a: 1, b: { c: 2 } });
 });
 
+// The JS-side counterpart to MergeConfigLayerTest's
+// sequentialNumericStringKeyObjectReplacesWholesaleInsteadOfMerging (GH-138):
+// proves the PHP-only asymmetry the mergeConfigLayer() docblock claims,
+// rather than leaving that claim as prose only. JSON.parse never coerces a
+// "0"/"1"-keyed object into an array the way PHP's json_decode(..., true)
+// does, so isArrayLike(value) && !Array.isArray(value) is true for both
+// sides here and the object recurses/merges instead of replacing wholesale.
+test('an object keyed by sequential numeric strings still merges key by key', () => {
+    const base = JSON.parse('{"paths": {"0": ["src/a"], "1": ["src/b"]}}');
+    const overlay = JSON.parse('{"paths": {"0": ["src/c"]}}');
+
+    assert.deepStrictEqual(mergeConfigLayer(base, overlay), {
+        paths: { 0: ['src/c'], 1: ['src/b'] },
+    });
+});
+
 // One case per key: the original single combined test's overlay carried only
 // `__proto__`, so it never actually exercised the `constructor`/`prototype`
 // guard arms at all — removing or misspelling either one would still leave
