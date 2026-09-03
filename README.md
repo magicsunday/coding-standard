@@ -165,17 +165,21 @@ loudly with an unknown-parameter error, since that parameter has no meaning with
 its own explicit `includes`.
 
 The three `require`d rule packages `base.neon` includes (`phpstan/phpstan-strict-rules`,
-`phpstan/phpstan-deprecation-rules`, `phpstan/phpstan-phpunit`) are pinned `^2.0` each,
-and that floor is install-and-tested against `base.neon` itself, not merely cited:
+`phpstan/phpstan-deprecation-rules`, `phpstan/phpstan-phpunit`) are pinned `^2.0` each.
+The CI "Consumer smoke - PHPStan with the shared base config" step itself only runs
+`composer install` against the committed `tests/consumer/composer.lock` (already
+resolved well above the floor), so it does not exercise this constraint on its own —
+the floor was install-and-tested separately, not merely cited: a one-off manual
 `composer update --with-all-dependencies --prefer-lowest` in `tests/consumer`, across
-all three PHP legs (8.3/8.4/8.5), resolves each of the three to `2.0.0` and the
-"Consumer smoke - PHPStan with the shared base config" step's own command
-(`phpstan analyse --configuration phpstan.neon --memory-limit=-1
---error-format=github`) passes clean against that combination (verified 2026-09-03).
-`phpstan/phpstan` itself cannot resolve below `2.2.0` in that same run — this
-package's own `^2.2` floor (see the `strict.neon` section below) makes any lower
-`phpstan/phpstan` unsatisfiable for a consumer of this package, so the three rule
-packages' floors are only ever exercised paired with `phpstan/phpstan` 2.2.0+.
+all three PHP legs (8.3/8.4/8.5), resolved each of the three to `2.0.0`, and running
+that step's own command (`.build/bin/phpstan analyse --configuration phpstan.neon
+--memory-limit=-1 --error-format=github`) against that resolution passed clean
+(verified 2026-09-03). `phpstan/phpstan` itself cannot resolve below `2.2.0` in that
+same run — this package's own `^2.2` floor (see the `strict.neon` section below) makes
+any lower `phpstan/phpstan` unsatisfiable for a consumer of this package, so the three
+rule packages' floors are only ever exercised paired with `phpstan/phpstan` 2.2.0+.
+This combination is not re-checked on an ongoing basis — no CI leg currently repeats
+this `--prefer-lowest` resolution — tracked as issue #147.
 
 ```neon
 # phpstan.neon
