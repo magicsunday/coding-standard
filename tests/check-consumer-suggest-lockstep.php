@@ -15,14 +15,14 @@ declare(strict_types=1);
  * `suggest` block documents for the same package.
  *
  * The fixture's `require-dev` hand-copies each suggested package's version
- * constraint a second time, so the Case-folding self-test step (the only
- * place strict.neon is loaded — see .github/workflows/ci.yml's own comment
- * on that step) exercises the strict tier (phpstan/strict.neon,
- * phpstan/disallowed-calls.neon) against the same versions the `suggest`
- * text tells a real consumer to install (#57). Nothing ties the two copies
- * together on its own — a bump to one `suggest` entry without the matching
- * fixture bump keeps that step green on the OLD major while the install
- * text already promises the new one.
+ * constraint a second time, so the Case-folding self-test step, and the
+ * Checked-exceptions self-test's one strict-tier-inheritance assertion (see
+ * .github/workflows/ci.yml's own comments on those steps), exercise the
+ * strict tier (phpstan/strict.neon, phpstan/disallowed-calls.neon) against
+ * the same versions the `suggest` text tells a real consumer to install
+ * (#57). Nothing ties the two copies together on its own — a bump to one
+ * `suggest` entry without the matching fixture bump keeps that step green
+ * on the OLD major while the install text already promises the new one.
  *
  * The packages checked are derived from the OVERLAP between `suggest` and
  * the fixture's `require-dev`, never a hand-kept list of names — re-derive
