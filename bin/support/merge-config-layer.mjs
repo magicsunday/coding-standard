@@ -58,6 +58,14 @@ export function isArrayLike(value) {
  * docblock (same GH-36 audit round) for why that shape is unreachable in a
  * config that successfully loads in the real tool.
  *
+ * A second, distinct asymmetry (GH-138) is PHP-only and needs no JS-side
+ * guard: `JSON.parse('{"0":"a","1":"b"}')` stays a plain object here
+ * (`Array.isArray` is `false` for it), so this file never misclassifies an
+ * object keyed by sequential numeric strings as a list the way PHP's
+ * `array_is_list()` does once `json_decode(..., true)` coerces such keys to
+ * integers — see `mergeConfigLayer()`'s PHP docblock for why that PHP-only
+ * misclassification is left unfixed.
+ *
  * `__proto__`/`constructor`/`prototype` are skipped outright — a
  * `JSON.parse`'d document with a literal `"__proto__"` key creates a real OWN
  * property (JSON.parse does not special-case it), but `merged[key]` on the
