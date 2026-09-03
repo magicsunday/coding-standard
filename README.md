@@ -383,9 +383,25 @@ from `LogicException`, so this inheritance clause does not reach them.
   method still stays uncheckable for this direction regardless of the flag.
   This is a known, accepted gap: the undocumented-throw direction above has no
   such restriction and is where most of the value is. `checkTooWideThrowTypesInProtectedAndPublicMethods`
-  itself requires `phpstan/phpstan` **2.1.31+** — this package's own `composer.json`
-  pins `^2.2` for exactly that reason; a consumer that separately pins an older
-  `phpstan/phpstan` gets a hard "Unexpected item" config-load error on this key.
+  itself requires `phpstan/phpstan` **2.1.31+** (observed 2026-09-03 in that
+  release's own changelog: `curl -s
+  https://api.github.com/repos/phpstan/phpstan/releases/tags/2.1.31` lists it
+  under "New config parameter") — this package's own `composer.json` pins
+  `^2.2` for exactly that reason, and that floor is installed-and-tested, not
+  merely cited: `composer update phpstan/phpstan --with-all-dependencies
+  --prefer-lowest` resolves to 2.2.0/2.2.6 depending on the rest of the
+  dependency graph, and the checked-exceptions self-test passes against it. A
+  consumer that separately pins an older `phpstan/phpstan` gets a hard
+  "Unexpected item" config-load error on this key — the same failure shape
+  applies to `symplify/phpstan-rules`, whose `config/symfony-config-rules.neon`
+  (included by `strict.neon` since before this section existed) first appears
+  at 14.5.0, but 14.5.0/14.6.0 against `phpstan/phpstan` 2.2.0 fail with an
+  unrelated internal error ("Too few arguments to function
+  `PHPStan\DependencyInjection\NeonAdapter::__construct()`") — an incompatibility
+  bisected the same way, install-and-test, not source-read. **14.7.0** is the
+  first version that installs and passes clean; this package's own `suggest`
+  block was raised from the previously-untested `^14.0` to `^14.7` for that
+  reason.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
