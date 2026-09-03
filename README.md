@@ -382,7 +382,10 @@ from `LogicException`, so this inheritance clause does not reach them.
   declaration — a non-final class's own first-declared public or protected
   method still stays uncheckable for this direction regardless of the flag.
   This is a known, accepted gap: the undocumented-throw direction above has no
-  such restriction and is where most of the value is.
+  such restriction and is where most of the value is. `checkTooWideThrowTypesInProtectedAndPublicMethods`
+  itself requires `phpstan/phpstan` **2.1.31+** — this package's own `composer.json`
+  pins `^2.2` for exactly that reason; a consumer that separately pins an older
+  `phpstan/phpstan` gets a hard "Unexpected item" config-load error on this key.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
