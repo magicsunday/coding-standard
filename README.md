@@ -357,7 +357,11 @@ namespace — an SPL or third-party exception is unchecked purely by not matchin
 regex; PHPStan has no separate "third-party" concept. `uncheckedExceptionClasses`
 matches **by inheritance**, so `LogicException` alone also exempts
 `InvalidArgumentException`, `DomainException`, `OutOfRangeException` and every other
-SPL subclass — no need to enumerate them.
+`LogicException` SPL subclass — no need to enumerate them individually.
+`RuntimeException` and its own subclasses (`OutOfBoundsException`,
+`UnexpectedValueException`, …) are unchecked here too, but for the unrelated reason
+of not matching `checkedExceptionRegexes` in the first place — they do not descend
+from `LogicException`, so this inheritance clause does not reach them.
 
 **Two diagnostics, two directions — only one of which this config actually enables:**
 
