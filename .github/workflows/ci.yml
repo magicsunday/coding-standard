@@ -140,11 +140,11 @@ jobs:
 
             # tests/consumer/composer.json's require-dev hand-copies each
             # opt-in strict-tier package's version constraint from composer.json's
-            # own suggest block, so the Case-folding and Checked-exceptions
-            # self-test steps below (the two places strict.neon is loaded — see
-            # their own comments) prove that tier against the same version the
-            # suggest text tells a real consumer to install. Nothing else ties
-            # the two copies together — a suggest
+            # own suggest block, so the Case-folding self-test step below, and
+            # the Checked-exceptions self-test's one strict-tier-inheritance
+            # assertion (see their own comments), prove that tier against the
+            # same version the suggest text tells a real consumer to install.
+            # Nothing else ties the two copies together — a suggest
             # bump with no matching fixture bump would keep that step green on the OLD
             # major while the install text already promises the new one.
             #
@@ -184,7 +184,8 @@ jobs:
             # clean on the fixture, then that base.neon + disallowed-calls.neon
             # reports all five banned functions, then that the same five come back
             # through strict.neon — see the Checked-exceptions self-test step below
-            # for the other place that tier is loaded.
+            # for its own, much narrower strict-tier assertion (checked-exceptions
+            # itself now lives in base.neon, not strict.neon).
             - name: Case-folding self-test
               run: composer ci:test:disallowed-calls
 
