@@ -96,10 +96,13 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     #[Test]
     public function controlRunAlreadyReportsTheStaleThrows(): void
     {
+        $result = self::controlResult();
+
+        self::assertResultIsNotDegraded($result);
         self::assertStringContainsString(
             "staleThrows() has",
-            self::controlResult()->output,
-            "base.neon alone did NOT report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/strict.neon's comment against the installed PHPStan version.\n" . self::controlResult()->output,
+            $result->output,
+            "base.neon alone did NOT report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/strict.neon's comment against the installed PHPStan version.\n{$result->output}",
         );
     }
 
@@ -236,32 +239,83 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
 
     /**
      * The strict run must report EXACTLY one missing-throws-annotation
-     * finding and exactly one stale-throws-annotation finding — a stray
-     * second one (the
-     * documented or unchecked method getting flagged too, or the stale-tag
-     * direction firing twice) would pass the assertions above individually
-     * while still being wrong. Scoped to these two messages specifically,
-     * not the whole output's line count: the strict tier's other rule packs
-     * (shipmonk, symplify) may legitimately report unrelated findings, same
-     * reasoning as CheckDisallowedCallsTest's wiring run not asserting a
-     * total count.
+     * finding (undocumentedThrow()) and exactly two stale-throws-annotation
+     * findings (staleThrows() and overriddenStaleThrows()) — a stray extra
+     * one (the documented or unchecked method getting flagged too, or either
+     * direction firing an unexpected additional time) would pass the
+     * assertions above individually while still being wrong. Scoped to these
+     * two messages specifically, not the whole output's line count: the
+     * strict tier's other rule packs (shipmonk, symplify) may legitimately
+     * report unrelated findings, same reasoning as CheckDisallowedCallsTest's
+     * wiring run not asserting a total count.
      *
      * @return void
      */
     #[Test]
-    public function strictRunReportsExactlyOneFindingPerDirection(): void
+    public function strictRunReportsExactlyTheExpectedFindingCounts(): void
     {
         $result = self::strictResult();
 
+        self::assertResultIsNotDegraded($result);
         self::assertSame(
             1,
             substr_count($result->output, 'missing from the PHPDoc @throws tag'),
             "expected exactly one missing-@throws report, the fixture and the config have drifted.\n{$result->output}",
         );
         self::assertSame(
-            1,
+            2,
             substr_count($result->output, "but it's not thrown"),
-            "expected exactly one stale-@throws report, the fixture and the config have drifted.\n{$result->output}",
+            "expected exactly two stale-@throws reports (staleThrows() and overriddenStaleThrows()), the fixture and the config have drifted.\n{$result->output}",
+        );
+    }
+
+    /**
+     * The control run must NOT report CheckedExceptionsOverrideFixture's stale
+     * override — checkTooWideThrowTypesInProtectedAndPublicMethods defaults to
+     * false, so a non-final public method's stale throws annotation stays
+     * unchecked on base.neon alone, override or not.
+     *
+     * @return void
+     */
+    #[Test]
+    public function controlRunDoesNotReportTheStaleOverride(): void
+    {
+        $result = self::controlResult();
+
+        self::assertResultIsNotDegraded($result);
+        self::assertStringNotContainsString(
+            '::overriddenStaleThrows()',
+            $result->output,
+            "base.neon alone reported the stale override, so a report in the strict run would not prove checkTooWideThrowTypesInProtectedAndPublicMethods fired.\n{$result->output}",
+        );
+    }
+
+    /**
+     * The strict tier must report CheckedExceptionsOverrideFixture's stale
+     * override — the one case that isolates
+     * checkTooWideThrowTypesInProtectedAndPublicMethods's own genuine effect:
+     * a non-final class's OVERRIDE of a base declaration becomes checkable,
+     * unlike staleThrows() above (checkable regardless, because that class is
+     * final) or a non-final class's own first-declared method (stays
+     * uncheckable regardless, per README's documented gap).
+     *
+     * @return void
+     */
+    #[Test]
+    public function strictRunReportsTheStaleOverride(): void
+    {
+        $result = self::strictResult();
+
+        self::assertResultIsNotDegraded($result);
+        self::assertStringContainsString(
+            'overriddenStaleThrows() has',
+            $result->output,
+            "the strict tier did not report the stale override in overriddenStaleThrows() — checkTooWideThrowTypesInProtectedAndPublicMethods may not be reaching overrides any more.\n{$result->output}",
+        );
+        self::assertStringContainsString(
+            "but it's not thrown",
+            $result->output,
+            "the report did not carry the expected stale-@throws message.\n{$result->output}",
         );
     }
 
