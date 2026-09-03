@@ -213,4 +213,27 @@ final class MergeConfigLayerTest extends TestCase
             mergeConfigLayer(['a' => 1, 'b' => ['c' => 2]], [])
         );
     }
+
+    /**
+     * Pins the documented, accepted asymmetry from the function's own
+     * docblock: a JSON object whose keys happen to be the sequential strings
+     * "0", "1", … decodes in PHP to an array indexed by the equivalent
+     * integers, so `array_is_list()` misreports it as a list and this
+     * function replaces it wholesale instead of merging key-by-key. Not a bug
+     * fix — this test exists so a future change to the list-detection guard
+     * cannot silently alter this specific, already-analysed shape without a
+     * red test forcing the change to be deliberate.
+     */
+    #[Test]
+    public function sequentialNumericStringKeyObjectReplacesWholesaleInsteadOfMerging(): void
+    {
+        $base    = ['paths' => ['0' => ['src/a'], '1' => ['src/b']]];
+        $overlay = ['paths' => ['0' => ['src/c']]];
+
+        self::assertSame(
+            ['paths' => ['0' => ['src/c']]],
+            mergeConfigLayer($base, $overlay),
+            'a sequential-numeric-string-keyed object is misclassified as a list and replaces wholesale'
+        );
+    }
 }
