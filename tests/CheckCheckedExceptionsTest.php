@@ -210,9 +210,10 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * staleThrows() is a `final` method, so
      * `checkTooWideThrowTypesInProtectedAndPublicMethods` (this config's
      * only genuine contribution to this direction) does not affect it
-     * either way — that flag's own distinct effect (a non-final override
-     * becoming checkable) has no fixture here, and is documented as a known
-     * gap in README instead. This test exists so a strict-tier run
+     * either way — the override case that flag DOES affect is proven
+     * separately by strictRunReportsTheStaleOverride() below; the actual
+     * known gap (a non-final class's own first-declared method) has no
+     * fixture here, matching README. This test exists so a strict-tier run
      * specifically (not just the control run above) is proven to still
      * carry the stale-throws finding through — this is the only test in
      * this class that asserts on staleThrows().
