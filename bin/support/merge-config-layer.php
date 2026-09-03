@@ -77,6 +77,23 @@ declare(strict_types=1);
  * still carries no object/array tag either way) — not a local fix to this
  * function.
  *
+ * **A second, distinct residual asymmetry** (GH-138): a JSON OBJECT whose keys
+ * happen to be the sequential strings `"0"`, `"1"`, `"2"`, … decodes in PHP to
+ * an array indexed by the equivalent INTEGERS — the same long-standing PHP
+ * coercion the `extends`-array note in `bin/check-consumer-config.php`
+ * documents — and `array_is_list()` then reports `true` for it, so this
+ * function replaces such an object wholesale instead of recursing into it.
+ * Unlike that `extends` case, neither tsc nor Biome schema-rejects this shape
+ * outright (a `compilerOptions.paths` object's keys are unconstrained glob
+ * patterns to tsc), so it is not provably unreachable the same way. Left
+ * unfixed anyway: no key this gate enforces a policy verdict on (`strict`,
+ * `noUncheckedIndexedAccess`, `skipLibCheck`, …) is itself an object of this
+ * shape, so a divergent merge here only changes the internal
+ * effective-document preview, never a PASS/FAIL verdict — and no real-world
+ * `paths`-like mapping is ever keyed by bare sequential digits rather than
+ * glob-like patterns. `tests/MergeConfigLayerTest.php` pins the current
+ * (accepted) wholesale-replace behaviour for this shape.
+ *
  * @param array<array-key, mixed> $base    The lower-precedence layer.
  * @param array<array-key, mixed> $overlay The higher-precedence layer.
  *
