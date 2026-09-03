@@ -30,10 +30,10 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureLogicE
  * undocumentedThrow()/documentedThrow()/staleThrows() throw FixtureException
  * (Exception\ sub-namespace, below) rather than a plain SPL exception:
  * `checkedExceptionRegexes: ['#^MagicSunday\\#']` in strict.neon only treats
- * a MagicSunday-namespaced class as checked, matching the decision table's
- * row 5 (a third-party/SPL exception is unchecked purely by not matching the
- * regex, with no separate "third-party" concept in PHPStan itself) — an SPL
- * exception here would prove nothing for those three methods.
+ * a MagicSunday-namespaced class as checked — a third-party/SPL exception is
+ * unchecked purely by not matching the regex, with no separate "third-party"
+ * concept in PHPStan itself (see README's "Checked exceptions" section) — an
+ * SPL exception here would prove nothing for those three methods.
  * uncheckedProgrammerError() and uncheckedByInheritanceOnly() deliberately
  * throw different exception shapes instead — see their own docblocks.
  *

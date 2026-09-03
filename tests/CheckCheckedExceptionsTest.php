@@ -112,7 +112,9 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * missingType.checkedException). Matched on the message text, not the
      * identifier: `--error-format=raw` (used here, same as
      * CheckDisallowedCallsTest) does not carry identifiers at all, only
-     * file:line:message.
+     * file:line:message (observed 2026-09-02 against phpstan/phpstan 2.2.12
+     * — re-verify with `--error-format=json` if this stops holding after a
+     * version bump).
      *
      * @return void
      */
@@ -144,14 +146,16 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     #[Test]
     public function strictRunDoesNotReportTheDocumentedThrow(): void
     {
+        $result = self::strictResult();
+
         // "::documentedThrow()", not "documentedThrow()" — the latter is
         // also a substring of "undocumentedThrow()" and would false-positive
         // against the previous test's own, expected finding.
-        self::assertResultIsNotDegraded(self::strictResult());
+        self::assertResultIsNotDegraded($result);
         self::assertStringNotContainsString(
             '::documentedThrow()',
-            self::strictResult()->output,
-            "the correctly documented throw in documentedThrow() was reported anyway.\n" . self::strictResult()->output,
+            $result->output,
+            "the correctly documented throw in documentedThrow() was reported anyway.\n{$result->output}",
         );
     }
 
@@ -170,11 +174,13 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     #[Test]
     public function strictRunDoesNotReportTheUncheckedProgrammerError(): void
     {
-        self::assertResultIsNotDegraded(self::strictResult());
+        $result = self::strictResult();
+
+        self::assertResultIsNotDegraded($result);
         self::assertStringNotContainsString(
             '::uncheckedProgrammerError()',
-            self::strictResult()->output,
-            "the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway.\n" . self::strictResult()->output,
+            $result->output,
+            "the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway.\n{$result->output}",
         );
     }
 
@@ -193,11 +199,13 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     #[Test]
     public function strictRunDoesNotReportTheUncheckedByInheritanceOnly(): void
     {
-        self::assertResultIsNotDegraded(self::strictResult());
+        $result = self::strictResult();
+
+        self::assertResultIsNotDegraded($result);
         self::assertStringNotContainsString(
             '::uncheckedByInheritanceOnly()',
-            self::strictResult()->output,
-            "the exception in uncheckedByInheritanceOnly() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.\n" . self::strictResult()->output,
+            $result->output,
+            "the exception in uncheckedByInheritanceOnly() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.\n{$result->output}",
         );
     }
 
