@@ -191,16 +191,15 @@ jobs:
             # Same shape and same reason as the Case-folding self-test above:
             # CheckCheckedExceptionsTest self-skipped under the plain "PHPUnit"
             # step, tests/consumer was not installed yet. Proves base.neon
-            # alone does NOT report the undocumented throw (though it already
-            # flags the fixture's separate stale-throws-annotation case via
-            # PHPStan's own default — see the test's own docblocks), then
-            # that strict.neon reports the undocumented throw, stays quiet on
-            # the documented one, stays quiet on a plain unchecked
-            # programmer-error exception (outside checkedExceptionRegexes
-            # entirely), and separately stays quiet on a checked-namespace
-            # exception exempted only by LogicException inheritance
-            # (uncheckedExceptionClasses) — two different mechanisms, see the
-            # test's own docblocks for why they need separate fixture cases.
+            # reports the undocumented throw, stays quiet on the documented
+            # one, stays quiet on a plain unchecked programmer-error exception
+            # (outside checkedExceptionRegexes entirely), separately stays
+            # quiet on a checked-namespace exception exempted only by
+            # LogicException inheritance (uncheckedExceptionClasses) — two
+            # different mechanisms, see the test's own docblocks for why they
+            # need separate fixture cases — and that the strict tier (which
+            # includes base.neon) still inherits the check rather than losing
+            # it.
             - name: Checked-exceptions self-test
               run: composer ci:test:checked-exceptions
 

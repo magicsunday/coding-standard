@@ -17,7 +17,8 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureLogicE
 
 /**
  * Deliberately paired/discriminating methods proving the checked-exceptions
- * config (phpstan/strict.neon, GH-139) fires on an undocumented throw, stays
+ * config (phpstan/base.neon, GH-139, promoted from strict.neon by GH-144)
+ * fires on an undocumented throw, stays
  * quiet on a correctly documented one, exempts unchecked exceptions by
  * namespace and — separately, via a different mechanism — by inheritance,
  * and still reports a stale throws annotation. Each method's own docblock
@@ -29,7 +30,7 @@ use MagicSunday\CodingStandard\Fixture\CheckedExceptions\Exception\FixtureLogicE
  *
  * undocumentedThrow()/documentedThrow()/staleThrows() throw FixtureException
  * (Exception\ sub-namespace, below) rather than a plain SPL exception:
- * `checkedExceptionRegexes: ['#^MagicSunday\\#']` in strict.neon only treats
+ * `checkedExceptionRegexes: ['#^MagicSunday\\#']` in base.neon only treats
  * a MagicSunday-namespaced class as checked — a third-party/SPL exception is
  * unchecked purely by not matching the regex, with no separate "third-party"
  * concept in PHPStan itself (see README's "Checked exceptions" section) — an
@@ -90,7 +91,7 @@ final readonly class CheckedExceptionsFixture
      * discriminate. Unlike uncheckedProgrammerError() above (a plain SPL
      * InvalidArgumentException, already unchecked purely by not matching
      * checkedExceptionRegexes — deleting `uncheckedExceptionClasses:
-     * ['LogicException']` from strict.neon would NOT turn that test red),
+     * ['LogicException']` from base.neon would NOT turn that test red),
      * this one lives inside `#^MagicSunday\\#` and would be flagged as
      * missingCheckedExceptionInThrows without the exemption.
      *

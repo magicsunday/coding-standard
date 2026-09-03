@@ -176,8 +176,8 @@ smoke - PHPStan with the shared base config" step's own command (`.build/bin/php
 analyse --configuration phpstan.neon --memory-limit=-1 --error-format=github`) against
 that resolution passed clean (verified 2026-09-03). `phpstan/phpstan` itself cannot
 resolve below `2.2.0` in that same run — this package's own `^2.2` floor (see the
-`strict.neon` section below) makes any lower `phpstan/phpstan` unsatisfiable for a
-consumer of this package, so the three rule packages' floors are only ever exercised
+"Checked exceptions" section below) makes any lower `phpstan/phpstan` unsatisfiable
+for a consumer of this package, so the three rule packages' floors are only ever exercised
 paired with `phpstan/phpstan` 2.2.0+. This combination is not re-checked on an ongoing
 basis — no CI leg currently repeats this `--prefer-lowest` resolution — tracked as
 issue #147.
@@ -261,11 +261,12 @@ something.
 `strict.neon` (which includes `base.neon`) is the **target** — the tier every
 repository is expected to reach, not a permanent alternative. It adds the
 shipmonk/symplify rule packs, the case-folding bans from `disallowed-calls.neon`,
-checked-exceptions enforcement (see "Checked exceptions" below), and the
-extra-strict report parameters. The reason it
-is staged rather than folded into the base is cost, not preference: turning it on
-surfaces real findings that need triaging per repository, so forcing it into the
-base would block every adoption on an unrelated backlog.
+and the extra-strict report parameters — checked-exceptions enforcement (see
+"Checked exceptions" below) lives in `base.neon` itself since GH-144, so every
+consumer gets it, strict tier or not. The reason strict.neon is staged rather
+than folded into the base is cost, not preference: turning it on surfaces real
+findings that need triaging per repository, so forcing it into the base would
+block every adoption on an unrelated backlog.
 
 To keep that staging from becoming drift, **a repository that runs only `base.neon`
 carries an open issue for reaching `strict.neon`**. The gap stays visible and
@@ -353,11 +354,13 @@ Such an entry **replaces** the shipped one rather than merging into it, so an
 override restates the `message` it wants to keep. When PHPStan does not run from
 the repository root, set `filesRootDir` so the `allowIn` paths still resolve.
 
-### Checked exceptions — `phpstan/strict.neon`
+### Checked exceptions — `phpstan/base.neon`
 
-`strict.neon` enforces `@throws` contracts through PHPStan's native checked-exceptions
+`base.neon` enforces `@throws` contracts through PHPStan's native checked-exceptions
 extension: a method that throws a checked exception must document it, and a `@throws`
-tag must name something the body can actually raise.
+tag must name something the body can actually raise. Promoted here from the opt-in
+`strict.neon` tier by GH-144 (originally added by GH-139) — every consumer of this
+package gets it now, strict tier or not.
 
 ```neon
 checkTooWideThrowTypesInProtectedAndPublicMethods: true
@@ -384,7 +387,7 @@ from `LogicException`, so this inheritance clause does not reach them.
 **Two diagnostics, two directions — only one of which this config actually enables:**
 
 - Undocumented throw (`missingCheckedExceptionInThrows`) → identifier
-  `missingType.checkedException`. This is the direction `strict.neon` genuinely
+  `missingType.checkedException`. This is the direction this config genuinely
   turns on: PHPStan defaults it to `false`. Applies unconditionally, to every
   method regardless of visibility or class finality.
 - Stale or wrong `@throws` → identifier `throws.unusedType` — **not** a
@@ -392,15 +395,16 @@ from `LogicException`, so this inheritance clause does not reach them.
   as the config flag it names. **PHPStan already enables this check by default**
   (`exceptions.check.tooWideThrowType: true` out of the box), independently of
   `checkedExceptionRegexes`/`uncheckedExceptionClasses` — a stale `@throws` on a
-  `final` class or method is flagged even on plain `base.neon`, with none of the
-  config above. What `strict.neon` genuinely adds for this direction is only
-  `checkTooWideThrowTypesInProtectedAndPublicMethods` (a separate **top-level**
-  parameter, not nested under `exceptions.check`, defaulting to `false`), which
-  extends the check to non-final methods that **override** a base/interface
-  declaration — a non-final class's own first-declared public or protected
-  method still stays uncheckable for this direction regardless of the flag.
-  This is a known, accepted gap: the undocumented-throw direction above has no
-  such restriction and is where most of the value is. `checkTooWideThrowTypesInProtectedAndPublicMethods`
+  `final` class or method is flagged even without any of the config above, on
+  PHPStan's own defaults alone. What this config genuinely adds for this
+  direction is only `checkTooWideThrowTypesInProtectedAndPublicMethods` (a
+  separate **top-level** parameter, not nested under `exceptions.check`,
+  defaulting to `false`), which extends the check to non-final methods that
+  **override** a base/interface declaration — a non-final class's own
+  first-declared public or protected method still stays uncheckable for this
+  direction regardless of the flag. This is a known, accepted gap: the
+  undocumented-throw direction above has no such restriction and is where most
+  of the value is. `checkTooWideThrowTypesInProtectedAndPublicMethods`
   itself requires `phpstan/phpstan` **2.1.31+** (observed 2026-09-03 in that
   release's own changelog: `curl -s
   https://api.github.com/repos/phpstan/phpstan/releases/tags/2.1.31` lists it
@@ -410,16 +414,19 @@ from `LogicException`, so this inheritance clause does not reach them.
   --prefer-lowest` resolves to 2.2.0/2.2.6 depending on the rest of the
   dependency graph, and the checked-exceptions self-test passes against it. A
   consumer that separately pins an older `phpstan/phpstan` gets a hard
-  "Unexpected item" config-load error on this key — the same failure shape
-  applies to `symplify/phpstan-rules`, whose `config/symfony-config-rules.neon`
-  (included by `strict.neon` since before this section existed) first appears
-  at 14.5.0, but 14.5.0/14.6.0 against `phpstan/phpstan` 2.2.0 fail with an
-  unrelated internal error ("Too few arguments to function
-  `PHPStan\DependencyInjection\NeonAdapter::__construct()`") — an incompatibility
-  bisected the same way, install-and-test, not source-read. **14.7.0** is the
-  first version that installs and passes clean; this package's own `suggest`
-  block was raised from the previously-untested `^14.0` to `^14.7` for that
-  reason. `^14.7` itself resolves to a DIFFERENT `symplify/phpstan-rules`
+  "Unexpected item" config-load error on this key.
+
+  The same failure shape separately hit `symplify/phpstan-rules` during GH-139's
+  original bisection — that package is `strict.neon`-only, not part of this
+  base.neon config, but the floor problem was discovered in the same
+  investigation: `symplify/phpstan-rules`' `config/symfony-config-rules.neon`
+  (included by `strict.neon`) first appears at 14.5.0, but 14.5.0/14.6.0 against
+  `phpstan/phpstan` 2.2.0 fail with an unrelated internal error ("Too few
+  arguments to function `PHPStan\DependencyInjection\NeonAdapter::__construct()`")
+  — an incompatibility bisected the same way, install-and-test, not source-read.
+  **14.7.0** is the first version that installs and passes clean; this package's
+  own `suggest` block was raised from the previously-untested `^14.0` to `^14.7`
+  for that reason. `^14.7` itself resolves to a DIFFERENT `symplify/phpstan-rules`
   minor per PHP version, not one uniform release: `symplify/phpstan-rules`
   raised its own floor to `php: ^8.4` at 14.11.0 (observed 2026-09-03 via
   `curl -s https://repo.packagist.org/p2/symplify/phpstan-rules.json`), so a
@@ -434,16 +441,20 @@ fully absorbs a callee's checked-exception obligation: a method that catches and
 rethrows a different, documented exception type needs no `@throws` for the caught
 one. A `throw` inside a closure is attributed to the **enclosing method**, not
 hidden from its contract — but `@throws` documentation does not silence it fully:
-`shipmonk/phpstan-rules`' `ForbidCheckedExceptionInCallableRule` (already included
-via `strict.neon`) separately and unconditionally forbids throwing a checked
+`shipmonk/phpstan-rules`' `ForbidCheckedExceptionInCallableRule` (included via
+`strict.neon`, not this base.neon config — the shipmonk rule pack itself stays
+strict-tier-only) separately and unconditionally forbids throwing a checked
 exception inside a closure or arrow function, regardless of documentation on the
 enclosing method. That is a different diagnostic
 (`shipmonk.checkedExceptionInCallable`) with no override via `@throws`, only via
-`@param-immediately-invoked-callable` or by not using a closure.
+`@param-immediately-invoked-callable` or by not using a closure, and it only
+applies to a consumer of the strict tier.
 
 Verified against a running phpstan/phpstan 2.2.12, shipmonk/phpstan-rules 4.x and
-symplify/phpstan-rules 14.x in a throwaway fixture (2026-09-02), not assumed from
-docs — re-verify against the pins actually installed if any of the above stops
+symplify/phpstan-rules 14.x in a throwaway fixture (2026-09-02), and re-verified
+directly against the one real strict-tier consumer at the time of the GH-144
+promotion (`magicsunday/webtrees-statistics`, 2026-09-03) — not assumed from
+docs; re-verify against the pins actually installed if any of the above stops
 holding after a version bump.
 
 ### Rector — `rector/base.php`
