@@ -23,14 +23,14 @@ use function sprintf;
 /**
  * Shared scaffolding for a self-test that proves a shared PHPStan config
  * fires by running the real, installed `tests/consumer` PHPStan binary
- * against a fixture — the shape `CheckDisallowedCallsTest` and
- * `CheckCheckedExceptionsTest` both need and previously each reimplemented
+ * against a fixture — the shape `CheckDisallowedCallsTest` previously
+ * reimplemented on its own and `CheckCheckedExceptionsTest` also needs
  * (root()/consumer()/phpstanBinary()/runPhpstan()/the self-skip setUp() /
  * assertResultIsNotDegraded()). Not `GateTestCase`: that class's
  * accept/reject/usage-error exit-code contract is for this package's OWN
  * `bin/check-*.php` gate scripts, not a third-party binary's PHPStan
- * findings, which is why both consumers already extended `TestCase`
- * directly instead.
+ * findings, which is why `CheckDisallowedCallsTest` extended `TestCase`
+ * directly instead of `GateTestCase`.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
