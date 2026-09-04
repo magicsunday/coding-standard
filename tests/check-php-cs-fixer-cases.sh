@@ -139,43 +139,36 @@ TOP_CONSUMER_PROBE="$ROOT/tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.ph
 # previous handler outright, so a second `trap` call here would silently drop
 # the workdir cleanup instead of adding to it.
 #
-# Ownership is decided by mkdir's OWN exit status at creation time, not by a
-# separate existence check taken earlier and acted on later, and not by
-# rmdir's non-empty refusal alone: a check-then-act split is a TOCTOU race
-# against a second concurrent invocation of this same script (this
-# project's own worktree shares across sessions, a documented real hazard
-# here), and an unconditional rmdir with no ownership check at all silently
-# deletes a maintainer's genuinely pre-existing but EMPTY directory — rmdir
-# only refuses a NON-empty one. Both failure modes were live-reproduced
-# against earlier revisions of this function. `mkdir` (no `-p`) fails with
-# EEXIST in the same syscall that would otherwise have created the
-# directory, so "did THIS invocation create it" is answered atomically, with
-# no window for a second process, or a maintainer's own same-named
-# directory, to be misread as ours.
-mkdir -- "$BIN_CONSUMER_DIR" 2>/dev/null && BIN_CONSUMER_OWNED=1 || BIN_CONSUMER_OWNED=0
-mkdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null && NESTED_CONSUMER_OWNED=1 || NESTED_CONSUMER_OWNED=0
+# Ownership (harness_mkdir_owned/harness_rmdir_if_owned, tests/harness.sh) is
+# decided by mkdir's OWN exit status at creation time, not by a separate
+# existence check taken earlier and acted on later, and not by rmdir's
+# non-empty refusal alone: a check-then-act split is a TOCTOU race against a
+# second concurrent invocation of this same script (this project's own
+# worktree shares across sessions, a documented real hazard here), and an
+# unconditional rmdir with no ownership check at all silently deletes a
+# maintainer's genuinely pre-existing but EMPTY directory — rmdir only
+# refuses a NON-empty one. Both failure modes were live-reproduced against
+# earlier revisions of this function.
+BIN_CONSUMER_OWNED="$(harness_mkdir_owned "$BIN_CONSUMER_DIR")"
+NESTED_CONSUMER_OWNED="$(harness_mkdir_owned "$NESTED_CONSUMER_DIR")"
 
-# Each `rmdir` is individually `|| true`-guarded: under `set -e`, the LAST
-# command of an `A && B` statement is not exempt from errexit, so an
-# unguarded `rmdir` failing (e.g. a concurrent writer left a second file in
-# $BIN_CONSUMER_DIR, ENOTEMPTY) would abort this function before removing
-# the sibling directory or reaching harness_workdir's own cleanup below.
-#
-# The trailing `true` is load-bearing, not vestigial: `[ COND ] && { ... }`
-# is itself exempt from errexit regardless of which branch runs (verified),
-# BUT only when a later statement follows it — as the LAST statement in a
-# function, a false COND makes that statement (and so the function's own
-# return status) fail, which DOES trigger errexit one level up, aborting the
-# combined trap before `rm -rf -- "$harness_workdir_raw"` runs. Live
-# reproduced: removing this line let `$OWNED=0` on the final guard silently
-# skip harness_workdir's own cleanup.
 cleanup_finder_scope_probes() {
     rm -f -- "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"
-    [ "$BIN_CONSUMER_OWNED" -eq 1 ] && { rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null || true; }
-    [ "$NESTED_CONSUMER_OWNED" -eq 1 ] && { rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null || true; }
-    true
+    harness_rmdir_if_owned "$BIN_CONSUMER_DIR" "$BIN_CONSUMER_OWNED"
+    harness_rmdir_if_owned "$NESTED_CONSUMER_DIR" "$NESTED_CONSUMER_OWNED"
 }
-trap 'cleanup_finder_scope_probes; rm -rf -- "$harness_workdir_raw"' EXIT
+
+# The PRESERVATION section below creates a second mktemp root
+# ($preservation_root) after this trap is armed — folded into the SAME
+# combined trap rather than cleaned up with a fire-and-forget `rm -rf` at its
+# own tail, because any ordinary statement between its creation and that tail
+# (a mkdir, a printf redirect) can fail under set -euo pipefail and skip it.
+# `${preservation_root:-}` is safe to reference here even though the
+# variable does not exist yet: this string is expanded only when the trap
+# fires, by which point the script either reached its assignment or aborted
+# before it — either way `:-` supplies the empty-string default `set -u`
+# would otherwise reject, and `rm -rf -- ""` is a documented no-op.
+trap 'cleanup_finder_scope_probes; rm -rf -- "${preservation_root:-}" "$harness_workdir_raw"' EXIT
 
 for probe in "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"; do
     cat > "$probe" <<PHP
@@ -231,29 +224,23 @@ fi
 # The FINDER SCOPE case above only ever creates bin/consumer/ and
 # tests/Support/consumer/ itself, so it never exercises the "genuinely
 # pre-existing, must not be removed" branch of the ownership check above —
-# that guarantee was, until this case, asserted only in a comment. Reproduces
-# the exact mkdir-ownership-then-cleanup mechanism in an isolated scratch
-# root, not the tracked tree, so a defect here costs nothing real — the same
-# "prove the mechanism in the abstract" shape check-js-configs.sh's own
-# trap-safety self-test uses, for the same reason: the real call site's
-# tracked-tree run can't safely be the one to fail this way.
+# that guarantee was, until this case, asserted only in a comment. Calls the
+# SAME harness_mkdir_owned/harness_rmdir_if_owned (tests/harness.sh) the real
+# FINDER SCOPE case above uses, against an isolated scratch root rather than
+# the tracked tree, so a defect here costs nothing real and this case cannot
+# silently drift from what it is meant to prove — the same "prove the
+# mechanism in the abstract" shape check-js-configs.sh's own trap-safety
+# self-test uses, for the same reason: the real call site's tracked-tree run
+# can't safely be the one to fail this way. $preservation_root is cleaned up
+# by the combined trap armed above, not here — see that trap's own comment.
 preservation_root="$(mktemp -d)"
-
-preservation_owned() {
-    mkdir -- "$1" 2>/dev/null && echo 1 || echo 0
-}
-
-preservation_cleanup() {
-    [ "$2" -eq 1 ] && { rmdir -- "$1" 2>/dev/null || true; }
-    true
-}
 
 # Case A: pre-existing and non-empty (the shape a maintainer's own tracked directory has).
 preservation_with_content="$preservation_root/with-content"
 mkdir -- "$preservation_with_content"
 printf '<?php\n' > "$preservation_with_content/real-maintainer-file.php"
-owned="$(preservation_owned "$preservation_with_content")"
-preservation_cleanup "$preservation_with_content" "$owned"
+owned="$(harness_mkdir_owned "$preservation_with_content")"
+harness_rmdir_if_owned "$preservation_with_content" "$owned"
 
 if [ ! -f "$preservation_with_content/real-maintainer-file.php" ]; then
     report_failure 'preservation: a pre-existing, non-empty directory did not survive cleanup'
@@ -265,15 +252,13 @@ fi
 # shape an unconditional rmdir, with no ownership check, would have deleted).
 preservation_empty="$preservation_root/empty"
 mkdir -- "$preservation_empty"
-owned="$(preservation_owned "$preservation_empty")"
-preservation_cleanup "$preservation_empty" "$owned"
+owned="$(harness_mkdir_owned "$preservation_empty")"
+harness_rmdir_if_owned "$preservation_empty" "$owned"
 
 if [ ! -d "$preservation_empty" ]; then
     report_failure 'preservation: a pre-existing, empty directory did not survive cleanup'
 else
     printf 'ok (preservation): a pre-existing empty directory survives cleanup\n'
 fi
-
-rm -rf -- "$preservation_root"
 
 verdict
