@@ -101,8 +101,9 @@ final readonly class FixtureDirectory
      * caller ever builds $relativePath from anything but a literal;
      * re-derive the current caller set with
      * `grep -rn '\->writeJson(' --include=*.php .` (anchored to the call
-     * syntax so it matches only real calls, not this comment or the method's
-     * own definition) rather than trusting this comment.
+     * syntax so it excludes the method's own definition below; it still
+     * matches this comment's own quoted copy of itself — that hit is the
+     * command's line, not a caller) rather than trusting this comment.
      *
      * @param string               $relativePath Path relative to this fixture's root.
      * @param array<string, mixed> $data         The data to encode as JSON.
