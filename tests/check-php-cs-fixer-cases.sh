@@ -111,4 +111,95 @@ else
     report_failure "$(printf '.php-cs-fixer.dist.php reported something on the positive fixture, but\n  not the expected summary.\n%s' "$out")"
 fi
 
+# --- FINDER SCOPE: the real Finder, not an explicit-path override, must
+# include bin/consumer and any nested tests/*/consumer, and exclude only the
+# top-level tests/consumer fixture ---
+#
+# The two cases above pass an explicit `-- "$FIXTURE"` path, which bypasses
+# php-cs-fixer's configured Finder/exclude()/notPath() entirely — they prove
+# the ruleset fires, not that the Finder in .php-cs-fixer.dist.php scopes its
+# tests/consumer exclusion correctly. That scoping is this config's own most
+# novel piece of logic (see its comments), so it needs its own case with no
+# path override, driven against real, uniquely-named throwaway fixtures under
+# the tracked tree — the Finder recurses through fixed disk locations
+# relative to the config, so there is no workdir-outside-the-tree option here
+# the way the two cases above have.
+CGL_SCOPE_SUFFIX="$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+
+BIN_CONSUMER_DIR="$ROOT/bin/consumer"
+BIN_CONSUMER_PRE_EXISTED=0
+[ -d "$BIN_CONSUMER_DIR" ] && BIN_CONSUMER_PRE_EXISTED=1
+BIN_CONSUMER_PROBE="$BIN_CONSUMER_DIR/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
+
+NESTED_CONSUMER_DIR="$ROOT/tests/Support/consumer"
+NESTED_CONSUMER_PRE_EXISTED=0
+[ -d "$NESTED_CONSUMER_DIR" ] && NESTED_CONSUMER_PRE_EXISTED=1
+NESTED_CONSUMER_PROBE="$NESTED_CONSUMER_DIR/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
+
+TOP_CONSUMER_PROBE="$ROOT/tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
+
+# Combined with harness_workdir's own EXIT trap (`rm -rf -- "$harness_workdir_raw"`,
+# armed above) rather than layered onto it: `trap ... EXIT` replaces the
+# previous handler outright, so a second `trap` call here would silently drop
+# the workdir cleanup instead of adding to it — the same reason
+# check-js-configs.sh's bookkeeping self-test re-declares the full combined
+# trap rather than appending one.
+cleanup_finder_scope_probes() {
+    rm -f -- "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"
+    [ "$BIN_CONSUMER_PRE_EXISTED" -eq 0 ] && rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null
+    [ "$NESTED_CONSUMER_PRE_EXISTED" -eq 0 ] && rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null
+    true
+}
+trap 'cleanup_finder_scope_probes; rm -rf -- "$harness_workdir_raw"' EXIT
+
+mkdir -p -- "$BIN_CONSUMER_DIR" "$NESTED_CONSUMER_DIR"
+
+for probe in "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"; do
+    cat > "$probe" <<PHP
+<?php
+
+/**
+ * This file is part of the package magicsunday/coding-standard.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+function harnessCglFinderScope${CGL_SCOPE_SUFFIX}( string \$s ){
+return trim(\$s);
+}
+PHP
+done
+
+scope_out="$(cd "$ROOT" && "$PHP_CS_FIXER" fix --config "$ROOT/.php-cs-fixer.dist.php" --dry-run --diff 2>&1)" \
+    && scope_rc=0 || scope_rc=$?
+
+scope_ok=1
+
+if ! grep -qF "bin/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php" <<<"$scope_out"; then
+    scope_ok=0
+    report_failure "$(printf 'the real Finder does not include bin/consumer/ — a slashless\n  exclude(%s) on the tests/-scoped Finder is leaking across in() roots again.\n%s' "'consumer'" "$scope_out")"
+fi
+
+if ! grep -qF "tests/Support/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php" <<<"$scope_out"; then
+    scope_ok=0
+    report_failure "$(printf 'the real Finder does not include tests/Support/consumer/ — the\n  tests/-scoped exclusion is matching any nested "consumer" directory, not\n  only the top-level tests/consumer fixture.\n%s' "$scope_out")"
+fi
+
+if grep -qF "tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php" <<<"$scope_out"; then
+    scope_ok=0
+    report_failure "$(printf 'the real Finder reports a file inside tests/consumer/ — the\n  tests/-scoped exclusion no longer excludes its own target fixture.\n%s' "$scope_out")"
+fi
+
+if [ "$scope_rc" -eq 0 ]; then
+    scope_ok=0
+    report_failure "$(printf 'the real Finder reported nothing at all for the three throwaway\n  probes — Finder resolution has broken.\n%s' "$scope_out")"
+fi
+
+if [ "$scope_ok" -eq 1 ]; then
+    printf 'ok (finder scope): bin/consumer and tests/Support/consumer are linted, tests/consumer alone is excluded\n'
+fi
+
 verdict
