@@ -139,32 +139,43 @@ TOP_CONSUMER_PROBE="$ROOT/tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.ph
 # previous handler outright, so a second `trap` call here would silently drop
 # the workdir cleanup instead of adding to it.
 #
-# No pre-existed flag guards the rmdir calls: an existence check taken before
-# mkdir, then acted on after cleanup, is a TOCTOU race against a second
-# concurrent invocation of this same script (this project's own worktree
-# shares across sessions, a documented real hazard here) — both runs would
-# see the directory as "pre-existing" once either one's mkdir wins the race,
-# and neither would ever remove it. rmdir's own refusal to remove a
-# non-empty directory already gives the real guarantee this flag was for: a
-# maintainer's genuine bin/consumer/ or tests/Support/consumer/ is never
-# empty, so an unconditional rmdir attempt on it always fails harmlessly.
+# Ownership is decided by mkdir's OWN exit status at creation time, not by a
+# separate existence check taken earlier and acted on later, and not by
+# rmdir's non-empty refusal alone: a check-then-act split is a TOCTOU race
+# against a second concurrent invocation of this same script (this
+# project's own worktree shares across sessions, a documented real hazard
+# here), and an unconditional rmdir with no ownership check at all silently
+# deletes a maintainer's genuinely pre-existing but EMPTY directory — rmdir
+# only refuses a NON-empty one. Both failure modes were live-reproduced
+# against earlier revisions of this function. `mkdir` (no `-p`) fails with
+# EEXIST in the same syscall that would otherwise have created the
+# directory, so "did THIS invocation create it" is answered atomically, with
+# no window for a second process, or a maintainer's own same-named
+# directory, to be misread as ours.
+mkdir -- "$BIN_CONSUMER_DIR" 2>/dev/null && BIN_CONSUMER_OWNED=1 || BIN_CONSUMER_OWNED=0
+mkdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null && NESTED_CONSUMER_OWNED=1 || NESTED_CONSUMER_OWNED=0
+
+# Each `rmdir` is individually `|| true`-guarded: under `set -e`, the LAST
+# command of an `A && B` statement is not exempt from errexit, so an
+# unguarded `rmdir` failing (e.g. a concurrent writer left a second file in
+# $BIN_CONSUMER_DIR, ENOTEMPTY) would abort this function before removing
+# the sibling directory or reaching harness_workdir's own cleanup below.
 #
-# Each `rmdir` is individually `|| true`-guarded, not just via the function's
-# trailing `true`: under `set -e`, the LAST command of an `A && B` statement
-# is not exempt from errexit, so an unguarded `rmdir` failing (e.g. a
-# concurrent writer left a second file in $BIN_CONSUMER_DIR, ENOTEMPTY) would
-# abort this function before it reaches the trailing `true` — skipping the
-# second rmdir AND, since this function runs first in the combined trap,
-# skipping harness_workdir's own `rm -rf` too, leaking $work.
+# The trailing `true` is load-bearing, not vestigial: `[ COND ] && { ... }`
+# is itself exempt from errexit regardless of which branch runs (verified),
+# BUT only when a later statement follows it — as the LAST statement in a
+# function, a false COND makes that statement (and so the function's own
+# return status) fail, which DOES trigger errexit one level up, aborting the
+# combined trap before `rm -rf -- "$harness_workdir_raw"` runs. Live
+# reproduced: removing this line let `$OWNED=0` on the final guard silently
+# skip harness_workdir's own cleanup.
 cleanup_finder_scope_probes() {
     rm -f -- "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"
-    rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null || true
-    rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null || true
+    [ "$BIN_CONSUMER_OWNED" -eq 1 ] && { rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null || true; }
+    [ "$NESTED_CONSUMER_OWNED" -eq 1 ] && { rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null || true; }
     true
 }
 trap 'cleanup_finder_scope_probes; rm -rf -- "$harness_workdir_raw"' EXIT
-
-mkdir -p -- "$BIN_CONSUMER_DIR" "$NESTED_CONSUMER_DIR"
 
 for probe in "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"; do
     cat > "$probe" <<PHP
@@ -213,5 +224,56 @@ fi
 if [ "$scope_ok" -eq 1 ]; then
     printf 'ok (finder scope): bin/consumer and tests/Support/consumer are linted, tests/consumer alone is excluded\n'
 fi
+
+# --- PRESERVATION: cleanup_finder_scope_probes() must never remove a
+# directory it did not itself create ---
+#
+# The FINDER SCOPE case above only ever creates bin/consumer/ and
+# tests/Support/consumer/ itself, so it never exercises the "genuinely
+# pre-existing, must not be removed" branch of the ownership check above —
+# that guarantee was, until this case, asserted only in a comment. Reproduces
+# the exact mkdir-ownership-then-cleanup mechanism in an isolated scratch
+# root, not the tracked tree, so a defect here costs nothing real — the same
+# "prove the mechanism in the abstract" shape check-js-configs.sh's own
+# trap-safety self-test uses, for the same reason: the real call site's
+# tracked-tree run can't safely be the one to fail this way.
+preservation_root="$(mktemp -d)"
+
+preservation_owned() {
+    mkdir -- "$1" 2>/dev/null && echo 1 || echo 0
+}
+
+preservation_cleanup() {
+    [ "$2" -eq 1 ] && { rmdir -- "$1" 2>/dev/null || true; }
+    true
+}
+
+# Case A: pre-existing and non-empty (the shape a maintainer's own tracked directory has).
+preservation_with_content="$preservation_root/with-content"
+mkdir -- "$preservation_with_content"
+printf '<?php\n' > "$preservation_with_content/real-maintainer-file.php"
+owned="$(preservation_owned "$preservation_with_content")"
+preservation_cleanup "$preservation_with_content" "$owned"
+
+if [ ! -f "$preservation_with_content/real-maintainer-file.php" ]; then
+    report_failure 'preservation: a pre-existing, non-empty directory did not survive cleanup'
+else
+    printf 'ok (preservation): a pre-existing non-empty directory survives cleanup\n'
+fi
+
+# Case B: pre-existing but EMPTY (invisible to git, but real on disk — the
+# shape an unconditional rmdir, with no ownership check, would have deleted).
+preservation_empty="$preservation_root/empty"
+mkdir -- "$preservation_empty"
+owned="$(preservation_owned "$preservation_empty")"
+preservation_cleanup "$preservation_empty" "$owned"
+
+if [ ! -d "$preservation_empty" ]; then
+    report_failure 'preservation: a pre-existing, empty directory did not survive cleanup'
+else
+    printf 'ok (preservation): a pre-existing empty directory survives cleanup\n'
+fi
+
+rm -rf -- "$preservation_root"
 
 verdict
