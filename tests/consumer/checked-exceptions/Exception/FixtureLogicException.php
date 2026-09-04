@@ -15,7 +15,7 @@ use LogicException;
 
 /**
  * A first-party exception namespaced under MagicSunday\ (so it matches
- * strict.neon's checkedExceptionRegexes) that ALSO extends LogicException
+ * base.neon's checkedExceptionRegexes) that ALSO extends LogicException
  * (so it matches uncheckedExceptionClasses by inheritance) — the one shape
  * that actually discriminates whether uncheckedExceptionClasses's
  * inheritance matching is in effect. See CheckedExceptionsFixture's

@@ -15,7 +15,7 @@ use RuntimeException;
 
 /**
  * A first-party exception namespaced under MagicSunday\, so it matches
- * strict.neon's `checkedExceptionRegexes` and is treated as a checked
+ * base.neon's `checkedExceptionRegexes` and is treated as a checked
  * exception by CheckCheckedExceptionsTest's fixture. Lives in its own
  * `Exception` sub-namespace per the strict tier's own symplify/phpstan-rules
  * RequireExceptionNamespaceRule (observed 2026-09-02 against

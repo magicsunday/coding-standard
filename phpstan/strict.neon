@@ -1,9 +1,11 @@
 # Opt-in strict PHPStan tier for magicsunday/* projects.
 #
 # Adds the shipmonk/symplify rule packs, the case-folding bans from
-# disallowed-calls.neon, checked-exceptions enforcement (see README's
-# "Checked exceptions" section), and the extra-strict report parameters on
-# top of base.neon. Requires the consumer to install all three packs:
+# disallowed-calls.neon, and the extra-strict report parameters on top of
+# base.neon. Checked-exceptions enforcement (see README's "Checked exceptions"
+# section) moved to base.neon by GH-144 — every consumer of this package gets
+# it now, not only the strict tier. Requires the consumer to install all three
+# packs:
 #
 #     composer require --dev shipmonk/phpstan-rules symplify/phpstan-rules spaze/phpstan-disallowed-calls
 #
@@ -34,26 +36,3 @@ parameters:
     reportAnyTypeWideningInVarTag: true
     reportPossiblyNonexistentConstantArrayOffset: true
     reportPossiblyNonexistentGeneralArrayOffset: true
-
-    # Checked exceptions (GH-139): a throwing method documents it in @throws,
-    # and @throws names only what the body can actually raise. Full
-    # diagnostic-identifier/default-value writeup — including why
-    # exceptions.check.tooWideThrowType is deliberately NOT set below (it is
-    # already PHPStan's own default; setting it here would be a no-op that
-    # reads as if this config newly enables it) and the
-    # checkTooWideThrowTypesInProtectedAndPublicMethods non-final-first-
-    # declaration gap — lives in README.md's "Checked exceptions" section,
-    # not duplicated here.
-    #
-    # Verified 2026-09-02 against phpstan/phpstan 2.2.12,
-    # shipmonk/phpstan-rules 4.x, symplify/phpstan-rules 14.x — re-verify
-    # against the pins actually installed if a claim there stops holding
-    # after a version bump.
-    checkTooWideThrowTypesInProtectedAndPublicMethods: true
-    exceptions:
-        check:
-            missingCheckedExceptionInThrows: true
-        checkedExceptionRegexes:
-            - '#^MagicSunday\\#'
-        uncheckedExceptionClasses:
-            - 'LogicException'

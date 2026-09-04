@@ -22,16 +22,21 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use function substr_count;
 
 /**
- * Proves phpstan/strict.neon's checked-exceptions config (GH-139): the
- * direction it genuinely ENABLES — an undocumented exception type
- * (missingCheckedExceptionInThrows, off by default in PHPStan) — fires
- * through the strict tier and stays quiet on correctly documented or
- * deliberately unchecked methods; and, separately, that the OTHER direction
- * (a stale/wrong exception type, PHPStan's own tooWideThrowType default,
- * already active on base.neon alone) keeps firing rather than being
- * accidentally suppressed. Run through the strict tier exactly as a
- * consumer installs it — not through a hand-rebuilt config, which could
- * drift from what strict.neon actually ships.
+ * Proves phpstan/base.neon's checked-exceptions config (GH-139, promoted out
+ * of the opt-in strict tier by GH-144): the direction it genuinely ENABLES —
+ * an undocumented exception type (missingCheckedExceptionInThrows, off by
+ * default in PHPStan) — fires on every consumer of base.neon and stays quiet
+ * on correctly documented or deliberately unchecked methods; and, separately,
+ * that the OTHER direction (a stale/wrong exception type, PHPStan's own
+ * tooWideThrowType default) keeps firing rather than being accidentally
+ * suppressed. Run through base.neon exactly as a consumer installs it — not
+ * through a hand-rebuilt config, which could drift from what base.neon
+ * actually ships. A single additional test proves the strict tier (which
+ * includes base.neon) still carries the same behaviour through rather than
+ * losing it — before GH-144 this class contrasted a "control" (base.neon,
+ * expected quiet) run against a "strict" (expected to fire) run; promoting
+ * the config to base.neon collapsed that contrast, since both configs now
+ * behave identically for this concern.
  *
  * Migrated pattern from tests/CheckDisallowedCallsTest.php; see
  * AbstractConsumerPhpstanGateTestCase for why every test self-skips via setUp()
@@ -45,9 +50,9 @@ use function substr_count;
 final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCase
 {
     /**
-     * Memoized across every test in this class; see controlResult().
+     * Memoized across every test in this class; see baseResult().
      */
-    private static ?GateResult $controlResult = null;
+    private static ?GateResult $baseResult = null;
 
     /**
      * Memoized across every test in this class; see strictResult().
@@ -55,79 +60,26 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     private static ?GateResult $strictResult = null;
 
     /**
-     * The control run: base.neon defaults `missingCheckedExceptionInThrows`
-     * to false, so the fixture's undocumented throw must NOT be reported here
-     * — or the strict run below would prove nothing about the strict tier
-     * specifically for THIS direction.
-     *
-     * This is deliberately not a "control run is clean" assertion — see
-     * controlRunAlreadyReportsTheStaleThrows() below for why base.neon alone
-     * is NOT expected to be silent on this fixture.
-     *
-     * @return void
-     */
-    #[Test]
-    public function controlRunDoesNotReportTheUndocumentedThrow(): void
-    {
-        $result = self::controlResult();
-
-        self::assertResultIsNotDegraded($result);
-        self::assertStringNotContainsString(
-            '::undocumentedThrow()',
-            $result->output,
-            "base.neon alone reports the undocumented throw, so a report in the strict run would not prove missingCheckedExceptionInThrows fired.\n{$result->output}",
-        );
-    }
-
-    /**
-     * base.neon ALONE already reports staleThrows() — PHPStan ships
-     * `exceptions.check.tooWideThrowType: true` as its own default (see
-     * phpstan/strict.neon's comment on this), independent of
-     * checkedExceptionRegexes/uncheckedExceptionClasses. This is
-     * deliberately proven here rather than assumed: it is what makes
-     * controlRunDoesNotReportTheUndocumentedThrow() above a "not clean, but
-     * not reporting THIS specific thing" assertion instead of a blanket
-     * exit-code-0 check, and it is the reason strict.neon's own config does
-     * NOT set `exceptions.check.tooWideThrowType` — doing so would be a
-     * no-op this test would not be able to tell apart from a genuine effect.
+     * base.neon must report the undocumented throw
+     * (missingCheckedExceptionInThrows, identifier missingType.checkedException).
+     * Matched on the message text, not the identifier: `--error-format=raw`
+     * (used here, same as CheckDisallowedCallsTest) does not carry identifiers
+     * at all, only file:line:message (observed 2026-09-02 against
+     * phpstan/phpstan 2.2.12 — re-verify with `--error-format=json` if this
+     * stops holding after a version bump).
      *
      * @return void
      */
     #[Test]
-    public function controlRunAlreadyReportsTheStaleThrows(): void
+    public function baseRunReportsTheUndocumentedThrow(): void
     {
-        $result = self::controlResult();
-
-        self::assertResultIsNotDegraded($result);
-        self::assertStringContainsString(
-            "staleThrows() has",
-            $result->output,
-            "base.neon alone did NOT report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/strict.neon's comment against the installed PHPStan version.\n{$result->output}",
-        );
-    }
-
-    /**
-     * The strict tier must report the undocumented throw
-     * (missingCheckedExceptionInThrows, identifier
-     * missingType.checkedException). Matched on the message text, not the
-     * identifier: `--error-format=raw` (used here, same as
-     * CheckDisallowedCallsTest) does not carry identifiers at all, only
-     * file:line:message (observed 2026-09-02 against phpstan/phpstan 2.2.12
-     * — re-verify with `--error-format=json` if this stops holding after a
-     * version bump).
-     *
-     * @return void
-     */
-    #[Test]
-    public function strictRunReportsTheUndocumentedThrow(): void
-    {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertStringContainsString(
             'undocumentedThrow() throws checked exception',
             $result->output,
-            "the strict tier did not report the undocumented throw in undocumentedThrow().\n{$result->output}",
+            "base.neon did not report the undocumented throw in undocumentedThrow().\n{$result->output}",
         );
         self::assertStringContainsString(
             'missing from the PHPDoc @throws tag',
@@ -144,9 +96,9 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * @return void
      */
     #[Test]
-    public function strictRunDoesNotReportTheDocumentedThrow(): void
+    public function baseRunDoesNotReportTheDocumentedThrow(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         // "::documentedThrow()", not "documentedThrow()" — the latter is
         // also a substring of "undocumentedThrow()" and would false-positive
@@ -165,16 +117,16 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * matching by itself: uncheckedProgrammerError()'s InvalidArgumentException
      * is a plain SPL class outside checkedExceptionRegexes, so it would stay
      * unreported even with `uncheckedExceptionClasses: ['LogicException']`
-     * deleted from strict.neon entirely — see
-     * strictRunDoesNotReportTheUncheckedByInheritanceOnly() below for the
+     * deleted from base.neon entirely — see
+     * baseRunDoesNotReportTheUncheckedByInheritanceOnly() below for the
      * fixture shape that actually needs the inheritance match.
      *
      * @return void
      */
     #[Test]
-    public function strictRunDoesNotReportTheUncheckedProgrammerError(): void
+    public function baseRunDoesNotReportTheUncheckedProgrammerError(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertStringNotContainsString(
@@ -190,16 +142,16 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * throws a MagicSunday-namespaced exception (so it IS inside
      * checkedExceptionRegexes, unlike uncheckedProgrammerError() above) that
      * also extends LogicException (so it is exempted only by the inheritance
-     * match). Deleting the uncheckedExceptionClasses line from strict.neon
+     * match). Deleting the uncheckedExceptionClasses line from base.neon
      * turns this test red; it does not affect
-     * strictRunDoesNotReportTheUncheckedProgrammerError() above at all.
+     * baseRunDoesNotReportTheUncheckedProgrammerError() above at all.
      *
      * @return void
      */
     #[Test]
-    public function strictRunDoesNotReportTheUncheckedByInheritanceOnly(): void
+    public function baseRunDoesNotReportTheUncheckedByInheritanceOnly(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertStringNotContainsString(
@@ -210,36 +162,30 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * The strict tier must keep reporting the OTHER direction — a stale
-     * documented exception type (diagnostic identifier throws.unusedType),
-     * the fixture's staleThrows() method — not suppress it. Per
-     * controlRunAlreadyReportsTheStaleThrows() above, this direction is
-     * PHPStan's own default and already fires on base.neon alone;
-     * staleThrows() is a `final` method, so
-     * `checkTooWideThrowTypesInProtectedAndPublicMethods` (this config's
-     * only genuine contribution to this direction) does not affect it
-     * either way — the override case that flag DOES affect is proven
-     * separately by strictRunReportsTheStaleOverride() below; the actual
-     * known gap (a non-final class's own first-declared method) has no
-     * fixture here, matching README. This test exists so a strict-tier run
-     * specifically is proven to still carry the stale-throws finding
-     * through — this is the only test in this class that asserts on
-     * staleThrows() against the STRICT result specifically;
-     * controlRunAlreadyReportsTheStaleThrows() above asserts on it too,
-     * but against the control result.
+     * base.neon must report the OTHER direction — a stale documented
+     * exception type (diagnostic identifier throws.unusedType), the
+     * fixture's staleThrows() method. This is PHPStan's own default
+     * (`exceptions.check.tooWideThrowType`, independent of this config,
+     * see phpstan/base.neon's own comment) — staleThrows() is a `final`
+     * method, so `checkTooWideThrowTypesInProtectedAndPublicMethods` (this
+     * config's only genuine contribution to this direction) does not affect
+     * it either way — the override case that flag DOES affect is proven
+     * separately by baseRunReportsTheStaleOverride() below; the actual known
+     * gap (a non-final class's own first-declared method) has no fixture
+     * here, matching README.
      *
      * @return void
      */
     #[Test]
-    public function strictRunReportsTheStaleThrows(): void
+    public function baseRunReportsTheStaleThrows(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertStringContainsString(
             'staleThrows() has',
             $result->output,
-            "the strict tier did not report the stale @throws in staleThrows().\n{$result->output}",
+            "base.neon did not report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/base.neon's comment against the installed PHPStan version.\n{$result->output}",
         );
         self::assertStringContainsString(
             "but it's not thrown",
@@ -249,23 +195,19 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * The strict run must report EXACTLY one missing-throws-annotation
-     * finding (undocumentedThrow()) and exactly two stale-throws-annotation
-     * findings (staleThrows() and overriddenStaleThrows()) — a stray extra
-     * one (the documented or unchecked method getting flagged too, or either
+     * base.neon must report EXACTLY one missing-throws-annotation finding
+     * (undocumentedThrow()) and exactly two stale-throws-annotation findings
+     * (staleThrows() and overriddenStaleThrows()) — a stray extra one (the
+     * documented or unchecked method getting flagged too, or either
      * direction firing an unexpected additional time) would pass the
-     * assertions above individually while still being wrong. Scoped to these
-     * two messages specifically, not the whole output's line count: the
-     * strict tier's other rule packs (shipmonk, symplify) may legitimately
-     * report unrelated findings, same reasoning as CheckDisallowedCallsTest's
-     * wiring run not asserting a total count.
+     * assertions above individually while still being wrong.
      *
      * @return void
      */
     #[Test]
-    public function strictRunReportsExactlyTheExpectedFindingCounts(): void
+    public function baseRunReportsExactlyTheExpectedFindingCounts(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertSame(
@@ -281,28 +223,7 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * The control run must NOT report CheckedExceptionsOverrideFixture's stale
-     * override — checkTooWideThrowTypesInProtectedAndPublicMethods defaults to
-     * false, so a non-final public method's stale throws annotation stays
-     * unchecked on base.neon alone, override or not.
-     *
-     * @return void
-     */
-    #[Test]
-    public function controlRunDoesNotReportTheStaleOverride(): void
-    {
-        $result = self::controlResult();
-
-        self::assertResultIsNotDegraded($result);
-        self::assertStringNotContainsString(
-            '::overriddenStaleThrows()',
-            $result->output,
-            "base.neon alone reported the stale override, so a report in the strict run would not prove checkTooWideThrowTypesInProtectedAndPublicMethods fired.\n{$result->output}",
-        );
-    }
-
-    /**
-     * The strict tier must report CheckedExceptionsOverrideFixture's stale
+     * base.neon must report CheckedExceptionsOverrideFixture's stale
      * override — the one case that isolates
      * checkTooWideThrowTypesInProtectedAndPublicMethods's own genuine effect:
      * a non-final class's OVERRIDE of a base declaration becomes checkable,
@@ -313,15 +234,15 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
      * @return void
      */
     #[Test]
-    public function strictRunReportsTheStaleOverride(): void
+    public function baseRunReportsTheStaleOverride(): void
     {
-        $result = self::strictResult();
+        $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
         self::assertStringContainsString(
             'overriddenStaleThrows() has',
             $result->output,
-            "the strict tier did not report the stale override in overriddenStaleThrows() — checkTooWideThrowTypesInProtectedAndPublicMethods may not be reaching overrides any more.\n{$result->output}",
+            "base.neon did not report the stale override in overriddenStaleThrows() — checkTooWideThrowTypesInProtectedAndPublicMethods may not be reaching overrides any more.\n{$result->output}",
         );
         self::assertStringContainsString(
             "but it's not thrown",
@@ -331,15 +252,39 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     }
 
     /**
-     * @return GateResult The base.neon-alone run against the checked-exceptions fixture, memoized.
+     * The strict tier includes base.neon, so it must inherit this behaviour
+     * rather than losing it — the one sanity check proving the strict tier's
+     * own additions (shipmonk, symplify, the extra-strict report parameters)
+     * do not accidentally suppress or shadow a config base.neon already sets.
+     * Not a repeat of the full base.neon assertion battery above: that would
+     * only re-prove base.neon's own behaviour a second time through a
+     * different config path.
+     *
+     * @return void
+     */
+    #[Test]
+    public function strictTierInheritsTheUndocumentedThrowCheck(): void
+    {
+        $result = self::strictResult();
+
+        self::assertResultIsNotDegraded($result);
+        self::assertStringContainsString(
+            'undocumentedThrow() throws checked exception',
+            $result->output,
+            "the strict tier did not report the undocumented throw in undocumentedThrow() — base.neon's checked-exceptions config may no longer be reaching consumers of the strict tier.\n{$result->output}",
+        );
+    }
+
+    /**
+     * @return GateResult The base.neon run against the checked-exceptions fixture, memoized.
      *
      * @throws ProcessStartFailedException If the phpstan process could not be started.
      * @throws ProcessTimedOutException    If the phpstan process exceeds its timeout.
      * @throws ProcessSignaledException    If the phpstan process was killed by a signal.
      */
-    private static function controlResult(): GateResult
+    private static function baseResult(): GateResult
     {
-        return self::$controlResult ??= self::runPhpstan(
+        return self::$baseResult ??= self::runPhpstan(
             self::consumer() . '/phpstan.neon',
             'checked-exceptions',
         );
