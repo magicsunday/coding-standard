@@ -117,6 +117,14 @@ jobs:
             - name: PHP gate self-analysis self-test
               run: composer ci:test:php:analyse-cases
 
+            # phplint above is syntax-only and PHPStan above catches arity/type/
+            # dead-code issues, but neither enforces the shared house style over
+            # this package's OWN first-party PHP — the only php-cs-fixer step
+            # before this one runs against the INSTALLED tests/consumer fixture
+            # (Consumer smoke, below), which never sees bin/ or tests/ itself.
+            - name: Self-lint the PHP gate scripts and test infrastructure
+              run: composer ci:test:php:cgl
+
             - name: Validate the JSON configs
               run: composer ci:test:json
 

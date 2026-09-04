@@ -222,7 +222,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => 'not an object']));
         $this->writeConsumerComposerJson($dir, ['foo/bar' => '^4.0']);
 
-        $this->assertGateUsageError(self::gate(), $dir, "`suggest` is not a JSON object");
+        $this->assertGateUsageError(self::gate(), $dir, '`suggest` is not a JSON object');
     }
 
     /**
@@ -236,7 +236,7 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
         file_put_contents($dir . '/composer.json', (string) json_encode(['suggest' => ['foo/bar' => 'Required: ^4.0']]));
         $this->writeConsumerComposerJson($dir, 'not an object');
 
-        $this->assertGateUsageError(self::gate(), $dir, "`require-dev` is not a JSON object");
+        $this->assertGateUsageError(self::gate(), $dir, '`require-dev` is not a JSON object');
     }
 
     /**

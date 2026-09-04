@@ -26,7 +26,6 @@ declare(strict_types=1);
  * this repository alone — where every run takes the happy path and a green CI
  * would be indistinguishable from a gate that cannot fail.
  */
-
 $root = $argv[1] ?? dirname(__DIR__);
 
 // safeReportValue() — the same guard the shipped gates under bin/ use, for the same

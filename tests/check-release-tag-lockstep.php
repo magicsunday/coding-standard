@@ -92,7 +92,6 @@ declare(strict_types=1);
  * and friends call each gate with exactly that one argument — adding a second
  * positional here would need a second harness call shape for this gate alone.
  */
-
 $root = $argv[1] ?? dirname(__DIR__);
 
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
@@ -168,7 +167,7 @@ function stillRunning($process): bool
  * call site all need the identical two reads.
  *
  * @param array{1: resource, 2: resource} $pipes  The stdout/stderr pipes,
- *                                                 already set non-blocking.
+ *                                                already set non-blocking.
  * @param string                          $stdout Accumulator, by reference.
  * @param string                          $stderr Accumulator, by reference.
  */
@@ -214,7 +213,7 @@ function killProcessGroup($process, int $pid): void
     // process is free to sit on — proc_close() in the caller blocks until
     // the process is gone, so without this escalation a SIGTERM-resistant
     // process would make GIT_TIMEOUT_SECONDS mean nothing.
-    for ($i = 0; $i < 20; $i++) {
+    for ($i = 0; $i < 20; ++$i) {
         if (!stillRunning($process)) {
             break;
         }
@@ -289,9 +288,9 @@ function killProcessGroup($process, int $pid): void
  * @param list<string> $argv The full argv, `git` itself included.
  *
  * @return array{stdout: string, stderr: string, exitCode: int} ExitCode is
- *         -1 when the process could not even be started (a missing `git`
- *         binary) and -2 when GIT_TIMEOUT_SECONDS was reached and the
- *         process was killed — neither is ever a code `git` itself returns.
+ *                                                              -1 when the process could not even be started (a missing `git`
+ *                                                              binary) and -2 when GIT_TIMEOUT_SECONDS was reached and the
+ *                                                              process was killed — neither is ever a code `git` itself returns.
  */
 function runGit(array $argv): array
 {
@@ -429,10 +428,10 @@ if ($fetch['exitCode'] === 0) {
     // directly — either way this is the SHA merge-base below walks ancestry
     // from. A tag pointing at anything else (a blob, a tree) fails to peel
     // here, which is this arm's own "could not run" case.
-    $commit          = runGit(['git', '-C', $root, 'rev-parse', PROBE_REF . '^{commit}']);
-    $commitExitCode  = $commit['exitCode'];
-    $commitStdout    = $commit['stdout'];
-    $commitStderr    = $commit['stderr'];
+    $commit         = runGit(['git', '-C', $root, 'rev-parse', PROBE_REF . '^{commit}']);
+    $commitExitCode = $commit['exitCode'];
+    $commitStdout   = $commit['stdout'];
+    $commitStderr   = $commit['stderr'];
 }
 
 // Reached on every path past this point — success, a failed fetch, or a
