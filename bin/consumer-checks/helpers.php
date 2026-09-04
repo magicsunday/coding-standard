@@ -146,8 +146,8 @@ function yamlBlock(string $contents, string $key): ?string
  * substitute. Measured: with `''` the content arms ran on the truncated read and
  * fabricated causes — five oversize configs produced twelve violations, of which
  * seven named things the files plainly carry (`not well-formed XML`, `must list
- * `- php``, three `.editorconfig` section arms). Reporting once and skipping the rest
- * is what the comment on those copies already claimed.
+ * `- php``, three `.editorconfig` section arms). Reporting once here and letting
+ * every caller return early on `null` is what avoids that.
  *
  * @param list<string> $violations The accumulated report, appended to in place.
  * @param string       $path       The file to read.
