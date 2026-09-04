@@ -121,6 +121,35 @@ harness_require_executable() {
     fi
 }
 
+# harness_mkdir_owned <dir>
+#
+# Prints 1 if THIS call created <dir>, 0 if it already existed (or could not
+# be created for any other reason — treated the same as "not owned" so this
+# call never removes something it did not create). The classification comes
+# from mkdir's own exit status in the same syscall that would otherwise have
+# created the directory, so there is no separate existence-check-then-later-
+# act window a second concurrent caller (or a maintainer's own same-named
+# directory) could be misread through — first found drifting apart across two
+# hand-copied call sites in tests/check-php-cs-fixer-cases.sh, which now both
+# call this instead.
+harness_mkdir_owned() {
+    mkdir -- "$1" 2>/dev/null && echo 1 || echo 0
+}
+
+# harness_rmdir_if_owned <dir> <owned>
+#
+# Removes <dir> only when <owned> is 1 (this invocation created it, per
+# harness_mkdir_owned) and only if rmdir succeeds — a directory that gained
+# real content since creation is left alone. Never fails the caller: `|| true`
+# on the rmdir, and a trailing `true` of its own, because `[ COND ] && { ... }`
+# fails the whole function's return status when COND is false AND this is the
+# function's own last statement — that failure then aborts an EXIT trap
+# calling this before it reaches whatever cleanup follows.
+harness_rmdir_if_owned() {
+    [ "$2" -eq 1 ] && { rmdir -- "$1" 2>/dev/null || true; }
+    true
+}
+
 # harness_pad_text_to_cap <bound> <prefix> <filler-char> <suffix> <out-file>
 #
 # Builds a plain-text document of EXACTLY <bound> bytes: <prefix> and <suffix> are
