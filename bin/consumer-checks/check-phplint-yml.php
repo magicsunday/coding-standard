@@ -63,8 +63,8 @@ function checkPhplintYml(array &$violations, string $repoRoot): void
     // so for those two a BOM IS the defect and stripping it would hide one. The
     // deptrac half is the one of the three whose version is recorded in the
     // sibling check-deptrac-yaml.php rather than here; both statements are
-    // about the same run. A probe
-    // that can CONTRADICT the behaviour, which `composer show` cannot:
+    // about the same run. A probe that can CONTRADICT the behaviour, which
+    // `composer show` cannot:
     //
     //     printf '\xEF\xBB\xBFimports: []\n' > /tmp/d.yaml \
     //         && .build/bin/deptrac analyse --config-file=/tmp/d.yaml; echo "exit $?"

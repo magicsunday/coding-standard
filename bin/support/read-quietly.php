@@ -72,7 +72,7 @@ function readQuietly(string $path, int $maxBytes): string|false
  * One byte PAST the cap is read, then compared — reading exactly the cap
  * truncates in silence, which is the failure this bound exists to prevent
  * rather than a smaller version of it. `null` rather than a second `false`:
- * bin/check-consumer-config.php's own oversize readers use the same
+ * bin/consumer-checks/helpers.php's own oversize reader uses the same
  * true/false/null three-way split, and a caller that conflated "too large"
  * with "unreadable" would tell the reader to check permissions on a file its
  * own size already answered.
