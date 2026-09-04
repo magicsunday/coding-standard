@@ -215,9 +215,9 @@ it does not extend deprecation coverage to the ceiling.
 
 A real runtime deprecation is generally caught separately from the PHPStan
 pin: `templates/phpunit.xml.dist` sets `failOnDeprecation="true"` and
-`bin/check-consumer-config.php` requires it (re-derive: `grep -n
+`bin/consumer-checks/check-phpunit-xml.php` requires it (re-derive: `grep -n
 "failOnDeprecation" templates/phpunit.xml.dist
-bin/check-consumer-config.php`), so a deprecated call a test executes
+bin/consumer-checks/check-phpunit-xml.php`), so a deprecated call a test executes
 normally fails the build, on a CI leg whose interpreter is new enough to
 trigger it. That is independent of what the PHPStan pin targets — including
 a deprecation introduced above the floor, which PHPStan's own deprecation
@@ -705,7 +705,7 @@ adoption gate exists to prevent.
 
 Once the dependency is declared, the files are treated as one-line `extends` stubs, so
 their rule content genuinely cannot drift — the **link** can. What is asserted, with
-`bin/check-consumer-config.php` as the list rather than this paragraph: the
+`bin/consumer-checks/check-biome-tsconfig.php` as the list rather than this paragraph: the
 shared config is actually extended (a look-alike package name does not count), none of
 `linter`, `formatter` and `assist` is switched off — Biome offers those
 toggles in three nested
@@ -719,7 +719,7 @@ strict flags are not overridden back to `false` underneath the `extends` link
 written back as an override of the umbrella, so pinning only `strict` pins nothing —
 plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`,
 `forceConsistentCasingInFileNames` and `isolatedModules`, which the shared base sets
-itself; `$pinnedFlags` in `bin/check-consumer-config.php` is the list),
+itself; `$pinnedFlags` in `bin/consumer-checks/check-biome-tsconfig.php` is the list),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
 config, so that one key makes a file that is valid JSON completely unloadable — and
 the recommended rule floor is still on. That last one is checked everywhere Biome

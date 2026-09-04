@@ -198,8 +198,8 @@ $reportUnreadable = static function (string $path): never {
  * Reads a lockstep file capped at MAX_GITATTRIBUTES_BYTES, reporting an oversize or
  * unreadable file and exiting(2). Both this gate's file reads shared this
  * three-branch block verbatim before this closure existed — extracted at this
- * repository's own 2+-duplicate threshold. bin/check-consumer-config.php's own
- * `$readBounded` consolidated a duplicated read block too, for a related but
+ * repository's own 2+-duplicate threshold. bin/consumer-checks/helpers.php's own
+ * readBounded() consolidated a duplicated read block too, for a related but
  * distinct reason (see that file's own docblock: it replaced SIX copies that used
  * to substitute an empty string for an oversize read, which fabricated violations
  * on the truncated content — not this closure's motivation).
