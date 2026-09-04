@@ -63,9 +63,9 @@ final class CheckVersionLockstepTest extends GateTestCase
     public static function trailingJunkProvider(): array
     {
         return [
-            'a trailing word'                => ['final'],
-            'a trailing underscore segment'  => ['_hotfix'],
-            'a trailing slash segment'       => ['/x'],
+            'a trailing word'               => ['final'],
+            'a trailing underscore segment' => ['_hotfix'],
+            'a trailing slash segment'      => ['/x'],
         ];
     }
 

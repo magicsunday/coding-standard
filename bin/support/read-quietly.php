@@ -81,7 +81,7 @@ function readQuietly(string $path, int $maxBytes): string|false
  * @param int    $maxBytes The most bytes to accept.
  *
  * @return string|false|null The contents, false when the file could not be
- *                            read, or null when it is larger than $maxBytes.
+ *                           read, or null when it is larger than $maxBytes.
  */
 function readCapped(string $path, int $maxBytes): string|false|null
 {

@@ -44,7 +44,6 @@ declare(strict_types=1);
  * over this repository alone — where every run takes the happy path and a green CI
  * would be indistinguishable from a gate that cannot fail.
  */
-
 $root = $argv[1] ?? dirname(__DIR__);
 
 // safeReportValue() and readCapped() — the same guards the shipped gates and the
@@ -114,7 +113,7 @@ const MAX_GITATTRIBUTES_BYTES = 1048576;
  * @param string $contents The raw file contents.
  *
  * @return list<string> The paths whose LAST token carries an active
- *                       `export-ignore` attribute.
+ *                      `export-ignore` attribute.
  */
 $parseExportIgnorePaths = static function (string $contents): array {
     /** @var array<array-key, bool> $state */

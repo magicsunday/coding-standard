@@ -30,8 +30,8 @@ declare(strict_types=1);
 /**
  * Asserts the JS/TS `extends` link + the strict flags the shared base sets.
  *
- * @param list<string> $violations The accumulated report, appended to in place.
- * @param string       $repoRoot   The consumer repository root to inspect.
+ * @param list<string> $violations  The accumulated report, appended to in place.
+ * @param string       $repoRoot    The consumer repository root to inspect.
  * @param string       $packageRoot This package's own installation root — the
  *                                  directory holding `bin/` and `biome/` as
  *                                  siblings, not $repoRoot. Read-only source
@@ -125,7 +125,7 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
      *
      * @return array<array-key, mixed>|false|int|null
      */
-    $loadJsonc = static function (string $path) use ($stripJsonc): array|int|null|false {
+    $loadJsonc = static function (string $path) use ($stripJsonc): array|int|false|null {
         // One byte past the cap is read, so `> MAX_JSONC_BYTES` can tell "at the
         // bound" from "past it" without a second stat.
         $contents = readQuietly($path, MAX_JSONC_BYTES + 1);
@@ -328,67 +328,67 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
      * consumer-controlled file names with no cycle guard yet in place.
      *
      * @param string                  $repoRoot       The consumer repository root
-     *                                                  — where the checked config
-     *                                                  file itself sits, so a
-     *                                                  local specifier resolves
-     *                                                  relative to it exactly as
-     *                                                  the real tool does.
+     *                                                — where the checked config
+     *                                                file itself sits, so a
+     *                                                local specifier resolves
+     *                                                relative to it exactly as
+     *                                                the real tool does.
      * @param array<array-key, mixed> $config         The decoded consumer config —
-     *                                                  the whole document, not just
-     *                                                  its `extends` key, matching
-     *                                                  $extendsShared's own call
-     *                                                  convention. `extends` is
-     *                                                  read out as an UNTYPED local
-     *                                                  below rather than a typed
-     *                                                  parameter, deliberately: the
-     *                                                  value is pull-request
-     *                                                  content and can legally be
-     *                                                  ANY JSON type (a number, a
-     *                                                  bool, an object) — a
-     *                                                  parameter typed narrower
-     *                                                  than that throws a
-     *                                                  TypeError on exactly the
-     *                                                  malformed input this
-     *                                                  function exists to answer
-     *                                                  "no candidates" for, rather
-     *                                                  than crashing the whole gate
-     *                                                  (verified: `{"extends": 5}`
-     *                                                  raised `TypeError: Argument
-     *                                                  #2 ($extends) must be of
-     *                                                  type array|string|null, int
-     *                                                  given` before this fix).
+     *                                                the whole document, not just
+     *                                                its `extends` key, matching
+     *                                                $extendsShared's own call
+     *                                                convention. `extends` is
+     *                                                read out as an UNTYPED local
+     *                                                below rather than a typed
+     *                                                parameter, deliberately: the
+     *                                                value is pull-request
+     *                                                content and can legally be
+     *                                                ANY JSON type (a number, a
+     *                                                bool, an object) — a
+     *                                                parameter typed narrower
+     *                                                than that throws a
+     *                                                TypeError on exactly the
+     *                                                malformed input this
+     *                                                function exists to answer
+     *                                                "no candidates" for, rather
+     *                                                than crashing the whole gate
+     *                                                (verified: `{"extends": 5}`
+     *                                                raised `TypeError: Argument
+     *                                                #2 ($extends) must be of
+     *                                                type array|string|null, int
+     *                                                given` before this fix).
      * @param string                  $sharedStem     Passed to
-     *                                                  $isSharedSpecifier.
+     *                                                $isSharedSpecifier.
      * @param bool                    $suffixOptional Whether a bare specifier may
-     *                                                  omit `.json` — true for
-     *                                                  tsconfig (tsc appends it),
-     *                                                  false for Biome (verified:
-     *                                                  it does not — a bare
-     *                                                  specifier with no matching
-     *                                                  file on disk is reported
-     *                                                  `module not found`, never
-     *                                                  resolved with the suffix
-     *                                                  appended).
+     *                                                omit `.json` — true for
+     *                                                tsconfig (tsc appends it),
+     *                                                false for Biome (verified:
+     *                                                it does not — a bare
+     *                                                specifier with no matching
+     *                                                file on disk is reported
+     *                                                `module not found`, never
+     *                                                resolved with the suffix
+     *                                                appended).
      * @param array<array-key, mixed> $sharedLayer    This package's own bundled
-     *                                                  config (from
-     *                                                  $loadOwnConfig), substituted
-     *                                                  wherever the shared entry
-     *                                                  sits in the chain.
+     *                                                config (from
+     *                                                $loadOwnConfig), substituted
+     *                                                wherever the shared entry
+     *                                                sits in the chain.
      * @param list<string>            $violations     The accumulated report,
-     *                                                  appended to when a local
-     *                                                  target is oversized —
-     *                                                  the one local-resolution
-     *                                                  failure this gate reports
-     *                                                  rather than silently
-     *                                                  skipping (see below).
+     *                                                appended to when a local
+     *                                                target is oversized —
+     *                                                the one local-resolution
+     *                                                failure this gate reports
+     *                                                rather than silently
+     *                                                skipping (see below).
      * @param string                  $label          How the checked config file
-     *                                                  is named in the report.
+     *                                                is named in the report.
      *
      * @return list<array<array-key, mixed>> The layers, in `extends` order — the
-     *                                        caller folds them left-to-right and
-     *                                        merges the document on top, so later
-     *                                        entries and the document itself win
-     *                                        exactly as the tool resolves them.
+     *                                       caller folds them left-to-right and
+     *                                       merges the document on top, so later
+     *                                       entries and the document itself win
+     *                                       exactly as the tool resolves them.
      */
     $resolveExtendsLayers = static function (string $repoRoot, array $config, string $sharedStem, bool $suffixOptional, array $sharedLayer, array &$violations, string $label) use ($isSharedSpecifier, $loadJsonc): array {
         $extends = $config['extends'] ?? null;
@@ -417,8 +417,8 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
         // manifestation argument as the `"linter": []` case above.
         $candidates = match (true) {
             is_array($extends) && array_is_list($extends) => $extends,
-            is_string($extends)                            => [$extends],
-            default                                         => [],
+            is_string($extends)                           => [$extends],
+            default                                       => [],
         };
 
         $realRoot = realpath($repoRoot);
@@ -610,11 +610,11 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
      * not one rule, and is already asserted separately.
      *
      * @param array<array-key, mixed> $biomeBaseConfig This package's own bundled
-     *                                                   biome/base.json, decoded
-     *                                                   once by $loadOwnConfig and
-     *                                                   shared with
-     *                                                   $resolveExtendsLayers
-     *                                                   rather than re-read here.
+     *                                                 biome/base.json, decoded
+     *                                                 once by $loadOwnConfig and
+     *                                                 shared with
+     *                                                 $resolveExtendsLayers
+     *                                                 rather than re-read here.
      *
      * @return array<string, list<string>> Rule names per group, e.g. `['suspicious' => ['noDoubleEquals', …]]`.
      */

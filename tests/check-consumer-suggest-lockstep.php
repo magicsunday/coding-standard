@@ -41,7 +41,6 @@ declare(strict_types=1);
  * path and a green CI would be indistinguishable from a gate that cannot
  * fail.
  */
-
 $root = $argv[1] ?? dirname(__DIR__);
 
 // safeReportValue(), readCapped() and readCappedJsonObject() — the same

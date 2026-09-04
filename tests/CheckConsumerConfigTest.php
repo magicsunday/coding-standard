@@ -709,7 +709,7 @@ final class CheckConsumerConfigTest extends GateTestCase
             throw new RuntimeException("could not find \$extensionSpellings in {$relativePath}");
         }
 
-        $block = $matches[1];
+        $block  = $matches[1];
         $arrows = substr_count($block, '=>');
 
         preg_match_all("/'([a-z0-9_-]+)' *=> *'([a-z0-9_-]+)'/", $block, $pairs, PREG_SET_ORDER);
@@ -1238,7 +1238,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkCase();
         file_put_contents($dir . '/deptrac.yaml', "imports:\n    - '.build/vendor/magicsunday/coding-standard/deptrac/layers.yaml\"\n");
 
-        $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', "deptrac.yaml whose shared import opens on one quote and closes on the other");
+        $this->assertGateRejects(self::phpGate(), $dir, 'must import the shared', 'deptrac.yaml whose shared import opens on one quote and closes on the other');
     }
 
     /**
@@ -1446,7 +1446,7 @@ final class CheckConsumerConfigTest extends GateTestCase
     #[Test]
     public function acceptsJscpdOwnFormatNames(): void
     {
-        $dir = $this->jscpdFixture();
+        $dir  = $this->jscpdFixture();
         $json = (string) file_get_contents($dir . '/.jscpd.json');
         file_put_contents(
             $dir . '/.jscpd.json',
@@ -1651,7 +1651,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $gateSpellings = self::extensionSpellingsFromGate();
 
         foreach (self::PROVEN_SPELLINGS as $pair) {
-            self::assertContains($pair, $gateSpellings, "the gate no longer rejects the spelling `" . explode(':', $pair)[0] . '`, which this suite proves — the entry was dropped or its canonical name changed');
+            self::assertContains($pair, $gateSpellings, 'the gate no longer rejects the spelling `' . explode(':', $pair)[0] . '`, which this suite proves — the entry was dropped or its canonical name changed');
         }
 
         foreach ($gateSpellings as $pair) {
@@ -1987,7 +1987,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         self::writeBiomeWithLocalLooseExtendsTarget($dir);
         file_put_contents($dir . '/biome.loose.json', "{ \"//\": \"note\", \"linter\": { \"enabled\": true } }\n");
 
-        $this->assertBothReject($dir, 'a local `extends` target contains a `"//"` key', "biome.json whose local extends target carries a \"//\" key");
+        $this->assertBothReject($dir, 'a local `extends` target contains a `"//"` key', 'biome.json whose local extends target carries a "//" key');
     }
 
     /**
@@ -2009,7 +2009,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         self::writeBiomeWithLocalLooseExtendsTarget($dir);
         file_put_contents($dir . '/biome.loose.json', self::oversizedJsonBody());
 
-        $this->assertBothReject($dir, "a local `extends` target (./biome.loose.json) is larger than the " . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose local extends target is past the size cap');
+        $this->assertBothReject($dir, 'a local `extends` target (./biome.loose.json) is larger than the ' . self::MAX_JSONC_BYTES . ' bytes', 'biome.json whose local extends target is past the size cap');
     }
 
     /**
@@ -2202,7 +2202,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": \"@magicsunday/coding-standard/biome/base.json\"\n}\n");
 
-        $this->assertBothReject($dir, 'must `extends`', "biome.json whose extends is a bare string instead of a list");
+        $this->assertBothReject($dir, 'must `extends`', 'biome.json whose extends is a bare string instead of a list');
     }
 
     /**
@@ -2258,7 +2258,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      * the root, in an `overrides` entry and in each per-language block, so
      * it belongs in the same walk as the other two toggles rather than a
      * check of its own:
-     *     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json
+     *     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json.
      *
      * @return void
      */
@@ -2394,7 +2394,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"overrides\": [\n        { \"includes\": [\"src/**\"], \"linter\": { \"rules\": { \"preset\": \"none\" } } }\n    ]\n}\n");
 
-        $this->assertBothReject($dir, 'overrides[0].linter.rules.preset', "biome.json dropping the rule floor through an overrides entry");
+        $this->assertBothReject($dir, 'overrides[0].linter.rules.preset', 'biome.json dropping the rule floor through an overrides entry');
     }
 
     /**
@@ -2428,7 +2428,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"overrides\": [\n        { \"includes\": [\"**\"], \"javascript\": { \"linter\": { \"enabled\": false } } }\n    ]\n}\n");
 
-        $this->assertBothReject($dir, "overrides[0].javascript.linter.enabled", "biome.json disabling a language's linter inside an overrides entry");
+        $this->assertBothReject($dir, 'overrides[0].javascript.linter.enabled', "biome.json disabling a language's linter inside an overrides entry");
     }
 
     /**
@@ -2442,7 +2442,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"overrides\": [\n        { \"includes\": [\"tests/**\"], \"javascript\": { \"formatter\": { \"quoteStyle\": \"single\" } } },\n        { \"includes\": [\"**\"], \"json\": { \"formatter\": { \"enabled\": false } } }\n    ]\n}\n");
 
-        $this->assertBothReject($dir, "overrides[1].json.formatter.enabled", "biome.json disabling a non-JS language's formatter in the SECOND overrides entry");
+        $this->assertBothReject($dir, 'overrides[1].json.formatter.enabled', "biome.json disabling a non-JS language's formatter in the SECOND overrides entry");
     }
 
     // -------------------------------------------------------------------
@@ -2816,7 +2816,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"linter\": { \"rules\": { \"suspicious\": { \"noDoubleEquals\": \"off\" } } }\n}\n");
 
-        $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', "biome.json switching a shared rule off by its bare-string value");
+        $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', 'biome.json switching a shared rule off by its bare-string value');
     }
 
     /**
@@ -2828,7 +2828,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"linter\": { \"rules\": { \"suspicious\": { \"noDoubleEquals\": { \"level\": \"off\" } } } }\n}\n");
 
-        $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', "biome.json switching a shared rule off via its options-object level");
+        $this->assertBothReject($dir, '`linter.rules.suspicious.noDoubleEquals` must not be "off"', 'biome.json switching a shared rule off via its options-object level');
     }
 
     /**
@@ -2945,7 +2945,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\", \"./biome.loose.json\"],\n    \"files\": { \"includes\": [\"src/**\"] },\n    \"linter\": {}\n}\n");
         self::writeMinimalBiomeLooseJson($dir);
 
-        $this->assertBothReject($dir, '`linter.enabled` must not be false', "biome.json whose empty top-level object does not mask an unresolved disable");
+        $this->assertBothReject($dir, '`linter.enabled` must not be false', 'biome.json whose empty top-level object does not mask an unresolved disable');
     }
 
     /**
@@ -3216,7 +3216,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/tsconfig.json', "{\n    /* a \" and a // inside,\n       spread over two lines */\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"strict\": false }\n}\n");
 
-        $this->assertBothReject($dir, '`compilerOptions.strict`', "tsconfig.json whose block comment must not swallow the rest");
+        $this->assertBothReject($dir, '`compilerOptions.strict`', 'tsconfig.json whose block comment must not swallow the rest');
     }
 
     /**
@@ -3985,7 +3985,7 @@ final class CheckConsumerConfigTest extends GateTestCase
         $dir = $this->mkJsCase();
         file_put_contents($dir . '/biome.json', "{\n    \"extends\": [\"@magicsunday/coding-standard/biome/base.json\"],\n    \"javascript\": \"off\",\n    \"linter\": { \"enabled\": false }\n}\n");
 
-        $this->assertBothReject($dir, '`linter.enabled` must not be false', "biome.json whose per-language block is a string, not an object");
+        $this->assertBothReject($dir, '`linter.enabled` must not be false', 'biome.json whose per-language block is a string, not an object');
     }
 
     /**
