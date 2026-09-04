@@ -235,7 +235,14 @@ fi
 # by the combined trap armed above, not here — see that trap's own comment.
 preservation_root="$(mktemp -d)"
 
-# Case A: pre-existing and non-empty (the shape a maintainer's own tracked directory has).
+# Case A: pre-existing and non-empty (the shape a maintainer's own tracked
+# directory has). mkdir's own EEXIST makes harness_mkdir_owned report "not
+# owned" here regardless of the ownership guard's own logic, so this case
+# proves content is never destroyed even if guarded_rmdir were ever swapped
+# for something recursive — it does not, by itself, prove the ownership
+# guard is intact (a broken guard that always reports "not owned" would
+# still leave this case green). Case C below is what proves owned=1 removal
+# still fires at all.
 preservation_with_content="$preservation_root/with-content"
 mkdir -- "$preservation_with_content"
 printf '<?php\n' > "$preservation_with_content/real-maintainer-file.php"
@@ -250,6 +257,9 @@ fi
 
 # Case B: pre-existing but EMPTY (invisible to git, but real on disk — the
 # shape an unconditional rmdir, with no ownership check, would have deleted).
+# Same caveat as Case A: mkdir's EEXIST decides "not owned" here regardless
+# of the guard, so this discriminates the OLD unconditional-rmdir regression
+# specifically, not a broken ownership guard in general.
 preservation_empty="$preservation_root/empty"
 mkdir -- "$preservation_empty"
 owned="$(harness_mkdir_owned "$preservation_empty")"
@@ -259,6 +269,27 @@ if [ ! -d "$preservation_empty" ]; then
     report_failure 'preservation: a pre-existing, empty directory did not survive cleanup'
 else
     printf 'ok (preservation): a pre-existing empty directory survives cleanup\n'
+fi
+
+# Case C: genuinely OWNED (created by harness_mkdir_owned itself, never
+# pre-made by hand) must still be removed. Cases A and B only ever feed
+# harness_mkdir_owned an already-existing path, so owned is always 0 in
+# both — neither one exercises the removal branch the real FINDER SCOPE
+# cleanup above depends on to keep bin/consumer/ and tests/Support/consumer/
+# out of the tracked tree after every run. A silently no-op'd
+# harness_rmdir_if_owned (e.g. its `[ "$2" -eq 1 ] && { ... }` guard
+# dropped) would leave Cases A and B green while leaking real throwaway
+# fixtures on every CI run — this case is what would catch it.
+preservation_owned_dir="$preservation_root/owned"
+owned="$(harness_mkdir_owned "$preservation_owned_dir")"
+harness_rmdir_if_owned "$preservation_owned_dir" "$owned"
+
+if [ "$owned" -ne 1 ]; then
+    report_failure 'preservation: harness_mkdir_owned did not report ownership for a directory it just created'
+elif [ -d "$preservation_owned_dir" ]; then
+    report_failure 'preservation: a directory this invocation owns was not removed by harness_rmdir_if_owned'
+else
+    printf 'ok (preservation): a directory this invocation owns is removed by cleanup\n'
 fi
 
 verdict
