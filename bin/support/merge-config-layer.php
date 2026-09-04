@@ -80,8 +80,9 @@ declare(strict_types=1);
  * **A second, distinct residual asymmetry** (GH-138): a JSON OBJECT whose keys
  * happen to be the sequential strings `"0"`, `"1"`, `"2"`, … decodes in PHP to
  * an array indexed by the equivalent INTEGERS — the same long-standing PHP
- * coercion the `extends`-array note in `bin/check-consumer-config.php`
- * documents — and `array_is_list()` then reports `true` for it, so this
+ * coercion the `extends`-array note in
+ * `bin/consumer-checks/check-biome-tsconfig.php` documents — and
+ * `array_is_list()` then reports `true` for it, so this
  * function replaces such an object wholesale instead of recursing into it.
  * Unlike that `extends` case, tsc does not schema-reject this shape: verified
  * against 7.0.2 (this repository's own pinned devDependency), a
@@ -89,7 +90,7 @@ declare(strict_types=1);
  * no shape error), so it is not provably unreachable the same way. Left
  * unfixed anyway: `paths` is one of the tsconfig keys this gate deliberately
  * leaves unchecked (re-derive: `grep -n "as are module/target/lib/jsx and
- * paths" bin/check-consumer-config.php`), so a divergent merge here only
+ * paths" bin/consumer-checks/check-biome-tsconfig.php`), so a divergent merge here only
  * changes the internal effective-document preview, never a PASS/FAIL
  * verdict. `tests/MergeConfigLayerTest.php` pins the current (accepted)
  * wholesale-replace behaviour for this shape.

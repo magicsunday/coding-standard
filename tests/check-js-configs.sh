@@ -2355,9 +2355,10 @@ cp "$archive_dir/templates/jscpd.json" .jscpd.json
 # Nothing before this pinned that discriminator, so the claim could drift back
 # out of sync with the tool unnoticed — the failure this control exists to
 # catch. Both real JSON5 features are written into a config jscpd never sees
-# otherwise; if jscpd ever starts loading either, bin/check-consumer-config.php's
-# strict json_decode() read of a consumer's .jscpd.json would be stricter than
-# jscpd itself and this control, not the template smoke below, is what should fail.
+# otherwise; if jscpd ever starts loading either,
+# bin/consumer-checks/check-jscpd-json.php's strict json_decode() read of a
+# consumer's .jscpd.json would be stricter than jscpd itself and this control,
+# not the template smoke below, is what should fail.
 #
 # Every control below asserts the DIAGNOSTIC, never the bare exit status (see
 # the house rule this file states above the biome_ci controls): `npx
@@ -2391,7 +2392,7 @@ for feature in "${!jscpd_json5_case[@]}"; do
     npx --no-install jscpd --config jscpd-json5.json > "$work/jscpd-json5.log" 2>&1 || status=$?
     harness_assert_tool_rejects "$status" "$work/jscpd-json5.log" \
         "jscpd control — a config carrying $feature loaded; jscpd now reads JSON5, so README.md's \`\"//\"\` table and this file's own comment above are wrong about why" \
-        "jscpd — $feature is rejected with a config-parse diagnostic; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/check-consumer-config.php" \
+        "jscpd — $feature is rejected with a config-parse diagnostic; jscpd reads strict JSON, matching README.md and the strict json_decode() read in bin/consumer-checks/check-jscpd-json.php" \
         "jscpd control — the \"$(safe_report "$feature")\" run failed, but not with a config-parse diagnostic" \
         'config file .* line'
 done

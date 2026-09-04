@@ -10,10 +10,10 @@
 declare(strict_types=1);
 
 /**
- * The biome.json / tsconfig.json (optional) contract check, extracted out of
- * bin/check-consumer-config.php (GH-48) once that file crossed 1000 lines. A
- * shared include, not an entry point — see bin/consumer-checks/helpers.php's
- * own docblock for the boundary this file follows.
+ * The biome.json / tsconfig.json (optional) contract check — see
+ * bin/check-consumer-config.php's own docblock for why this split exists and
+ * bin/consumer-checks/helpers.php's for the shared-include boundary it
+ * follows.
  *
  * These are NOT copy-and-adapt templates — they are one-line `extends` stubs, so
  * unlike the PHP templates their rule content genuinely cannot drift. What CAN

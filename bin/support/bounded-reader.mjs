@@ -9,8 +9,8 @@
  * Bounded/BOM-safe file reading, extracted out of bin/check-js-config.mjs (GH-74)
  * once that file crossed 1000 lines. Self-contained: nothing here reports a
  * drift itself (the `fail()`/`violations` report state stays in the gate that
- * owns it, mirroring bin/check-consumer-config.php's own local `$readBounded`
- * closure, which was never moved into bin/support/read-quietly.php for the
+ * owns it, mirroring bin/consumer-checks/helpers.php's own `readBounded()`
+ * function, which was never moved into bin/support/read-quietly.php for the
  * same reason) — every caller decides what a `false`/oversize result means for
  * its own report.
  *
@@ -60,7 +60,7 @@ export function isDirectory(path) {
  * Reads up to maxBytes of a file through a fixed-size buffer, so a config far
  * past the cap is never fully materialised — the node counterpart of the
  * bounded-length read in bin/support/read-quietly.php's readQuietly()/
- * readCapped(), used by bin/check-consumer-config.php.
+ * readCapped(), used by the PHP gate's bin/consumer-checks/*.php split.
  *
  * @param {string} path
  * @param {number} maxBytes
