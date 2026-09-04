@@ -96,10 +96,12 @@ final readonly class FixtureDirectory
      * only because every caller is test code passing its own literal, never
      * a value derived from a gate's output or other runtime-controlled
      * input. A `../`-containing value would escape the fixture root. Not
-     * enforced — this class has no caller outside its own test suite and a
-     * fixture author's own path literal is not an attacker-controlled input
-     * — but worth reconsidering the moment a caller ever builds
-     * $relativePath from anything but a literal.
+     * enforced — a fixture author's own path literal is not an
+     * attacker-controlled input — but worth reconsidering the moment a
+     * caller ever builds $relativePath from anything but a literal;
+     * re-derive the current caller set with
+     * `grep -rn 'writeJson(' --include=*.php .` rather than trusting this
+     * comment.
      *
      * @param string               $relativePath Path relative to this fixture's root.
      * @param array<string, mixed> $data         The data to encode as JSON.
