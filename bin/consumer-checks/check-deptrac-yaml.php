@@ -45,8 +45,6 @@ function checkDeptracYaml(array &$violations, string $repoRoot): void
     $contents = readBounded($violations, $deptracFile, 'deptrac.yaml');
 
     if ($contents === null) {
-        // Reported as oversize by readBounded(); the arms below would run on a
-        // truncated read and name causes the file does not have.
         return;
     }
 

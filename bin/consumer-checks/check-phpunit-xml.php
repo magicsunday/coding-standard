@@ -64,9 +64,9 @@ function checkPhpunitXml(array &$violations, string $repoRoot): void
     }
 
     if ($phpunitContents === null) {
-        // Reported as oversize by readBounded(). This is the file the gate declares
-        // REQUIRED, so the report is a violation either way — but `not well-formed
-        // XML` on a truncated read names a cause the file does not have.
+        // This is the file the gate declares REQUIRED, so the report is a
+        // violation either way — but `not well-formed XML` on a truncated
+        // read names a cause the file does not have.
         return;
     }
 

@@ -40,8 +40,6 @@ function checkJscpdJson(array &$violations, string $repoRoot): void
     $json          = is_string($jscpdContents) ? json_decode($jscpdContents, true) : null;
 
     if ($jscpdContents === null) {
-        // Reported as oversize by readBounded(); the arms below would run on a
-        // truncated read and name causes the file does not have.
         return;
     }
 
