@@ -257,6 +257,55 @@ jobs:
             - name: Release tag lockstep gate self-test
               run: composer ci:test:release-tag-lockstep
 
+    prefer-lowest:
+        # tests/consumer/composer.lock is itself .gitignore'd (see README.md),
+        # so every other job resolves it fresh with Composer's normal
+        # highest-satisfying resolver, which never exercises a dependency's
+        # declared floor. This job repeats the fixture install with
+        # --prefer-lowest instead, so a future floor bump (in this package's
+        # own composer.json, or a new phpstan/strict.neon parameter needing a
+        # symplify/shipmonk feature not yet available at the declared floor)
+        # cannot silently reintroduce the class of bug a prior manual
+        # --prefer-lowest run once caught by hand. One leg on the lowest
+        # supported PHP version is enough: a dependency-floor bug is about
+        # package versions, not the PHP version running them.
+        name: Prefer-lowest floor check
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.3'
+                  tools: composer:v2
+                  coverage: none
+
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            # This package's own install, at its normal resolution — the
+            # floor bug lives in tests/consumer's separate composer.json, not
+            # here. .build/bin/phpunit from this install runs the two
+            # self-tests below.
+            - name: Install dependencies
+              run: composer install --prefer-dist --no-interaction --no-progress
+
+            - name: Consumer smoke - install the package at its lowest resolvable floor
+              working-directory: tests/consumer
+              run: composer update --with-all-dependencies --prefer-lowest --no-interaction --no-progress
+
+            - name: Consumer smoke - PHPStan with the shared base config
+              working-directory: tests/consumer
+              run: .build/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1 --error-format=github
+
+            - name: Case-folding self-test
+              run: composer ci:test:disallowed-calls
+
+            - name: Checked-exceptions self-test
+              run: composer ci:test:checked-exceptions
+
     js:
         name: JS/TS configs
         runs-on: ubuntu-latest
