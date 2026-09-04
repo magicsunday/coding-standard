@@ -2257,8 +2257,9 @@ final class CheckConsumerConfigTest extends GateTestCase
      * Verified against the pinned schema that `assist.enabled` exists at
      * the root, in an `overrides` entry and in each per-language block, so
      * it belongs in the same walk as the other two toggles rather than a
-     * check of its own:
-     *     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json.
+     * check of its own. Re-derive:
+     *
+     *     jq -r '.properties | keys[]' node_modules/@biomejs/biome/configuration_schema.json
      *
      * @return void
      */
