@@ -263,8 +263,7 @@ directory that matches how it is consumed, never at the root for convenience.
   | step | why it is not a manifest script |
   |---|---|
   | *Validate composer.json* | runs BEFORE `composer install` and against a manifest that may not parse, so a script in that manifest cannot be its home |
-  | *Consumer smoke - install the package as a consumer would* | a `composer install` bootstrapping the fixture; the thing a script would live in does not exist yet |
-  | *Consumer smoke - install the package at its lowest resolvable floor* | same reason, `composer update --prefer-lowest` in the `prefer-lowest` job |
+  | *Consumer smoke - install the package (as a consumer would / at its lowest resolvable floor)* | a `composer install`/`composer update --prefer-lowest` bootstrapping the fixture; the thing a script would live in does not exist yet |
   | *Consumer smoke - phpstan / php-cs-fixer / rector* | run under `working-directory: tests/consumer`, whose manifest declares no `scripts` block |
 
   The root `composer install` at the top of the build job is the same shape as the
