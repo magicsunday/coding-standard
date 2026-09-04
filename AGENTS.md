@@ -270,17 +270,19 @@ directory that matches how it is consumed, never at the root for convenience.
   `composer install` half of the second row. Enumerating both manifests therefore
   does NOT give full local coverage. Reproduce the excluded class directly:
 
-  ```
+  ```shell
   composer install --working-dir=tests/consumer
   cd tests/consumer && .build/bin/phpstan analyse && .build/bin/php-cs-fixer check && .build/bin/rector process --dry-run
   ```
 
   The row's other half (`composer update --prefer-lowest`, the `prefer-lowest` job)
-  reproduces the same way, substituting the update for the install:
+  reproduces the same way, substituting the update for the install, then returning
+  to the root for the two self-tests that job also runs:
 
-  ```
+  ```shell
   cd tests/consumer && composer update --with-all-dependencies --prefer-lowest
   .build/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1
+  cd - && composer ci:test:disallowed-calls && composer ci:test:checked-exceptions
   ```
 
   Declaring those three as `ci:test:*` scripts in `tests/consumer/composer.json` and
