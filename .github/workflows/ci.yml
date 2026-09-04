@@ -260,9 +260,9 @@ jobs:
     prefer-lowest:
         # Exercises tests/consumer's declared composer.lock floor via
         # --prefer-lowest, which the build job's normal resolution never does
-        # (the js job never touches this Composer fixture at all — see
-        # README.md). One PHP leg is enough: a dependency-floor bug is about
-        # package versions, not the interpreter running them.
+        # (the js job never touches this Composer fixture at all). One PHP
+        # leg is enough: a dependency-floor bug is about package versions,
+        # not the interpreter running them.
         name: Prefer-lowest floor check
         runs-on: ubuntu-latest
 
