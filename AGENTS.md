@@ -280,6 +280,7 @@ directory that matches how it is consumed, never at the root for convenience.
   to the root for the two self-tests that job also runs:
 
   ```shell
+  composer install
   cd tests/consumer && composer update --with-all-dependencies --prefer-lowest
   .build/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1
   cd - && composer ci:test:disallowed-calls && composer ci:test:checked-exceptions
