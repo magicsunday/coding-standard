@@ -620,11 +620,15 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
 
     /**
-     * @return string The full source of bin/check-consumer-config.php.
+     * @param string $relativePath A gate source file, relative to the repo root —
+     *                             the check-*.php split under bin/consumer-checks/
+     *                             (GH-48), not necessarily the orchestrator itself.
+     *
+     * @return string The full source of that file.
      */
-    private static function gateSource(): string
+    private static function gateSource(string $relativePath): string
     {
-        return (string) file_get_contents(self::root() . '/bin/check-consumer-config.php');
+        return (string) file_get_contents(self::root() . '/' . $relativePath);
     }
 
     /**
@@ -633,18 +637,19 @@ final class CheckConsumerConfigTest extends GateTestCase
      * block — so an entry the `[A-Za-z]+` pattern cannot see (a digit, an
      * underscore) fails loudly instead of shipping an unexercised entry.
      *
-     * @param string $variable The PHP variable name, without its leading `$`.
+     * @param string $variable     The PHP variable name, without its leading `$`.
+     * @param string $relativePath The gate source file this variable is declared in.
      *
      * @return list<non-empty-string>
      *
      * @throws RuntimeException If the block cannot be found, or the two counts disagree, or nothing parsed.
      */
-    private static function extractQuotedList(string $variable): array
+    private static function extractQuotedList(string $variable, string $relativePath): array
     {
-        $source = self::gateSource();
+        $source = self::gateSource($relativePath);
 
         if (preg_match('/\$' . preg_quote($variable, '/') . ' = \[(.*?)\];/s', $source, $matches) !== 1) {
-            throw new RuntimeException("could not find \${$variable} in bin/check-consumer-config.php");
+            throw new RuntimeException("could not find \${$variable} in {$relativePath}");
         }
 
         $block = $matches[1];
@@ -674,7 +679,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     private static function requiredRootFlagsFromGate(): array
     {
-        return self::extractQuotedList('requiredRootFlags');
+        return self::extractQuotedList('requiredRootFlags', 'bin/consumer-checks/check-phpunit-xml.php');
     }
 
     /**
@@ -682,7 +687,7 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     private static function pinnedFlagsFromGate(): array
     {
-        return self::extractQuotedList('pinnedFlags');
+        return self::extractQuotedList('pinnedFlags', 'bin/consumer-checks/check-biome-tsconfig.php');
     }
 
     /**
@@ -697,10 +702,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     private static function extensionSpellingsFromGate(): array
     {
-        $source = self::gateSource();
+        $relativePath = 'bin/consumer-checks/check-jscpd-json.php';
+        $source       = self::gateSource($relativePath);
 
         if (preg_match('/\$extensionSpellings = \[(.*?)\];/s', $source, $matches) !== 1) {
-            throw new RuntimeException('could not find $extensionSpellings in bin/check-consumer-config.php');
+            throw new RuntimeException("could not find \$extensionSpellings in {$relativePath}");
         }
 
         $block = $matches[1];
@@ -741,10 +747,11 @@ final class CheckConsumerConfigTest extends GateTestCase
      */
     private static function languagesFromGate(): array
     {
-        $source = self::gateSource();
+        $relativePath = 'bin/consumer-checks/check-biome-tsconfig.php';
+        $source       = self::gateSource($relativePath);
 
         if (preg_match("/foreach \(\['javascript'[^\]]*\]/", $source, $matches) !== 1) {
-            throw new RuntimeException('could not find the per-language foreach literal in bin/check-consumer-config.php');
+            throw new RuntimeException("could not find the per-language foreach literal in {$relativePath}");
         }
 
         $literal = $matches[0];

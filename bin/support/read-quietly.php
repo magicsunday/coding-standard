@@ -62,10 +62,10 @@ function readQuietly(string $path, int $maxBytes): string|false
  * Reads a file capped at $maxBytes, distinguishing "too large" from every other
  * failure the caller still reports itself.
  *
- * Named readCapped(), not readBounded(): bin/check-consumer-config.php already
- * has its own local `$readBounded` closure, with a different three-argument,
+ * Named readCapped(), not readBounded(): bin/consumer-checks/helpers.php already
+ * declares its own readBounded(), with a different three-argument,
  * self-reporting signature — a second, differently-shaped thing sharing that
- * name would read as the same function at every one of that closure's six call
+ * name would read as the same function at every one of that function's call
  * sites. This one takes no `$violations`/`$label` and reports nothing itself;
  * every caller decides its own message for the `null` arm.
  *
