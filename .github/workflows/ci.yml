@@ -259,9 +259,10 @@ jobs:
 
     prefer-lowest:
         # tests/consumer/composer.lock is itself .gitignore'd (see README.md),
-        # so every other job resolves it fresh with Composer's normal
+        # so the `build` job resolves it fresh with Composer's normal
         # highest-satisfying resolver, which never exercises a dependency's
-        # declared floor. This job repeats the fixture install with
+        # declared floor (the `js` job never touches this Composer fixture at
+        # all). This job repeats the fixture install with
         # --prefer-lowest instead, so a future floor bump (in this package's
         # own composer.json, or a new phpstan/strict.neon parameter needing a
         # symplify/shipmonk feature not yet available at the declared floor)
