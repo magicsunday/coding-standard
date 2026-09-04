@@ -130,10 +130,12 @@ harness_require_executable() {
 # created the directory, so there is no separate existence-check-then-later-
 # act window a second concurrent caller (or a maintainer's own same-named
 # directory) could be misread through. Extracted after review flagged the
-# only two callers of this logic, both in tests/check-php-cs-fixer-cases.sh,
-# as hand-copied duplicates of the same contract — consistent with each
-# other so far, but a future edit to one would not have propagated to the
-# other; both now call this instead.
+# two ORIGINAL callers of this logic, both in tests/check-php-cs-fixer-cases.sh,
+# as hand-copied duplicates of the same contract at the time — consistent
+# with each other so far, but a future edit to one would not have
+# propagated to the other; every caller (re-derive the current set with
+# `grep -rn 'harness_mkdir_owned' tests/`) goes through this one definition
+# instead now.
 harness_mkdir_owned() {
     mkdir -- "$1" 2>/dev/null && echo 1 || echo 0
 }
