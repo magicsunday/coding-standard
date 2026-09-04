@@ -127,13 +127,9 @@ fi
 CGL_SCOPE_SUFFIX="$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
 BIN_CONSUMER_DIR="$ROOT/bin/consumer"
-BIN_CONSUMER_PRE_EXISTED=0
-[ -d "$BIN_CONSUMER_DIR" ] && BIN_CONSUMER_PRE_EXISTED=1
 BIN_CONSUMER_PROBE="$BIN_CONSUMER_DIR/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
 
 NESTED_CONSUMER_DIR="$ROOT/tests/Support/consumer"
-NESTED_CONSUMER_PRE_EXISTED=0
-[ -d "$NESTED_CONSUMER_DIR" ] && NESTED_CONSUMER_PRE_EXISTED=1
 NESTED_CONSUMER_PROBE="$NESTED_CONSUMER_DIR/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
 
 TOP_CONSUMER_PROBE="$ROOT/tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.php"
@@ -141,13 +137,29 @@ TOP_CONSUMER_PROBE="$ROOT/tests/consumer/probe-cgl-selftest-$CGL_SCOPE_SUFFIX.ph
 # Combined with harness_workdir's own EXIT trap (`rm -rf -- "$harness_workdir_raw"`,
 # armed above) rather than layered onto it: `trap ... EXIT` replaces the
 # previous handler outright, so a second `trap` call here would silently drop
-# the workdir cleanup instead of adding to it — the same reason
-# check-js-configs.sh's bookkeeping self-test re-declares the full combined
-# trap rather than appending one.
+# the workdir cleanup instead of adding to it.
+#
+# No pre-existed flag guards the rmdir calls: an existence check taken before
+# mkdir, then acted on after cleanup, is a TOCTOU race against a second
+# concurrent invocation of this same script (this project's own worktree
+# shares across sessions, a documented real hazard here) — both runs would
+# see the directory as "pre-existing" once either one's mkdir wins the race,
+# and neither would ever remove it. rmdir's own refusal to remove a
+# non-empty directory already gives the real guarantee this flag was for: a
+# maintainer's genuine bin/consumer/ or tests/Support/consumer/ is never
+# empty, so an unconditional rmdir attempt on it always fails harmlessly.
+#
+# Each `rmdir` is individually `|| true`-guarded, not just via the function's
+# trailing `true`: under `set -e`, the LAST command of an `A && B` statement
+# is not exempt from errexit, so an unguarded `rmdir` failing (e.g. a
+# concurrent writer left a second file in $BIN_CONSUMER_DIR, ENOTEMPTY) would
+# abort this function before it reaches the trailing `true` — skipping the
+# second rmdir AND, since this function runs first in the combined trap,
+# skipping harness_workdir's own `rm -rf` too, leaking $work.
 cleanup_finder_scope_probes() {
     rm -f -- "$BIN_CONSUMER_PROBE" "$NESTED_CONSUMER_PROBE" "$TOP_CONSUMER_PROBE"
-    [ "$BIN_CONSUMER_PRE_EXISTED" -eq 0 ] && rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null
-    [ "$NESTED_CONSUMER_PRE_EXISTED" -eq 0 ] && rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null
+    rmdir -- "$BIN_CONSUMER_DIR" 2>/dev/null || true
+    rmdir -- "$NESTED_CONSUMER_DIR" 2>/dev/null || true
     true
 }
 trap 'cleanup_finder_scope_probes; rm -rf -- "$harness_workdir_raw"' EXIT
