@@ -402,12 +402,13 @@ from `LogicException`, so this inheritance clause does not reach them.
   release's own changelog: `curl -s
   https://api.github.com/repos/phpstan/phpstan/releases/tags/2.1.31` lists it
   under "New config parameter") — this package's own `composer.json` pins
-  `^2.2` for exactly that reason, and that floor is installed-and-tested, not
-  merely cited: `composer update phpstan/phpstan --with-all-dependencies
-  --prefer-lowest` resolves to 2.2.0/2.2.6 depending on the rest of the
-  dependency graph, and the checked-exceptions self-test passes against it. A
-  consumer that separately pins an older `phpstan/phpstan` gets a hard
-  "Unexpected item" config-load error on this key.
+  `^2.2` for exactly that reason, and that floor is exercised on every push/PR
+  by the "Prefer-lowest floor check" job in `.github/workflows/ci.yml`: its
+  `composer update --with-all-dependencies --prefer-lowest` in `tests/consumer`
+  resolves `phpstan/phpstan` to 2.2.0/2.2.6 depending on the rest of the
+  dependency graph, and the same job's checked-exceptions self-test passes
+  against it. A consumer that separately pins an older `phpstan/phpstan` gets a
+  hard "Unexpected item" config-load error on this key.
 
   The same failure shape separately hit `symplify/phpstan-rules` during GH-139's
   original bisection — that package is `strict.neon`-only, not part of this

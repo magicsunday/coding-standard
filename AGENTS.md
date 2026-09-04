@@ -267,12 +267,20 @@ directory that matches how it is consumed, never at the root for convenience.
   | *Consumer smoke - phpstan / php-cs-fixer / rector* | run under `working-directory: tests/consumer`, whose manifest declares no `scripts` block |
 
   The root `composer install` at the top of the build job is the same shape as the
-  second row. Enumerating both manifests therefore does NOT give full local coverage.
-  Reproduce the excluded class directly:
+  `composer install` half of the second row. Enumerating both manifests therefore
+  does NOT give full local coverage. Reproduce the excluded class directly:
 
   ```
   composer install --working-dir=tests/consumer
   cd tests/consumer && .build/bin/phpstan analyse && .build/bin/php-cs-fixer check && .build/bin/rector process --dry-run
+  ```
+
+  The row's other half (`composer update --prefer-lowest`, the `prefer-lowest` job)
+  reproduces the same way, substituting the update for the install:
+
+  ```
+  cd tests/consumer && composer update --with-all-dependencies --prefer-lowest
+  .build/bin/phpstan analyse --configuration phpstan.neon --memory-limit=-1
   ```
 
   Declaring those three as `ci:test:*` scripts in `tests/consumer/composer.json` and
