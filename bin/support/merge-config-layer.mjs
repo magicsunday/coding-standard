@@ -21,8 +21,8 @@
 /**
  * True for anything `json_decode(..., true)` would answer `is_array()` true
  * for: a JSON array AND a JSON object alike, since PHP's associative array
- * does not distinguish them. Every `is_array($x)` check ported from
- * bin/check-consumer-config.php needs this, not `Array.isArray` — a JS
+ * does not distinguish them. Every `is_array($x)` check ported from one of
+ * bin/consumer-checks/check-*.php needs this, not `Array.isArray` — a JS
  * `Array.isArray` is false for a plain object, which silently narrows a PHP
  * "either shape" check to "array shape only". Pair with `Object.values()`
  * (uniform over an array's elements and an object's values) wherever the PHP

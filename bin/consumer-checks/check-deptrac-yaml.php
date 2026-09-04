@@ -10,10 +10,9 @@
 declare(strict_types=1);
 
 /**
- * The deptrac.yaml (optional) contract check, extracted out of
- * bin/check-consumer-config.php (GH-48) once that file crossed 1000 lines. A
- * shared include, not an entry point — see bin/consumer-checks/helpers.php's
- * own docblock for the boundary this file follows.
+ * The deptrac.yaml (optional) contract check — see bin/check-consumer-config.php's
+ * own docblock for why this split exists and bin/consumer-checks/helpers.php's
+ * for the shared-include boundary it follows.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT

@@ -8,9 +8,9 @@
 /**
  * The byte-level JSONC-to-JSON decode pipeline mirroring PHP's `json_decode`,
  * extracted out of bin/check-js-config.mjs (GH-74) once that file crossed
- * 1000 lines. bin/check-consumer-config.php carries the equivalent logic
- * inline (`$stripJsonc`, `$loadJsonc`, …) rather than in its own
- * bin/support/*.php file — every function below cross-references its PHP
+ * 1000 lines. bin/consumer-checks/check-biome-tsconfig.php carries the
+ * equivalent logic inline (`$stripJsonc`, `$loadJsonc`, …) rather than in its
+ * own bin/support/*.php file — every function below cross-references its PHP
  * counterpart in its own docblock instead of repeating the rationale here.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -106,8 +106,8 @@ function skipStringLiteralBytes(buffer, start, n) {
  * Reduces a JSONC document to strict JSON, leaving string contents untouched.
  *
  * Operates on raw BYTES, not a decoded string — deliberately, because
- * bin/check-consumer-config.php's $stripJsonc runs byte-safe (no `/u`
- * modifier) over the raw file bytes and only implicitly validates UTF-8
+ * bin/consumer-checks/check-biome-tsconfig.php's $stripJsonc runs byte-safe
+ * (no `/u` modifier) over the raw file bytes and only implicitly validates UTF-8
  * AFTERWARDS, via json_decode() on the already-stripped text. An earlier,
  * string-based version of this scan decoded first and validated UTF-8 before
  * stripping — which meant an invalid byte sitting INSIDE a `//`/`/* *\/`

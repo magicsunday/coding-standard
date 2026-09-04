@@ -125,8 +125,8 @@ function readBounded(path, label) {
 
 /**
  * Reports whether a single `extends` specifier IS the shared package entry.
- * See $isSharedSpecifier in bin/check-consumer-config.php for the full
- * rationale — the pattern below is that function's regex, translated 1:1 (JS
+ * See $isSharedSpecifier in bin/consumer-checks/check-biome-tsconfig.php for
+ * the full rationale — the pattern below is that closure's regex, translated 1:1 (JS
  * `$` without the `m` flag already matches only the true end of the string, so
  * no equivalent of PCRE's `D` modifier is needed).
  *
@@ -148,7 +148,7 @@ function isSharedSpecifier(candidate, sharedStem, suffixOptional) {
 
 /**
  * Reports whether an `extends` value references the shared config. See
- * $extendsShared in bin/check-consumer-config.php for the full rationale.
+ * $extendsShared in bin/consumer-checks/check-biome-tsconfig.php for the full rationale.
  *
  * @param {object} config         The decoded consumer config.
  * @param {string} sharedStem     Path inside the package, without the `.json` suffix.
@@ -177,8 +177,8 @@ function extendsShared(config, sharedStem, suffixOptional, listRequired = false)
 
 /**
  * Folds a resolved `extends` chain into the effective document. Mirrors
- * $foldExtendsChain in bin/check-consumer-config.php — the one step shared
- * verbatim by the biome.json and tsconfig.json blocks below.
+ * $foldExtendsChain in bin/consumer-checks/check-biome-tsconfig.php — the one
+ * step shared verbatim by the biome.json and tsconfig.json blocks below.
  *
  * @param {object[]} layers   From resolveExtendsLayers, in `extends` order.
  * @param {object} document   The document itself, merged last.
@@ -197,8 +197,8 @@ function foldExtendsChain(layers, document) {
 
 /**
  * Loads a config this package itself ships. Mirrors $loadOwnConfig in
- * bin/check-consumer-config.php — trusted content, no size bound, no JSONC
- * handling.
+ * bin/consumer-checks/check-biome-tsconfig.php — trusted content, no size
+ * bound, no JSONC handling.
  *
  * @param {string} path Absolute path to the package's own config file.
  *
@@ -221,8 +221,8 @@ function loadOwnConfig(path) {
 /**
  * Resolves an `extends` chain to the config layers a real tool would also
  * apply, IN THE ORDER the document names them. Mirrors
- * $resolveExtendsLayers in bin/check-consumer-config.php — see that
- * function's docblock for why the shared entry is substituted with this
+ * $resolveExtendsLayers in bin/consumer-checks/check-biome-tsconfig.php — see
+ * that closure's docblock for why the shared entry is substituted with this
  * package's own bundled content rather than skipped (order-sensitive: a
  * shared entry listed AFTER a local override wins the fold and undoes it,
  * verified against Biome 2.5.5 and tsc 7.0.2), why an unresolvable
@@ -252,7 +252,8 @@ function loadOwnConfig(path) {
  * that `extends` shape outright (`extends has an incorrect type, expected an
  * array, but received an object`, verified against 2.5.5), so no real,
  * loadable consumer config reaches this divergence. See
- * $resolveExtendsLayers in bin/check-consumer-config.php for the full note.
+ * $resolveExtendsLayers in bin/consumer-checks/check-biome-tsconfig.php for
+ * the full note.
  *
  * @returns {object[]} The layers, in `extends` order.
  */
@@ -333,7 +334,7 @@ function resolveExtendsLayers(repoRoot, extendsValue, sharedStem, suffixOptional
 /**
  * The individual Biome rules this package's own biome/base.json turns on
  * explicitly, keyed by group. Mirrors $sharedBiomeRules in
- * bin/check-consumer-config.php.
+ * bin/consumer-checks/check-biome-tsconfig.php.
  *
  * @param {object} biomeBaseConfig This package's own bundled biome/base.json,
  *                                  decoded once by loadOwnConfig and shared
@@ -534,7 +535,7 @@ if (biomeFile !== null) {
         // this walk exists to catch.
         //
         // Every assertion below runs against the EFFECTIVE document (GH-36) —
-        // see $biomeEffective's comment in bin/check-consumer-config.php.
+        // see $biomeEffective's comment in bin/consumer-checks/check-biome-tsconfig.php.
         const biomeBaseConfig = loadOwnConfig(join(packageRoot, 'biome', 'base.json'));
         const biomeLayers = resolveExtendsLayers(repoRoot, biomeJson.extends ?? null, 'biome/base', false, biomeBaseConfig, label);
         const biomeEffective = foldExtendsChain(biomeLayers, biomeJson);
@@ -705,7 +706,7 @@ if (adopted && tsconfigFileExists) {
         // GH-36: fold every `extends` entry onto the document itself before
         // asserting, the shared entry's own bundled content included at its
         // listed position — see $tsconfigEffective's comment in
-        // bin/check-consumer-config.php.
+        // bin/consumer-checks/check-biome-tsconfig.php.
         const tsconfigLayers = resolveExtendsLayers(
             repoRoot,
             tsconfigJson.extends ?? null,

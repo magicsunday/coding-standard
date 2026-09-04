@@ -10,10 +10,9 @@
 declare(strict_types=1);
 
 /**
- * The .phplint.yml (optional) contract check, extracted out of
- * bin/check-consumer-config.php (GH-48) once that file crossed 1000 lines. A
- * shared include, not an entry point — see bin/consumer-checks/helpers.php's
- * own docblock for the boundary this file follows.
+ * The .phplint.yml (optional) contract check — see bin/check-consumer-config.php's
+ * own docblock for why this split exists and bin/consumer-checks/helpers.php's
+ * for the shared-include boundary it follows.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -62,8 +61,9 @@ function checkPhplintYml(array &$violations, string $repoRoot): void
     // jscpd 5.0.14 answers its own BOM'd config with `expected value at line
     // 1 column 1`, and deptrac with `no extension able to load "<BOM>imports"`,
     // so for those two a BOM IS the defect and stripping it would hide one. The
-    // deptrac half is the one of the three whose version is recorded elsewhere in
-    // this file rather than here; both statements are about the same run. A probe
+    // deptrac half is the one of the three whose version is recorded in the
+    // sibling check-deptrac-yaml.php rather than here; both statements are
+    // about the same run. A probe
     // that can CONTRADICT the behaviour, which `composer show` cannot:
     //
     //     printf '\xEF\xBB\xBFimports: []\n' > /tmp/d.yaml \
