@@ -258,18 +258,11 @@ jobs:
               run: composer ci:test:release-tag-lockstep
 
     prefer-lowest:
-        # tests/consumer/composer.lock is itself .gitignore'd (see README.md),
-        # so the `build` job resolves it fresh with Composer's normal
-        # highest-satisfying resolver, which never exercises a dependency's
-        # declared floor (the `js` job never touches this Composer fixture at
-        # all). This job repeats the fixture install with
-        # --prefer-lowest instead, so a future floor bump (in this package's
-        # own composer.json, or a new phpstan/strict.neon parameter needing a
-        # symplify/shipmonk feature not yet available at the declared floor)
-        # cannot silently reintroduce the class of bug a prior manual
-        # --prefer-lowest run once caught by hand. One leg on the lowest
-        # supported PHP version is enough: a dependency-floor bug is about
-        # package versions, not the PHP version running them.
+        # Exercises tests/consumer's declared composer.lock floor via
+        # --prefer-lowest, which the build job's normal resolution never does
+        # (the js job never touches this Composer fixture at all — see
+        # README.md). One PHP leg is enough: a dependency-floor bug is about
+        # package versions, not the interpreter running them.
         name: Prefer-lowest floor check
         runs-on: ubuntu-latest
 
