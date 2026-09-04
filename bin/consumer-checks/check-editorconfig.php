@@ -38,8 +38,6 @@ function checkEditorconfig(array &$violations, string $repoRoot): void
     $contents = readBounded($violations, $editorconfigFile, '.editorconfig');
 
     if ($contents === null) {
-        // Reported as oversize by readBounded(); the arms below would run on a
-        // truncated read and name causes the file does not have.
         return;
     }
 
