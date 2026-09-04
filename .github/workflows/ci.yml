@@ -125,6 +125,14 @@ jobs:
             - name: Self-lint the PHP gate scripts and test infrastructure
               run: composer ci:test:php:cgl
 
+            # .php-cs-fixer.dist.php's require of php-cs-fixer/base.php and its
+            # Finder scoping (tests/consumer excluded from tests/ alone, not
+            # from bin/ or php-cs-fixer/ too) have no other proof: the step
+            # above only ever ran the real tree, which stays green even if the
+            # require silently no-ops or the Finder resolves to an empty set.
+            - name: CGL self-lint self-test
+              run: composer ci:test:php:cgl-cases
+
             - name: Validate the JSON configs
               run: composer ci:test:json
 
