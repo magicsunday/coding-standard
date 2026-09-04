@@ -129,9 +129,11 @@ harness_require_executable() {
 # from mkdir's own exit status in the same syscall that would otherwise have
 # created the directory, so there is no separate existence-check-then-later-
 # act window a second concurrent caller (or a maintainer's own same-named
-# directory) could be misread through — first found drifting apart across two
-# hand-copied call sites in tests/check-php-cs-fixer-cases.sh, which now both
-# call this instead.
+# directory) could be misread through. Extracted after review flagged the
+# only two callers of this logic, both in tests/check-php-cs-fixer-cases.sh,
+# as hand-copied duplicates of the same contract — consistent with each
+# other so far, but a future edit to one would not have propagated to the
+# other; both now call this instead.
 harness_mkdir_owned() {
     mkdir -- "$1" 2>/dev/null && echo 1 || echo 0
 }
