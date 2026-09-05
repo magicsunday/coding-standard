@@ -14,6 +14,7 @@ namespace MagicSunday\CodingStandard\Test;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
+use function array_slice;
 use function file_get_contents;
 use function file_put_contents;
 use function implode;
@@ -27,7 +28,9 @@ use function substr_count;
 use function token_get_all;
 
 use const T_COMMENT;
+use const T_CONSTANT_ENCAPSED_STRING;
 use const T_DOC_COMMENT;
+use const T_ENCAPSED_AND_WHITESPACE;
 
 /**
  * A structural, grep-shaped regression guard against a PHPUnit assertion
@@ -69,9 +72,13 @@ use const T_DOC_COMMENT;
  *
  * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser —
  * documented limitations:
- * - It balances parentheses to find each call's own argument list, but does
- *   NOT tokenize string literals, so a literal `(` or `)` inside a quoted
- *   argument can mis-balance a call's own extent.
+ * - It balances parentheses via self::stringLiteralMask() (built once per
+ *   scan from token_get_all(), the same primitive self::stripComments()
+ *   already relies on) so a `(`/`)` character inside a T_CONSTANT_ENCAPSED_STRING
+ *   or T_ENCAPSED_AND_WHITESPACE token never affects a call's own depth
+ *   count — only a real structural paren token does. Scoped to those two
+ *   token kinds: a heredoc/nowdoc body is not masked, but no risky-assertion
+ *   or sanctioned-wrap argument in this codebase's history has used one.
  * - It recognises exactly four "sanctioned wrap" call names
  *   (scrubbedForDiagnostic/diagnosticMessage/messageOrDefault/messageWithOutput)
  *   by their bare name, not by resolving `self::`/`GateTestCase::`/an inherited call to the
@@ -183,28 +190,70 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Finds the position right after the closing parenthesis balancing the
-     * one at $openParenPos, and the text strictly between them. Does not
-     * understand string literals — a literal `(`/`)` inside a quoted
-     * argument can mis-balance the extent this returns; see this class's
-     * own docblock.
+     * Builds a byte-indexed mask over $source, one entry per byte offset,
+     * true wherever that offset falls inside a T_CONSTANT_ENCAPSED_STRING or
+     * T_ENCAPSED_AND_WHITESPACE token. self::extractBalancedCall() consults
+     * this so a `(`/`)` character embedded in a string argument's own text
+     * never affects a balanced call's depth count — only a real structural
+     * paren token does; see this class's own docblock for the incident this
+     * closed and the two token kinds this is scoped to.
      *
-     * @param string $text         The full text to scan.
-     * @param int    $openParenPos The offset of the opening `(` in $text.
+     * @param string $source The PHP source to build the mask for.
+     *
+     * @return list<bool> One entry per byte offset in $source; true means "inside a string-literal token".
+     */
+    private static function stringLiteralMask(string $source): array
+    {
+        $mask   = [];
+        $offset = 0;
+
+        foreach (token_get_all($source) as $token) {
+            if (!is_array($token)) {
+                $mask[$offset] = false;
+                ++$offset;
+
+                continue;
+            }
+
+            [$id, $text]  = $token;
+            $isStringPart = ($id === T_CONSTANT_ENCAPSED_STRING) || ($id === T_ENCAPSED_AND_WHITESPACE);
+
+            for ($i = 0, $length = strlen($text); $i < $length; ++$i) {
+                $mask[$offset] = $isStringPart;
+                ++$offset;
+            }
+        }
+
+        return $mask;
+    }
+
+    /**
+     * Finds the position right after the closing parenthesis balancing the
+     * one at $openParenPos, and the text strictly between them. Depth-counts
+     * only structural `(`/`)` characters: any offset $mask marks as inside a
+     * string-literal token is skipped, so a literal `(`/`)` inside a quoted
+     * argument can no longer mis-balance the extent this returns — see this
+     * class's own docblock for the incident this closed.
+     *
+     * @param string     $text         The full text to scan.
+     * @param int        $openParenPos The offset of the opening `(` in $text.
+     * @param list<bool> $mask         self::stringLiteralMask()'s output, aligned 1:1 with $text by byte offset.
      *
      * @return array{0: string, 1: int} The text strictly inside the balanced parens, and the offset right after the closing `)`.
      */
-    private static function extractBalancedCall(string $text, int $openParenPos): array
+    private static function extractBalancedCall(string $text, int $openParenPos, array $mask): array
     {
         $depth = 1;
         $i     = $openParenPos + 1;
         $len   = strlen($text);
 
         while (($i < $len) && ($depth > 0)) {
-            if ($text[$i] === '(') {
-                ++$depth;
-            } elseif ($text[$i] === ')') {
-                --$depth;
+            if (($mask[$i] ?? false) === false) {
+                if ($text[$i] === '(') {
+                    ++$depth;
+                } elseif ($text[$i] === ')') {
+                    --$depth;
+                }
             }
 
             ++$i;
@@ -215,28 +264,37 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
     /**
      * Removes every balanced `$funcName(...)` call from $text, including any
-     * parens nested inside it, leaving the rest of $text untouched. Used to
-     * strip every sanctioned scrub wrap from a risky assertion's own
+     * parens nested inside it, leaving the rest of $text untouched, and
+     * returns $mask realigned to the shortened result so a caller can keep
+     * stripping further wrap calls without losing string-literal awareness.
+     * Used to strip every sanctioned scrub wrap from a risky assertion's own
      * argument list before checking what remains for a raw output access.
      *
-     * @param string $text     The text to strip $funcName(...) calls from.
-     * @param string $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
+     * @param string     $text     The text to strip $funcName(...) calls from.
+     * @param list<bool> $mask     self::stringLiteralMask()'s output, aligned 1:1 with $text by byte offset.
+     * @param string     $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
      *
-     * @return string The text with every balanced $funcName(...) call removed.
+     * @return array{0: string, 1: list<bool>} The text with every balanced $funcName(...) call removed, and its realigned mask.
      */
-    private static function stripBalancedCalls(string $text, string $funcName): string
+    private static function stripBalancedCalls(string $text, array $mask, string $funcName): array
     {
-        $needle = "{$funcName}(";
-        $out    = '';
-        $pos    = 0;
+        $needle  = "{$funcName}(";
+        $out     = '';
+        $outMask = [];
+        $pos     = 0;
 
         while (($start = strpos($text, $needle, $pos)) !== false) {
             $out .= substr($text, $pos, $start - $pos);
-            [, $endPos] = self::extractBalancedCall($text, $start + strlen($funcName));
+            $outMask = [...$outMask, ...array_slice($mask, $pos, $start - $pos)];
+
+            [, $endPos] = self::extractBalancedCall($text, $start + strlen($funcName), $mask);
             $pos        = $endPos;
         }
 
-        return $out . substr($text, $pos);
+        $out .= substr($text, $pos);
+        $outMask = [...$outMask, ...array_slice($mask, $pos)];
+
+        return [$out, $outMask];
     }
 
     /**
@@ -285,7 +343,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * the PHPUnit auto-export mechanism. Whatever still matches
      * self::RAW_OUTPUT_PATTERN afterwards is a finding. $path is read
      * through self::stripComments() first, so a comment/docblock quoting a
-     * risky-assertion call in prose is not scanned.
+     * risky-assertion call in prose is not scanned. self::stringLiteralMask()
+     * is built once per scan and kept aligned with each intermediate string
+     * as self::stripBalancedCalls() shortens it.
      *
      * @param string $path Absolute path to the PHP source file to scan.
      *
@@ -294,6 +354,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     private static function findUnscrubbedRawOutputAssertions(string $path): array
     {
         $source   = self::stripComments((string) file_get_contents($path));
+        $mask     = self::stringLiteralMask($source);
         $findings = [];
 
         foreach (self::RISKY_ASSERTIONS as $assertionName) {
@@ -302,13 +363,14 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
             while (($pos = strpos($source, $needle, $offset)) !== false) {
                 $parenStart          = $pos + strlen($assertionName);
-                [$argsText, $endPos] = self::extractBalancedCall($source, $parenStart);
+                [$argsText, $endPos] = self::extractBalancedCall($source, $parenStart, $mask);
                 $offset              = $endPos;
 
-                $stripped = $argsText;
+                $stripped     = $argsText;
+                $strippedMask = array_slice($mask, $parenStart + 1, strlen($argsText));
 
                 foreach (self::SAFE_WRAP_CALLS as $wrap) {
-                    $stripped = self::stripBalancedCalls($stripped, $wrap);
+                    [$stripped, $strippedMask] = self::stripBalancedCalls($stripped, $strippedMask, $wrap);
                 }
 
                 if (preg_match(self::RAW_OUTPUT_PATTERN, $stripped) === 1) {
@@ -509,5 +571,36 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         );
 
         self::assertSame([], $findings, 'The guard flagged a risky-assertion call that only appears inside a comment/docblock, never as real code.');
+    }
+
+    /**
+     * self::extractBalancedCall()'s own control for an unmatched opening
+     * paren inside a sanctioned wrap's OWN string argument: without
+     * tokenizing string literals, a `(` embedded in
+     * self::scrubbedForDiagnostic()'s own argument text overruns that call's
+     * true closing `)` and swallows the rest of the containing risky
+     * assertion's argument list — including the trailing, genuinely
+     * unwrapped `$result->output` below — as if it were already inside the
+     * sanctioned wrap, so self::stripBalancedCalls() strips the whole span
+     * and RAW_OUTPUT_PATTERN never sees the real leak. Live-reproduced
+     * against this guard before the string-literal-aware balancing existed;
+     * see this class's own docblock's "documented limitations" section.
+     */
+    #[Test]
+    public function detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen(): void
+    {
+        $findings = $this->findingsFor(
+            'unmatched-paren-in-wrap-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, self::scrubbedForDiagnostic("unbalanced ( paren") . $result->output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose sanctioned-wrap argument carries an unmatched opening '
+                . 'paren, even though a genuinely unwrapped $result->output follows it in the same argument list.',
+        );
     }
 }
