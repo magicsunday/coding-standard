@@ -1998,4 +1998,86 @@ JS;
             "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
         );
     }
+
+    /**
+     * The `npm pack` throw site's own regression twin: a deliberately
+     * malformed package.json carrying the poisoned sequence makes npm's own
+     * JSON-parse error quote a snippet of the raw file content verbatim —
+     * measured directly against the installed npm (2026-09-05): "npm error
+     * JSON.parse … while parsing near \"{ \"name\": \"x\", ##[error]forged
+     * BROK...\"". No registry/network access needed. Drives a real
+     * `npm pack` directly rather than through packagedConsumer(), whose own
+     * package.json is always this repository's real, well-formed one.
+     */
+    #[Test]
+    public function npmPackFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
+    {
+        $dir = $this->fixture()->path();
+        file_put_contents("{$dir}/package.json", '{ "name": "x", ##[error]forged BROKEN JSON');
+
+        $pack = new Process(['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'], $dir);
+        $pack->setTimeout(120.0);
+        $pack->run();
+
+        self::assertFalse(
+            $pack->isSuccessful(),
+            "npm pack over a deliberately malformed package.json unexpectedly succeeded — this control fixture is not testing what it claims.\n"
+                . self::safeSubprocessOutput($pack->getOutput() . $pack->getErrorOutput()),
+        );
+        self::assertStringContainsString(
+            '##[',
+            $pack->getErrorOutput(),
+            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
+                . self::safeSubprocessOutput($pack->getErrorOutput()),
+        );
+
+        $message = "npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput());
+
+        self::assertStringNotContainsString(
+            '##[',
+            $message,
+            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        );
+    }
+
+    /**
+     * The `npm init -y` throw site's own regression twin: a project
+     * directory whose own NAME carries the poisoned sequence makes npm's
+     * own package-name validation echo it back verbatim — measured directly
+     * against the installed npm (2026-09-05): `npm error Invalid name:
+     * "poisoned-##[error]forged-dir"`. No registry/network access needed.
+     * Drives a real `npm init -y` directly rather than through
+     * packagedConsumer(), whose own consumer directory name never carries
+     * consumer-controlled content.
+     */
+    #[Test]
+    public function npmInitFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
+    {
+        $dir = $this->fixture()->path() . '/poisoned-##[error]forged-dir';
+        mkdir($dir, 0o755, true);
+
+        $init = new Process(['npm', 'init', '-y'], $dir);
+        $init->setTimeout(120.0);
+        $init->run();
+
+        self::assertFalse(
+            $init->isSuccessful(),
+            "npm init -y inside a deliberately poisoned directory name unexpectedly succeeded — this control fixture is not testing what it claims.\n"
+                . self::safeSubprocessOutput($init->getOutput() . $init->getErrorOutput()),
+        );
+        self::assertStringContainsString(
+            '##[',
+            $init->getErrorOutput(),
+            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
+                . self::safeSubprocessOutput($init->getErrorOutput()),
+        );
+
+        $message = "npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput());
+
+        self::assertStringNotContainsString(
+            '##[',
+            $message,
+            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        );
+    }
 }
