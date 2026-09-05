@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -18,7 +19,6 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessStartFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
-use Symfony\Component\Process\Process;
 
 use function array_filter;
 use function array_key_exists;
@@ -50,11 +50,13 @@ use function unlink;
  * MANIFEST_CHECK_SCRIPT is a byte-for-byte copy of the `node -e '...'` body
  * bash lines ~520-804 pass to node, including its own WHY comments: it is the
  * literal payload under test, not a paraphrase of it, and it has no other
- * home to be read from. runManifestCheck() invokes it the same way the bash
- * original does — via the ROOT environment variable, not an argv position —
- * so it cannot reuse GateProcess/GateTestCase::assertGate*(), which always
- * append the fixture directory as an argv element; the assertion helpers
- * below are this suite's own thin equivalent of manifest_check()'s bash
+ * home to be read from. runManifestCheck() invokes
+ * it the same way the bash original does — via the ROOT environment
+ * variable, not an argv position — so it cannot reuse
+ * GateTestCase::assertGate*(), which always append the fixture directory as
+ * an argv element; it delegates to GateProcess::runRaw() instead, which
+ * makes no such assumption. The assertion helpers below are this suite's own
+ * thin equivalent of manifest_check()'s bash
  * siblings (manifest_accepts/manifest_rejects/manifest_reports_value), built
  * directly on PHPUnit's own trusted assertion API rather than a hand-rolled
  * grep-based counter — the same reasoning GateTestCase's own docblock gives
@@ -416,7 +418,10 @@ JS;
     /**
      * Runs manifest_check() against $dir, the same way the bash original's
      * `ROOT="$1" node -e '...'` does: via the ROOT environment variable, not
-     * an argv position — manifest_check() never reads process.argv.
+     * an argv position — manifest_check() never reads process.argv. Delegates
+     * to GateProcess::runRaw() rather than reimplementing its spawn-and-
+     * capture body a third time, the same "start local, promote on second
+     * real need" precedent that method's own docblock documents.
      *
      * @param string $dir The directory manifest_check() reads package.json and biome/base.json from.
      *
@@ -428,14 +433,7 @@ JS;
      */
     private function runManifestCheck(string $dir): GateResult
     {
-        $process = new Process(['node', '-e', self::MANIFEST_CHECK_SCRIPT], null, ['ROOT' => $dir]);
-        $output  = '';
-
-        $process->run(static function (string $type, string $buffer) use (&$output): void {
-            $output .= $buffer;
-        });
-
-        return new GateResult($output, $process->getExitCode() ?? -1);
+        return (new GateProcess())->runRaw(['node', '-e', self::MANIFEST_CHECK_SCRIPT], null, ['ROOT' => $dir]);
     }
 
     /**
