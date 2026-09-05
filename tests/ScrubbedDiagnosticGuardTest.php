@@ -145,6 +145,17 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * PR-editable-config shape would need adding here too; this guard only
      * reads what it is told to.
      *
+     * tests/Support/GateProcessTest.php's runCapturesStdout() (a plain
+     * `self::assertStringContainsString('hello', $result->output)`) and
+     * tests/GateTestCaseTest.php's own
+     * theMessageCompositionHelpersComposeAsDocumented() (several assertSame()
+     * calls against a hand-authored literal carrying `::error::`) share the
+     * RISKY_ASSERTIONS shape this guard scans for, yet are deliberately left
+     * out of the list below: both fixtures are author-controlled literals a
+     * PR can never influence, not PR-editable content, so routing them
+     * through the scrub helpers would be unnecessary churn rather than
+     * closing a real gap.
+     *
      * @return list<string>
      */
     private static function guardedFiles(): array
