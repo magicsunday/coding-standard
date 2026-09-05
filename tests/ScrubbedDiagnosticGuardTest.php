@@ -47,13 +47,25 @@ use const T_DOC_COMMENT;
  * tests/CheckJsConfigsTest.php's own
  * assertMessageDoesNotForgeWorkflowCommand() docblock for the dated
  * observation against the real installed PHPUnit, not repeated here);
- * assertSame()/assertEquals() instead attach a
+ * assertSame()/assertEquals() on two STRING operands instead attach a
  * SebastianBergmann\Comparator\ComparisonFailure built from the raw
  * operands to the thrown exception, which only PHPUnit's own CLI/text
  * failure printer renders — never getMessage() itself (see
  * tests/CheckJsConfigsTest.php's own
  * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand() docblock
- * for the dated observation, not repeated here).
+ * for the dated observation, not repeated here). This "never getMessage()"
+ * property is scoped to string operands deliberately, not a simplification:
+ * on a TYPE-MISMATCHED comparison (e.g. one operand `null`) PHPUnit's
+ * IsIdentical constraint builds no ComparisonFailure at all and instead
+ * embeds the raw operand directly into getMessage() via the base
+ * Constraint::failureDescription()'s Exporter::export() call — a third path
+ * that DOES reach getMessage(), detailed in that same docblock. Every real
+ * assertSame()/assertEquals() call site self::RISKY_ASSERTIONS scans for in
+ * this codebase compares same-typed (string) operands, so this guard's own
+ * scope does not currently need to police that third path — but a future
+ * `assertSame($stringOrNull, $poisonedString)`-shaped call would need the
+ * same manual self::fail() treatment even though it builds no
+ * ComparisonFailure.
  *
  * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser —
  * documented limitations:
@@ -104,8 +116,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * The PHPUnit assertion functions whose own subject/actual argument
      * leaks raw on a failure — via failureDescription() into getMessage()
      * for the first four, via a raw ComparisonFailure PHPUnit's CLI/text
-     * printer renders (never getMessage()) for the last two; see this
-     * class's own docblock above for the distinction.
+     * printer renders (never getMessage(), for two string operands — see
+     * this class's own docblock above for the type-mismatch exception) for
+     * the last two; see this class's own docblock above for the distinction.
      */
     private const RISKY_ASSERTIONS = [
         'assertStringContainsString',
