@@ -428,11 +428,18 @@ abstract class GateTestCase extends TestCase
      * literal `\n`, i.e. at true column 0 of a new line — exactly the
      * placement a `::cmd::` workflow command needs.
      *
+     * `protected`, not `private`: tests/CheckJsConfigsManifestTest.php's own
+     * assertManifestRejects() extends this class and needs the identical
+     * scrub for the same reason — sharing this one rather than growing a
+     * third private copy alongside tests/CheckJsConfigsTest.php's own
+     * safeSubprocessOutput() (that file does not extend this class, so it
+     * cannot reach a protected member here and keeps its own copy).
+     *
      * @param string $value The raw value to scrub before embedding in a self::fail() message.
      *
      * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken.
      */
-    private static function scrubbedForDiagnostic(string $value): string
+    protected static function scrubbedForDiagnostic(string $value): string
     {
         return str_replace('::', ':?:', scrubReportControlBytes($value));
     }

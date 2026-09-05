@@ -27,6 +27,7 @@ use function explode;
 use function file_put_contents;
 use function implode;
 use function is_string;
+use function str_contains;
 use function str_starts_with;
 use function unlink;
 
@@ -578,17 +579,31 @@ JS;
 
         $asserted = self::withoutInfoLines($result->output);
 
-        self::assertStringContainsString(
-            $mustCarry,
-            $asserted,
-            $message !== '' ? $message : "Rejected, but not for the tested reason: {$result->output}",
-        );
+        // Both containment checks below are a manual str_contains() +
+        // self::fail(), never assertStringContainsString()/
+        // assertStringNotContainsString(): $asserted is exactly the value a
+        // poisoned fixture can carry (see
+        // aPeerNamePinOrRangeCannotSupplyTheTextAnotherControlAsserts()
+        // further down, which drives this method with a peer name/pin/range
+        // deliberately carrying another control's own sentence), and
+        // PHPUnit's own Constraint::fail()/failureDescription() mechanism
+        // unconditionally re-embeds the FULL, RAW haystack of a
+        // failed call into the thrown exception's own message — see
+        // tests/CheckJsConfigsTest.php's
+        // buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
+        // own docblock for the dated observation, not repeated here — so a
+        // real failure of either constraint here would forge, in PHPUnit's
+        // own failure output, the very annotation this gate's own tests
+        // exist to prove is prevented.
+        if (!str_contains($asserted, $mustCarry)) {
+            self::fail(
+                ($message !== '' ? $message : 'Rejected, but not for the tested reason.') . "\n" . self::scrubbedForDiagnostic($asserted),
+            );
+        }
 
-        if ($mustNotCarry !== null) {
-            self::assertStringNotContainsString(
-                $mustNotCarry,
-                $asserted,
-                $message !== '' ? $message : "Reported a second, wrong cause as well: {$result->output}",
+        if (($mustNotCarry !== null) && str_contains($asserted, $mustNotCarry)) {
+            self::fail(
+                ($message !== '' ? $message : 'Reported a second, wrong cause as well.') . "\n" . self::scrubbedForDiagnostic($asserted),
             );
         }
     }
