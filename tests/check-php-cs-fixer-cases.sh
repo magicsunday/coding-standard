@@ -229,9 +229,9 @@ fi
 # FINDER SCOPE case above uses, against an isolated scratch root rather than
 # the tracked tree, so a defect here costs nothing real and this case cannot
 # silently drift from what it is meant to prove — the same "prove the
-# mechanism in the abstract" shape check-js-configs.sh's own trap-safety
-# self-test uses, for the same reason: the real call site's tracked-tree run
-# can't safely be the one to fail this way. $preservation_root is cleaned up
+# mechanism in the abstract" shape the now-PHPUnit-migrated check-js-configs.sh's
+# own trap-safety self-test used, for the same reason (#79): the real call
+# site's tracked-tree run can't safely be the one to fail this way. $preservation_root is cleaned up
 # by the combined trap armed above, not here — see that trap's own comment.
 preservation_root="$(mktemp -d)"
 

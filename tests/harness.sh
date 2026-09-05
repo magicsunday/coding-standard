@@ -74,10 +74,12 @@ fails=0
 # Creates the throwaway fixture root as $work and removes it on exit.
 #
 # `CDPATH= cd --` on the result because mktemp honours a relative TMPDIR
-# verbatim, and callers use "$work/…" from inside a subshell that has cd'd
-# elsewhere (check-js-configs.sh's `npm pack --pack-destination "$work"` runs
-# under `cd "$root"`) — so it has to be absolute up front. The order is mktemp, then trap, then canonicalise, and the
-# trap reads the RAW path rather than $work — why, in the body.
+# verbatim, and a caller may use "$work/…" from inside a subshell that has
+# cd'd elsewhere (the now-PHPUnit-migrated check-js-configs.sh's own
+# `npm pack --pack-destination "$work"` ran under `cd "$root"`, #79) — so it
+# has to be absolute up front. The order is mktemp, then trap, then
+# canonicalise, and the trap reads the RAW path rather than $work — why, in
+# the body.
 harness_workdir() {
     work="$(mktemp -d)"
 
@@ -198,9 +200,10 @@ harness_pad_text_to_cap() {
 # harness_run_argv's node-gate callers (assert_*_js, added for #32), where an
 # uncaught Node exception exits 1, the SAME code this program's own reject
 # path uses, so the exit code cannot tell the two apart either. The Node half
-# of the pattern mirrors tests/check-js-configs.sh's own manifest_crashed —
-# copied rather than shared, because that function lives in a file this one
-# cannot source (a differential-fixture script, not a library).
+# of the pattern mirrored the now-PHPUnit-migrated check-js-configs.sh's own
+# manifest_crashed (#79) — copied rather than shared, because that function
+# lived in a file this one could not source (a differential-fixture script,
+# not a library).
 degraded() {
     grep -qE '^(PHP )?(Warning|Notice|Deprecated|Recoverable fatal error|Fatal error|Parse error|Uncaught)|^[[:space:]]+at |^\[eval\]:[0-9]' <<<"$1"
 }
@@ -237,8 +240,9 @@ done
 # ordinary PHP report line stood here before and was measured to discriminate
 # nothing — under the one structural mutation of the PHP half, dropping the
 # anchor, it stays a miss. The two node-shaped lines are the same discriminating
-# pair tests/check-js-configs.sh's manifest_crashed is itself proven against — a
-# real gate report line can legitimately quote "at" or an `[eval]:N`-looking
+# pair the now-PHPUnit-migrated check-js-configs.sh's own manifest_crashed was
+# proven against (#79) — a real gate report line can legitimately quote "at"
+# or an `[eval]:N`-looking
 # fragment inside a value it is reporting on. `'a peerDependencies entry has no
 # devDependencies pin proving it'` stood here too, once — it contains none of
 # this pattern's trigger substrings at all, so it discriminated nothing under
@@ -450,9 +454,9 @@ harness_decide_rejects() {
 # uncaught-exception exit code, and the must-carry substring is checked with a
 # plain grep — so a crash whose text happens to contain it satisfies every
 # OTHER condition harness_decide_rejects checks. Driven rather than merely
-# asserted, the same discipline tests/check-js-configs.sh's own crashing_gate
-# probe uses for the identical reason (search that file for "The crash guard,
-# driven rather than asserted"): a probe that stubs degraded() itself would
+# asserted, the same discipline the now-PHPUnit-migrated check-js-configs.sh's
+# own crashing_gate probe used for the identical reason (#79): a probe that
+# stubs degraded() itself would
 # prove the regex again, not the wiring around it.
 probe_degraded_reaches_reject_decision() {
     local crash
@@ -1039,8 +1043,9 @@ harness_probe_reporters 1 harness_probe_assert_lockstep_complete \
     'harness_assert_lockstep_complete does not fire when a proven key was never seen'
 
 # The "run a tool, reject it with a diagnostic" triad written at every
-# negative control in tests/check-js-configs.sh: the tool's outcome is wrong
-# in two different ways — it ACCEPTED input the control expects rejected, or
+# negative control in the now-PHPUnit-migrated check-js-configs.sh (#79): the
+# tool's outcome is wrong in two different ways — it ACCEPTED input the
+# control expects rejected, or
 # it rejected for a reason other than the one under test. Only the REJECTING
 # direction fits this shape; the mirrored "must accept, and a forbidden
 # pattern in the log is the failure" control (an asset import left alone by

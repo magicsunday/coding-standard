@@ -37,7 +37,7 @@
         }
     },
     "scripts": {
-        "ci:test:js": "bash tests/check-js-configs.sh && node --test tests/*.test.mjs"
+        "ci:test:js": "node --test tests/*.test.mjs"
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.10",

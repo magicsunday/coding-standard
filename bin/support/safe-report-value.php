@@ -20,11 +20,7 @@ declare(strict_types=1);
  * (bin/support/safe-report-value.mjs, re-derive its importers with
  * `grep -rl "from '\./support/safe-report-value.mjs'" bin`) — the consumer-facing
  * node gate (bin/check-js-config.mjs) imports it directly, same as this file's PHP
- * requirers import this one. tests/check-js-configs.sh's OWN embedded self-check
- * (its `manifest_check`/peer-range JS, not the shipped gate) is on the same trust
- * boundary as both and carries its own local `encodeValue()` instead, for the
- * same reason neither the PHP nor the .mjs helper is reachable from a bash
- * heredoc.
+ * requirers import this one.
  *
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
