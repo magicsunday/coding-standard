@@ -2264,7 +2264,8 @@ JS;
             $result,
             ['clone|duplicat'],
             true,
-            "jscpd control — no clone found in two identical .{$extension} files; the \"{$format}\" format name no longer analyses anything.\n{$result->output}",
+            "jscpd control — no clone found in two identical .{$extension} files; the \"{$format}\" format name no longer analyses anything.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
     }
 
