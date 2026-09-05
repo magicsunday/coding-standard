@@ -60,9 +60,9 @@ use const T_DOC_COMMENT;
  * - It balances parentheses to find each call's own argument list, but does
  *   NOT tokenize string literals, so a literal `(` or `)` inside a quoted
  *   argument can mis-balance a call's own extent.
- * - It recognises exactly three "sanctioned wrap" call names
- *   (scrubbedForDiagnostic/diagnosticMessage/messageOrDefault) by their bare
- *   name, not by resolving `self::`/`GateTestCase::`/an inherited call to the
+ * - It recognises exactly four "sanctioned wrap" call names
+ *   (scrubbedForDiagnostic/diagnosticMessage/messageOrDefault/messageWithOutput)
+ *   by their bare name, not by resolving `self::`/`GateTestCase::`/an inherited call to the
  *   same method — a differently-named future helper wrapping the identical
  *   scrub would need adding to self::SAFE_WRAP_CALLS below, or this guard
  *   would false-positive on it.
@@ -125,6 +125,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         'scrubbedForDiagnostic',
         'diagnosticMessage',
         'messageOrDefault',
+        'messageWithOutput',
     ];
 
     /**
@@ -377,6 +378,34 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside a sanctioned scrub wrap.');
+    }
+
+    /**
+     * The guard's own third control, for the fourth sanctioned wrap:
+     * messageWithOutput() was added after self::SAFE_WRAP_CALLS was first
+     * written and, like the other three wraps, must not be flagged when it
+     * is the ONLY thing carrying a risky assertion's `->output` access —
+     * without this, a future edit dropping 'messageWithOutput' back out of
+     * self::SAFE_WRAP_CALLS would false-positive on every real call site
+     * using it undetected by this suite.
+     */
+    #[Test]
+    public function doesNotFlagAnAssertionScrubbedViaMessageWithOutput(): void
+    {
+        $dir  = $this->fixture()->path();
+        $path = "{$dir}/clean-message-with-output-fixture.php";
+
+        file_put_contents(
+            $path,
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $result->exitCode, self::messageWithOutput('', 'label', $result->output));
+            PHP,
+        );
+
+        $findings = self::findUnscrubbedRawOutputAssertions($path);
+
+        self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside self::messageWithOutput().');
     }
 
     /**
