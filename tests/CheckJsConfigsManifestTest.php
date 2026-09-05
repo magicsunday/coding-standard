@@ -451,12 +451,15 @@ JS;
      * class's engines-absent case names ITS failure to the SHAPE arm the same
      * way an absent key does, not to a coercion crash).
      *
-     * @param string               $dir         The directory to write package.json into.
+     * Always targets this test's own fixture directory — there is exactly
+     * one caller-visible fixture root per test, so a $dir parameter would be
+     * redundant with (and could silently diverge from) $this->fixture()->path().
+     *
      * @param array<string, mixed> $packageJson The package.json body, before engines-default injection.
      *
      * @return void
      */
-    private function writePackageJson(string $dir, array $packageJson): void
+    private function writePackageJson(array $packageJson): void
     {
         if (!array_key_exists('engines', $packageJson)) {
             $packageJson['engines'] = ['node' => '>=20'];
@@ -480,7 +483,7 @@ JS;
     private function manifestFixture(array $packageJson): string
     {
         $dir = $this->fixture()->path();
-        $this->writePackageJson($dir, $packageJson);
+        $this->writePackageJson($packageJson);
 
         $pin          = $packageJson['devDependencies']['@biomejs/biome'] ?? null;
         $pinForSchema = is_string($pin) ? $pin : '0.0.0';
@@ -506,7 +509,7 @@ JS;
     private function manifestFixtureWithSchema(array $packageJson, mixed $schemaValue): string
     {
         $dir = $this->fixture()->path();
-        $this->writePackageJson($dir, $packageJson);
+        $this->writePackageJson($packageJson);
         $this->fixture()->writeJson('biome/base.json', ['$schema' => $schemaValue]);
 
         return $dir;
