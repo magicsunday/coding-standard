@@ -15,22 +15,19 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
 use function array_slice;
+use function array_values;
+use function count;
 use function file_get_contents;
 use function file_put_contents;
 use function implode;
 use function is_array;
 use function preg_match;
-use function preg_replace;
-use function strlen;
-use function strpos;
-use function substr;
-use function substr_count;
 use function token_get_all;
 
 use const T_COMMENT;
-use const T_CONSTANT_ENCAPSED_STRING;
 use const T_DOC_COMMENT;
-use const T_ENCAPSED_AND_WHITESPACE;
+use const T_STRING;
+use const T_WHITESPACE;
 
 /**
  * A structural, grep-shaped regression guard against a PHPUnit assertion
@@ -60,21 +57,58 @@ use const T_ENCAPSED_AND_WHITESPACE;
  * same manual self::fail() treatment even though it builds no
  * ComparisonFailure.
  *
- * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser —
- * documented limitations:
- * - It balances parentheses via self::stringLiteralMask() (built once per
- *   scan from token_get_all(), the same primitive self::stripComments()
- *   already relies on) so a `(`/`)` character inside a T_CONSTANT_ENCAPSED_STRING
- *   or T_ENCAPSED_AND_WHITESPACE token never affects a call's own depth
- *   count — only a real structural paren token does. Scoped to those two
- *   token kinds: a heredoc/nowdoc body is not masked, but no risky-assertion
- *   or sanctioned-wrap argument in this codebase's history has used one.
+ * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser.
+ * Detection walks the token_get_all() TOKEN ARRAY directly, by a token
+ * INDEX rather than a byte offset (self::significantTokens()/
+ * self::openParenIndexAfter()/self::matchingCloseParenIndex()/
+ * self::stripBalancedCallsFromTokens() below), instead of flattening the
+ * tokens into a reconstructed string plus a parallel byte-mask that a
+ * caller has to keep manually realigned through every strip — a prior
+ * round's byte-mask-plus-strpos() approach twice produced a live-reproduced
+ * bypass this round's rewrite closes structurally rather than by adding a
+ * further special case:
+ * - STRING/HEREDOC/NOWDOC-CONTENT-SAFE: self::matchingCloseParenIndex()
+ *   depth-counts only a token whose own text is the single character `(`
+ *   or `)`; a T_CONSTANT_ENCAPSED_STRING, a T_ENCAPSED_AND_WHITESPACE
+ *   double-quoted/heredoc/nowdoc body, or any other multi-character token
+ *   is opaque with respect to depth-counting, because PHP's own tokenizer
+ *   already carves such content into its own atomic token — a `(`/`)`
+ *   BYTE inside one was never itself a separate `(`/`)` token to begin
+ *   with. Verified via token_get_all() directly: a heredoc/nowdoc BODY
+ *   tokenizes as T_ENCAPSED_AND_WHITESPACE, the identical opaque-token
+ *   shape as any other string content, so it is handled the same way —
+ *   see doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument()
+ *   below for the closing-paren half of this and
+ *   detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen()
+ *   for the opening-paren half a prior round already fixed; both are now
+ *   structural consequences of token atomicity rather than a maintained
+ *   byte-mask. A prior round's byte-mask masked string CONTENT correctly
+ *   but never consulted the mask when first LOCATING a candidate call — a
+ *   sanctioned wrap name appearing only as decoy TEXT inside a PRECEDING
+ *   string literal (e.g. `'Use messageOrDefault(...) to build this: ' .
+ *   $result->output`) was matched by a plain needle search as if it were a
+ *   real call, then swallowed everything up to and including the real,
+ *   unwrapped output that followed; see
+ *   detectsARiskyAssertionDisguisedByADecoyWrapNameInAPrecedingStringLiteral()
+ *   below. Locating a candidate here instead means finding a T_STRING
+ *   token, which the tokenizer never emits for text inside a string
+ *   literal in the first place, so the failure mode cannot recur.
+ * - IDENTIFIER-BOUNDARY-SAFE: self::openParenIndexAfter() (used both to
+ *   locate a self::RISKY_ASSERTIONS candidate and inside
+ *   self::stripBalancedCallsFromTokens() for a self::SAFE_WRAP_CALLS name)
+ *   only matches a T_STRING token whose text EXACTLY equals the wanted
+ *   name — never a substring — because PHP's own tokenizer already emits a
+ *   whole identifier as one token; a byte-level `strpos($text,
+ *   "{$name}(")` needle search has no such boundary and would match
+ *   `scrubbedForDiagnostic(` inside a longer identifier like
+ *   `xscrubbedForDiagnostic(`. See
+ *   doesNotConfuseAHelperNameThatMerelyEndsWithASanctionedWrapName() below.
  * - It recognises exactly four "sanctioned wrap" call names
  *   (scrubbedForDiagnostic/diagnosticMessage/messageOrDefault/messageWithOutput)
- *   by their bare name, not by resolving `self::`/`GateTestCase::`/an inherited call to the
- *   same method — a differently-named future helper wrapping the identical
- *   scrub would need adding to self::SAFE_WRAP_CALLS below, or this guard
- *   would false-positive on it.
+ *   by their bare, EXACT name, not by resolving `self::`/`GateTestCase::`/an
+ *   inherited call to the same method — a differently-named future helper
+ *   wrapping the identical scrub would need adding to self::SAFE_WRAP_CALLS
+ *   below, or this guard would false-positive on it.
  * - self::fail() call sites (the manual `if (...) { self::fail(...) }`
  *   shape the rest of this suite uses instead of a risky assertion) are
  *   deliberately OUT OF SCOPE: self::fail() takes a single literal string
@@ -85,17 +119,15 @@ use const T_ENCAPSED_AND_WHITESPACE;
  * - self::RAW_OUTPUT_PATTERN also flags a regex-capture variable
  *   (`$matches[`) and an array-key access shaped like subprocess output
  *   (`['stdout']`/`['stderr']`), on top of the direct `->output`/
- *   `->getOutput()`/`->getErrorOutput()` accessors — but it still matches by
- *   fixed literal shape, not real data-flow, so a raw value reaching a risky
- *   assertion through a differently-named variable or a deeper array/object
- *   path is not detected.
- * - Source is scanned with every T_COMMENT/T_DOC_COMMENT token blanked out
- *   first (self::stripComments()), so a comment or docblock merely quoting a
- *   risky-assertion call as illustrative prose is not flagged; a call
- *   embedded inside a string literal (e.g. a heredoc fixture, as
- *   detectsAnIntentionallyReintroducedRawOutputAssertion() below builds) is
- *   still real PHP source to the tokenizer either way and is scanned
- *   normally.
+ *   `->getOutput()`/`->getErrorOutput()` accessors, applied to
+ *   self::tokensToText()'s reconstruction of a call's own argument tokens
+ *   (with every sanctioned wrap span already removed) — but it still
+ *   matches by fixed literal shape, not real data-flow, so a raw value
+ *   reaching a risky assertion through a differently-named variable or a
+ *   deeper array/object path is still not detected.
+ * - self::significantTokens() drops every T_COMMENT/T_DOC_COMMENT token
+ *   from the sequence outright, so a comment or docblock merely quoting a
+ *   risky-assertion call as illustrative prose is not flagged.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
@@ -186,148 +218,228 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Builds a byte-indexed mask over $source, one entry per byte offset,
-     * true wherever that offset falls inside a T_CONSTANT_ENCAPSED_STRING or
-     * T_ENCAPSED_AND_WHITESPACE token. self::extractBalancedCall() consults
-     * this so a `(`/`)` character embedded in a string argument's own text
-     * never affects a balanced call's depth count — only a real structural
-     * paren token does; see this class's own docblock for the incident this
-     * closed and the two token kinds this is scoped to.
+     * Tokenizes $source once via token_get_all(), then drops every
+     * T_COMMENT/T_DOC_COMMENT token from the returned sequence entirely —
+     * re-indexed via array_values() so every later helper can walk it by a
+     * plain, contiguous integer index. Without this, a comment or docblock
+     * merely quoting a risky-assertion call as illustrative prose (this
+     * class's own docblock is exactly such a case) would false-positive
+     * self::findUnscrubbedRawOutputAssertions() below; dropping the token
+     * outright (rather than blanking its text in a reconstructed string, the
+     * prior round's approach) means a later step never sees it at all.
      *
-     * @param string $source The PHP source to build the mask for.
+     * @param string $source The PHP source to tokenize.
      *
-     * @return list<bool> One entry per byte offset in $source; true means "inside a string-literal token".
+     * @return list<string|array{0: int, 1: string, 2: int}> token_get_all()'s own token shapes, comments removed.
      */
-    private static function stringLiteralMask(string $source): array
+    private static function significantTokens(string $source): array
     {
-        $mask   = [];
-        $offset = 0;
+        $tokens = [];
 
         foreach (token_get_all($source) as $token) {
-            if (!is_array($token)) {
-                $mask[$offset] = false;
-                ++$offset;
-
+            if (is_array($token) && (($token[0] === T_COMMENT) || ($token[0] === T_DOC_COMMENT))) {
                 continue;
             }
 
-            [$id, $text]  = $token;
-            $isStringPart = ($id === T_CONSTANT_ENCAPSED_STRING) || ($id === T_ENCAPSED_AND_WHITESPACE);
-
-            for ($i = 0, $length = strlen($text); $i < $length; ++$i) {
-                $mask[$offset] = $isStringPart;
-                ++$offset;
-            }
+            $tokens[] = $token;
         }
 
-        return $mask;
+        return array_values($tokens);
     }
 
     /**
-     * Finds the position right after the closing parenthesis balancing the
-     * one at $openParenPos, and the text strictly between them. Depth-counts
-     * only structural `(`/`)` characters: any offset $mask marks as inside a
-     * string-literal token is skipped, so a literal `(`/`)` inside a quoted
-     * argument can no longer mis-balance the extent this returns — see this
-     * class's own docblock for the incident this closed.
+     * A single token's own source text, regardless of whether token_get_all()
+     * represented it as a plain one-character string (every structural
+     * punctuation token, `(`/`)`/`,`/`;`/… included) or as the
+     * `array{0: int, 1: string, 2: int}` shape it uses for everything else.
      *
-     * @param string     $text         The full text to scan.
-     * @param int        $openParenPos The offset of the opening `(` in $text.
-     * @param list<bool> $mask         self::stringLiteralMask()'s output, aligned 1:1 with $text by byte offset.
+     * @param string|array{0: int, 1: string, 2: int} $token One entry from self::significantTokens()'s output.
      *
-     * @return array{0: string, 1: int} The text strictly inside the balanced parens, and the offset right after the closing `)`.
+     * @return string The token's own source text.
      */
-    private static function extractBalancedCall(string $text, int $openParenPos, array $mask): array
+    private static function tokenText(string|array $token): string
+    {
+        return is_array($token) ? $token[1] : $token;
+    }
+
+    /**
+     * Finds the index of the next non-T_WHITESPACE token at or after
+     * $fromIndex, so a caller can look past insignificant whitespace between
+     * a call name and its opening `(` without also skipping past a
+     * significant token.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param int                                            $fromIndex The index to start scanning from (inclusive).
+     *
+     * @return int|null The index of the next non-whitespace token, or null if $tokens ends first.
+     */
+    private static function nextNonWhitespaceIndex(array $tokens, int $fromIndex): ?int
+    {
+        $count = count($tokens);
+
+        for ($i = $fromIndex; $i < $count; ++$i) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && ($token[0] === T_WHITESPACE)) {
+                continue;
+            }
+
+            return $i;
+        }
+
+        return null;
+    }
+
+    /**
+     * Given the index of a T_STRING token naming a call, finds the index of
+     * that call's own opening `(` — but only if the very next significant
+     * token actually IS the literal `(`; a bare identifier with no call
+     * following it (or followed by something else entirely) is not a call at
+     * all, so this returns null rather than a wrong index.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param int                                            $nameIndex The index of the T_STRING token naming the candidate call.
+     *
+     * @return int|null The index of the matching `(` token, or null when $nameIndex is not actually a call.
+     */
+    private static function openParenIndexAfter(array $tokens, int $nameIndex): ?int
+    {
+        $index = self::nextNonWhitespaceIndex($tokens, $nameIndex + 1);
+
+        if (($index === null) || (self::tokenText($tokens[$index]) !== '(')) {
+            return null;
+        }
+
+        return $index;
+    }
+
+    /**
+     * Finds the index of the closing `)` balancing the `(` at
+     * $openParenIndex. Depth-counts only a token whose own text is exactly
+     * the single character `(` or `)` — every other token (a
+     * T_CONSTANT_ENCAPSED_STRING, a T_ENCAPSED_AND_WHITESPACE double-quoted/
+     * heredoc/nowdoc body, a T_STRING identifier, a cast token like
+     * `(int)`, anything else token_get_all() ever returns) is opaque with
+     * respect to depth-counting, because PHP's own tokenizer already carves
+     * such content into its own atomic token — a `(`/`)` BYTE inside one is
+     * never itself a separate `(`/`)` token to begin with, so it can no
+     * longer mis-balance the extent this returns the way a byte-level scan
+     * over reconstructed text could. See this class's own docblock for the
+     * incidents this structurally forecloses.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens         self::significantTokens()'s output.
+     * @param int                                            $openParenIndex The index of the opening `(` token.
+     *
+     * @return int|null The index of the matching `)` token, or null if $tokens ends before depth returns to 0.
+     */
+    private static function matchingCloseParenIndex(array $tokens, int $openParenIndex): ?int
     {
         $depth = 1;
-        $i     = $openParenPos + 1;
-        $len   = strlen($text);
+        $count = count($tokens);
 
-        while (($i < $len) && ($depth > 0)) {
-            if (($mask[$i] ?? false) === false) {
-                if ($text[$i] === '(') {
-                    ++$depth;
-                } elseif ($text[$i] === ')') {
-                    --$depth;
+        for ($i = $openParenIndex + 1; $i < $count; ++$i) {
+            $text = self::tokenText($tokens[$i]);
+
+            if ($text === '(') {
+                ++$depth;
+            } elseif ($text === ')') {
+                --$depth;
+
+                if ($depth === 0) {
+                    return $i;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Concatenates each token's own text back into a plain string, in order
+     * — used only to reconstruct the text of an already-located token span
+     * (a call's own argument list) for self::RAW_OUTPUT_PATTERN, never to
+     * re-scan that reconstructed text for a nested call: every call/paren
+     * lookup in this class walks the token array directly instead.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens A token span, e.g. from array_slice().
+     *
+     * @return string The span's own source text.
+     */
+    private static function tokensToText(array $tokens): string
+    {
+        $text = '';
+
+        foreach ($tokens as $token) {
+            $text .= self::tokenText($token);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Removes every balanced `$funcName(...)` call from $tokens — the call
+     * name token through its matching closing `)` token, inclusive — leaving
+     * every other token untouched and in order. $funcName must match a
+     * T_STRING token's own text EXACTLY, never as a substring: PHP's own
+     * tokenizer already emits a whole identifier as one token, so a
+     * differently-named identifier that merely contains $funcName (e.g.
+     * `xscrubbedForDiagnostic` containing `scrubbedForDiagnostic`) can no
+     * longer be mistaken for it the way a byte-level `strpos($text,
+     * "{$funcName}(")` needle search could — see this class's own docblock
+     * for the incident this structurally forecloses.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens   The token span to strip $funcName(...) calls from.
+     * @param string                                         $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
+     *
+     * @return list<string|array{0: int, 1: string, 2: int}> $tokens with every balanced $funcName(...) call removed.
+     */
+    private static function stripBalancedCallsFromTokens(array $tokens, string $funcName): array
+    {
+        $result = [];
+        $count  = count($tokens);
+        $i      = 0;
+
+        while ($i < $count) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && ($token[0] === T_STRING) && ($token[1] === $funcName)) {
+                $openParenIndex = self::openParenIndexAfter($tokens, $i);
+
+                if ($openParenIndex !== null) {
+                    $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
+
+                    if ($closeParenIndex !== null) {
+                        $i = $closeParenIndex + 1;
+
+                        continue;
+                    }
                 }
             }
 
+            $result[] = $token;
             ++$i;
         }
 
-        return [substr($text, $openParenPos + 1, $i - $openParenPos - 2), $i];
+        return $result;
     }
 
     /**
-     * Removes every balanced `$funcName(...)` call from $text, including any
-     * parens nested inside it, leaving the rest of $text untouched, and
-     * returns $mask realigned to the shortened result so a caller can keep
-     * stripping further wrap calls without losing string-literal awareness.
-     * Used to strip every sanctioned scrub wrap from a risky assertion's own
-     * argument list before checking what remains for a raw output access.
+     * Strips every self::SAFE_WRAP_CALLS name's balanced call out of
+     * $tokens, one wrap name at a time, so whatever self::tokensToText()
+     * reconstructs afterwards carries only the argument text NOT already
+     * covered by a sanctioned scrub wrap.
      *
-     * @param string     $text     The text to strip $funcName(...) calls from.
-     * @param list<bool> $mask     self::stringLiteralMask()'s output, aligned 1:1 with $text by byte offset.
-     * @param string     $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens A call's own argument-list token span.
      *
-     * @return array{0: string, 1: list<bool>} The text with every balanced $funcName(...) call removed, and its realigned mask.
+     * @return list<string|array{0: int, 1: string, 2: int}> $tokens with every sanctioned wrap call removed.
      */
-    private static function stripBalancedCalls(string $text, array $mask, string $funcName): array
+    private static function stripSafeWraps(array $tokens): array
     {
-        $needle  = "{$funcName}(";
-        $out     = '';
-        $outMask = [];
-        $pos     = 0;
-
-        while (($start = strpos($text, $needle, $pos)) !== false) {
-            $out .= substr($text, $pos, $start - $pos);
-            $outMask = [...$outMask, ...array_slice($mask, $pos, $start - $pos)];
-
-            [, $endPos] = self::extractBalancedCall($text, $start + strlen($funcName), $mask);
-            $pos        = $endPos;
+        foreach (self::SAFE_WRAP_CALLS as $wrap) {
+            $tokens = self::stripBalancedCallsFromTokens($tokens, $wrap);
         }
 
-        $out .= substr($text, $pos);
-        $outMask = [...$outMask, ...array_slice($mask, $pos)];
-
-        return [$out, $outMask];
-    }
-
-    /**
-     * Blanks out every T_COMMENT/T_DOC_COMMENT token in $source, replacing
-     * each byte but a literal newline with a space so line numbers and byte
-     * offsets into the returned string still line up with $source. Without
-     * this, a comment or docblock merely quoting a risky-assertion call as
-     * illustrative prose (this class's own docblock is exactly such a case)
-     * would false-positive findUnscrubbedRawOutputAssertions() below.
-     *
-     * @param string $source The PHP source to strip comments from.
-     *
-     * @return string The source with every comment/docblock token blanked out.
-     */
-    private static function stripComments(string $source): string
-    {
-        $out = '';
-
-        foreach (token_get_all($source) as $token) {
-            if (!is_array($token)) {
-                $out .= $token;
-
-                continue;
-            }
-
-            [$id, $text] = $token;
-
-            if (($id === T_COMMENT) || ($id === T_DOC_COMMENT)) {
-                $out .= preg_replace('/[^\n]/', ' ', $text);
-
-                continue;
-            }
-
-            $out .= $text;
-        }
-
-        return $out;
+        return $tokens;
     }
 
     /**
@@ -336,12 +448,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * argument list — the message argument included, since a hand-written
      * custom message embedding raw output unscrubbed is the SAME defect
      * class as a hand-rolled message that skips the scrub helper, not merely
-     * the PHPUnit auto-export mechanism. Whatever still matches
-     * self::RAW_OUTPUT_PATTERN afterwards is a finding. $path is read
-     * through self::stripComments() first, so a comment/docblock quoting a
-     * risky-assertion call in prose is not scanned. self::stringLiteralMask()
-     * is built once per scan and kept aligned with each intermediate string
-     * as self::stripBalancedCalls() shortens it.
+     * the PHPUnit auto-export mechanism. Whatever self::tokensToText()
+     * reconstructs from what remains is checked against
+     * self::RAW_OUTPUT_PATTERN; a match is a finding. $path is tokenized
+     * once via self::significantTokens() (comments already gone) and every
+     * call/paren lookup below walks that same token array by index — no
+     * byte offset, no reconstructed intermediate string, no parallel mask to
+     * keep aligned.
      *
      * @param string $path Absolute path to the PHP source file to scan.
      *
@@ -349,30 +462,47 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      */
     private static function findUnscrubbedRawOutputAssertions(string $path): array
     {
-        $source   = self::stripComments((string) file_get_contents($path));
-        $mask     = self::stringLiteralMask($source);
+        $tokens   = self::significantTokens((string) file_get_contents($path));
+        $count    = count($tokens);
         $findings = [];
 
         foreach (self::RISKY_ASSERTIONS as $assertionName) {
-            $offset = 0;
-            $needle = "{$assertionName}(";
+            $i = 0;
 
-            while (($pos = strpos($source, $needle, $offset)) !== false) {
-                $parenStart          = $pos + strlen($assertionName);
-                [$argsText, $endPos] = self::extractBalancedCall($source, $parenStart, $mask);
-                $offset              = $endPos;
+            while ($i < $count) {
+                $token = $tokens[$i];
 
-                $stripped     = $argsText;
-                $strippedMask = array_slice($mask, $parenStart + 1, strlen($argsText));
+                if (!is_array($token) || ($token[0] !== T_STRING) || ($token[1] !== $assertionName)) {
+                    ++$i;
 
-                foreach (self::SAFE_WRAP_CALLS as $wrap) {
-                    [$stripped, $strippedMask] = self::stripBalancedCalls($stripped, $strippedMask, $wrap);
+                    continue;
                 }
 
-                if (preg_match(self::RAW_OUTPUT_PATTERN, $stripped) === 1) {
-                    $line       = substr_count(substr($source, 0, $pos), "\n") + 1;
-                    $findings[] = "{$path}:{$line}: {$assertionName}({$argsText})";
+                $openParenIndex = self::openParenIndexAfter($tokens, $i);
+
+                if ($openParenIndex === null) {
+                    ++$i;
+
+                    continue;
                 }
+
+                $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
+
+                if ($closeParenIndex === null) {
+                    ++$i;
+
+                    continue;
+                }
+
+                $argumentTokens = array_slice($tokens, $openParenIndex + 1, $closeParenIndex - $openParenIndex - 1);
+                $strippedText   = self::tokensToText(self::stripSafeWraps($argumentTokens));
+
+                if (preg_match(self::RAW_OUTPUT_PATTERN, $strippedText) === 1) {
+                    $line       = $token[2];
+                    $findings[] = "{$path}:{$line}: {$assertionName}(" . self::tokensToText($argumentTokens) . ')';
+                }
+
+                $i = $closeParenIndex + 1;
             }
         }
 
@@ -540,11 +670,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * self::stripComments()'s own control: a docblock or comment merely
+     * self::significantTokens()'s own control: a docblock or comment merely
      * mentioning a risky-assertion call in prose (exactly the shape this
      * class's own docblock and several method docblocks in this suite use)
-     * must NOT be flagged — without stripping comments first, this guard
-     * would false-positive on its own documentation.
+     * must NOT be flagged — without dropping every T_COMMENT/T_DOC_COMMENT
+     * token first, this guard would false-positive on its own
+     * documentation.
      */
     #[Test]
     public function doesNotFlagARiskyAssertionMentionedOnlyInAComment(): void
@@ -570,17 +701,17 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * self::extractBalancedCall()'s own control for an unmatched opening
+     * self::matchingCloseParenIndex()'s own control for an unmatched opening
      * paren inside a sanctioned wrap's OWN string argument: without
      * tokenizing string literals, a `(` embedded in
      * self::scrubbedForDiagnostic()'s own argument text overruns that call's
      * true closing `)` and swallows the rest of the containing risky
      * assertion's argument list — including the trailing, genuinely
      * unwrapped `$result->output` below — as if it were already inside the
-     * sanctioned wrap, so self::stripBalancedCalls() strips the whole span
-     * and RAW_OUTPUT_PATTERN never sees the real leak. Live-reproduced
-     * against this guard before the string-literal-aware balancing existed;
-     * see this class's own docblock's "documented limitations" section.
+     * sanctioned wrap, so self::stripBalancedCallsFromTokens() strips the
+     * whole span and RAW_OUTPUT_PATTERN never sees the real leak.
+     * Live-reproduced against this guard before string literals became
+     * atomic, opaque tokens; see this class's own docblock.
      */
     #[Test]
     public function detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen(): void
