@@ -68,8 +68,9 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  * deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
  * tests/CheckJsConfigsTest.php's own
- * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here —
- * unconditionally re-embeds the FULL, RAW
+ * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here;
+ * re-derive via `grep -n 'function assertMessageDoesNotForgeWorkflowCommand'
+ * tests/CheckJsConfigsTest.php` — unconditionally re-embeds the FULL, RAW
  * haystack into a failed assertion's own exception message, so a real
  * failure of one of those PHPUnit constraints here would forge, in PHPUnit's
  * own failure output, the very annotation these two methods exist to prove
@@ -467,13 +468,14 @@ abstract class GateTestCase extends TestCase
     /**
      * Resolves an optional caller-supplied assertion $message against a
      * scrubbed default: $message verbatim when non-empty, otherwise
-     * diagnosticMessage()'s $default label followed by $output scrubbed.
+     * diagnosticMessage()'s $default label followed by $output scrubbed. In
+     * other words, appends the scrubbed $output only when $message is empty.
      * Collapses the
      * `$message !== '' ? $message : <default> . "\n" . self::scrubbedForDiagnostic($output)`
      * shape repeated at every optional-message call site in this class and
      * its subclasses into one call. Not a fit for a call site where the
      * scrubbed output must be appended regardless of whether $message is
-     * empty — that is a different shape and stays hand-written.
+     * empty — self::messageWithOutput() below is that different shape.
      *
      * @param string $message The caller-supplied message, used verbatim when non-empty.
      * @param string $default The failure label used when $message is empty.
