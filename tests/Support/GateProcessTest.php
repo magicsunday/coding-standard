@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function realpath;
 use function sys_get_temp_dir;
@@ -159,6 +160,22 @@ final class GateProcessTest extends TestCase
         );
 
         self::assertSame('proven', $result->output);
+    }
+
+    /**
+     * Asserts that the optional $timeout argument is actually wired to
+     * Process::setTimeout() and not silently ignored — a short custom
+     * timeout against a deliberately slower child process must throw rather
+     * than wait for it to finish.
+     */
+    #[Test]
+    public function runRawHonoursACustomTimeout(): void
+    {
+        $process = new GateProcess();
+
+        $this->expectException(ProcessTimedOutException::class);
+
+        $process->runRaw(['php', '-r', 'usleep(200000);'], null, [], 0.05);
     }
 
     /**
