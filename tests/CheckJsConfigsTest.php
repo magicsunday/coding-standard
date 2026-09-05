@@ -1956,7 +1956,7 @@ JS;
         $init = new Process(['npm', 'init', '-y'], $dir);
         $init->run();
 
-        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n{$init->getErrorOutput()}");
+        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
 
         // Not rejected by unsafeAsArgument() (a non-empty string, no
         // whitespace, no NUL, no leading dash) but not a URL-friendly npm
@@ -1967,14 +1967,27 @@ JS;
         $install->setTimeout(120.0);
         $install->run();
 
+        // Both custom failure messages below embed the subprocess output
+        // through safeSubprocessOutput() rather than raw: $poisonedTool
+        // deliberately carries `##[error]forged`, and a PHPUnit assertion
+        // FAILURE message reaches console output exactly as verbatim as an
+        // uncaught exception's message (dated on this class's own docblock
+        // above). Were either control assertion to ever fail for real, an
+        // unscrubbed message here would forge the very annotation this test
+        // exists to prove is prevented. The bare $install->getErrorOutput()
+        // passed as assertStringContainsString()'s own haystack argument
+        // below stays raw on purpose — scrubbing it would change the
+        // property under test, not just its diagnostic.
         self::assertFalse(
             $install->isSuccessful(),
-            "npm install of a deliberately invalid package name unexpectedly succeeded — this control fixture is not testing what it claims.\n{$install->getOutput()}{$install->getErrorOutput()}",
+            "npm install of a deliberately invalid package name unexpectedly succeeded — this control fixture is not testing what it claims.\n"
+                . self::safeSubprocessOutput($install->getOutput() . $install->getErrorOutput()),
         );
         self::assertStringContainsString(
             '##[',
             $install->getErrorOutput(),
-            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n{$install->getErrorOutput()}",
+            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
+                . self::safeSubprocessOutput($install->getErrorOutput()),
         );
 
         $message = "npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput());
