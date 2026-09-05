@@ -221,13 +221,24 @@ JS;
      * and parent::tearDown() (this class's own fixture() cleanup) always
      * runs, even when a restore failed.
      *
+     * parent::tearDown() is called through its OWN try/catch rather than
+     * bare inside the finally block: a bare call whose own RuntimeException
+     * (GateTestCase's fixture() cleanup failure) propagates from inside a
+     * finally would otherwise replace this method's own pending "could not
+     * restore" throw below without a trace, even though the restore failure
+     * and its cache invalidation already ran correctly. Chaining both
+     * messages when $failedPaths is also non-empty keeps the more specific
+     * diagnostic visible instead of letting the parent's unrelated exception
+     * silently win.
+     *
      * @return void
      *
-     * @throws RuntimeException If a mutated file could not be restored or removed, naming every such path.
+     * @throws RuntimeException If a mutated file could not be restored or removed, naming every such path, and/or the parent fixture cleanup itself failed.
      */
     protected function tearDown(): void
     {
-        $failedPaths = [];
+        $failedPaths     = [];
+        $parentException = null;
 
         try {
             foreach ($this->consumerFileMutations as $path => $original) {
@@ -250,7 +261,23 @@ JS;
                 self::$packagedConsumer = null;
             }
 
-            parent::tearDown();
+            try {
+                parent::tearDown();
+            } catch (RuntimeException $exception) {
+                $parentException = $exception;
+            }
+        }
+
+        if ($parentException instanceof RuntimeException) {
+            if ($failedPaths === []) {
+                throw $parentException;
+            }
+
+            throw new RuntimeException(
+                sprintf('Could not restore or remove mutated consumer file(s): %s', implode(', ', $failedPaths)),
+                0,
+                $parentException,
+            );
         }
 
         if ($failedPaths !== []) {
