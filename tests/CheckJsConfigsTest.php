@@ -550,6 +550,74 @@ JS;
     }
 
     /**
+     * packagedConsumer()'s own `npm pack` throw site, extracted so a test can
+     * drive it against a REAL, already-run, deliberately failing $pack rather
+     * than hand-reconstructing the message packagedConsumer() would have
+     * thrown for it — the discriminating half of
+     * npmPackFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage()
+     * below, this method's own second real caller besides packagedConsumer()
+     * itself: calling it directly and catching the RuntimeException it
+     * actually throws is what makes that test fail if this method's own
+     * safeSubprocessOutput() wrap were ever reverted, which a hand-reconstructed
+     * expected message could not do.
+     *
+     * @param Process $pack        The already-run `npm pack` subprocess.
+     * @param string  $consumerDir The directory `npm pack` was told to write the tarball into.
+     *
+     * @return string The produced tarball's filename (relative to $consumerDir), once $pack is confirmed successful and non-empty.
+     *
+     * @throws RuntimeException If $pack failed, produced no tarball name, or the named tarball does not exist on disk.
+     */
+    private static function requirePackedTarball(Process $pack, string $consumerDir): string
+    {
+        $tarball = trim($pack->getOutput());
+
+        if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
+            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput()));
+        }
+
+        return $tarball;
+    }
+
+    /**
+     * packagedConsumer()'s own `npm init -y` throw site, extracted the same
+     * way requirePackedTarball() above is — the discriminating half of
+     * npmInitFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage()
+     * below, this method's own second real caller.
+     *
+     * @param Process $init The already-run `npm init -y` subprocess.
+     *
+     * @return void
+     *
+     * @throws RuntimeException If $init failed.
+     */
+    private static function requireSuccessfulInit(Process $init): void
+    {
+        if (!$init->isSuccessful()) {
+            throw new RuntimeException("npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
+        }
+    }
+
+    /**
+     * packagedConsumer()'s own `npm install` throw site, extracted the same
+     * way requirePackedTarball() above is — the discriminating half of
+     * npmInstallFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage()
+     * below, this method's own second real caller.
+     *
+     * @param Process $install The already-run `npm install` subprocess.
+     *
+     * @return void
+     *
+     * @throws RuntimeException If $install failed.
+     */
+    private static function requireSuccessfulInstall(Process $install): void
+    {
+        if (!$install->isSuccessful()) {
+            throw new RuntimeException("npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput()));
+        }
+    }
+
+    /**
      * Builds the ONE throwaway npm project this suite's packaging-pipeline-
      * dependent tests share: `git write-tree` + `git archive` (the artefact a
      * `github:` install/`npm pack` actually ships, `.gitattributes`
@@ -560,7 +628,11 @@ JS;
      * before they ever reach npm's argv), then a canon biome.json/tsconfig.json extending
      * the installed package and one clean, correctly-formatted source file —
      * a permanently ACCEPTING baseline every other test either reads as-is
-     * or mutates and restores via mutateConsumerFile().
+     * or mutates and restores via mutateConsumerFile(). Its own `npm pack`/
+     * `npm init -y`/`npm install` failure branches are extracted to
+     * requirePackedTarball()/requireSuccessfulInit()/requireSuccessfulInstall()
+     * above so the three forgery-regression tests below can drive the SAME
+     * throw sites directly instead of duplicating their logic.
      *
      * @return array{consumerDir: string, archiveDir: string, archiveTree: string}
      */
@@ -608,18 +680,12 @@ JS;
         $pack->setTimeout(300.0);
         $pack->run();
 
-        $tarball = trim($pack->getOutput());
-
-        if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
-            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput()));
-        }
+        $tarball = self::requirePackedTarball($pack, $consumerDir);
 
         $init = new Process(['npm', 'init', '-y'], $consumerDir);
         $init->run();
 
-        if (!$init->isSuccessful()) {
-            throw new RuntimeException("npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
-        }
+        self::requireSuccessfulInit($init);
 
         $tools = self::buildToolsFromDevDependencies($root);
 
@@ -632,9 +698,7 @@ JS;
         $install->setTimeout(300.0);
         $install->run();
 
-        if (!$install->isSuccessful()) {
-            throw new RuntimeException("npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput()));
-        }
+        self::requireSuccessfulInstall($install);
 
         mkdir("{$consumerDir}/src", 0o755, true);
         file_put_contents(
@@ -1937,6 +2001,70 @@ JS;
     }
 
     /**
+     * Shared body for the three npm-pack/init/install "forgery regression"
+     * tests below: each already ran $process against a deliberately poisoned
+     * fixture that makes npm's own diagnostic echo the poisoned `##[`
+     * sequence back verbatim, and each needs the same two things proved — the
+     * control fixture actually traps for the claimed reason, and the REAL
+     * production throw site named by $throwSite (one of
+     * requirePackedTarball()/requireSuccessfulInit()/requireSuccessfulInstall()
+     * above, invoked against the SAME already-run $process) throws a
+     * RuntimeException whose own getMessage() no longer carries the poison.
+     * Catching $throwSite()'s real exception rather than hand-reconstructing
+     * the expected message string locally is what makes this discriminating:
+     * reverting safeSubprocessOutput()'s wrap at that production throw site
+     * fails the final assertion here, not merely leaves a differently-worded
+     * but still-green test standing — a defect a prior round's own
+     * "added a regression test" claim did not actually catch.
+     *
+     * @param Process          $process   The already-run, deliberately failing npm subprocess.
+     * @param callable(): void $throwSite Invokes the real production method that re-derives $process's own outcome and throws.
+     * @param string           $label     A short description of the operation, used in every assertion message.
+     *
+     * @return void
+     */
+    private function assertRealThrowSiteCannotForgeAWorkflowCommand(Process $process, callable $throwSite, string $label): void
+    {
+        // Both failure messages below embed the subprocess output through
+        // safeSubprocessOutput() rather than raw: the fixture deliberately
+        // carries `##[error]forged`, and a PHPUnit assertion FAILURE message
+        // reaches console output exactly as verbatim as an uncaught
+        // exception's message (dated on this class's own docblock above).
+        // Were either control assertion to ever fail for real, an unscrubbed
+        // message here would forge the very annotation this test exists to
+        // prove is prevented. The bare $process->getErrorOutput() passed as
+        // assertStringContainsString()'s own haystack argument below stays
+        // raw on purpose — scrubbing it would change the property under
+        // test, not just its diagnostic.
+        self::assertFalse(
+            $process->isSuccessful(),
+            "{$label} unexpectedly succeeded — this control fixture is not testing what it claims.\n"
+                . self::safeSubprocessOutput($process->getOutput() . $process->getErrorOutput()),
+        );
+        self::assertStringContainsString(
+            '##[',
+            $process->getErrorOutput(),
+            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
+                . self::safeSubprocessOutput($process->getErrorOutput()),
+        );
+
+        $thrown = null;
+
+        try {
+            $throwSite();
+        } catch (RuntimeException $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, "{$label} — the real production throw site did not throw a RuntimeException.");
+        self::assertStringNotContainsString(
+            '##[',
+            $thrown->getMessage(),
+            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$thrown->getMessage()}",
+        );
+    }
+
+    /**
      * The harder case buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
      * above cannot reach: a devDependency VALUE BUILD_TOOLS_SCRIPT's own
      * unsafeAsArgument() does not reject at all (a non-empty string, no
@@ -1948,7 +2076,10 @@ JS;
      * message unless safeSubprocessOutput() breaks it first. Drives a real
      * `npm install` directly against a throwaway project rather than through
      * packagedConsumer() itself, whose only devDependencies source is this
-     * repository's own real package.json.
+     * repository's own real package.json — then, discriminatingly, calls
+     * packagedConsumer()'s own extracted requireSuccessfulInstall() against
+     * this SAME real $install and asserts on the RuntimeException it actually
+     * throws, rather than reconstructing the expected message locally.
      */
     #[Test]
     public function npmInstallFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
@@ -1969,35 +2100,12 @@ JS;
         $install->setTimeout(120.0);
         $install->run();
 
-        // Both custom failure messages below embed the subprocess output
-        // through safeSubprocessOutput() rather than raw: $poisonedTool
-        // deliberately carries `##[error]forged`, and a PHPUnit assertion
-        // FAILURE message reaches console output exactly as verbatim as an
-        // uncaught exception's message (dated on this class's own docblock
-        // above). Were either control assertion to ever fail for real, an
-        // unscrubbed message here would forge the very annotation this test
-        // exists to prove is prevented. The bare $install->getErrorOutput()
-        // passed as assertStringContainsString()'s own haystack argument
-        // below stays raw on purpose — scrubbing it would change the
-        // property under test, not just its diagnostic.
-        self::assertFalse(
-            $install->isSuccessful(),
-            "npm install of a deliberately invalid package name unexpectedly succeeded — this control fixture is not testing what it claims.\n"
-                . self::safeSubprocessOutput($install->getOutput() . $install->getErrorOutput()),
-        );
-        self::assertStringContainsString(
-            '##[',
-            $install->getErrorOutput(),
-            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
-                . self::safeSubprocessOutput($install->getErrorOutput()),
-        );
-
-        $message = "npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput());
-
-        self::assertStringNotContainsString(
-            '##[',
-            $message,
-            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        $this->assertRealThrowSiteCannotForgeAWorkflowCommand(
+            $install,
+            static function () use ($install): void {
+                self::requireSuccessfulInstall($install);
+            },
+            'npm install of a deliberately invalid package name',
         );
     }
 
@@ -2009,7 +2117,11 @@ JS;
      * JSON.parse … while parsing near \"{ \"name\": \"x\", ##[error]forged
      * BROK...\"". No registry/network access needed. Drives a real
      * `npm pack` directly rather than through packagedConsumer(), whose own
-     * package.json is always this repository's real, well-formed one.
+     * package.json is always this repository's real, well-formed one — then,
+     * discriminatingly, calls packagedConsumer()'s own extracted
+     * requirePackedTarball() against this SAME real $pack and asserts on the
+     * RuntimeException it actually throws, rather than reconstructing the
+     * expected message locally.
      */
     #[Test]
     public function npmPackFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
@@ -2021,24 +2133,12 @@ JS;
         $pack->setTimeout(120.0);
         $pack->run();
 
-        self::assertFalse(
-            $pack->isSuccessful(),
-            "npm pack over a deliberately malformed package.json unexpectedly succeeded — this control fixture is not testing what it claims.\n"
-                . self::safeSubprocessOutput($pack->getOutput() . $pack->getErrorOutput()),
-        );
-        self::assertStringContainsString(
-            '##[',
-            $pack->getErrorOutput(),
-            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
-                . self::safeSubprocessOutput($pack->getErrorOutput()),
-        );
-
-        $message = "npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput());
-
-        self::assertStringNotContainsString(
-            '##[',
-            $message,
-            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        $this->assertRealThrowSiteCannotForgeAWorkflowCommand(
+            $pack,
+            static function () use ($pack, $dir): void {
+                self::requirePackedTarball($pack, $dir);
+            },
+            'npm pack over a deliberately malformed package.json',
         );
     }
 
@@ -2050,7 +2150,10 @@ JS;
      * "poisoned-##[error]forged-dir"`. No registry/network access needed.
      * Drives a real `npm init -y` directly rather than through
      * packagedConsumer(), whose own consumer directory name never carries
-     * consumer-controlled content.
+     * consumer-controlled content — then, discriminatingly, calls
+     * packagedConsumer()'s own extracted requireSuccessfulInit() against this
+     * SAME real $init and asserts on the RuntimeException it actually
+     * throws, rather than reconstructing the expected message locally.
      */
     #[Test]
     public function npmInitFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
@@ -2062,24 +2165,12 @@ JS;
         $init->setTimeout(120.0);
         $init->run();
 
-        self::assertFalse(
-            $init->isSuccessful(),
-            "npm init -y inside a deliberately poisoned directory name unexpectedly succeeded — this control fixture is not testing what it claims.\n"
-                . self::safeSubprocessOutput($init->getOutput() . $init->getErrorOutput()),
-        );
-        self::assertStringContainsString(
-            '##[',
-            $init->getErrorOutput(),
-            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
-                . self::safeSubprocessOutput($init->getErrorOutput()),
-        );
-
-        $message = "npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput());
-
-        self::assertStringNotContainsString(
-            '##[',
-            $message,
-            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        $this->assertRealThrowSiteCannotForgeAWorkflowCommand(
+            $init,
+            static function () use ($init): void {
+                self::requireSuccessfulInit($init);
+            },
+            'npm init -y inside a deliberately poisoned directory name',
         );
     }
 
