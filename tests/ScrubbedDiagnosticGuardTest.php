@@ -19,6 +19,7 @@ use function count;
 use function file_get_contents;
 use function file_put_contents;
 use function implode;
+use function in_array;
 use function is_array;
 use function preg_match;
 use function token_get_all;
@@ -604,6 +605,56 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
+     * Exposes the STRIPPED argument text self::findUnscrubbedRawOutputAssertions()
+     * matches self::RAW_OUTPUT_PATTERN against internally, for the FIRST
+     * self::RISKY_ASSERTIONS call found in $phpSource — the finding string
+     * that method itself returns is built from the UNSTRIPPED argument
+     * tokens instead, so it cannot tell a correct strip (leaving only a
+     * genuinely unwrapped trailing access) apart from a mis-parse that
+     * happens to still match self::RAW_OUTPUT_PATTERN for the wrong reason
+     * (e.g. because a sanctioned wrap's own already-scrubbed content was
+     * never actually stripped). A test asserting on THIS return value can
+     * make that distinction where a bare "some finding fired" check cannot —
+     * see doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument()
+     * for the case this exists for.
+     *
+     * @param string $phpSource PHP source containing exactly one self::RISKY_ASSERTIONS call.
+     *
+     * @return string The stripped argument text self::RAW_OUTPUT_PATTERN is actually matched against.
+     */
+    private static function strippedArgumentTextFor(string $phpSource): string
+    {
+        $tokens = self::significantTokens($phpSource);
+        $count  = count($tokens);
+
+        for ($i = 0; $i < $count; ++$i) {
+            $token = $tokens[$i];
+
+            if (!is_array($token) || ($token[0] !== T_STRING) || !in_array($token[1], self::RISKY_ASSERTIONS, true)) {
+                continue;
+            }
+
+            $openParenIndex = self::openParenIndexAfter($tokens, $i);
+
+            if ($openParenIndex === null) {
+                continue;
+            }
+
+            $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
+
+            if ($closeParenIndex === null) {
+                continue;
+            }
+
+            $argumentTokens = array_slice($tokens, $openParenIndex + 1, $closeParenIndex - $openParenIndex - 1);
+
+            return self::tokensToText(self::stripSafeWraps($argumentTokens));
+        }
+
+        self::fail('No self::RISKY_ASSERTIONS call was found in the given fixture source.');
+    }
+
+    /**
      * The regression guard itself: none of the files self::guardedFiles()
      * lists may call one of self::RISKY_ASSERTIONS with a raw, unscrubbed
      * subprocess-output accessor anywhere in its own argument list. A future
@@ -885,21 +936,41 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument(): void
     {
-        $findings = $this->findingsFor(
-            'closing-paren-in-wrap-nowdoc-fixture.php',
-            <<<'PHP'
+        $phpSource = <<<'PHP'
             <?php
             self::assertSame(0, $x, self::messageWithOutput($message, <<<'MSG'
             Looks good :)
             MSG, $result->output) . $result->output);
-            PHP,
-        );
+            PHP;
+
+        $findings = $this->findingsFor('closing-paren-in-wrap-nowdoc-fixture.php', $phpSource);
 
         self::assertNotEmpty(
             $findings,
             'The guard did not flag a risky assertion whose sanctioned-wrap OWN nowdoc argument carries an '
                 . 'embedded closing paren, even though a genuinely unwrapped $result->output follows the wrap '
                 . 'call in the same argument list.',
+        );
+
+        // self::assertNotEmpty() alone is not discriminating: it passes whether the guard correctly
+        // identifies ONLY the genuinely-unwrapped trailing $result->output, or incorrectly leaves the
+        // wrap's own already-scrubbed nowdoc body in the reconstructed text too — either mis-parse still
+        // produces "some non-empty finding". Assert on the STRIPPED text itself instead, so a mis-parse
+        // that keeps the wrap's own body is caught even though it would still satisfy assertNotEmpty().
+        $strippedText = self::strippedArgumentTextFor($phpSource);
+
+        self::assertStringNotContainsString(
+            'Looks good',
+            $strippedText,
+            'The stripped argument text still carries the sanctioned wrap\'s own nowdoc body — '
+                . 'self::stripSafeWraps() failed to remove the whole messageWithOutput(...) call, not just '
+                . 'happened to still match self::RAW_OUTPUT_PATTERN for an unrelated reason.',
+        );
+        self::assertSame(
+            1,
+            preg_match(self::RAW_OUTPUT_PATTERN, $strippedText),
+            'The stripped argument text does not carry the genuinely unwrapped trailing $result->output at all — '
+                . "actual stripped text: {$strippedText}",
         );
     }
 
