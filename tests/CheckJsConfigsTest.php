@@ -1600,6 +1600,73 @@ TS),
         );
     }
 
+    /**
+     * Proves the pattern this round's Fix 2 applied at every biomeCi()/runTsc()
+     * accept-path assertion — self::scrubbedForDiagnostic() wrapping
+     * $result->output before it can land in a failure message — actually
+     * closes the trap, using the exact real incident AGENTS.md documents
+     * rather than a hand-crafted stand-in for it: Biome's config deserializer
+     * echoes an unrecognized key back verbatim ("Found an unknown key ...").
+     * Poisons the CONSUMER'S INSTALLED copy of biome/base.json (the file
+     * biome.json's "extends" specifier actually resolves to at runtime, not
+     * the archived source tree) with an unknown key carrying a forged
+     * `::error::` sequence, confirms the resulting real `biome ci` failure
+     * genuinely still carries that sequence raw in $result->output (else this
+     * test would not be exercising the trap it claims to), then drives the
+     * same scrubbed assertion shape sharedConfigAcceptsAConsumerExtendingBiomeAndTsconfig()
+     * above uses and confirms the caught failure message does not.
+     */
+    #[Test]
+    public function biomeCiFailureAgainstAPoisonedSharedConfigDoesNotForgeAWorkflowCommand(): void
+    {
+        $consumerDir = self::packagedConsumer()['consumerDir'];
+        $poison      = '::error title=pwned::forged';
+
+        $this->mutateConsumerFile(
+            $consumerDir,
+            'node_modules/@magicsunday/coding-standard/biome/base.json',
+            <<<JSON
+            {
+                "{$poison}": true
+            }
+            JSON,
+        );
+
+        $result = $this->biomeCi($consumerDir);
+
+        self::assertNotSame(
+            0,
+            $result->exitCode,
+            'The poisoned unknown key did not make biome ci fail — this test is not exercising the trap it claims to.',
+        );
+        self::assertStringContainsString(
+            $poison,
+            $result->output,
+            "The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
+                . self::scrubbedForDiagnostic($result->output),
+        );
+
+        $thrown = null;
+
+        try {
+            self::assertSame(
+                0,
+                $result->exitCode,
+                "biome ci — shared config rejected or the clean fixture reported findings.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        } catch (AssertionFailedError $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'The poisoned config no longer fails the scrubbed assertion this test drives.');
+
+        self::assertMessageDoesNotForgeWorkflowCommand(
+            $thrown->getMessage(),
+            $poison,
+            'The scrubbed biome ci failure message forged a workflow command.',
+        );
+    }
+
     // -------------------------------------------------------------------
     // Controls: the shared rules must actually bite. Every control asserts
     // the DIAGNOSTIC, never the bare exit status — a non-zero exit is worth
