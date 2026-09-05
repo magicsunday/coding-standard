@@ -61,9 +61,9 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  * genuinely poisoned fixtures such as a `##[error]forged` devDependency
  * name) can and does hand it deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
- * tests/CheckJsConfigsTest.php's
- * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand() own
- * docblock, not repeated here — unconditionally re-embeds the FULL, RAW
+ * tests/CheckJsConfigsTest.php's own
+ * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here —
+ * unconditionally re-embeds the FULL, RAW
  * haystack into a failed assertion's own exception message, so a real
  * failure of one of those PHPUnit constraints here would forge, in PHPUnit's
  * own failure output, the very annotation these two methods exist to prove

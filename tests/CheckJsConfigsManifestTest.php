@@ -589,12 +589,11 @@ JS;
         // PHPUnit's own Constraint::fail()/failureDescription() mechanism
         // unconditionally re-embeds the FULL, RAW haystack of a
         // failed call into the thrown exception's own message — see
-        // tests/CheckJsConfigsTest.php's
-        // buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
-        // own docblock for the dated observation, not repeated here — so a
-        // real failure of either constraint here would forge, in PHPUnit's
-        // own failure output, the very annotation this gate's own tests
-        // exist to prove is prevented.
+        // tests/CheckJsConfigsTest.php's own
+        // assertMessageDoesNotForgeWorkflowCommand() docblock for the dated
+        // observation, not repeated here — so a real failure of either
+        // constraint here would forge, in PHPUnit's own failure output, the
+        // very annotation this gate's own tests exist to prove is prevented.
         if (!str_contains($asserted, $mustCarry)) {
             self::fail(
                 ($message !== '' ? $message : 'Rejected, but not for the tested reason.') . "\n" . self::scrubbedForDiagnostic($asserted),

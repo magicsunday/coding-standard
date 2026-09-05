@@ -533,6 +533,37 @@ JS;
     }
 
     /**
+     * The shared "must not carry $needle" shape
+     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand() and
+     * assertRealThrowSiteCannotForgeAWorkflowCommand() below each drove
+     * separately before this existed: a manual str_contains() + self::fail(),
+     * never assertStringContainsString()/assertStringNotContainsString() —
+     * $haystack is exactly the value under test for a forged workflow
+     * command, so it can legitimately still carry the poison on the very
+     * regression each caller exists to catch, and PHPUnit's own
+     * Constraint::fail()/failureDescription() mechanism unconditionally
+     * re-embeds the FULL, RAW haystack into a failed assertion's own message
+     * — as observed 2026-09-05 against this repository's own installed
+     * PHPUnit (`.build/vendor/phpunit/phpunit`) — so a real failure of
+     * either constraint would forge the very annotation each caller exists
+     * to prove is prevented. self::fail() takes a literal string with no
+     * such re-embedding, so $haystack is scrubbed through
+     * safeSubprocessOutput() before it is handed to self::fail().
+     *
+     * @param string $haystack     The value to check, which may itself legitimately carry the poison.
+     * @param string $needle       The forged-workflow-command substring $haystack must not carry.
+     * @param string $failureLabel The failure message, used verbatim ahead of the scrubbed $haystack.
+     *
+     * @return void
+     */
+    private static function assertMessageDoesNotForgeWorkflowCommand(string $haystack, string $needle, string $failureLabel): void
+    {
+        if (str_contains($haystack, $needle)) {
+            self::fail("{$failureLabel}\n" . self::safeSubprocessOutput($haystack));
+        }
+    }
+
+    /**
      * The shared "reject unless $process succeeded, scrubbing the error
      * output first" shape buildToolsFromDevDependencies(), requireSuccessfulInit()
      * and requireSuccessfulInstall() below each drove separately before this
@@ -909,25 +940,19 @@ TS),
      * unanchored for that prefix. safeSubprocessOutput() must break it
      * before it gets there.
      *
-     * Both containment checks below are a manual str_contains() + self::fail(),
-     * never assertStringContainsString()/assertStringNotContainsString() —
-     * $thrown->getMessage() is exactly the value this test exists to prove is
-     * scrubbed, so it can legitimately still carry the poison on the very
-     * regression this test exists to catch. PHPUnit's own Constraint::fail()
-     * unconditionally re-embeds the FULL, RAW haystack into the thrown
-     * ExpectationFailedException's own message via failureDescription() — with
-     * no length cap and no escaping of `#`, `[` or `:` — regardless of any
-     * custom $message argument passed alongside it, as observed 2026-09-05
-     * against this repository's own installed PHPUnit
-     * (`.build/vendor/phpunit/phpunit`), so a real failure of either
-     * assertStringContainsString()/assertStringNotContainsString() would
-     * forge the very annotation this test exists to prove is prevented.
-     * self::fail() takes a literal string with no such re-embedding, so each
-     * diagnostic below scrubs $thrown->getMessage() through
-     * safeSubprocessOutput() before handing it to self::fail(). Every other
+     * The first check below (that the entry was merely broken, not dropped
+     * entirely) is a manual str_contains() + self::fail(), the same shape
+     * assertMessageDoesNotForgeWorkflowCommand() above is built from and for
+     * the identical reason: $thrown->getMessage() is exactly the value this
+     * test exists to prove is scrubbed, so it can legitimately still carry
+     * the poison on the very regression this test exists to catch — see that
+     * method's own docblock for the dated PHPUnit Constraint::fail()/
+     * failureDescription() re-embedding mechanism, not repeated here. The
+     * second check delegates to that same helper directly. Every other
      * mention of this PHPUnit mechanism in this file (and in
      * tests/GateTestCase.php and tests/CheckJsConfigsManifestTest.php) points
-     * back to this paragraph rather than repeating it.
+     * back to assertMessageDoesNotForgeWorkflowCommand()'s own docblock
+     * rather than repeating it.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
@@ -954,12 +979,11 @@ TS),
             );
         }
 
-        if (str_contains($message, '##[')) {
-            self::fail(
-                "The exception message still carries the legacy workflow-command prefix.\n"
-                    . self::safeSubprocessOutput($message),
-            );
-        }
+        self::assertMessageDoesNotForgeWorkflowCommand(
+            $message,
+            '##[',
+            'The exception message still carries the legacy workflow-command prefix.',
+        );
     }
 
     /**
@@ -2078,21 +2102,16 @@ JS;
      * but still-green test standing — a defect a prior round's own
      * "added a regression test" claim did not actually catch.
      *
-     * Every containment check below is a manual str_contains() + self::fail(),
-     * never assertStringContainsString()/assertStringNotContainsString() — see
-     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
-     * own docblock above for the dated PHPUnit Constraint::fail()/
-     * failureDescription() re-embedding mechanism this is guarding against,
-     * not repeated here. Both haystacks checked below can legitimately carry
-     * the poison ($process->getErrorOutput() by this fixture's own deliberate
-     * construction, $thrown->getMessage() on exactly the regression this test
-     * exists to catch), and a PHPUnit assertion FAILURE message reaches
-     * console output exactly as verbatim as an uncaught exception's message
-     * (dated on this class's own docblock above) — so letting either
-     * constraint fail for real would forge the very annotation this test
-     * exists to prove is prevented. self::fail() takes a literal string with
-     * no such re-embedding, so every diagnostic below scrubs its own haystack
-     * through safeSubprocessOutput() before handing it to self::fail().
+     * The control-fixture check below is a manual str_contains() + self::fail(),
+     * the same shape assertMessageDoesNotForgeWorkflowCommand() above is
+     * built from — $process->getErrorOutput() can legitimately still carry
+     * the poison by this fixture's own deliberate construction, so a real
+     * failure of assertStringContainsString() there would forge the very
+     * annotation this test exists to prove is prevented; see that method's
+     * own docblock for the dated PHPUnit Constraint::fail()/
+     * failureDescription() re-embedding mechanism, not repeated here. The
+     * final check on $thrown->getMessage() delegates to that same helper
+     * directly.
      *
      * @param Process          $process   The already-run, deliberately failing npm subprocess.
      * @param callable(): void $throwSite Invokes the real production method that re-derives $process's own outcome and throws.
@@ -2125,12 +2144,11 @@ JS;
 
         self::assertNotNull($thrown, "{$label} — the real production throw site did not throw a RuntimeException.");
 
-        if (str_contains($thrown->getMessage(), '##[')) {
-            self::fail(
-                "{$label} — the scrubbed exception message still carries the legacy workflow-command prefix.\n"
-                    . self::safeSubprocessOutput($thrown->getMessage()),
-            );
-        }
+        self::assertMessageDoesNotForgeWorkflowCommand(
+            $thrown->getMessage(),
+            '##[',
+            "{$label} — the scrubbed exception message still carries the legacy workflow-command prefix.",
+        );
     }
 
     /**
