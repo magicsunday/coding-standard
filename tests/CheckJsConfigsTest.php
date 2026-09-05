@@ -49,7 +49,6 @@ use function rtrim;
 use function sort;
 use function sprintf;
 use function str_contains;
-use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function sys_get_temp_dir;
