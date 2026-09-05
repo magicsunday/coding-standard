@@ -257,7 +257,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      *
      * @param string $source The PHP source to tokenize.
      *
-     * @return list<string|array{0: int, 1: string, 2: int}> token_get_all()'s own token shapes, comments removed.
+     * @return list<string|array{0: int, 1: string, 2: int}> The token list token_get_all() returns for $source, comments removed.
      */
     private static function significantTokens(string $source): array
     {
@@ -463,7 +463,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens   The token span to strip $funcName(...) calls from.
      * @param string                                        $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
      *
-     * @return list<string|array{0: int, 1: string, 2: int}> $tokens with every balanced $funcName(...) call removed.
+     * @return list<string|array{0: int, 1: string, 2: int}> The input $tokens with every balanced $funcName(...) call removed.
      */
     private static function stripBalancedCallsFromTokens(array $tokens, string $funcName): array
     {
@@ -503,7 +503,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens A call's own argument-list token span.
      *
-     * @return list<string|array{0: int, 1: string, 2: int}> $tokens with every sanctioned wrap call removed.
+     * @return list<string|array{0: int, 1: string, 2: int}> The input $tokens with every sanctioned wrap call removed.
      */
     private static function stripSafeWraps(array $tokens): array
     {
