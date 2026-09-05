@@ -14,6 +14,7 @@ namespace MagicSunday\CodingStandard\Test;
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -1266,22 +1267,81 @@ TS),
         self::assertNotEmpty($declared, 'Could not read the files allow-list from package.json.');
 
         foreach ($declared as $entry) {
-            $entry = rtrim($entry, '/');
+            $this->assertFilesAllowListEntryIsPresentInTarball(rtrim($entry, '/'), $packed);
+        }
+    }
 
-            $present = in_array($entry, $packed, true);
+    /**
+     * The per-entry presence check hoisted out of
+     * everyFilesAllowListEntryIsPresentInTheTarball() above so
+     * filesAllowListPresenceCheckFailsWithoutForgingAWorkflowCommand() below
+     * can drive this exact assertTrue() throw site directly, with a
+     * deliberately poisoned $entry and a $packed list that excludes it. $entry
+     * is read straight from THIS repository's own package.json "files" array
+     * — a field any PR can edit — and reaches this method's own failure
+     * message on a genuine absence (an entry declared but not shipped,
+     * whether a real packaging mistake or a deliberately forged one), so it
+     * must be scrubbed through GateTestCase::scrubbedForDiagnostic() (inherited
+     * by this class) before landing there, the same way every other
+     * PR-editable-content diagnostic in this file already is.
+     *
+     * @param string       $entry  A single package.json "files" entry, already rtrim()'d of a trailing "/".
+     * @param list<string> $packed The tarball's own entries, as tarballEntries() returns them.
+     *
+     * @return void
+     */
+    private function assertFilesAllowListEntryIsPresentInTarball(string $entry, array $packed): void
+    {
+        $present = in_array($entry, $packed, true);
 
-            if (!$present) {
-                foreach ($packed as $packedEntry) {
-                    if (str_starts_with($packedEntry, "{$entry}/")) {
-                        $present = true;
+        if (!$present) {
+            foreach ($packed as $packedEntry) {
+                if (str_starts_with($packedEntry, "{$entry}/")) {
+                    $present = true;
 
-                        break;
-                    }
+                    break;
                 }
             }
-
-            self::assertTrue($present, "Declared in package.json \"files\" but absent from the tarball: {$entry}");
         }
+
+        self::assertTrue(
+            $present,
+            'Declared in package.json "files" but absent from the tarball: ' . self::scrubbedForDiagnostic($entry),
+        );
+    }
+
+    /**
+     * assertFilesAllowListEntryIsPresentInTarball()'s own assertTrue() above
+     * embeds $entry raw — and $entry is PR-editable content (a package.json
+     * "files" entry), not a test-authored literal, so a files entry crafted to
+     * carry a forged `::`/`##[` workflow command would reach this assertion's
+     * own failure message verbatim on a genuine absence. Drives the extracted
+     * check directly with a $packed list that deliberately excludes the
+     * poisoned entry, rather than rebuilding a real tarball for it, the same
+     * way buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
+     * above drives its own throw site directly instead of the full packaging
+     * pipeline.
+     */
+    #[Test]
+    public function filesAllowListPresenceCheckFailsWithoutForgingAWorkflowCommand(): void
+    {
+        $poisoned = "forged\n::error title=pwned::forged";
+
+        $thrown = null;
+
+        try {
+            $this->assertFilesAllowListEntryIsPresentInTarball($poisoned, ['some/other/path']);
+        } catch (AssertionFailedError $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'The presence check did not reject an entry absent from the tarball.');
+
+        self::assertMessageDoesNotForgeWorkflowCommand(
+            $thrown->getMessage(),
+            "\n::error title=pwned::forged",
+            'The absent-entry diagnostic forged a workflow command.',
+        );
     }
 
     /**
