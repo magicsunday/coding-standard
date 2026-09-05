@@ -483,28 +483,30 @@ JS;
      * reject (no whitespace, not empty, no NUL, no leading dash) can still
      * carry `##[` through to a real npm error naming that argument.
      *
-     * Additionally breaks every `::` occurrence — a step scrubReportControlBytes()
-     * itself deliberately does NOT take (its own docblock records why: `::` is
-     * legitimate in a namespaced identifier such as `Vendor\Package::method`, and
-     * changing that would mangle every OTHER caller's report line on every run).
-     * This file's own call sites do not carry that risk and cannot skip the `::`
-     * defence either: every one of them embeds $value directly after a literal
-     * `\n` in the exception message, i.e. at true column 0 of a new line — exactly
-     * the placement the modern `::cmd::` parser needs (it TrimStart()s first, so
-     * leading whitespace does not protect a line), and a real npm/node error can
-     * itself carry an embedded newline, putting a later `::` at column 0 the same
-     * way. Currently this is only INCIDENTALLY safe (real npm/node error text
-     * happens to always carry a fixed prefix, such as "npm error ", before any
-     * attacker-influenced content) rather than structurally guaranteed, so this
-     * scrubs every occurrence rather than only a leading one — the same
-     * unconditional scope scrubReportControlBytes()'s own `##[` break already
-     * uses, for the same reason (breaking every occurrence costs nothing and
-     * removes the need to reason about exact placement as the message text
-     * around it changes).
+     * Additionally breaks every `::` occurrence that opens a line — a step
+     * scrubReportControlBytes() itself deliberately does NOT take (its own body
+     * comment records why: `::` is legitimate in a namespaced identifier such as
+     * `Vendor\Package::method`, and changing that would mangle every OTHER
+     * caller's report line on every run). This file's own call sites do not carry
+     * that risk and cannot skip the `::` defence either: every one of them embeds
+     * $value directly after a literal `\n` in the exception message, i.e. at true
+     * column 0 of a new line — exactly the placement the modern `::cmd::` parser
+     * needs (it TrimStart()s first, so leading whitespace does not protect a
+     * line). scrubReportControlBytes() has already turned every control byte in
+     * $value — a raw embedded newline included — into `?` by the time this method's
+     * own `::` step runs, so $value's own FIRST character is the only line-start
+     * position a `::` can ever occupy in the final message; str_replace()'s
+     * left-to-right, non-overlapping scan always consumes a leading `::` pair
+     * first, so the result can never begin with `::` regardless of what follows.
+     * That is NOT the same as guaranteeing every `::` later in the string is gone
+     * too: an odd-length run of colons leaves one unmatched
+     * (`str_replace('::', ':?:', ':::')` produces `':?::'`, which still contains
+     * `::`) — harmless here only because no such residual position is ever a true
+     * line start, never because the scrub removed it.
      *
      * @param string $value The raw subprocess error output to embed.
      *
-     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence additionally broken, uncapped.
+     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken — not literally every occurrence: a residual `::` can survive later in an odd-length colon run, but never at true line start, which is the only placement that matters.
      */
     private static function safeSubprocessOutput(string $value): string
     {
