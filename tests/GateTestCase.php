@@ -25,11 +25,18 @@ use function array_filter;
 use function count;
 use function dirname;
 use function explode;
+use function preg_match;
 use function sprintf;
 use function str_contains;
 use function str_repeat;
+use function str_replace;
 use function strlen;
 use function substr;
+
+// scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
+// this class's own scrubbedForDiagnostic() shares rather than duplicating,
+// the same way tests/CheckJsConfigsTest.php's safeSubprocessOutput() does.
+require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
@@ -43,6 +50,24 @@ use function substr;
  * plays the same role as PHPUnit's own TestCase (installed under
  * .build/vendor/phpunit/phpunit, itself abstract) — an abstract base every
  * concrete test class extends, without that prefix either.
+ *
+ * assertGateReportIsInert() and assertReportCarries() below drive their
+ * containment/regex checks against $result->output by hand
+ * (str_contains()/preg_match() + self::fail()), never
+ * assertStringContainsString()/assertStringNotContainsString()/
+ * assertDoesNotMatchRegularExpression(): $result->output is exactly the
+ * value under test for a forged workflow command, and every concrete test
+ * class extending this one (CheckConsumerConfigTest most directly, via
+ * genuinely poisoned fixtures such as a `##[error]forged` devDependency
+ * name) can and does hand it deliberately-poisoned content. PHPUnit's own
+ * Constraint::fail()/failureDescription() mechanism — dated and detailed in
+ * tests/CheckJsConfigsTest.php's
+ * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand() own
+ * docblock, not repeated here — unconditionally re-embeds the FULL, RAW
+ * haystack into a failed assertion's own exception message, so a real
+ * failure of one of those PHPUnit constraints here would forge, in PHPUnit's
+ * own failure output, the very annotation these two methods exist to prove
+ * is prevented.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -207,20 +232,34 @@ abstract class GateTestCase extends TestCase
     ): void {
         $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
-        self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
+        if (str_contains($result->output, "\x1B")) {
+            self::fail(
+                "An ANSI escape from a consumer value reached the report.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
 
         // This regex carries no `u` modifier, so a lead byte outside ASCII
         // whitespace is not admitted here either — the same known,
         // deliberately-left-open gap tests/harness.sh documents for its
         // analogous `::` check (lines ~479-495). See GateResult::isDegraded()'s
         // docblock for the re-derivation command.
-        self::assertDoesNotMatchRegularExpression(
-            '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
-            $result->output,
-            'A consumer value forged a `::` workflow command.',
-        );
-        self::assertStringNotContainsString('##[', $result->output, 'A consumer value forged a legacy `##[…]` workflow command.');
-        self::assertStringNotContainsString("\r", $result->output, 'A consumer value carried a bare carriage return, which opens a line to the runner.');
+        if (preg_match('/^[[:space:]]*::[A-Za-z0-9_-]+/m', $result->output) === 1) {
+            self::fail(
+                "A consumer value forged a `::` workflow command.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
+
+        if (str_contains($result->output, '##[')) {
+            self::fail(
+                "A consumer value forged a legacy `##[…]` workflow command.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
+
+        if (str_contains($result->output, "\r")) {
+            self::fail(
+                "A consumer value carried a bare carriage return, which opens a line to the runner.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
 
         // grep -c . counts NON-EMPTY lines — a blank line must not count toward the limit.
         $nonEmptyLines = array_filter(explode("\n", $result->output), static fn (string $line): bool => $line !== '');
@@ -341,9 +380,17 @@ abstract class GateTestCase extends TestCase
      * that has a must-carry substring, so the guard-then-assert pairing is
      * made once, not at every call site.
      *
+     * The containment check itself is a manual str_contains() + self::fail(),
+     * never assertStringContainsString() — see this class's own docblock
+     * above for why: $result->output is exactly the value a forged-workflow-
+     * command fixture poisons, and CheckConsumerConfigTest calls this
+     * (transitively, via assertGateRejects()/assertGateUsageError()/
+     * assertGateReportIsInert()) with genuinely poisoned $expectedSubstring
+     * values.
+     *
      * @param GateResult $result            The captured run to check.
      * @param string     $expectedSubstring The substring the report must carry.
-     * @param string     $message           An optional assertion message; used verbatim when non-empty.
+     * @param string     $message           An optional assertion message; used as the failure prefix when non-empty, followed either way by the scrubbed report content.
      * @param string     $defaultMessage    The message used when $message is empty.
      *
      * @return void
@@ -357,7 +404,37 @@ abstract class GateTestCase extends TestCase
         string $defaultMessage,
     ): void {
         self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
-        self::assertStringContainsString($expectedSubstring, $result->output, $message !== '' ? $message : $defaultMessage);
+
+        if (str_contains($result->output, $expectedSubstring)) {
+            return;
+        }
+
+        self::fail(($message !== '' ? $message : $defaultMessage) . "\n" . self::scrubbedForDiagnostic($result->output));
+    }
+
+    /**
+     * Reduces $value to something safe to embed in a self::fail() diagnostic
+     * when $value may itself be exactly the forged CI annotation the calling
+     * assertion exists to catch — see this class's own docblock above for
+     * why assertGateReportIsInert() and assertReportCarries() need this
+     * rather than a PHPUnit string-containment/regex constraint. Shares
+     * scrubReportControlBytes()'s control-byte strip and legacy `##[` break
+     * (bin/support/safe-report-value.php, required near the top of this
+     * file), then additionally breaks every `::` occurrence the same way
+     * tests/CheckJsConfigsTest.php's own safeSubprocessOutput() does and for
+     * the identical reason: scrubReportControlBytes() deliberately leaves
+     * `::` alone (a namespaced identifier is legitimate report content), but
+     * every diagnostic this method feeds places $value directly after a
+     * literal `\n`, i.e. at true column 0 of a new line — exactly the
+     * placement a `::cmd::` workflow command needs.
+     *
+     * @param string $value The raw value to scrub before embedding in a self::fail() message.
+     *
+     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken.
+     */
+    private static function scrubbedForDiagnostic(string $value): string
+    {
+        return str_replace('::', ':?:', scrubReportControlBytes($value));
     }
 
     /**

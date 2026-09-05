@@ -22,7 +22,10 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
+use function preg_match;
 use function preg_quote;
+use function str_contains;
+use function str_replace;
 
 /**
  * Meta-tests proving GateTestCase's own five decisions are wired correctly —
@@ -596,6 +599,56 @@ final class GateTestCaseTest extends GateTestCase
             ['php', '-r', 'fwrite(STDOUT, "a\n\nb\n\nc\n\n"); exit(1);'],
             $this->fixture()->path(),
         );
+    }
+
+    /**
+     * The regression the whole assertGateReportIsInert()/assertReportCarries()
+     * defect class boils down to: their own FAILURE message must not forge
+     * the very CI annotation the check exists to catch. Every
+     * assertGateReportIsInertFailsOn*() test above only proves AN
+     * AssertionFailedError was thrown (expectException()), never what that
+     * exception's own message carries — reverting GateTestCase's own
+     * scrubbedForDiagnostic() wrap at either self::fail() call site (or a
+     * regression back to assertStringNotContainsString()/
+     * assertDoesNotMatchRegularExpression(), which is exactly what those
+     * call sites replaced) would leave every one of them still green,
+     * because none of them ever inspects the caught exception's own message.
+     * Catching the exception directly, on a fixture carrying BOTH a modern
+     * `::` and a legacy `##[` forged workflow command in the SAME report, is
+     * what actually discriminates: both must be broken in the one message
+     * this failure path produces.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessage(): void
+    {
+        $thrown = null;
+
+        try {
+            $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "::error::forged\n##[error]forged\n"); exit(1);'],
+                $this->fixture()->path(),
+            );
+        } catch (AssertionFailedError $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'assertGateReportIsInert() did not reject the forged fixture.');
+
+        $message = $thrown->getMessage();
+
+        if (preg_match('/^[ \t]*::/m', $message) === 1) {
+            self::fail(
+                "assertGateReportIsInert()'s own failure message still carries a `::` workflow command.\n"
+                    . str_replace('::', ':?:', $message),
+            );
+        }
+
+        if (str_contains($message, '##[')) {
+            self::fail(
+                "assertGateReportIsInert()'s own failure message still carries a legacy `##[` workflow command.\n"
+                    . str_replace('#[', '#?[', $message),
+            );
+        }
     }
 
     /**
