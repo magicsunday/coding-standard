@@ -1597,13 +1597,32 @@ TS),
      * correctness bug the tightening exists to prevent, independent of the
      * scrub regression readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
      * above already covers.
+     *
+     * The devDependencies pin below deliberately equals the FULL buggy
+     * capture ("5.0.16\nunexpected trailing content"), not the real
+     * "5.0.16" — on a reversion of the `[^`\n]*` fix, the buggy `[^`]*`
+     * pattern would capture that whole multi-line span into $matches[1],
+     * and assertReadmeToolVersionMatchesDevDependenciesPin()'s own internal
+     * assertSame($matches[1], $actual, …) check would then compare it
+     * against whatever $actual is. Pinning a real "5.0.16" there would make
+     * that internal check itself fail on a REVERTED regex (mismatch:
+     * "5.0.16\nunexpected trailing content" !== "5.0.16"), so the test would
+     * go red via that unrelated assertSame() instead of via the
+     * self::assertFalse() line below, on the wrong assertion's own message.
+     * Matching the pin to the full buggy capture makes that internal check
+     * pass on a reverted regex, so execution reaches self::assertFalse()
+     * and fails with its own authored message instead.
      */
     #[Test]
     public function readmeToolVersionCaptureRejectsACodeSpanSpanningANewline(): void
     {
         $readme = "`typescript 5.0.16\nunexpected trailing content`";
 
-        $matched = $this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, ['typescript' => '5.0.16'], 'typescript');
+        $matched = $this->assertReadmeToolVersionMatchesDevDependenciesPin(
+            $readme,
+            ['typescript' => "5.0.16\nunexpected trailing content"],
+            'typescript',
+        );
 
         self::assertFalse(
             $matched,
