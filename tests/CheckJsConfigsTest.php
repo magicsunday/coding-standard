@@ -32,6 +32,7 @@ use function explode;
 use function file_exists;
 use function file_get_contents;
 use function file_put_contents;
+use function implode;
 use function in_array;
 use function is_array;
 use function is_dir;
@@ -196,32 +197,54 @@ JS;
      * guards its own filesystem calls: the shared, class-scoped
      * packagedConsumer() fixture is reused across every test method in this
      * class, so a silently failed restore here would corrupt state for every
-     * REMAINING test in the run rather than just this one, with nothing to
-     * point at the cause.
+     * REMAINING test in the run rather than just this one.
+     *
+     * Every entry is attempted — a failure on one path does not skip the
+     * rest — and the report names every path that failed, not only the
+     * first. A failure also invalidates the shared self::$packagedConsumer
+     * cache, so the next test that calls packagedConsumer() rebuilds a
+     * fresh, uncorrupted consumer from scratch instead of silently inheriting
+     * the corruption and failing later for an unrelated reason. The restore
+     * loop and the cache invalidation both run inside a finally block ahead
+     * of the eventual throw, so $this->consumerFileMutations is always reset
+     * and parent::tearDown() (this class's own fixture() cleanup) always
+     * runs, even when a restore failed.
      *
      * @return void
      *
-     * @throws RuntimeException If a mutated file cannot be restored or removed.
+     * @throws RuntimeException If a mutated file could not be restored or removed, naming every such path.
      */
     protected function tearDown(): void
     {
-        foreach ($this->consumerFileMutations as $path => $original) {
-            if ($original === null) {
-                if (FixtureDirectory::withoutWarnings(static fn (): bool => unlink($path)) !== true) {
-                    throw new RuntimeException(sprintf('Could not remove mutated consumer file: %s', $path));
+        $failedPaths = [];
+
+        try {
+            foreach ($this->consumerFileMutations as $path => $original) {
+                if ($original === null) {
+                    if (FixtureDirectory::withoutWarnings(static fn (): bool => unlink($path)) !== true) {
+                        $failedPaths[] = $path;
+                    }
+
+                    continue;
                 }
 
-                continue;
+                if (FixtureDirectory::withoutWarnings(static fn (): int|false => file_put_contents($path, $original)) !== strlen($original)) {
+                    $failedPaths[] = $path;
+                }
+            }
+        } finally {
+            $this->consumerFileMutations = [];
+
+            if ($failedPaths !== []) {
+                self::$packagedConsumer = null;
             }
 
-            if (FixtureDirectory::withoutWarnings(static fn (): int|false => file_put_contents($path, $original)) !== strlen($original)) {
-                throw new RuntimeException(sprintf('Could not restore mutated consumer file: %s', $path));
-            }
+            parent::tearDown();
         }
 
-        $this->consumerFileMutations = [];
-
-        parent::tearDown();
+        if ($failedPaths !== []) {
+            throw new RuntimeException(sprintf('Could not restore or remove mutated consumer file(s): %s', implode(', ', $failedPaths)));
+        }
     }
 
     /**
