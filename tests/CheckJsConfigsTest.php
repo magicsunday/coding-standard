@@ -759,23 +759,49 @@ TS),
     }
 
     /**
+     * Shared body for npmPackWithIgnoreScriptsSuppressesPrepack() and
+     * npmPackWithoutIgnoreScriptsRunsPrepack() below, which differ only in
+     * the presence of `--ignore-scripts`, the marker filename, and the
+     * assertion polarity each keeps as its own separately-named test — the
+     * same shape installIgnoreScriptsProbe() further below already
+     * deduplicates for the analogous postinstall pair.
+     *
+     * @param bool   $ignoreScripts Whether `npm pack` is given `--ignore-scripts`.
+     * @param string $markerName    The marker filename `IGNORE_SCRIPTS_PROBE_MARKER` names.
+     *
+     * @return array{result: GateResult, marker: string} The captured `npm pack` run and the marker's absolute path.
+     */
+    private function packIgnoreScriptsProbe(bool $ignoreScripts, string $markerName): array
+    {
+        $dir = $this->fixture()->path();
+        $this->writeIgnoreScriptsProbePackage($dir);
+        $marker = "{$dir}/{$markerName}";
+
+        $command = ['npm', 'pack'];
+
+        if ($ignoreScripts) {
+            $command[] = '--ignore-scripts';
+        }
+
+        $command[] = '--pack-destination';
+        $command[] = $dir;
+        $command[] = '--loglevel=error';
+
+        $result = $this->runCommand($command, $dir, ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker]);
+
+        return ['result' => $result, 'marker' => $marker];
+    }
+
+    /**
      * `npm pack --ignore-scripts` suppresses prepack.
      */
     #[Test]
     public function npmPackWithIgnoreScriptsSuppressesPrepack(): void
     {
-        $dir = $this->fixture()->path();
-        $this->writeIgnoreScriptsProbePackage($dir);
-        $marker = "{$dir}/prepack-suppressed";
+        $probe = $this->packIgnoreScriptsProbe(true, 'prepack-suppressed');
 
-        $result = $this->runCommand(
-            ['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'],
-            $dir,
-            ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker],
-        );
-
-        self::assertSame(0, $result->exitCode, "npm pack (suppressed) failed.\n{$result->output}");
-        self::assertFileDoesNotExist($marker, 'npm pack --ignore-scripts did not suppress prepack.');
+        self::assertSame(0, $probe['result']->exitCode, "npm pack (suppressed) failed.\n{$probe['result']->output}");
+        self::assertFileDoesNotExist($probe['marker'], 'npm pack --ignore-scripts did not suppress prepack.');
     }
 
     /**
@@ -786,18 +812,10 @@ TS),
     #[Test]
     public function npmPackWithoutIgnoreScriptsRunsPrepack(): void
     {
-        $dir = $this->fixture()->path();
-        $this->writeIgnoreScriptsProbePackage($dir);
-        $marker = "{$dir}/prepack-unsuppressed";
+        $probe = $this->packIgnoreScriptsProbe(false, 'prepack-unsuppressed');
 
-        $result = $this->runCommand(
-            ['npm', 'pack', '--pack-destination', $dir, '--loglevel=error'],
-            $dir,
-            ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker],
-        );
-
-        self::assertSame(0, $result->exitCode, "npm pack (unsuppressed) failed.\n{$result->output}");
-        self::assertFileExists($marker, 'npm pack without --ignore-scripts did not run prepack — the mutation control no longer discriminates.');
+        self::assertSame(0, $probe['result']->exitCode, "npm pack (unsuppressed) failed.\n{$probe['result']->output}");
+        self::assertFileExists($probe['marker'], 'npm pack without --ignore-scripts did not run prepack — the mutation control no longer discriminates.');
     }
 
     /**
