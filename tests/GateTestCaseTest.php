@@ -977,6 +977,18 @@ final class GateTestCaseTest extends GateTestCase
      * messageOrDefault() and messageWithOutput() differ in exactly one way
      * — whether the output is appended when $message is non-empty — so this
      * asserts both sides of that difference explicitly.
+     *
+     * The messageOrDefault()-delegates-to-diagnosticMessage() assertion below
+     * reuses diagnosticMessage() itself to build its own expected value, so a
+     * mutation inside diagnosticMessage()'s own composition (e.g. doubling
+     * the "\n") changes both sides identically and that assertion alone would
+     * stay green — it pins the delegation relationship, not
+     * diagnosticMessage()'s own contract. The companion assertion
+     * immediately below it instead builds its expected value from a hand-
+     * written literal, independent of diagnosticMessage(), so it is the one
+     * that actually pins that contract; verified live by temporarily
+     * doubling diagnosticMessage()'s own "\n" — the literal-based assertion
+     * goes red, the reused-implementation one does not.
      */
     #[Test]
     public function theMessageCompositionHelpersComposeAsDocumented(): void
@@ -991,6 +1003,12 @@ final class GateTestCaseTest extends GateTestCase
             self::diagnosticMessage('default', 'raw with ::error::x::y'),
             self::messageOrDefault('', 'default', 'raw with ::error::x::y'),
             'messageOrDefault() must fall back to diagnosticMessage()\'s own composition when $message is empty.',
+        );
+
+        self::assertSame(
+            'default' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::diagnosticMessage('default', 'raw with ::error::x::y'),
+            'diagnosticMessage() must compose label + newline + scrubbed output exactly once.',
         );
 
         self::assertSame(
