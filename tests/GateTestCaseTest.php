@@ -606,7 +606,8 @@ final class GateTestCaseTest extends GateTestCase
      * defect class boils down to: their own FAILURE message must not forge
      * the very CI annotation the check exists to catch. Every
      * assertGateReportIsInertFailsOn*() test above (re-derive the current set
-     * with `grep -n 'assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`)
+     * with `grep -n 'function assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
+     * — anchored on "function" so it does not also match this citation)
      * only proves AN AssertionFailedError was thrown (expectException()),
      * never what that exception's own message carries — reverting
      * GateTestCase's own
@@ -624,7 +625,9 @@ final class GateTestCaseTest extends GateTestCase
      * at once would only ever discriminate the FIRST one in that order (the
      * ESC-byte check runs first and self::fail()s immediately), leaving the
      * other four's own scrubbing completely unproven. re-derive via
-     * `grep -n 'self::fail(' tests/GateTestCase.php` if this method's own
+     * `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
+     * on the leading whitespace so it counts only real call sites, not this
+     * docblock's own mentions of self::fail()) if this method's own
      * check order ever changes. Each test below therefore drives exactly ONE
      * branch in isolation, with a fixture carrying no earlier-checked forgery
      * that would short-circuit past it — via
@@ -701,7 +704,7 @@ final class GateTestCaseTest extends GateTestCase
      *
      * @param string $message The message to redact before self::fail() prints it.
      *
-     * @return string $message with the legacy `##[` prefix broken.
+     * @return string The message with the legacy `##[` prefix broken.
      */
     private static function redactLegacyPrefixInMessage(string $message): string
     {

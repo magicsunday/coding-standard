@@ -944,8 +944,10 @@ TS),
      * tests/GateTestCase.php and tests/CheckJsConfigsManifestTest.php) points
      * back to assertMessageDoesNotForgeWorkflowCommand()'s own docblock
      * rather than repeating it — re-derive via
-     * `grep -rn "as observed 2026-09-05 against this repository" tests/*.php`,
-     * which must show exactly the one hit inside that docblock.
+     * `grep -rn "as observed 2026-09-05 against this repos[i]tory" tests/*.php`
+     * (the bracketed "[i]" keeps this very citation from matching its own
+     * search string), which must show exactly the one hit inside that
+     * docblock.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
