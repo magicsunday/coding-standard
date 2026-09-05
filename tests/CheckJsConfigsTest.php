@@ -2089,18 +2089,45 @@ JS;
      * test above only ever feeds a `##[`- or `::`-carrying value through the
      * scrub and checks that PREFIX is broken, so a broken or narrowed
      * `[\x00-\x1F\x7F]` character class (an off-by-one, a typo'd range)
-     * could ship silently, unnoticed by any of them. Measured directly
+     * could ship silently, unnoticed by any of them. The probe includes
+     * `\x00` (NUL) alongside a mid-range C0 byte and DEL — NUL is the
+     * primary "reach column 0" byte this function's own docblock names as
+     * the reason it exists, and a character class narrowed to `[\x01-\x1F\x7F]`
+     * (dropping NUL) would pass unchanged without it. Measured directly
      * against the installed PHP (2026-09-05):
-     * `scrubReportControlBytes("a\x01b\x7fc")` produces `"a?b?c"` — \x01 (a
-     * C0 control byte) and \x7f (DEL) each replaced by a literal `?`, the
-     * ordinary ASCII bytes either side left untouched. Calls the shared
-     * bin/support/safe-report-value.php function directly (required near
-     * the top of this file), not this class's own safeSubprocessOutput()
-     * wrapper, since the property under test belongs to the shared core.
+     * `scrubReportControlBytes("a\x00b\x1fc\x7fd")` produces `"a?b?c?d"` —
+     * \x00 (NUL), \x1f (a C0 control byte) and \x7f (DEL) each replaced by a
+     * literal `?`, the ordinary ASCII bytes either side left untouched.
+     * Calls the shared bin/support/safe-report-value.php function directly
+     * (required near the top of this file), not this class's own
+     * safeSubprocessOutput() wrapper, since the property under test belongs
+     * to the shared core.
      */
     #[Test]
     public function scrubReportControlBytesReplacesControlBytesWithAQuestionMark(): void
     {
-        self::assertSame('a?b?c', scrubReportControlBytes("a\x01b\x7fc"));
+        self::assertSame('a?b?c?d', scrubReportControlBytes("a\x00b\x1fc\x7fd"));
+    }
+
+    /**
+     * safeSubprocessOutput()'s own `::`-breaking step, direct and independent
+     * of any real subprocess invocation — the three forgery-regression tests
+     * above only ever poison the LEGACY `##[` prefix, so a missing or reverted
+     * `str_replace('::', ':?:', ...)` step could ship silently, unnoticed by
+     * any of them. Composes the value the same way every real call site in
+     * this file does: a literal `\n` from the surrounding message text,
+     * immediately followed by $value — the only position in the final
+     * message a `::` can ever open a line, since scrubReportControlBytes()
+     * has already turned any embedded control byte (a raw newline included)
+     * in $value itself into `?` before this method's own `::` step ever
+     * runs. A poisoned value NOT placed at that position would not exercise
+     * the property this method exists for at all.
+     */
+    #[Test]
+    public function safeSubprocessOutputBreaksAWorkflowCommandOpenedWithTheModernPrefix(): void
+    {
+        $message = "npm error\n" . self::safeSubprocessOutput('::error title=pwned::forged');
+
+        self::assertDoesNotMatchRegularExpression('/^[ \t]*::/m', $message);
     }
 }
