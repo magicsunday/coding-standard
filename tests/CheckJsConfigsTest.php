@@ -315,7 +315,7 @@ JS;
     {
         $path = sprintf('%s/coding-standard-js-%s-%s', $baseDirectory ?? sys_get_temp_dir(), $label, bin2hex(random_bytes(16)));
 
-        if (!mkdir($path, 0o700, true)) {
+        if (!FixtureDirectory::withoutWarnings(static fn (): bool => mkdir($path, 0o700, true))) {
             throw new RuntimeException("Could not create temporary directory: {$path}");
         }
 
