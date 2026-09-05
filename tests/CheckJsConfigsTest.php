@@ -866,11 +866,16 @@ TS),
      * assertSame()/assertStringContainsString(): $result['stdout'] and
      * $result['stderr'] are exactly the values under test there, and while
      * unsafeDevDependencyProvider()'s own fixtures are all non-adversarial
-     * today, PHPUnit's own Constraint::fail()/failureDescription() mechanism
-     * would otherwise unconditionally re-embed the FULL, RAW value into a
-     * failed assertion's own message on any future adversarial fixture added
-     * here (see assertMessageDoesNotForgeWorkflowCommand()'s own docblock
-     * below for the dated observation, not repeated here).
+     * today, a future adversarial fixture added here would leak either way —
+     * via two DIFFERENT PHPUnit mechanisms: assertStringContainsString()'s
+     * failureDescription() unconditionally embeds the raw haystack straight
+     * into the thrown exception's own getMessage() (see
+     * assertMessageDoesNotForgeWorkflowCommand()'s own docblock below for
+     * the dated observation, not repeated here), while assertSame() on a
+     * mismatch instead attaches a
+     * SebastianBergmann\Comparator\ComparisonFailure built from the raw
+     * operands, rendered only by PHPUnit's own CLI/text failure printer and
+     * never part of getMessage() at all.
      *
      * @param array<string, mixed> $devDependencies The devDependencies fragment to test.
      *
@@ -903,11 +908,16 @@ TS),
     /**
      * The negative twin, proving the six controls above fail for the stated
      * reason and not because every input is rejected. The stdout check below
-     * is a manual condition + self::fail(), never assertSame(): $result['stdout']
-     * is exactly the value under test, and PHPUnit's own
-     * Constraint::fail()/failureDescription() mechanism would otherwise
-     * unconditionally re-embed the FULL, RAW stdout into a failed
-     * assertSame()'s own message on a mismatch.
+     * is a manual condition + self::fail(), never assertSame():
+     * $result['stdout'] is exactly the value under test, and on a mismatch
+     * assertSame() would attach a SebastianBergmann\Comparator\ComparisonFailure
+     * built from the raw, unscrubbed operands to the thrown exception — only
+     * PHPUnit's own CLI/text failure printer renders that object's diff,
+     * never the exception's own getMessage() (see this file's own
+     * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
+     * docblock for the dated observation against the real installed
+     * PHPUnit, not repeated here). self::fail() throws a plain
+     * AssertionFailedError with no such object at all.
      */
     #[Test]
     public function acceptsAnOrdinaryDevDependencyPin(): void

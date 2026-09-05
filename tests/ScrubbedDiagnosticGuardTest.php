@@ -36,16 +36,24 @@ use const T_DOC_COMMENT;
  * `$result->output`/`->getOutput()`/`->getErrorOutput()` access, run against
  * PR-editable content (this repository's own biome/base.json,
  * tsconfig/base.json, package.json, templates/jscpd.json, or subprocess
- * output produced against them). PHPUnit's own
- * Constraint::fail()/failureDescription() mechanism unconditionally
- * re-embeds the RAW subject/actual operand of a failed
+ * output produced against them). All six of self::RISKY_ASSERTIONS leak the
+ * raw subject/actual operand on a failure, but through TWO DIFFERENT
+ * PHPUnit mechanisms, and wrapping only a custom $message in
+ * self::scrubbedForDiagnostic() suppresses neither:
  * assertStringContainsString()/assertStringNotContainsString()/
- * assertMatchesRegularExpression()/assertDoesNotMatchRegularExpression()/
- * assertSame()/assertEquals() into the thrown exception's own message —
- * wrapping only a custom $message in self::scrubbedForDiagnostic() does NOT
- * suppress that; see tests/CheckJsConfigsTest.php's own
+ * assertMatchesRegularExpression()/assertDoesNotMatchRegularExpression()
+ * override Constraint::failureDescription() to unconditionally embed the
+ * raw operand straight into the thrown exception's own getMessage() (see
+ * tests/CheckJsConfigsTest.php's own
  * assertMessageDoesNotForgeWorkflowCommand() docblock for the dated
- * observation against the real installed PHPUnit, not repeated here.
+ * observation against the real installed PHPUnit, not repeated here);
+ * assertSame()/assertEquals() instead attach a
+ * SebastianBergmann\Comparator\ComparisonFailure built from the raw
+ * operands to the thrown exception, which only PHPUnit's own CLI/text
+ * failure printer renders — never getMessage() itself (see
+ * tests/CheckJsConfigsTest.php's own
+ * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand() docblock
+ * for the dated observation, not repeated here).
  *
  * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser —
  * documented limitations:
@@ -94,8 +102,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 {
     /**
      * The PHPUnit assertion functions whose own subject/actual argument
-     * PHPUnit's Constraint::fail()/failureDescription() mechanism
-     * unconditionally re-embeds raw into a failed assertion's own message.
+     * leaks raw on a failure — via failureDescription() into getMessage()
+     * for the first four, via a raw ComparisonFailure PHPUnit's CLI/text
+     * printer renders (never getMessage()) for the last two; see this
+     * class's own docblock above for the distinction.
      */
     private const RISKY_ASSERTIONS = [
         'assertStringContainsString',
