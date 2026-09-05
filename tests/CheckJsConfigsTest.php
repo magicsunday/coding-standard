@@ -1631,10 +1631,10 @@ TS),
     }
 
     /**
-     * Proves the pattern this round's Fix 2 applied at every biomeCi()/runTsc()
-     * accept-path assertion — self::scrubbedForDiagnostic() wrapping
-     * $result->output before it can land in a failure message — actually
-     * closes the trap, using the exact real incident AGENTS.md documents
+     * Proves the pattern applied at every biomeCi()/runTsc() accept-path
+     * assertion — self::scrubbedForDiagnostic() wrapping $result->output
+     * before it can land in a failure message — actually closes the trap,
+     * using the exact real incident AGENTS.md documents
      * rather than a hand-crafted stand-in for it: Biome's config deserializer
      * echoes an unrecognized key back verbatim ("Found an unknown key ...").
      * Poisons the CONSUMER'S INSTALLED copy of biome/base.json (the file
@@ -1669,12 +1669,12 @@ TS),
             $result->exitCode,
             'The poisoned unknown key did not make biome ci fail — this test is not exercising the trap it claims to.',
         );
-        self::assertStringContainsString(
-            $poison,
-            $result->output,
-            "The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
-                . self::scrubbedForDiagnostic($result->output),
-        );
+        if (!str_contains($result->output, $poison)) {
+            self::fail(
+                "The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
+                    . self::scrubbedForDiagnostic($result->output),
+            );
+        }
 
         $thrown = null;
 
