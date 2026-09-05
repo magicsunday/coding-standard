@@ -899,7 +899,12 @@ TS),
 
     /**
      * The negative twin, proving the six controls above fail for the stated
-     * reason and not because every input is rejected.
+     * reason and not because every input is rejected. The stdout check below
+     * is a manual condition + self::fail(), never assertSame(): $result['stdout']
+     * is exactly the value under test, and PHPUnit's own
+     * Constraint::fail()/failureDescription() mechanism would otherwise
+     * unconditionally re-embed the FULL, RAW stdout into a failed
+     * assertSame()'s own message on a mismatch.
      */
     #[Test]
     public function acceptsAnOrdinaryDevDependencyPin(): void
@@ -910,7 +915,10 @@ TS),
         $result = $this->runBuildToolsSeparated($dir);
 
         self::assertSame(0, $result['exitCode'], 'Rejected an ordinary pin: ' . self::scrubbedForDiagnostic($result['stderr']));
-        self::assertSame('typescript@5.0.16', trim($result['stdout']));
+
+        if (trim($result['stdout']) !== 'typescript@5.0.16') {
+            self::fail(self::diagnosticMessage('Accepted the ordinary pin, but did not report it correctly.', $result['stdout']));
+        }
     }
 
     /**
