@@ -150,6 +150,34 @@ use const T_WHITESPACE;
  * - self::significantTokens() drops every T_COMMENT/T_DOC_COMMENT token
  *   from the sequence outright, so a comment or docblock merely quoting a
  *   risky-assertion call as illustrative prose is not flagged.
+ * - self::RAW_OUTPUT_PATTERN does not match PHP's curly-brace dynamic
+ *   property/method access syntax (`$result->{'output'}`,
+ *   `$result->{'getOutput'}()`) — this is valid, semantically identical PHP
+ *   that evades detection because the literal text `output`/`getOutput` is
+ *   not immediately adjacent to `->` in the reconstructed argument text; it
+ *   sits inside a separate string-literal token following a `{`. Unlike the
+ *   whitespace/quote-style gaps documented above, this one has no
+ *   independent backstop: re-derive via `php-cs-fixer describe
+ *   object_operator_without_whitespace` (or any other CGL rule) that this
+ *   repository's own `@Symfony`/`@PER-CS2x0` ruleset does NOT normalize
+ *   curly-brace dynamic access away, so nothing upstream of this guard
+ *   prevents the shape from being written. Confirmed via
+ *   `grep -noF '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
+ *   tests/CheckJsConfigsManifestTest.php`: no current call site in any of
+ *   self::guardedFiles() uses this syntax. If this construct is ever
+ *   intentionally introduced into a guarded file, the guard would need a
+ *   targeted extension at that point — not before.
+ * - self::RISKY_ASSERTIONS/self::SAFE_WRAP_CALLS matching requires an exact
+ *   T_STRING token match, so a call spelled with a namespace qualifier
+ *   (e.g. `\PHPUnit\Framework\Assert::assertSame(...)` or
+ *   `Foo\assertSame(...)`) tokenizes as T_NAME_QUALIFIED/
+ *   T_NAME_FULLY_QUALIFIED and goes completely unmatched by either list.
+ *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assertSame|assertEquals|
+ *   assertStringContainsString|assertStringNotContainsString|
+ *   assertMatchesRegularExpression|assertDoesNotMatchRegularExpression)\('
+ *   tests/GateTestCase.php tests/CheckJsConfigsTest.php
+ *   tests/CheckJsConfigsManifestTest.php`: every real call site in
+ *   self::guardedFiles() today is spelled with the bare `self::` prefix.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
