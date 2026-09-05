@@ -522,6 +522,41 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
+     * Given the index of a candidate call-name token, locates that call's own
+     * argument-token span by chaining self::openParenIndexAfter() (find the
+     * `(` immediately following the name) and self::matchingCloseParenIndex()
+     * (find the balancing `)`) — the exact "locate a call, extract its own
+     * argument tokens" sequence self::findUnscrubbedRawOutputAssertions() and
+     * self::strippedArgumentTextFor() both need. Sharing it here means a
+     * future fix to either chained lookup (this file's own history: three
+     * consecutive rounds each fixed a live-reproduced bypass here) only needs
+     * ONE call site updated, not two kept in sync by hand.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param int                                           $nameIndex The index of the token naming the candidate call.
+     *
+     * @return array{0: list<string|array{0: int, 1: string, 2: int}>, 1: int}|null A [argument tokens, closing `)` index] pair, or null when $nameIndex is not actually a call.
+     */
+    private static function callArgumentTokensAt(array $tokens, int $nameIndex): ?array
+    {
+        $openParenIndex = self::openParenIndexAfter($tokens, $nameIndex);
+
+        if ($openParenIndex === null) {
+            return null;
+        }
+
+        $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
+
+        if ($closeParenIndex === null) {
+            return null;
+        }
+
+        $argumentTokens = array_slice($tokens, $openParenIndex + 1, $closeParenIndex - $openParenIndex - 1);
+
+        return [$argumentTokens, $closeParenIndex];
+    }
+
+    /**
      * Scans $path for every call to one of self::RISKY_ASSERTIONS and, for
      * each one, strips every self::SAFE_WRAP_CALLS wrap from its own
      * argument list — the message argument included, since a hand-written
@@ -557,24 +592,16 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
                     continue;
                 }
 
-                $openParenIndex = self::openParenIndexAfter($tokens, $i);
+                $callArguments = self::callArgumentTokensAt($tokens, $i);
 
-                if ($openParenIndex === null) {
+                if ($callArguments === null) {
                     ++$i;
 
                     continue;
                 }
 
-                $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
-
-                if ($closeParenIndex === null) {
-                    ++$i;
-
-                    continue;
-                }
-
-                $argumentTokens = array_slice($tokens, $openParenIndex + 1, $closeParenIndex - $openParenIndex - 1);
-                $strippedText   = self::tokensToText(self::stripSafeWraps($argumentTokens));
+                [$argumentTokens, $closeParenIndex] = $callArguments;
+                $strippedText                       = self::tokensToText(self::stripSafeWraps($argumentTokens));
 
                 if (preg_match(self::RAW_OUTPUT_PATTERN, $strippedText) === 1) {
                     $line       = $token[2];
@@ -640,21 +667,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
                 continue;
             }
 
-            $openParenIndex = self::openParenIndexAfter($tokens, $i);
+            $callArguments = self::callArgumentTokensAt($tokens, $i);
 
-            if ($openParenIndex === null) {
+            if ($callArguments === null) {
                 continue;
             }
 
-            $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
-
-            if ($closeParenIndex === null) {
-                continue;
-            }
-
-            $argumentTokens = array_slice($tokens, $openParenIndex + 1, $closeParenIndex - $openParenIndex - 1);
-
-            return self::tokensToText(self::stripSafeWraps($argumentTokens));
+            return self::tokensToText(self::stripSafeWraps($callArguments[0]));
         }
 
         self::fail('No self::RISKY_ASSERTIONS call was found in the given fixture source.');
