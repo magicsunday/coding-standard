@@ -518,7 +518,7 @@ JS;
      * The shared "reject unless $process succeeded, scrubbing the error
      * output first" shape buildToolsFromDevDependencies(), requireSuccessfulInit()
      * and requireSuccessfulInstall() below each drove separately before this
-     * existed — requirePackedTarball() above keeps its own, differently-shaped
+     * existed — requirePackedTarball() below keeps its own, differently-shaped
      * three-part condition (also checking the produced tarball name and its
      * existence on disk) and is deliberately NOT routed through this helper.
      *
