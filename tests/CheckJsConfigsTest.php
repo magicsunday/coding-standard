@@ -393,13 +393,50 @@ JS;
     }
 
     /**
+     * Runs BUILD_TOOLS_SCRIPT against $root's own package.json — the SAME
+     * validation runBuildToolsSeparated() drives against a synthetic fixture
+     * further below — so packagedConsumer()'s real `npm install` argument
+     * list is built from THIS repository's own devDependencies only after
+     * they clear the identical unsafe-argument rejection, rather than being
+     * trusted unconditionally. Mirrors the bash original's own
+     * `mapfile -t tools < <(build_tools_from_devdependencies "$root" ...)`,
+     * which ran this validation on every single invocation, not only in a
+     * dedicated test.
+     *
+     * @param string $root The repository root to read package.json's devDependencies from.
+     *
+     * @return list<non-empty-string> Each devDependency as "name@version", safe to pass to npm as an argv element.
+     *
+     * @throws RuntimeException If a devDependencies entry is not safe to pass to npm as an argument, or if there are none.
+     */
+    private static function buildToolsFromDevDependencies(string $root): array
+    {
+        $process = new Process(['node', '-e', self::BUILD_TOOLS_SCRIPT], null, ['ROOT' => $root]);
+        $process->setTimeout(60.0);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            throw new RuntimeException("package.json's devDependencies are not safe to pass to npm as arguments.\n{$process->getErrorOutput()}");
+        }
+
+        $tools = array_values(array_filter(explode("\n", trim($process->getOutput())), static fn (string $tool): bool => $tool !== ''));
+
+        if ($tools === []) {
+            throw new RuntimeException('no devDependencies in package.json — nothing to pin the smoke to.');
+        }
+
+        return $tools;
+    }
+
+    /**
      * Builds the ONE throwaway npm project this suite's packaging-pipeline-
      * dependent tests share: `git write-tree` + `git archive` (the artefact a
      * `github:` install/`npm pack` actually ships, `.gitattributes`
      * export-ignore applied), `npm pack --ignore-scripts` on that archived
      * tree, `npm install --ignore-scripts` of the resulting tarball plus this
      * repository's own devDependencies (pinned exactly, the versions the
-     * smoke actually proves), then a canon biome.json/tsconfig.json extending
+     * smoke actually proves, and validated by buildToolsFromDevDependencies()
+     * before they ever reach npm's argv), then a canon biome.json/tsconfig.json extending
      * the installed package and one clean, correctly-formatted source file —
      * a permanently ACCEPTING baseline every other test either reads as-is
      * or mutates and restores via mutateConsumerFile().
@@ -463,20 +500,7 @@ JS;
             throw new RuntimeException("npm init -y failed.\n{$init->getErrorOutput()}");
         }
 
-        /** @var array<string, mixed> $rootPackageJson */
-        $rootPackageJson = (array) json_decode((string) file_get_contents("{$root}/package.json"), true, 512, JSON_THROW_ON_ERROR);
-        /** @var array<string, string> $rootDevDependencies */
-        $rootDevDependencies = (array) ($rootPackageJson['devDependencies'] ?? []);
-
-        $tools = [];
-
-        foreach ($rootDevDependencies as $name => $version) {
-            $tools[] = "{$name}@{$version}";
-        }
-
-        if ($tools === []) {
-            throw new RuntimeException('no devDependencies in package.json — nothing to pin the smoke to.');
-        }
+        $tools = self::buildToolsFromDevDependencies($root);
 
         $install = new Process([
             'npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts',
