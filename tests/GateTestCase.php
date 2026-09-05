@@ -23,6 +23,7 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function array_filter;
 use function count;
+use function dirname;
 use function explode;
 use function sprintf;
 use function str_contains;
@@ -382,5 +383,13 @@ abstract class GateTestCase extends TestCase
         self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
 
         return $out;
+    }
+
+    /**
+     * @return string Absolute path to the repository root.
+     */
+    protected static function root(): string
+    {
+        return dirname(__DIR__);
     }
 }

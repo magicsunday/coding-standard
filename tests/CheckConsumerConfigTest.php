@@ -26,7 +26,6 @@ use function chmod;
 use function chr;
 use function copy;
 use function count;
-use function dirname;
 use function explode;
 use function file_get_contents;
 use function file_put_contents;
@@ -192,14 +191,6 @@ final class CheckConsumerConfigTest extends GateTestCase
     // -------------------------------------------------------------------
     // Path / gate helpers
     // -------------------------------------------------------------------
-
-    /**
-     * @return string Absolute path to the repository root.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
-    }
 
     /**
      * @return string Absolute path to tests/consumer, the canonical fixture this gate must accept unmodified.

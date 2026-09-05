@@ -23,7 +23,6 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function array_filter;
 use function array_key_exists;
-use function dirname;
 use function explode;
 use function file_put_contents;
 use function implode;
@@ -414,14 +413,6 @@ console.log(`INFO     node ${process.versions.node} (devEngines floor >=${want})
 JS;
 
     /**
-     * @return string Absolute path to the repository root, whose own real package.json/biome/base.json canonManifestIsAccepted() proves.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
-    }
-
-    /**
      * Runs manifest_check() against $dir, the same way the bash original's
      * `ROOT="$1" node -e '...'` does: via the ROOT environment variable, not
      * an argv position — manifest_check() never reads process.argv. Delegates
@@ -643,6 +634,8 @@ JS;
     #[Test]
     public function canonManifestIsAccepted(): void
     {
+        // The repository root whose own real package.json/biome/base.json this
+        // method proves against, not a synthetic fixture.
         $this->assertManifestAccepts(self::root());
     }
 

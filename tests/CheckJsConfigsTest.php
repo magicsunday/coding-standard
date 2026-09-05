@@ -281,14 +281,6 @@ JS;
     }
 
     /**
-     * @return string Absolute path to the repository root.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
-    }
-
-    /**
      * Creates a real, class-scoped temporary directory with a
      * collision-free name, the same way tests/Support/FixtureDirectory.php's
      * constructor does for its own per-test root: the path is generated
