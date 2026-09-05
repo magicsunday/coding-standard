@@ -1150,7 +1150,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      *
      * @return array<string, array{0: string, 1: string}>
      */
-    public static function remainingWhitespaceTolerantRawOutputShapes(): array
+    public static function whitespaceTolerantRawOutputShapes(): array
     {
         return [
             '->\s*output' => [
@@ -1200,15 +1200,15 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
     /**
      * Verifies each `\s*`-widened self::RAW_OUTPUT_PATTERN alternative — the
-     * six self::remainingWhitespaceTolerantRawOutputShapes() rows this
-     * method is driven by — is still detected.
+     * six self::whitespaceTolerantRawOutputShapes() rows this method is
+     * driven by — is still detected.
      *
      * @param string $filename  The fixture file's bare name, written under this test's own fixture directory.
      * @param string $phpSource PHP source carrying the whitespace-varied raw-output shape under test.
      */
     #[Test]
-    #[DataProvider('remainingWhitespaceTolerantRawOutputShapes')]
-    public function detectsEachRemainingWhitespaceTolerantRawOutputPatternAlternative(string $filename, string $phpSource): void
+    #[DataProvider('whitespaceTolerantRawOutputShapes')]
+    public function detectsEachWhitespaceTolerantRawOutputPatternAlternative(string $filename, string $phpSource): void
     {
         $findings = $this->findingsFor($filename, $phpSource);
 
