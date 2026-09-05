@@ -454,10 +454,8 @@ harness_decide_rejects() {
 # uncaught-exception exit code, and the must-carry substring is checked with a
 # plain grep — so a crash whose text happens to contain it satisfies every
 # OTHER condition harness_decide_rejects checks. Driven rather than merely
-# asserted, the same discipline the now-PHPUnit-migrated check-js-configs.sh's
-# own crashing_gate probe used for the identical reason (#79): a probe that
-# stubs degraded() itself would
-# prove the regex again, not the wiring around it.
+# asserted: a probe that stubs degraded() itself would prove the regex again,
+# not the wiring around it.
 probe_degraded_reaches_reject_decision() {
     local crash
     crash="$(node -e 'throw new Error("boom biome/base.json")' 2>&1)"
