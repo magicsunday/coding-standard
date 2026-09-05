@@ -533,6 +533,9 @@ abstract class GateTestCase extends TestCase
      * @param string            $rejectedMessage The assertNotNull() message used when $invoke did not throw at all.
      *
      * @return T The caught exception, for the caller's own follow-up assertions.
+     *
+     * @throws AssertionFailedError If $invoke did not throw $exceptionClass at all.
+     * @throws Throwable If $invoke threw something other than $exceptionClass; propagated uncaught.
      */
     protected static function assertThrows(callable $invoke, string $exceptionClass, string $rejectedMessage): Throwable
     {
