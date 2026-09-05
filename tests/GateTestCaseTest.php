@@ -634,14 +634,17 @@ final class GateTestCaseTest extends GateTestCase
 
     /**
      * The shared "own failure message must not forge a workflow command"
-     * shape the six tests below each repeated independently before this
-     * existed: invoke a fixture-driving assertion that is EXPECTED to reject,
-     * capture the thrown AssertionFailedError, then check whether that
-     * exception's OWN message still carries the forged sequence it was
-     * poisoned with. $isForged and $redact are callables rather than a plain
-     * needle string because one call site (the modern `::` prefix) discriminates
-     * via a regex anchored to line start, not a plain str_contains() — every
-     * other call site's needle-based check fits the same two-callable shape.
+     * shape the tests below each repeated independently before this existed:
+     * invoke a fixture-driving assertion that is EXPECTED to reject, capture
+     * the thrown AssertionFailedError, then check whether that exception's
+     * OWN message still carries the forged sequence it was poisoned with.
+     * $isForged and $redact are callables rather than a plain needle string
+     * because one call site (the modern `::` prefix) discriminates via a
+     * regex anchored to line start, not a plain str_contains() — every other
+     * call site's needle-based check fits the same two-callable shape; the
+     * three legacy `##[` call sites share theirs via
+     * legacyPrefixSurvivedInMessage()/redactLegacyPrefixInMessage() below
+     * rather than repeating the pair inline.
      *
      * @param callable(): void         $invoke          Runs the fixture-driving assertion expected to throw.
      * @param string                   $rejectedMessage The assertNotNull() message if $invoke did not throw at all.
@@ -673,6 +676,36 @@ final class GateTestCaseTest extends GateTestCase
         if ($isForged($message)) {
             self::fail("{$forgesMessage}\n" . $redact($message));
         }
+    }
+
+    /**
+     * The shared $isForged check for the three legacy `##[` call sites of
+     * assertOwnFailureMessageDoesNotForgeWorkflowCommand() above
+     * (assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheLegacyPrefixBranch(),
+     * assertReportCarriesFailsWithoutForgingAWorkflowCommandInItsOwnMessage(),
+     * assertGateAcceptsFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheWrongExitCode()),
+     * each of which repeated this check inline before it was extracted here.
+     *
+     * @param string $message The caught exception's message.
+     *
+     * @return bool Whether the legacy `##[` workflow-command prefix survived.
+     */
+    private static function legacyPrefixSurvivedInMessage(string $message): bool
+    {
+        return str_contains($message, '##[');
+    }
+
+    /**
+     * The matching redaction for legacyPrefixSurvivedInMessage() above — see
+     * that method's own docblock for the three call sites sharing this pair.
+     *
+     * @param string $message The message to redact before self::fail() prints it.
+     *
+     * @return string $message with the legacy `##[` prefix broken.
+     */
+    private static function redactLegacyPrefixInMessage(string $message): string
+    {
+        return str_replace('#[', '#?[', $message);
     }
 
     #[Test]
@@ -722,8 +755,8 @@ final class GateTestCaseTest extends GateTestCase
                 $this->fixture()->path(),
             ),
             'assertGateReportIsInert() did not reject the `##[`-forged fixture.',
-            static fn (string $message): bool => str_contains($message, '##['),
-            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
             "assertGateReportIsInert()'s own `##[`-branch failure message still carries a legacy `##[` workflow command.",
         );
     }
@@ -767,8 +800,8 @@ final class GateTestCaseTest extends GateTestCase
                 'a substring the report never prints',
             ),
             'assertGateRejects() did not reject the fixture missing the must-carry substring.',
-            static fn (string $message): bool => str_contains($message, '##['),
-            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
             "assertReportCarries()'s own failure message still carries a legacy `##[` workflow command.",
         );
     }
@@ -798,8 +831,8 @@ final class GateTestCaseTest extends GateTestCase
                 $this->fixture()->path(),
             ),
             'assertGateAccepts() did not reject the wrong-exit-code fixture.',
-            static fn (string $message): bool => str_contains($message, '##['),
-            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
             "runAndAssertVerdict()'s own wrong-exit-code failure message still carries a legacy `##[` workflow command.",
         );
     }
