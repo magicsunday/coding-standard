@@ -1564,6 +1564,30 @@ TS),
         );
     }
 
+    /**
+     * The capture pattern's `[^`\n]*` exclusion (tightened from `[^`]*` in an
+     * earlier round) must stop the match at a literal newline: a markdown
+     * code span that genuinely spans multiple lines around the version
+     * number must be skipped entirely (preg_match() finds no match, so this
+     * method returns false), not silently matched with the newline and
+     * whatever follows it swallowed into the captured "version" — the
+     * correctness bug the tightening exists to prevent, independent of the
+     * scrub regression readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
+     * above already covers.
+     */
+    #[Test]
+    public function readmeToolVersionCaptureRejectsACodeSpanSpanningANewline(): void
+    {
+        $readme = "`typescript 5.0.16\nunexpected trailing content`";
+
+        $matched = $this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, ['typescript' => '5.0.16'], 'typescript');
+
+        self::assertFalse(
+            $matched,
+            'The tool-version capture matched across a literal newline inside the code span instead of skipping the multi-line span entirely.',
+        );
+    }
+
     // -------------------------------------------------------------------
     // A consumer extending both shared configs — the accept smoke.
     // -------------------------------------------------------------------
