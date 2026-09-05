@@ -15,7 +15,6 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
 use function array_slice;
-use function array_values;
 use function count;
 use function file_get_contents;
 use function file_put_contents;
@@ -220,10 +219,11 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * Tokenizes $source once via token_get_all(), then drops every
      * T_COMMENT/T_DOC_COMMENT token from the returned sequence entirely —
-     * re-indexed via array_values() so every later helper can walk it by a
-     * plain, contiguous integer index. Without this, a comment or docblock
-     * merely quoting a risky-assertion call as illustrative prose (this
-     * class's own docblock is exactly such a case) would false-positive
+     * appending only the kept tokens onto a fresh array leaves it a plain,
+     * contiguous-integer-indexed list every later helper can walk by index.
+     * Without this, a comment or docblock merely quoting a risky-assertion
+     * call as illustrative prose (this class's own docblock is exactly such
+     * a case) would false-positive
      * self::findUnscrubbedRawOutputAssertions() below; dropping the token
      * outright (rather than blanking its text in a reconstructed string, the
      * prior round's approach) means a later step never sees it at all.
@@ -244,7 +244,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             $tokens[] = $token;
         }
 
-        return array_values($tokens);
+        return $tokens;
     }
 
     /**
@@ -269,7 +269,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * significant token.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
-     * @param int                                            $fromIndex The index to start scanning from (inclusive).
+     * @param int                                           $fromIndex The index to start scanning from (inclusive).
      *
      * @return int|null The index of the next non-whitespace token, or null if $tokens ends first.
      */
@@ -298,7 +298,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * all, so this returns null rather than a wrong index.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
-     * @param int                                            $nameIndex The index of the T_STRING token naming the candidate call.
+     * @param int                                           $nameIndex The index of the T_STRING token naming the candidate call.
      *
      * @return int|null The index of the matching `(` token, or null when $nameIndex is not actually a call.
      */
@@ -328,7 +328,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * incidents this structurally forecloses.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens         self::significantTokens()'s output.
-     * @param int                                            $openParenIndex The index of the opening `(` token.
+     * @param int                                           $openParenIndex The index of the opening `(` token.
      *
      * @return int|null The index of the matching `)` token, or null if $tokens ends before depth returns to 0.
      */
@@ -389,7 +389,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * for the incident this structurally forecloses.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens   The token span to strip $funcName(...) calls from.
-     * @param string                                         $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
+     * @param string                                        $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
      *
      * @return list<string|array{0: int, 1: string, 2: int}> $tokens with every balanced $funcName(...) call removed.
      */
