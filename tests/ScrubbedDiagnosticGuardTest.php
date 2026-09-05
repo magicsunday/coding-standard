@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\CodingStandard\Test;
 
 use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 use function array_slice;
@@ -1095,6 +1096,72 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             $findings,
             'The guard did not flag a risky assertion whose raw operand carries whitespace around the `->` '
                 . 'operator ($result -> output), even though it is the exact same leak as the unspaced form.',
+        );
+    }
+
+    /**
+     * The previous test only exercises ONE of self::RAW_OUTPUT_PATTERN's six
+     * `\s*`-widened alternatives (`->\s*output`) — the other five
+     * (`->\s*getOutput\s*\(`, `->\s*getErrorOutput\s*\(`, `\$matches\s*\[`,
+     * `\[\s*'stdout'\s*\]`, `\[\s*'stderr'\s*\]`) had no coverage for their
+     * own whitespace-tolerant form, so a regression narrowing or dropping the
+     * `\s*` from any one of them could ship silently. One data-provider row
+     * per remaining alternative closes that gap without five near-identical
+     * test methods.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function remainingWhitespaceTolerantRawOutputShapes(): array
+    {
+        return [
+            '->\s*getOutput\s*\(' => [
+                'whitespace-getoutput-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame('x', $x, $result -> getOutput ());
+                PHP,
+            ],
+            '->\s*getErrorOutput\s*\(' => [
+                'whitespace-geterroroutput-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame('x', $x, $result -> getErrorOutput ());
+                PHP,
+            ],
+            '\$matches\s*\[' => [
+                'whitespace-matches-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame($matches [1], $x, 'boom');
+                PHP,
+            ],
+            "[\s*'stdout'\s*]" => [
+                'whitespace-stdout-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame('x', $x, $result[ 'stdout' ]);
+                PHP,
+            ],
+            "[\s*'stderr'\s*]" => [
+                'whitespace-stderr-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame('x', $x, $result[ 'stderr' ]);
+                PHP,
+            ],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('remainingWhitespaceTolerantRawOutputShapes')]
+    public function detectsEachRemainingWhitespaceTolerantRawOutputPatternAlternative(string $filename, string $phpSource): void
+    {
+        $findings = $this->findingsFor($filename, $phpSource);
+
+        self::assertNotEmpty(
+            $findings,
+            "The guard did not flag a whitespace-varied raw-output shape ({$filename}), even though "
+                . 'self::RAW_OUTPUT_PATTERN was widened with \s* specifically to tolerate it.',
         );
     }
 }
