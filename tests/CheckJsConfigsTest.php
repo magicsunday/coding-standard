@@ -1565,7 +1565,8 @@ TS),
      * test-authored literal — fed into a plain PHP string comparison that
      * NEVER routes through GateProcess/GateTestCase's own scrub apparatus, a
      * structurally different path from every subprocess-output assertion
-     * rounds 6-8 already covered.
+     * RISKY_ASSERTIONS-style checks (see
+     * tests/ScrubbedDiagnosticGuardTest.php) scan for.
      *
      * The capture pattern excludes a literal newline explicitly
      * (`[^`\n]*` rather than `[^`]*`) as defense in depth on top of the
@@ -1664,8 +1665,8 @@ TS),
     }
 
     /**
-     * The capture pattern's `[^`\n]*` exclusion (tightened from `[^`]*` in an
-     * earlier round) must stop the match at a literal newline: a markdown
+     * The capture pattern's `[^`\n]*` exclusion — narrower than a plain
+     * `[^`]*` — must stop the match at a literal newline: a markdown
      * code span that genuinely spans multiple lines around the version
      * number must be skipped entirely (preg_match() finds no match, so this
      * method returns false), not silently matched with the newline and
@@ -2335,8 +2336,8 @@ JS;
     // -------------------------------------------------------------------
     // Hardening guards this suite's own harness relies on — tearDown()'s
     // restore-failure handling and makeTempDir()'s mkdir()-failure branch —
-    // both untested since the round that introduced them (a broken guard
-    // would have shipped silently).
+    // had no dedicated regression test before the two methods below (a
+    // broken guard would have shipped silently).
     // -------------------------------------------------------------------
 
     /**
@@ -2425,8 +2426,9 @@ JS;
      * the expected message string locally is what makes this discriminating:
      * reverting scrubbedForDiagnostic()'s wrap at that production throw site
      * fails the final assertion here, not merely leaves a differently-worded
-     * but still-green test standing — a defect a prior round's own
-     * "added a regression test" claim did not actually catch.
+     * but still-green test standing — a defect a regression test that only
+     * hand-reconstructs the expected message locally, rather than catching
+     * $throwSite()'s own real exception, would not actually catch.
      *
      * The control-fixture check below is a manual str_contains() + self::fail(),
      * the same shape assertMessageDoesNotForgeWorkflowCommand() above is
