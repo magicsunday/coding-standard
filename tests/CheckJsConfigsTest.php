@@ -1465,26 +1465,102 @@ TS),
         $documentedCount = 0;
 
         foreach ($tools as $tool) {
-            $pattern = '#`' . preg_quote($tool, '#') . ' ([0-9][^`]*)`#';
-
-            if (preg_match($pattern, $readme, $matches) !== 1) {
-                continue;
+            if ($this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, $devDependencies, $tool)) {
+                ++$documentedCount;
             }
-
-            ++$documentedCount;
-            $actual = $devDependencies[$tool] ?? null;
-
-            self::assertSame(
-                $matches[1],
-                $actual,
-                sprintf('README documents %s %s but package.json pins %s', $tool, $matches[1], $actual ?? 'nothing'),
-            );
         }
 
         self::assertSame(
             3,
             $documentedCount,
             'README no longer documents all three tool versions in the shape this control reads — reword the control, not only the prose.',
+        );
+    }
+
+    /**
+     * The per-tool capture-and-compare hoisted out of
+     * readmeToolVersionsMatchTheDevDependenciesPins() above so
+     * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand() below can
+     * drive this exact assertSame() throw site directly. $readme is this
+     * repository's own README.md prose — PR-editable content, not a
+     * test-authored literal — fed into a plain PHP string comparison that
+     * NEVER routes through GateProcess/GateTestCase's own scrub apparatus, a
+     * structurally different path from every subprocess-output assertion
+     * rounds 6-8 already covered.
+     *
+     * The capture pattern excludes a literal newline explicitly
+     * (`[^`\n]*` rather than `[^`]*`) as defense in depth on top of the
+     * scrub below: a negated PCRE character class matches "\n" unless
+     * excluded — unlike the "." metacharacter, which needs no `/s` modifier
+     * to exclude it — so the unguarded pattern could capture a code span
+     * spanning a real newline (`` `@biomejs/biome
+     * 2.5.10\n::error title=pwned::forged` ``) whole into $matches[1]. Tightening
+     * it here is bundled with the scrub fix because it sits on the exact same
+     * line and is not merely a security hardening: a genuinely multi-line
+     * "version" string would otherwise be silently ACCEPTED as a match rather
+     * than skipped, which is a correctness bug in its own right.
+     *
+     * @param string                $readme          The full README.md contents.
+     * @param array<string, string> $devDependencies package.json's devDependencies map.
+     * @param string                $tool            The devDependency name to check (e.g. "typescript").
+     *
+     * @return bool Whether $readme documents a version pin for $tool at all.
+     */
+    private function assertReadmeToolVersionMatchesDevDependenciesPin(string $readme, array $devDependencies, string $tool): bool
+    {
+        $pattern = '#`' . preg_quote($tool, '#') . ' ([0-9][^`\n]*)`#';
+
+        if (preg_match($pattern, $readme, $matches) !== 1) {
+            return false;
+        }
+
+        $actual = $devDependencies[$tool] ?? null;
+
+        self::assertSame(
+            $matches[1],
+            $actual,
+            sprintf(
+                'README documents %s %s but package.json pins %s',
+                $tool,
+                self::scrubbedForDiagnostic($matches[1]),
+                self::scrubbedForDiagnostic($actual ?? 'nothing'),
+            ),
+        );
+
+        return true;
+    }
+
+    /**
+     * assertReadmeToolVersionMatchesDevDependenciesPin()'s own assertSame()
+     * above embeds $matches[1] and $actual raw in its failure message — both
+     * are PR-editable content (README.md prose and package.json's
+     * devDependencies pin respectively), so a genuine mismatch (a real
+     * version bump landing in one file but not the other) could carry a
+     * forged workflow command straight into this assertion's own message.
+     * Drives the extracted check directly with a crafted README carrying a
+     * poisoned version string and a devDependencies pin that genuinely
+     * differs, so the assertion fails for the real, intended reason rather
+     * than being short-circuited by the regex-tightening guard above.
+     */
+    #[Test]
+    public function readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand(): void
+    {
+        $readme = '`typescript 5.0.16 ::error title=pwned::forged`';
+
+        $thrown = null;
+
+        try {
+            $this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, ['typescript' => '5.0.16'], 'typescript');
+        } catch (AssertionFailedError $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'The lockstep check did not reject a mismatched pin.');
+
+        self::assertMessageDoesNotForgeWorkflowCommand(
+            $thrown->getMessage(),
+            '::error title=pwned::forged',
+            'The lockstep mismatch diagnostic forged a workflow command.',
         );
     }
 
