@@ -380,7 +380,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * a call name and its opening `(` without also skipping past a
      * significant token.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    The output of self::significantTokens().
      * @param int                                           $fromIndex The index to start scanning from (inclusive).
      *
      * @return int|null The index of the next non-whitespace token, or null if $tokens ends first.
@@ -411,7 +411,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * with no call following it (or followed by something else entirely) is
      * not a call at all, so this returns null rather than a wrong index.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    The output of self::significantTokens().
      * @param int                                           $nameIndex The index of the T_STRING token naming the candidate call.
      *
      * @return int|null The index of the matching `(` token, or null when $nameIndex is not actually a call.
@@ -437,7 +437,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * the extent this returns the way a byte-level scan over reconstructed
      * text could.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens         self::significantTokens()'s output.
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens         The output of self::significantTokens().
      * @param int                                           $openParenIndex The index of the opening `(` token.
      *
      * @return int|null The index of the matching `)` token, or null if $tokens ends before depth returns to 0.
@@ -564,7 +564,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * each independently fixing a live-reproduced bypass) only needs ONE
      * call site updated, not two kept in sync by hand.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens    The output of self::significantTokens().
      * @param int                                           $nameIndex The index of the token naming the candidate call.
      *
      * @return array{0: list<string|array{0: int, 1: string, 2: int}>, 1: int}|null A [argument tokens, closing `)` index] pair, or null when $nameIndex is not actually a call.
