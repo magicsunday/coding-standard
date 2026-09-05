@@ -558,15 +558,11 @@ JS;
     #[Test]
     public function assertMessageDoesNotForgeWorkflowCommandFailsWhenTheNeedleIsPresent(): void
     {
-        $thrown = null;
-
-        try {
-            self::assertMessageDoesNotForgeWorkflowCommand('haystack carrying ::error::forged', '::error::forged', 'label');
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertMessageDoesNotForgeWorkflowCommand() did not fail when the haystack genuinely carries the needle.');
+        self::assertThrows(
+            static fn () => self::assertMessageDoesNotForgeWorkflowCommand('haystack carrying ::error::forged', '::error::forged', 'label'),
+            AssertionFailedError::class,
+            'assertMessageDoesNotForgeWorkflowCommand() did not fail when the haystack genuinely carries the needle.',
+        );
     }
 
     /**
@@ -1022,15 +1018,11 @@ TS),
         $dir = $this->fixture()->path();
         $this->fixture()->writeJson('package.json', ['devDependencies' => ['typescript' => '5.0.16 ##[error]forged']]);
 
-        $thrown = null;
-
-        try {
-            self::buildToolsFromDevDependencies($dir);
-        } catch (RuntimeException $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'buildToolsFromDevDependencies() did not reject the unsafe entry.');
+        $thrown = self::assertThrows(
+            static fn () => self::buildToolsFromDevDependencies($dir),
+            RuntimeException::class,
+            'buildToolsFromDevDependencies() did not reject the unsafe entry.',
+        );
 
         $message = $thrown->getMessage();
 
@@ -1404,15 +1396,11 @@ TS),
     {
         $poisoned = "forged\n::error title=pwned::forged";
 
-        $thrown = null;
-
-        try {
-            $this->assertFilesAllowListEntryIsPresentInTarball($poisoned, ['some/other/path']);
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'The presence check did not reject an entry absent from the tarball.');
+        $thrown = self::assertThrows(
+            fn () => $this->assertFilesAllowListEntryIsPresentInTarball($poisoned, ['some/other/path']),
+            AssertionFailedError::class,
+            'The presence check did not reject an entry absent from the tarball.',
+        );
 
         self::assertMessageDoesNotForgeWorkflowCommand(
             $thrown->getMessage(),
@@ -1639,15 +1627,11 @@ TS),
     {
         $readme = '`typescript 5.0.16 ::error title=pwned::forged`';
 
-        $thrown = null;
-
-        try {
-            $this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, ['typescript' => '5.0.16'], 'typescript');
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'The lockstep check did not reject a mismatched pin.');
+        $thrown = self::assertThrows(
+            fn () => $this->assertReadmeToolVersionMatchesDevDependenciesPin($readme, ['typescript' => '5.0.16'], 'typescript'),
+            AssertionFailedError::class,
+            'The lockstep check did not reject a mismatched pin.',
+        );
 
         self::assertMessageDoesNotForgeWorkflowCommand(
             $thrown->getMessage(),
@@ -1779,15 +1763,11 @@ TS),
             self::fail(self::diagnosticMessage("The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.", $result->output));
         }
 
-        $thrown = null;
-
-        try {
-            $this->assertAccepted($result, 'biome ci — shared config rejected or the clean fixture reported findings.');
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'The poisoned config no longer fails the scrubbed assertion this test drives.');
+        $thrown = self::assertThrows(
+            fn () => $this->assertAccepted($result, 'biome ci — shared config rejected or the clean fixture reported findings.'),
+            AssertionFailedError::class,
+            'The poisoned config no longer fails the scrubbed assertion this test drives.',
+        );
 
         self::assertMessageDoesNotForgeWorkflowCommand(
             $thrown->getMessage(),
@@ -2366,19 +2346,18 @@ JS;
         unlink($path);
         mkdir($path, 0o700);
 
-        $thrown = null;
-
         try {
-            $this->tearDown();
-        } catch (RuntimeException $exception) {
-            $thrown = $exception;
+            $thrown = self::assertThrows(
+                fn () => $this->tearDown(),
+                RuntimeException::class,
+                'tearDown() did not report the failed restore.',
+            );
         } finally {
             if (is_dir($path)) {
                 rmdir($path);
             }
         }
 
-        self::assertNotNull($thrown, 'tearDown() did not report the failed restore.');
         self::assertStringContainsString($path, $thrown->getMessage());
         self::assertNull(
             self::$packagedConsumer,
@@ -2458,15 +2437,11 @@ JS;
             self::fail(self::diagnosticMessage("{$label} — the control fixture's own raw npm error no longer carries the poisoned sequence; this test is not exercising the trap it claims to.", $process->getErrorOutput()));
         }
 
-        $thrown = null;
-
-        try {
-            $throwSite();
-        } catch (RuntimeException $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, "{$label} — the real production throw site did not throw a RuntimeException.");
+        $thrown = self::assertThrows(
+            $throwSite,
+            RuntimeException::class,
+            "{$label} — the real production throw site did not throw a RuntimeException.",
+        );
 
         self::assertMessageDoesNotForgeWorkflowCommand(
             $thrown->getMessage(),
