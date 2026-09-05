@@ -1565,7 +1565,7 @@ TS),
      * test-authored literal — fed into a plain PHP string comparison that
      * NEVER routes through GateProcess/GateTestCase's own scrub apparatus, a
      * structurally different path from every subprocess-output assertion
-     * RISKY_ASSERTIONS-style checks (see
+     * that RISKY_ASSERTIONS-style checks (see
      * tests/ScrubbedDiagnosticGuardTest.php) scan for.
      *
      * The capture pattern excludes a literal newline explicitly
