@@ -48,6 +48,7 @@ use function rmdir;
 use function rtrim;
 use function sort;
 use function sprintf;
+use function str_contains;
 use function str_replace;
 use function str_starts_with;
 use function strlen;
@@ -889,6 +890,21 @@ TS),
      * docblock above dates (2026-09-05) — the exact channel a runner scans
      * unanchored for that prefix. safeSubprocessOutput() must break it
      * before it gets there.
+     *
+     * Both containment checks below are a manual str_contains() + self::fail(),
+     * never assertStringContainsString()/assertStringNotContainsString() —
+     * $thrown->getMessage() is exactly the value this test exists to prove is
+     * scrubbed, so it can legitimately still carry the poison on the very
+     * regression this test exists to catch. PHPUnit's own Constraint::fail()
+     * unconditionally re-embeds the FULL, RAW haystack into the thrown
+     * ExpectationFailedException's own message via failureDescription() — with
+     * no length cap and no escaping of `#`, `[` or `:` — regardless of any
+     * custom $message argument passed alongside it, so a real failure of
+     * either assertStringContainsString()/assertStringNotContainsString()
+     * would forge the very annotation this test exists to prove is prevented.
+     * self::fail() takes a literal string with no such re-embedding, so each
+     * diagnostic below scrubs $thrown->getMessage() through
+     * safeSubprocessOutput() before handing it to self::fail().
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
@@ -905,16 +921,22 @@ TS),
         }
 
         self::assertNotNull($thrown, 'buildToolsFromDevDependencies() did not reject the unsafe entry.');
-        self::assertStringContainsString(
-            'forged',
-            $thrown->getMessage(),
-            "The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.\n{$thrown->getMessage()}",
-        );
-        self::assertStringNotContainsString(
-            '##[',
-            $thrown->getMessage(),
-            "The exception message still carries the legacy workflow-command prefix.\n{$thrown->getMessage()}",
-        );
+
+        $message = $thrown->getMessage();
+
+        if (!str_contains($message, 'forged')) {
+            self::fail(
+                "The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.\n"
+                    . self::safeSubprocessOutput($message),
+            );
+        }
+
+        if (str_contains($message, '##[')) {
+            self::fail(
+                "The exception message still carries the legacy workflow-command prefix.\n"
+                    . self::safeSubprocessOutput($message),
+            );
+        }
     }
 
     /**
@@ -2033,6 +2055,23 @@ JS;
      * but still-green test standing — a defect a prior round's own
      * "added a regression test" claim did not actually catch.
      *
+     * Every containment check below is a manual str_contains() + self::fail(),
+     * never assertStringContainsString()/assertStringNotContainsString():
+     * PHPUnit's own Constraint::fail() unconditionally re-embeds the FULL,
+     * RAW haystack into the thrown ExpectationFailedException's own message
+     * via failureDescription() — with no length cap and no escaping of `#`,
+     * `[` or `:` — regardless of any custom $message argument passed
+     * alongside it. Both haystacks checked below can legitimately carry the
+     * poison ($process->getErrorOutput() by this fixture's own deliberate
+     * construction, $thrown->getMessage() on exactly the regression this test
+     * exists to catch), and a PHPUnit assertion FAILURE message reaches
+     * console output exactly as verbatim as an uncaught exception's message
+     * (dated on this class's own docblock above) — so letting either
+     * constraint fail for real would forge the very annotation this test
+     * exists to prove is prevented. self::fail() takes a literal string with
+     * no such re-embedding, so every diagnostic below scrubs its own haystack
+     * through safeSubprocessOutput() before handing it to self::fail().
+     *
      * @param Process          $process   The already-run, deliberately failing npm subprocess.
      * @param callable(): void $throwSite Invokes the real production method that re-derives $process's own outcome and throws.
      * @param string           $label     A short description of the operation, used in every assertion message.
@@ -2041,28 +2080,18 @@ JS;
      */
     private function assertRealThrowSiteCannotForgeAWorkflowCommand(Process $process, callable $throwSite, string $label): void
     {
-        // Both failure messages below embed the subprocess output through
-        // safeSubprocessOutput() rather than raw: the fixture deliberately
-        // carries `##[error]forged`, and a PHPUnit assertion FAILURE message
-        // reaches console output exactly as verbatim as an uncaught
-        // exception's message (dated on this class's own docblock above).
-        // Were either control assertion to ever fail for real, an unscrubbed
-        // message here would forge the very annotation this test exists to
-        // prove is prevented. The bare $process->getErrorOutput() passed as
-        // assertStringContainsString()'s own haystack argument below stays
-        // raw on purpose — scrubbing it would change the property under
-        // test, not just its diagnostic.
         self::assertFalse(
             $process->isSuccessful(),
             "{$label} unexpectedly succeeded — this control fixture is not testing what it claims.\n"
                 . self::safeSubprocessOutput($process->getOutput() . $process->getErrorOutput()),
         );
-        self::assertStringContainsString(
-            '##[',
-            $process->getErrorOutput(),
-            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n"
-                . self::safeSubprocessOutput($process->getErrorOutput()),
-        );
+
+        if (!str_contains($process->getErrorOutput(), '##[')) {
+            self::fail(
+                "{$label} — the control fixture's own raw npm error no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
+                    . self::safeSubprocessOutput($process->getErrorOutput()),
+            );
+        }
 
         $thrown = null;
 
@@ -2073,11 +2102,13 @@ JS;
         }
 
         self::assertNotNull($thrown, "{$label} — the real production throw site did not throw a RuntimeException.");
-        self::assertStringNotContainsString(
-            '##[',
-            $thrown->getMessage(),
-            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$thrown->getMessage()}",
-        );
+
+        if (str_contains($thrown->getMessage(), '##[')) {
+            self::fail(
+                "{$label} — the scrubbed exception message still carries the legacy workflow-command prefix.\n"
+                    . self::safeSubprocessOutput($thrown->getMessage()),
+            );
+        }
     }
 
     /**
