@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -42,6 +43,7 @@ use function rtrim;
 use function sort;
 use function sprintf;
 use function str_starts_with;
+use function strlen;
 use function sys_get_temp_dir;
 use function trim;
 use function uniqid;
@@ -188,22 +190,31 @@ JS;
     /**
      * Restores or removes every file mutateConsumerFile() touched during
      * this test, then defers to GateTestCase's own per-test fixture()
-     * cleanup.
+     * cleanup. Guarded, not `@`-suppressed, the same way FixtureDirectory
+     * guards its own filesystem calls: the shared, class-scoped
+     * packagedConsumer() fixture is reused across every test method in this
+     * class, so a silently failed restore here would corrupt state for every
+     * REMAINING test in the run rather than just this one, with nothing to
+     * point at the cause.
      *
      * @return void
      *
-     * @throws RuntimeException If the fixture directory or a file inside it cannot be removed.
+     * @throws RuntimeException If a mutated file cannot be restored or removed.
      */
     protected function tearDown(): void
     {
         foreach ($this->consumerFileMutations as $path => $original) {
             if ($original === null) {
-                @unlink($path);
+                if (FixtureDirectory::withoutWarnings(static fn (): bool => unlink($path)) !== true) {
+                    throw new RuntimeException(sprintf('Could not remove mutated consumer file: %s', $path));
+                }
 
                 continue;
             }
 
-            file_put_contents($path, $original);
+            if (FixtureDirectory::withoutWarnings(static fn (): int|false => file_put_contents($path, $original)) !== strlen($original)) {
+                throw new RuntimeException(sprintf('Could not restore mutated consumer file: %s', $path));
+            }
         }
 
         $this->consumerFileMutations = [];
