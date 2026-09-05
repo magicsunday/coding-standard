@@ -48,6 +48,7 @@ use function rmdir;
 use function rtrim;
 use function sort;
 use function sprintf;
+use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function sys_get_temp_dir;
@@ -477,13 +478,32 @@ JS;
      * reject (no whitespace, not empty, no NUL, no leading dash) can still
      * carry `##[` through to a real npm error naming that argument.
      *
+     * Additionally breaks every `::` occurrence — a step scrubReportControlBytes()
+     * itself deliberately does NOT take (its own docblock records why: `::` is
+     * legitimate in a namespaced identifier such as `Vendor\Package::method`, and
+     * changing that would mangle every OTHER caller's report line on every run).
+     * This file's own call sites do not carry that risk and cannot skip the `::`
+     * defence either: every one of them embeds $value directly after a literal
+     * `\n` in the exception message, i.e. at true column 0 of a new line — exactly
+     * the placement the modern `::cmd::` parser needs (it TrimStart()s first, so
+     * leading whitespace does not protect a line), and a real npm/node error can
+     * itself carry an embedded newline, putting a later `::` at column 0 the same
+     * way. Currently this is only INCIDENTALLY safe (real npm/node error text
+     * happens to always carry a fixed prefix, such as "npm error ", before any
+     * attacker-influenced content) rather than structurally guaranteed, so this
+     * scrubs every occurrence rather than only a leading one — the same
+     * unconditional scope scrubReportControlBytes()'s own `##[` break already
+     * uses, for the same reason (breaking every occurrence costs nothing and
+     * removes the need to reason about exact placement as the message text
+     * around it changes).
+     *
      * @param string $value The raw subprocess error output to embed.
      *
-     * @return string The value scrubbed per scrubReportControlBytes(), uncapped.
+     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence additionally broken, uncapped.
      */
     private static function safeSubprocessOutput(string $value): string
     {
-        return scrubReportControlBytes($value);
+        return str_replace('::', ':?:', scrubReportControlBytes($value));
     }
 
     /**
