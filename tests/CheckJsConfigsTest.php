@@ -395,21 +395,24 @@ JS;
      *
      * Several callers drive this with a $result whose $result->output comes
      * from running Biome/tsc against the shared, PR-editable
-     * packagedConsumer() config (e.g. biomeRefusesAnExtensionlessBiomeExtendsSpecifier(),
-     * rejectsALooseEqualityComparison(), rejectsFormatterDrift(),
-     * rejectsADebuggerStatementViaTheRecommendedPreset(),
-     * rejectsAnExtensionlessImport(), rejectsAnUncheckedIndexedAccess()) — a
-     * poisoned biome/base.json or tsconfig/base.json could otherwise forge a
+     * packagedConsumer() config — re-derive the current caller list with
+     * `grep -n 'assertRejectedForReason(' tests/CheckJsConfigsTest.php`
+     * rather than trusting a name list frozen here. A poisoned
+     * biome/base.json or tsconfig/base.json could otherwise forge a
      * `##[`/`::` workflow-command sequence through this method's own default
      * failure messages below, the same defect class GateTestCase's
      * assertGateReportIsInert()/assertReportCarries() and this file's own
-     * scrubbedForDiagnostic()-based tests exist to prevent. Both of this
-     * method's own default-message assertions therefore scrub $result->output
-     * through GateTestCase::scrubbedForDiagnostic() (inherited by this class)
-     * before it can land in a failed assertion. A caller that supplies its
-     * own non-empty $message embedding $result->output must scrub it there
-     * itself — this method uses that message verbatim and cannot scrub it a
-     * second time.
+     * scrubbedForDiagnostic()-based tests exist to prevent. Neither of this
+     * method's internal assertions passes $result->output as the assertion
+     * SUBJECT: the exit-code check compares plain integers, and the
+     * per-pattern check computes preg_match() manually and calls self::fail()
+     * with a message composed entirely by this method, so PHPUnit's own
+     * Exporter::export() of the subject/actual/expected operand — which a
+     * scrubbed custom $message cannot suppress — never sees the raw output
+     * either. This closes the class fully for this method's own internal
+     * assertions; a caller that supplies its own non-empty $message embedding
+     * $result->output must still scrub it there itself, since this method
+     * uses that message verbatim.
      *
      * @param GateResult   $result          The captured run to check.
      * @param list<string> $mustAllMatch    PCRE fragments (no delimiter) every one of which must match $result->output.
@@ -429,11 +432,12 @@ JS;
         $flags = $caseInsensitive ? 'i' : '';
 
         foreach ($mustAllMatch as $pattern) {
-            self::assertMatchesRegularExpression(
-                "#{$pattern}#{$flags}",
-                $result->output,
-                $message !== '' ? $message : "Rejected, but not for the tested reason.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            if (preg_match("#{$pattern}#{$flags}", $result->output) !== 1) {
+                self::fail(
+                    ($message !== '' ? $message : 'Rejected, but not for the tested reason.')
+                        . "\n" . self::scrubbedForDiagnostic($result->output),
+                );
+            }
         }
     }
 
