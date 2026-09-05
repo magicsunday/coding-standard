@@ -895,7 +895,7 @@ TS),
 
         $result = $this->runBuildToolsSeparated($dir);
 
-        self::assertSame(0, $result['exitCode'], "Rejected an ordinary pin: {$result['stderr']}");
+        self::assertSame(0, $result['exitCode'], 'Rejected an ordinary pin: ' . self::scrubbedForDiagnostic($result['stderr']));
         self::assertSame('typescript@5.0.16', trim($result['stdout']));
     }
 
@@ -1075,7 +1075,11 @@ TS),
     {
         $probe = $this->packIgnoreScriptsProbe(true, 'prepack-suppressed');
 
-        self::assertSame(0, $probe['result']->exitCode, "npm pack (suppressed) failed.\n{$probe['result']->output}");
+        self::assertSame(
+            0,
+            $probe['result']->exitCode,
+            "npm pack (suppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
+        );
         self::assertFileDoesNotExist($probe['marker'], 'npm pack --ignore-scripts did not suppress prepack.');
     }
 
@@ -1089,7 +1093,11 @@ TS),
     {
         $probe = $this->packIgnoreScriptsProbe(false, 'prepack-unsuppressed');
 
-        self::assertSame(0, $probe['result']->exitCode, "npm pack (unsuppressed) failed.\n{$probe['result']->output}");
+        self::assertSame(
+            0,
+            $probe['result']->exitCode,
+            "npm pack (unsuppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
+        );
         self::assertFileExists($probe['marker'], 'npm pack without --ignore-scripts did not run prepack — the mutation control no longer discriminates.');
     }
 
@@ -1105,7 +1113,7 @@ TS),
     private function packIgnoreScriptsProbeForInstall(string $dir): string
     {
         $pack = $this->runCommand(['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'], $dir);
-        self::assertSame(0, $pack->exitCode, "npm pack failed.\n{$pack->output}");
+        self::assertSame(0, $pack->exitCode, "npm pack failed.\n" . self::scrubbedForDiagnostic($pack->output));
 
         return "{$dir}/" . trim($pack->output);
     }
@@ -1135,7 +1143,7 @@ TS),
         $consumerDir = "{$dir}/consumer";
         mkdir($consumerDir);
         $init = $this->runCommand(['npm', 'init', '-y'], $consumerDir);
-        self::assertSame(0, $init->exitCode, "npm init -y failed.\n{$init->output}");
+        self::assertSame(0, $init->exitCode, "npm init -y failed.\n" . self::scrubbedForDiagnostic($init->output));
 
         $command = ['npm', 'install', '--no-audit', '--no-fund'];
 
@@ -1161,7 +1169,11 @@ TS),
     {
         $probe = $this->installIgnoreScriptsProbe(true, 'postinstall-suppressed');
 
-        self::assertSame(0, $probe['result']->exitCode, "npm install (suppressed) failed.\n{$probe['result']->output}");
+        self::assertSame(
+            0,
+            $probe['result']->exitCode,
+            "npm install (suppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
+        );
         self::assertFileDoesNotExist($probe['marker'], 'npm install --ignore-scripts did not suppress postinstall.');
     }
 
@@ -1174,7 +1186,11 @@ TS),
     {
         $probe = $this->installIgnoreScriptsProbe(false, 'postinstall-unsuppressed');
 
-        self::assertSame(0, $probe['result']->exitCode, "npm install (unsuppressed) failed.\n{$probe['result']->output}");
+        self::assertSame(
+            0,
+            $probe['result']->exitCode,
+            "npm install (unsuppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
+        );
         self::assertFileExists($probe['marker'], 'npm install without --ignore-scripts did not run postinstall — the mutation control no longer discriminates.');
     }
 
