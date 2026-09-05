@@ -1090,46 +1090,30 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * self::RAW_OUTPUT_PATTERN's own whitespace-tolerance control: valid,
      * compilable PHP may put whitespace around the `->` operator
-     * (`$result -> output`), which self::openParenIndexAfter() already
-     * tolerates via self::nextNonWhitespaceIndex() on the wrap-recognition
-     * side — the regex side must tolerate the identical shape, not rely on
-     * this repository's own CGL step to keep that shape from ever reaching
-     * this guard (see self::RAW_OUTPUT_PATTERN's own docblock for which
-     * fixer that is today and how to re-derive it).
-     */
-    #[Test]
-    public function detectsARiskyAssertionUsingRawOutputWithWhitespaceAroundTheObjectOperator(): void
-    {
-        $findings = $this->findingsFor(
-            'whitespace-around-object-operator-fixture.php',
-            <<<'PHP'
-            <?php
-            self::assertSame(0, $x, "boom " . $result -> output);
-            PHP,
-        );
-
-        self::assertNotEmpty(
-            $findings,
-            'The guard did not flag a risky assertion whose raw operand carries whitespace around the `->` '
-                . 'operator ($result -> output), even though it is the exact same leak as the unspaced form.',
-        );
-    }
-
-    /**
-     * The previous test only exercises ONE of self::RAW_OUTPUT_PATTERN's six
-     * `\s*`-widened alternatives (`->\s*output`) — the other five
-     * (`->\s*getOutput\s*\(`, `->\s*getErrorOutput\s*\(`, `\$matches\s*\[`,
-     * `\[\s*'stdout'\s*\]`, `\[\s*'stderr'\s*\]`) had no coverage for their
-     * own whitespace-tolerant form, so a regression narrowing or dropping the
-     * `\s*` from any one of them could ship silently. One data-provider row
-     * per remaining alternative closes that gap without five near-identical
-     * test methods.
+     * (`$result -> output`) or inside a bracket/parenthesis pair, which
+     * self::openParenIndexAfter() already tolerates via
+     * self::nextNonWhitespaceIndex() on the wrap-recognition side — the
+     * regex side must tolerate the identical shape for each of its six
+     * alternatives, not rely on this repository's own CGL step to keep such
+     * whitespace from ever reaching this guard (see
+     * self::RAW_OUTPUT_PATTERN's own docblock for which fixer that is today
+     * and how to re-derive it). A regression narrowing or dropping the `\s*`
+     * from any one alternative could ship silently, so one data-provider row
+     * per alternative closes that gap without six near-identical test
+     * methods.
      *
      * @return array<string, array{0: string, 1: string}>
      */
     public static function remainingWhitespaceTolerantRawOutputShapes(): array
     {
         return [
+            '->\s*output' => [
+                'whitespace-around-object-operator-fixture.php',
+                <<<'PHP'
+                <?php
+                self::assertSame(0, $x, "boom " . $result -> output);
+                PHP,
+            ],
             '->\s*getOutput\s*\(' => [
                 'whitespace-getoutput-fixture.php',
                 <<<'PHP'
@@ -1169,9 +1153,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Verifies each remaining `\s*`-widened self::RAW_OUTPUT_PATTERN
-     * alternative — the five self::remainingWhitespaceTolerantRawOutputShapes()
-     * rows this method is driven by — is still detected.
+     * Verifies each `\s*`-widened self::RAW_OUTPUT_PATTERN alternative — the
+     * six self::remainingWhitespaceTolerantRawOutputShapes() rows this
+     * method is driven by — is still detected.
      *
      * @param string $filename  The fixture file's bare name, written under this test's own fixture directory.
      * @param string $phpSource PHP source carrying the whitespace-varied raw-output shape under test.
