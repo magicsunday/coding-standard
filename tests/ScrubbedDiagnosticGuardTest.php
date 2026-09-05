@@ -1180,6 +1180,14 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         ];
     }
 
+    /**
+     * Verifies each remaining `\s*`-widened self::RAW_OUTPUT_PATTERN
+     * alternative — the five self::remainingWhitespaceTolerantRawOutputShapes()
+     * rows this method is driven by — is still detected.
+     *
+     * @param string $filename  The fixture file's bare name, written under this test's own fixture directory.
+     * @param string $phpSource PHP source carrying the whitespace-varied raw-output shape under test.
+     */
     #[Test]
     #[DataProvider('remainingWhitespaceTolerantRawOutputShapes')]
     public function detectsEachRemainingWhitespaceTolerantRawOutputPatternAlternative(string $filename, string $phpSource): void
