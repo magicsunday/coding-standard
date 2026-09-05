@@ -1136,17 +1136,18 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * self::RAW_OUTPUT_PATTERN's own whitespace-tolerance control: valid,
      * compilable PHP may put whitespace around the `->` operator
-     * (`$result -> output`) or inside a bracket/parenthesis pair, which
-     * self::openParenIndexAfter() already tolerates via
-     * self::nextNonWhitespaceIndex() on the wrap-recognition side — the
-     * regex side must tolerate the identical shape for each of its six
-     * alternatives, not rely on this repository's own CGL step to keep such
-     * whitespace from ever reaching this guard (see
-     * self::RAW_OUTPUT_PATTERN's own docblock for which fixer that is today
-     * and how to re-derive it). A regression narrowing or dropping the `\s*`
-     * from any one alternative could ship silently, so one data-provider row
-     * per alternative closes that gap without six near-identical test
-     * methods.
+     * (`$result -> output`), between a method name and its own opening paren
+     * (`getOutput ()` — the same kind of gap self::openParenIndexAfter()
+     * already skips over via self::nextNonWhitespaceIndex() when it locates
+     * a RISKY_ASSERTIONS/SAFE_WRAP_CALLS call's own `(`), or inside a bracket
+     * pair (`$result[ 'stdout' ]`). Valid PHP allows all three, so the regex
+     * must tolerate them too for each of its six alternatives, not rely on
+     * this repository's own CGL step to keep such whitespace from ever
+     * reaching this guard (see self::RAW_OUTPUT_PATTERN's own docblock for
+     * which fixer that is today and how to re-derive it). A regression
+     * narrowing or dropping the `\s*` from any one alternative could ship
+     * silently, so one data-provider row per alternative closes that gap
+     * without six near-identical test methods.
      *
      * @return array<string, array{0: string, 1: string}>
      */
