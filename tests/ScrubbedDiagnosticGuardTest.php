@@ -309,6 +309,28 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
+     * Writes $phpSource to $filename inside this test's fixture directory,
+     * then scans it via self::findUnscrubbedRawOutputAssertions() — the
+     * "write a fixture file, scan it" shape every self-test below (this
+     * guard's own controls, proving it actually discriminates rather than
+     * always returning the same result regardless of input) repeated
+     * independently before this existed. Each caller keeps its own distinct
+     * $filename/$phpSource/assertion; only this boilerplate collapses.
+     *
+     * @param string $filename  The fixture file's bare name, written under this test's own fixture directory.
+     * @param string $phpSource The PHP source to write into it.
+     *
+     * @return list<string> One description per finding, empty when none.
+     */
+    private function findingsFor(string $filename, string $phpSource): array
+    {
+        $path = "{$this->fixture()->path()}/{$filename}";
+        file_put_contents($path, $phpSource);
+
+        return self::findUnscrubbedRawOutputAssertions($path);
+    }
+
+    /**
      * The regression guard itself: none of the files self::guardedFiles()
      * lists may call one of self::RISKY_ASSERTIONS with a raw, unscrubbed
      * subprocess-output accessor anywhere in its own argument list. A future
@@ -348,18 +370,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function detectsAnIntentionallyReintroducedRawOutputAssertion(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/poisoned-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'poisoned-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame(0, $result->exitCode, "boom\n{$result->output}");
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertNotEmpty($findings, 'The guard did not flag a deliberately unscrubbed assertSame() call — it is not exercising the check it claims to.');
     }
@@ -375,18 +392,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function doesNotFlagAProperlyScrubbedAssertion(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/clean-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'clean-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame(0, $result->exitCode, self::diagnosticMessage('label', $result->output));
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside a sanctioned scrub wrap.');
     }
@@ -403,18 +415,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function doesNotFlagAnAssertionScrubbedViaMessageWithOutput(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/clean-message-with-output-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'clean-message-with-output-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame(0, $result->exitCode, self::messageWithOutput('', 'label', $result->output));
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside self::messageWithOutput().');
     }
@@ -430,18 +437,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function detectsARiskyAssertionUsingARegexCaptureVariable(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/poisoned-matches-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'poisoned-matches-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame($matches[1], $actual, 'boom');
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertNotEmpty($findings, 'The guard did not flag a risky assertion using a regex-capture variable ($matches[1]) as its raw operand.');
     }
@@ -455,18 +457,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function detectsARiskyAssertionUsingAnArrayKeyAccess(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/poisoned-array-key-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'poisoned-array-key-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame('typescript@5.0.16', trim($result['stdout']));
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertNotEmpty($findings, "The guard did not flag a risky assertion using an array-key access (\$result['stdout']) as its raw operand.");
     }
@@ -481,11 +478,8 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     #[Test]
     public function doesNotFlagARiskyAssertionMentionedOnlyInAComment(): void
     {
-        $dir  = $this->fixture()->path();
-        $path = "{$dir}/commented-mention-fixture.php";
-
-        file_put_contents(
-            $path,
+        $findings = $this->findingsFor(
+            'commented-mention-fixture.php',
             <<<'PHP'
             <?php
 
@@ -500,8 +494,6 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             }
             PHP,
         );
-
-        $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertSame([], $findings, 'The guard flagged a risky-assertion call that only appears inside a comment/docblock, never as real code.');
     }
