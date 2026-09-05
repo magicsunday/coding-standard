@@ -1783,12 +1783,12 @@ JS;
      * makeTempDir()'s own mkdir()-failure branch. The random suffix mkdir()
      * appends cannot be pre-occupied by name (unlike FixtureDirectoryTest's
      * own fixed-name probes), and overriding sys_get_temp_dir() itself via
-     * `putenv("TMPDIR=...")` does not work here: PHP's sys_get_temp_dir()
-     * memoizes its result for the lifetime of the process (verified against
-     * the installed PHP — a putenv() call made after ANYTHING else in the
-     * same process has already called sys_get_temp_dir(), including
-     * PHPUnit's own harness, has no effect at all, even under
-     * #[RunInSeparateProcess]). makeTempDir()'s own optional $baseDirectory
+     * `putenv("TMPDIR=...")` does not work here: as observed 2026-09-05
+     * against the installed PHP (8.3-8.5), sys_get_temp_dir() memoizes its
+     * result for the process lifetime — a putenv() call made after ANYTHING
+     * else in the same process has already called sys_get_temp_dir(),
+     * including PHPUnit's own harness, has no effect at all, even under
+     * #[RunInSeparateProcess]. makeTempDir()'s own optional $baseDirectory
      * parameter exists for exactly this: a plain FILE (not a directory)
      * passed as the base forces mkdir()'s recursive creation to fail
      * deterministically, regardless of the random suffix.
