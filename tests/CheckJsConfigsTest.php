@@ -1570,6 +1570,15 @@ TS),
 
     /**
      * The shared config loads and a clean fixture passes, on both tools.
+     *
+     * $biome->output/$tsc->output are scrubbed before landing in either
+     * failure message below: both run against this repository's own real
+     * biome/base.json and tsconfig/base.json — PR-editable shipped configs,
+     * not test-authored literals — and AGENTS.md's own documented incident
+     * notes Biome's config deserializer echoing an unrecognized key back
+     * verbatim in its error text, so a crafted key could reach this
+     * assertion's own message the same way a subprocess-output assertion
+     * would.
      */
     #[Test]
     public function sharedConfigAcceptsAConsumerExtendingBiomeAndTsconfig(): void
@@ -1577,10 +1586,18 @@ TS),
         $consumerDir = self::packagedConsumer()['consumerDir'];
 
         $biome = $this->biomeCi($consumerDir);
-        self::assertSame(0, $biome->exitCode, "biome ci — shared config rejected or the clean fixture reported findings.\n{$biome->output}");
+        self::assertSame(
+            0,
+            $biome->exitCode,
+            "biome ci — shared config rejected or the clean fixture reported findings.\n" . self::scrubbedForDiagnostic($biome->output),
+        );
 
         $tsc = $this->runTsc($consumerDir);
-        self::assertSame(0, $tsc->exitCode, "tsc — shared config rejected or the clean fixture failed to compile.\n{$tsc->output}");
+        self::assertSame(
+            0,
+            $tsc->exitCode,
+            "tsc — shared config rejected or the clean fixture failed to compile.\n" . self::scrubbedForDiagnostic($tsc->output),
+        );
     }
 
     // -------------------------------------------------------------------
@@ -1652,6 +1669,10 @@ TS);
      * The house rule the shared config exists to carry: a local ESM import
      * spells the extension `.js`, in TypeScript sources too — what TS ESM
      * emits and what tsc resolves. Both tools accept the same fixture.
+     *
+     * $biome->output/$tsc->output are scrubbed for the same reason as
+     * sharedConfigAcceptsAConsumerExtendingBiomeAndTsconfig()'s own docblock
+     * above — see that method, not repeated here.
      */
     #[Test]
     public function acceptsTheHouseJsImportExtensionInBiomeAndTsc(): void
@@ -1665,10 +1686,18 @@ export const doubled = (): number => value * 2;
 TS);
 
         $biome = $this->biomeCi($consumerDir);
-        self::assertSame(0, $biome->exitCode, "biome — the house .js import extension was rejected.\n{$biome->output}");
+        self::assertSame(
+            0,
+            $biome->exitCode,
+            "biome — the house .js import extension was rejected.\n" . self::scrubbedForDiagnostic($biome->output),
+        );
 
         $tsc = $this->runTsc($consumerDir);
-        self::assertSame(0, $tsc->exitCode, "tsc — the house .js import extension failed to compile.\n{$tsc->output}");
+        self::assertSame(
+            0,
+            $tsc->exitCode,
+            "tsc — the house .js import extension failed to compile.\n" . self::scrubbedForDiagnostic($tsc->output),
+        );
     }
 
     /**
