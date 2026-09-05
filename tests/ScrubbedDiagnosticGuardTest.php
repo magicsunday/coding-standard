@@ -147,8 +147,10 @@ use const T_WHITESPACE;
  *   repository's own `@Symfony`/`@PER-CS2x0` ruleset does NOT normalize
  *   curly-brace dynamic access away, so nothing upstream of this guard
  *   prevents the shape from being written. Confirmed via
- *   `grep -noF '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
- *   tests/CheckJsConfigsManifestTest.php`: no current call site in any of
+ *   `grep -noF -- '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
+ *   tests/CheckJsConfigsManifestTest.php` (the `--` is required: without it,
+ *   a pattern starting with `-` is parsed as an option, not the search
+ *   text): no current call site in any of
  *   self::guardedFiles() uses this syntax. If this construct is ever
  *   intentionally introduced into a guarded file, the guard would need a
  *   targeted extension at that point — not before.
