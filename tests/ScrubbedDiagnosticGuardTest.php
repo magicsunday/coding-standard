@@ -197,7 +197,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * @param string $text     The text to strip $funcName(...) calls from.
      * @param string $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
      *
-     * @return string $text with every balanced $funcName(...) call removed.
+     * @return string The text with every balanced $funcName(...) call removed.
      */
     private static function stripBalancedCalls(string $text, string $funcName): string
     {

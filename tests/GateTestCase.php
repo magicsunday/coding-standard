@@ -455,7 +455,7 @@ abstract class GateTestCase extends TestCase
      * @param string $label  The failure label, used verbatim.
      * @param string $output The raw value to scrub before appending.
      *
-     * @return string $label, a newline, then $output scrubbed.
+     * @return string The label, a newline, then the output scrubbed.
      */
     protected static function diagnosticMessage(string $label, string $output): string
     {
@@ -477,7 +477,7 @@ abstract class GateTestCase extends TestCase
      * @param string $default The failure label used when $message is empty.
      * @param string $output  The raw value to scrub before appending, when $message is empty.
      *
-     * @return string $message verbatim, or $default plus $output scrubbed when $message is empty.
+     * @return string The message verbatim, or the default plus the output scrubbed when the message is empty.
      */
     protected static function messageOrDefault(string $message, string $default, string $output): string
     {
@@ -500,7 +500,7 @@ abstract class GateTestCase extends TestCase
      * @param string $default The failure label used when $message is empty.
      * @param string $output  The raw value to scrub before appending.
      *
-     * @return string $message or $default, followed by $output scrubbed.
+     * @return string The message or the default, followed by the output scrubbed.
      */
     protected static function messageWithOutput(string $message, string $default, string $output): string
     {

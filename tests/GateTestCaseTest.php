@@ -712,6 +712,10 @@ final class GateTestCaseTest extends GateTestCase
         return str_replace('#[', '#?[', $message);
     }
 
+    /**
+     * Isolates the ESC-byte self::fail() call site — see this class's own
+     * docblock above for why a combined fixture cannot prove this branch.
+     */
     #[Test]
     public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheEscapeByteBranch(): void
     {

@@ -495,16 +495,17 @@ JS;
      * Writes $packageJson (engines-default injected) plus a biome/base.json
      * whose $schema is $schemaValue VERBATIM — for the fixtures whose own
      * point is a $schema the derivation in manifestFixture() could not
-     * produce. $schemaValue is typed mixed because the schema-array case
-     * (rejectsASchemaValueThatIsAnArray()) proves the TYPE check, not the
-     * shape one — json_encode() renders whatever JSON type it is handed.
+     * produce. $schemaValue also accepts a list<string> because the
+     * schema-array case (rejectsASchemaValueThatIsAnArray()) proves the TYPE
+     * check, not the shape one — json_encode() renders whatever JSON type it
+     * is handed.
      *
-     * @param array<string, mixed> $packageJson The package.json body, before engines-default injection.
-     * @param mixed                $schemaValue The raw $schema value to write, unmodified.
+     * @param array<string, mixed>      $packageJson The package.json body, before engines-default injection.
+     * @param array<int, string>|string $schemaValue The raw $schema value to write, unmodified.
      *
      * @return string The fixture directory.
      */
-    private function manifestFixtureWithSchema(array $packageJson, mixed $schemaValue): string
+    private function manifestFixtureWithSchema(array $packageJson, array|string $schemaValue): string
     {
         $dir = $this->fixture()->path();
         $this->writePackageJson($packageJson);
