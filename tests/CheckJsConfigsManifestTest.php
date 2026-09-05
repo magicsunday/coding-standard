@@ -15,6 +15,7 @@ use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessStartFailedException;
@@ -47,6 +48,10 @@ use function unlink;
  * case here uses an ordinary fresh per-test fixture() directory, unlike the
  * packaging-pipeline-dependent cases in CheckJsConfigsTest.
  *
+ * `#[Group('js-packaging')]` marks this class as PHP-version-invariant the
+ * same way CheckJsConfigsTest's own docblock explains — see there for the
+ * full reasoning and the matching .github/workflows/ci.yml step.
+ *
  * MANIFEST_CHECK_SCRIPT is a byte-for-byte copy of the `node -e '...'` body
  * the now-PHPUnit-migrated check-js-configs.sh passed to node, including its
  * own WHY comments: it is the literal payload under test, not a paraphrase
@@ -70,6 +75,7 @@ use function unlink;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversNothing]
+#[Group('js-packaging')]
 final class CheckJsConfigsManifestTest extends GateTestCase
 {
     /**

@@ -151,8 +151,18 @@ jobs:
             # there is what makes beStrictAboutCoverageMetadata actually
             # evaluate, which is the enforcement this flag exists for, not a
             # human-facing report; the other legs run the bare command.
+            #
+            # CheckJsConfigsTest and CheckJsConfigsManifestTest (both tagged
+            # #[Group('js-packaging')] — see CheckJsConfigsTest's own
+            # docblock) drive a real git-archive/npm-pack/npm-install/Biome/
+            # tsc/jscpd pipeline that exercises none of this package's own
+            # PHP-version-dependent code, so running the group on all three
+            # matrix legs would triple its real CI cost for zero additional
+            # coverage. --exclude-group it on every leg except this
+            # repository's own floor (composer.json's `require.php`, '8.3 -
+            # 8.5') so the group still runs exactly once per CI run.
             - name: PHPUnit
-              run: composer ci:test:phpunit${{ matrix.coverage != 'none' && ' -- --coverage-text' || '' }}
+              run: composer ci:test:phpunit -- ${{ matrix.php != '8.3' && '--exclude-group js-packaging' || '' }} ${{ matrix.coverage != 'none' && '--coverage-text' || '' }}
 
             # tests/consumer/composer.json's require-dev hand-copies each
             # opt-in strict-tier package's version constraint from composer.json's

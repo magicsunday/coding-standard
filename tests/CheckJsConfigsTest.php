@@ -16,6 +16,7 @@ use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -86,6 +87,14 @@ use const JSON_THROW_ON_ERROR;
  * `executionOrder="depends,defects"` (phpunit.xml.dist) does not guarantee
  * declaration order.
  *
+ * `#[Group('js-packaging')]` marks this class (and CheckJsConfigsManifestTest)
+ * as PHP-version-invariant: the packaging pipeline this class drives (git
+ * archive, npm pack/install, Biome/tsc/jscpd) exercises none of this
+ * package's own PHP-version-dependent code, so .github/workflows/ci.yml's
+ * `build` job runs the group on only ONE matrix leg (`php == '8.3'`, this
+ * repository's own floor) rather than once per PHP version — see that
+ * workflow's own PHPUnit step comment for the reasoning.
+ *
  * Ported and NOT ported, and why, not repeated per test method below:
  *   - probe_reporters, harness_probe_report_inertness and its own nested
  *     probe_work_nested_scratch_is_cleaned_up_after_hard_abort, and
@@ -110,6 +119,7 @@ use const JSON_THROW_ON_ERROR;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversNothing]
+#[Group('js-packaging')]
 final class CheckJsConfigsTest extends GateTestCase
 {
     /**
