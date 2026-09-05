@@ -489,12 +489,12 @@ abstract class GateTestCase extends TestCase
      * $output scrubbed, regardless of whether $message is empty: $message
      * verbatim when non-empty, otherwise $default, either way followed by a
      * newline and $output scrubbed through self::scrubbedForDiagnostic().
-     * Collapses the
-     * `($message !== '' ? $message : $default) . "\n" . self::scrubbedForDiagnostic($output)`
-     * shape repeated at several call sites in this class and its subclasses
-     * into one call. Distinct from messageOrDefault(), whose "$message
-     * verbatim, no scrub applied" semantics do not append $output when
-     * $message is non-empty.
+     * Delegates the actual label-plus-scrubbed-output composition to
+     * self::diagnosticMessage() rather than repeating its own copy of the
+     * `<label> . "\n" . self::scrubbedForDiagnostic($output)` shape — the
+     * only thing this method adds on top is picking $message over $default.
+     * Distinct from messageOrDefault(), whose "$message verbatim, no scrub
+     * applied" semantics do not append $output when $message is non-empty.
      *
      * @param string $message The caller-supplied message, used verbatim when non-empty.
      * @param string $default The failure label used when $message is empty.
@@ -504,7 +504,7 @@ abstract class GateTestCase extends TestCase
      */
     protected static function messageWithOutput(string $message, string $default, string $output): string
     {
-        return ($message !== '' ? $message : $default) . "\n" . self::scrubbedForDiagnostic($output);
+        return self::diagnosticMessage($message !== '' ? $message : $default, $output);
     }
 
     /**
