@@ -2080,4 +2080,25 @@ JS;
             "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
         );
     }
+
+    /**
+     * scrubReportControlBytes()'s own control-byte-stripping half, direct
+     * and independent of any real subprocess invocation: every regression
+     * test above only ever feeds a `##[`- or `::`-carrying value through the
+     * scrub and checks that PREFIX is broken, so a broken or narrowed
+     * `[\x00-\x1F\x7F]` character class (an off-by-one, a typo'd range)
+     * could ship silently, unnoticed by any of them. Measured directly
+     * against the installed PHP (2026-09-05):
+     * `scrubReportControlBytes("a\x01b\x7fc")` produces `"a?b?c"` — \x01 (a
+     * C0 control byte) and \x7f (DEL) each replaced by a literal `?`, the
+     * ordinary ASCII bytes either side left untouched. Calls the shared
+     * bin/support/safe-report-value.php function directly (required near
+     * the top of this file), not this class's own safeSubprocessOutput()
+     * wrapper, since the property under test belongs to the shared core.
+     */
+    #[Test]
+    public function scrubReportControlBytesReplacesControlBytesWithAQuestionMark(): void
+    {
+        self::assertSame('a?b?c', scrubReportControlBytes("a\x01b\x7fc"));
+    }
 }
