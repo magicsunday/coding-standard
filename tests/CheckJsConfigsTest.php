@@ -112,9 +112,13 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  *     entry forging a workflow command in output a CI runner scans — not
  *     applicable to a normal PHPUnit assertion failure, which goes through
  *     PHPUnit's own trusted assertion API rather than an echoed report line.
- *     An UNCAUGHT exception message is a different matter (PHPUnit prints it
- *     verbatim to its own console output) and is not exempt from this
- *     concern — see safeSubprocessOutput()'s own call sites in
+ *     An UNCAUGHT exception message is a different matter and is not exempt
+ *     from this concern: as observed 2026-09-05 against the installed
+ *     PHPUnit (8.3-8.5), an uncaught exception's message is printed verbatim
+ *     to console output — the safeSubprocessOutput() docblock below and
+ *     buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
+ *     own docblock further down both point back to this observation rather
+ *     than repeating it. See safeSubprocessOutput()'s own call sites in
  *     packagedConsumer() and buildToolsFromDevDependencies() below, which
  *     scrub subprocess error output for exactly that reason.
  *     bin/check-js-config.mjs's OWN report-inertness is a different, separate
@@ -466,10 +470,11 @@ JS;
      * scrubReportControlBytes()'s C0/DEL control-byte strip and legacy `##[`
      * GitHub Actions workflow-command prefix break — the same core
      * bin/support/safe-report-value.php's own safeReportValue() applies to a
-     * shipped gate's own report line — for the same reason, since PHPUnit
-     * echoes an uncaught exception's message to its own console output
-     * verbatim, the exact channel a runner scans unanchored for that prefix.
-     * Deliberately WITHOUT safeReportValue()'s own 64-byte cap: this message
+     * shipped gate's own report line — for the same reason (see this class's
+     * own docblock above for the dated observation that an uncaught
+     * exception's message reaches console output verbatim, the exact
+     * channel a runner scans unanchored for that prefix). Deliberately
+     * WITHOUT safeReportValue()'s own 64-byte cap: this message
      * is a developer-facing diagnostic for an ordinary packaging/smoke
      * failure, not a one-line machine-parsed report, and truncating a real
      * npm error to 64 bytes would cost far more debugging value than the
@@ -798,9 +803,10 @@ TS),
      * devDependency name or value carrying the legacy `##[` GitHub Actions
      * workflow-command prefix (JSON.stringify() does not escape `#`, `[` or
      * `]`) would reach this class's own uncaught RuntimeException message,
-     * which PHPUnit echoes to its own console output, the exact channel a
-     * runner scans unanchored for that prefix. safeSubprocessOutput() must
-     * break it before it gets there.
+     * which reaches console output the same verbatim way this class's own
+     * docblock above dates (2026-09-05) — the exact channel a runner scans
+     * unanchored for that prefix. safeSubprocessOutput() must break it
+     * before it gets there.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
