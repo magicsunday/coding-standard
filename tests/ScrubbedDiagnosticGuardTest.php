@@ -730,4 +730,104 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
                 . 'paren, even though a genuinely unwrapped $result->output follows it in the same argument list.',
         );
     }
+
+    /**
+     * Live-reproduced against the prior round's byte-mask-plus-strpos()
+     * mechanism before this round's token-array rewrite: a sanctioned
+     * wrap-call NAME appearing merely as decoy TEXT inside a PRECEDING
+     * string literal (never a real call) was matched by a plain needle
+     * search as if it were one, then the prior mechanism's balanced-call
+     * extractor — invoked as though the matched position were a real
+     * opening `(` when it was actually inside a masked string-literal span
+     * — never returned to depth 0 within that same string and consumed
+     * forward past it, swallowing the genuinely unwrapped `$result->output`
+     * that follows along with it. Locating a candidate by T_STRING token
+     * instead of a byte-level needle search forecloses this structurally:
+     * the tokenizer never emits a T_STRING token for text inside a string
+     * literal.
+     */
+    #[Test]
+    public function detectsARiskyAssertionDisguisedByADecoyWrapNameInAPrecedingStringLiteral(): void
+    {
+        $findings = $this->findingsFor(
+            'decoy-wrap-name-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, 'Use messageOrDefault(...) to build this: ' . $result->output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose message argument merely MENTIONS a sanctioned wrap '
+                . 'name as decoy text inside a preceding string literal, even though a genuinely unwrapped '
+                . '$result->output follows it in the same argument list.',
+        );
+    }
+
+    /**
+     * self::stripBalancedCallsFromTokens()'s own identifier-boundary
+     * control: a helper whose name merely ENDS WITH a sanctioned wrap name
+     * (`xscrubbedForDiagnostic`, not the real `scrubbedForDiagnostic`) must
+     * NOT be treated as the sanctioned wrap — proving the T_STRING match is
+     * exact, not the substring match a byte-level `strpos($text,
+     * "scrubbedForDiagnostic(")` needle search would have performed. No
+     * such collision exists in this codebase today; this guards against one
+     * a future helper could introduce.
+     */
+    #[Test]
+    public function doesNotConfuseAHelperNameThatMerelyEndsWithASanctionedWrapName(): void
+    {
+        $findings = $this->findingsFor(
+            'substring-identifier-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, self::xscrubbedForDiagnostic($result->output));
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose raw $result->output is wrapped only by a helper whose '
+                . 'name merely ENDS WITH a sanctioned wrap name (xscrubbedForDiagnostic), not the sanctioned '
+                . 'scrubbedForDiagnostic() itself — the match must be exact, not a substring.',
+        );
+    }
+
+    /**
+     * The closing-paren half of self::matchingCloseParenIndex()'s
+     * string-literal-safety, mirroring
+     * detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen()'s
+     * already-covered opening-paren half — using a NOWDOC (`<<<'MSG'`) for
+     * the wrap's own string argument, doubling as this class's own heredoc/
+     * nowdoc-content regression case: verified via token_get_all() that a
+     * nowdoc BODY tokenizes as T_ENCAPSED_AND_WHITESPACE, the identical
+     * opaque-token shape as any other string content (see this class's own
+     * docblock), so its embedded CLOSING `)` (`Looks good :)`) must not be
+     * mistaken for the wrap call's own closing paren either. The wrap
+     * call's true extent — through the real `)` right after its own
+     * `$result->output` argument — must still be correctly found and
+     * stripped, leaving the trailing, genuinely unwrapped `. $result->output`
+     * that follows it detected.
+     */
+    #[Test]
+    public function doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument(): void
+    {
+        $findings = $this->findingsFor(
+            'closing-paren-in-wrap-nowdoc-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, self::messageWithOutput($message, <<<'MSG'
+            Looks good :)
+            MSG, $result->output) . $result->output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose sanctioned-wrap OWN nowdoc argument carries an '
+                . 'embedded closing paren, even though a genuinely unwrapped $result->output follows the wrap '
+                . 'call in the same argument list.',
+        );
+    }
 }
