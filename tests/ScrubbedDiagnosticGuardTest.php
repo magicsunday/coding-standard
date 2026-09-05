@@ -137,13 +137,15 @@ use const T_WHITESPACE;
  *   this guard exists to catch).
  * - self::RAW_OUTPUT_PATTERN also flags a regex-capture variable
  *   (`$matches[`) and an array-key access shaped like subprocess output
- *   (`['stdout']`/`['stderr']`), on top of the direct `->output`/
- *   `->getOutput()`/`->getErrorOutput()` accessors, applied to
- *   self::tokensToText()'s reconstruction of a call's own argument tokens
- *   (with every sanctioned wrap span already removed) — but it still
- *   matches by fixed literal shape, not real data-flow, so a raw value
- *   reaching a risky assertion through a differently-named variable or a
- *   deeper array/object path is still not detected.
+ *   (`['stdout']`/`['stderr']`, SINGLE-QUOTED only — a double-quoted
+ *   `["stdout"]`/`["stderr"]` is not matched, an accepted, honest limitation
+ *   confirmed to have no live instance in any of self::guardedFiles() today),
+ *   on top of the direct `->output`/`->getOutput()`/`->getErrorOutput()`
+ *   accessors, applied to self::tokensToText()'s reconstruction of a call's
+ *   own argument tokens (with every sanctioned wrap span already removed) —
+ *   but it still matches by fixed literal shape, not real data-flow, so a
+ *   raw value reaching a risky assertion through a differently-named
+ *   variable or a deeper array/object path is still not detected.
  * - self::significantTokens() drops every T_COMMENT/T_DOC_COMMENT token
  *   from the sequence outright, so a comment or docblock merely quoting a
  *   risky-assertion call as illustrative prose is not flagged.
@@ -201,9 +203,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * like `$result -> output` (spaces around `->`) or
      * `$result[ 'stdout' ]` (spaces inside brackets) would carry the exact
      * same leak yet go undetected by this regex alone, even though this
-     * repository's own CGL step (`object_operator_without_whitespace`/
-     * `no_spaces_around_offset`) currently rejects that shape before this
-     * guard is ever reached.
+     * repository's own CGL step currently rejects that shape before this
+     * guard is ever reached — re-derive which fixer does so, and from which
+     * ruleset, via `php-cs-fixer describe object_operator_without_whitespace`/
+     * `php-cs-fixer describe no_spaces_around_offset` (both report
+     * "part of … @Symfony", the ruleset php-cs-fixer/base.php's own
+     * `setRules()` enables) rather than trusting this citation if that
+     * ruleset ever changes.
      */
     private const RAW_OUTPUT_PATTERN = '/->\s*output\b|->\s*getOutput\s*\(|->\s*getErrorOutput\s*\(|\$matches\s*\[|\[\s*\'stdout\'\s*\]|\[\s*\'stderr\'\s*\]/';
 
@@ -1051,8 +1057,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * (`$result -> output`), which self::openParenIndexAfter() already
      * tolerates via self::nextNonWhitespaceIndex() on the wrap-recognition
      * side — the regex side must tolerate the identical shape, not rely on
-     * this repository's own CGL step (`object_operator_without_whitespace`)
-     * to keep that shape from ever reaching this guard.
+     * this repository's own CGL step to keep that shape from ever reaching
+     * this guard (see self::RAW_OUTPUT_PATTERN's own docblock for which
+     * fixer that is today and how to re-derive it).
      */
     #[Test]
     public function detectsARiskyAssertionUsingRawOutputWithWhitespaceAroundTheObjectOperator(): void
