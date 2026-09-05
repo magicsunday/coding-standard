@@ -628,7 +628,12 @@ final class GateTestCaseTest extends GateTestCase
     // `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
     // on the leading whitespace so it counts only real call sites, not this
     // comment's own mentions of self::fail()) if this method's own
-    // check order ever changes. Each test below therefore drives exactly ONE
+    // check order ever changes — that command currently returns SIX matches
+    // for the whole file, not five: it also catches runAndAssertVerdict()'s
+    // own unrelated exit-code self::fail(), between assertGateReportIsInert()
+    // and assertReportCarries() in file order, so scope the count to the two
+    // methods this comment describes, not the file-wide grep result. Each
+    // test below therefore drives exactly ONE
     // branch in isolation, with a fixture carrying no earlier-checked forgery
     // that would short-circuit past it — via
     // assertOwnFailureMessageDoesNotForgeWorkflowCommand() below, which every
