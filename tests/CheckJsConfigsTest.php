@@ -393,25 +393,23 @@ JS;
      * pattern must match (AND, not OR); an alternation inside one pattern
      * already gets the OR case.
      *
-     * MUST NOT be used with a $result whose $result->output may itself carry
-     * attacker/consumer-influenced content that could embed a `##[` or `::`
-     * workflow-command forgery — assertMatchesRegularExpression() below hands
-     * $result->output straight to PHPUnit, whose Constraint::fail()/
-     * failureDescription() mechanism unconditionally re-embeds the FULL, RAW
-     * haystack into a failed assertion's own message (dated observation:
-     * see buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
-     * own docblock above, not repeated here). Every current caller of this
-     * method drives it with a non-adversarial fixture (verify via
-     * `grep -n 'assertRejectedForReason(' tests/CheckJsConfigsTest.php` that no
-     * call site passes adversarial output), so this is currently latent, not
-     * exploited — but it is the "obvious" helper a future reject-path
-     * poison-regression test would reach for, which would silently
-     * reintroduce the exact defect class GateTestCase's
+     * Several callers drive this with a $result whose $result->output comes
+     * from running Biome/tsc against the shared, PR-editable
+     * packagedConsumer() config (e.g. biomeRefusesAnExtensionlessBiomeExtendsSpecifier(),
+     * rejectsALooseEqualityComparison(), rejectsFormatterDrift(),
+     * rejectsADebuggerStatementViaTheRecommendedPreset(),
+     * rejectsAnExtensionlessImport(), rejectsAnUncheckedIndexedAccess()) — a
+     * poisoned biome/base.json or tsconfig/base.json could otherwise forge a
+     * `##[`/`::` workflow-command sequence through this method's own default
+     * failure messages below, the same defect class GateTestCase's
      * assertGateReportIsInert()/assertReportCarries() and this file's own
-     * scrubbedForDiagnostic()-based tests exist to prevent. A future test
-     * needing a poisoned $result here must use the manual
-     * str_contains()/preg_match() + self::fail() pattern instead, scrubbing
-     * the diagnostic first (see GateTestCase::scrubbedForDiagnostic(), inherited by this class).
+     * scrubbedForDiagnostic()-based tests exist to prevent. Both of this
+     * method's own default-message assertions therefore scrub $result->output
+     * through GateTestCase::scrubbedForDiagnostic() (inherited by this class)
+     * before it can land in a failed assertion. A caller that supplies its
+     * own non-empty $message embedding $result->output must scrub it there
+     * itself — this method uses that message verbatim and cannot scrub it a
+     * second time.
      *
      * @param GateResult   $result          The captured run to check.
      * @param list<string> $mustAllMatch    PCRE fragments (no delimiter) every one of which must match $result->output.
@@ -422,7 +420,11 @@ JS;
      */
     private function assertRejectedForReason(GateResult $result, array $mustAllMatch, bool $caseInsensitive = false, string $message = ''): void
     {
-        self::assertNotSame(0, $result->exitCode, $message !== '' ? $message : "Accepted; the rule is not in force.\n{$result->output}");
+        self::assertNotSame(
+            0,
+            $result->exitCode,
+            $message !== '' ? $message : "Accepted; the rule is not in force.\n" . self::scrubbedForDiagnostic($result->output),
+        );
 
         $flags = $caseInsensitive ? 'i' : '';
 
@@ -430,7 +432,7 @@ JS;
             self::assertMatchesRegularExpression(
                 "#{$pattern}#{$flags}",
                 $result->output,
-                $message !== '' ? $message : "Rejected, but not for the tested reason.\n{$result->output}",
+                $message !== '' ? $message : "Rejected, but not for the tested reason.\n" . self::scrubbedForDiagnostic($result->output),
             );
         }
     }
