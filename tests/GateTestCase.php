@@ -34,8 +34,10 @@ use function strlen;
 use function substr;
 
 // scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
-// this class's own scrubbedForDiagnostic() shares rather than duplicating,
-// the same way tests/CheckJsConfigsTest.php's safeSubprocessOutput() does.
+// this class's own scrubbedForDiagnostic() shares rather than duplicating; every
+// concrete subclass (tests/CheckJsConfigsTest.php and
+// tests/CheckJsConfigsManifestTest.php included) reuses that inherited method
+// rather than requiring this file a second time.
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
@@ -56,10 +58,12 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  * (str_contains()/preg_match() + self::fail()), never
  * assertStringContainsString()/assertStringNotContainsString()/
  * assertDoesNotMatchRegularExpression(): $result->output is exactly the
- * value under test for a forged workflow command, and every concrete test
- * class extending this one (CheckConsumerConfigTest most directly, via
- * genuinely poisoned fixtures such as a `##[error]forged` devDependency
- * name) can and does hand it deliberately-poisoned content. PHPUnit's own
+ * value under test for a forged workflow command, and a concrete test class
+ * extending this one — confirmed for CheckConsumerConfigTest, via genuinely
+ * poisoned fixtures such as a `##[error]forged` devDependency name; re-derive
+ * the current full set with `grep -rl "extends GateTestCase" tests/` rather
+ * than trusting this list to stay exhaustive — can and does hand it
+ * deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
  * tests/CheckJsConfigsTest.php's own
  * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here —
@@ -251,7 +255,8 @@ abstract class GateTestCase extends TestCase
 
         if (str_contains($result->output, '##[')) {
             self::fail(
-                "A consumer value forged a legacy `##[…]` workflow command.\n" . self::scrubbedForDiagnostic($result->output),
+                'A consumer value forged the legacy workflow-command prefix.'
+                    . "\n" . self::scrubbedForDiagnostic($result->output),
             );
         }
 
@@ -341,12 +346,20 @@ abstract class GateTestCase extends TestCase
     ): GateResult {
         $result = $this->gateProcess()->run($command, $fixtureDir);
 
+        // A real, unconditional assertion, unlike the exit-code check below:
+        // isDegraded() reduces $result->output to a plain bool, and neither
+        // this call's default message nor PHPUnit's own auto-generated
+        // failure description for a boolean comparison ever re-embeds the
+        // raw output, so there is nothing here for a poisoned fixture to
+        // forge through.
         self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(
-            $expectedExitCode,
-            $result->exitCode,
-            $message !== '' ? $message : "Expected {$exitCodeLabel}, got exit {$result->exitCode}.\n{$result->output}",
-        );
+
+        if ($result->exitCode !== $expectedExitCode) {
+            self::fail(
+                ($message !== '' ? $message : "Expected {$exitCodeLabel}, got exit {$result->exitCode}.")
+                . "\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
 
         return $result;
     }
@@ -420,20 +433,19 @@ abstract class GateTestCase extends TestCase
      * rather than a PHPUnit string-containment/regex constraint. Shares
      * scrubReportControlBytes()'s control-byte strip and legacy `##[` break
      * (bin/support/safe-report-value.php, required near the top of this
-     * file), then additionally breaks every `::` occurrence the same way
-     * tests/CheckJsConfigsTest.php's own safeSubprocessOutput() does and for
-     * the identical reason: scrubReportControlBytes() deliberately leaves
-     * `::` alone (a namespaced identifier is legitimate report content), but
-     * every diagnostic this method feeds places $value directly after a
-     * literal `\n`, i.e. at true column 0 of a new line — exactly the
-     * placement a `::cmd::` workflow command needs.
+     * file), then additionally breaks every `::` occurrence for the same
+     * reason: scrubReportControlBytes() deliberately leaves `::` alone (a
+     * namespaced identifier is legitimate report content), but every
+     * diagnostic this method feeds places $value directly after a literal
+     * `\n`, i.e. at true column 0 of a new line — exactly the placement a
+     * `::cmd::` workflow command needs.
      *
-     * `protected`, not `private`: tests/CheckJsConfigsManifestTest.php's own
-     * assertManifestRejects() extends this class and needs the identical
-     * scrub for the same reason — sharing this one rather than growing a
-     * third private copy alongside tests/CheckJsConfigsTest.php's own
-     * safeSubprocessOutput() (that file does not extend this class, so it
-     * cannot reach a protected member here and keeps its own copy).
+     * `protected`, not `private`: both tests/CheckJsConfigsManifestTest.php's
+     * own assertManifestRejects() and tests/CheckJsConfigsTest.php extend this
+     * class and reuse this one method directly for the identical scrub,
+     * rather than each growing its own private copy — CheckJsConfigsTest.php
+     * carried such a copy (safeSubprocessOutput()) before it was recognised
+     * as a byte-for-byte duplicate of this method and deleted.
      *
      * @param string $value The raw value to scrub before embedding in a self::fail() message.
      *
