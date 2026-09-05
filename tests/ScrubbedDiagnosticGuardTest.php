@@ -42,27 +42,17 @@ use const T_ENCAPSED_AND_WHITESPACE;
  * output produced against them). All six of self::RISKY_ASSERTIONS leak the
  * raw subject/actual operand on a failure, but through TWO DIFFERENT
  * PHPUnit mechanisms, and wrapping only a custom $message in
- * self::scrubbedForDiagnostic() suppresses neither:
- * assertStringContainsString()/assertStringNotContainsString()/
- * assertMatchesRegularExpression()/assertDoesNotMatchRegularExpression()
- * override Constraint::failureDescription() to unconditionally embed the
- * raw operand straight into the thrown exception's own getMessage() (see
- * tests/CheckJsConfigsTest.php's own
- * assertMessageDoesNotForgeWorkflowCommand() docblock for the dated
- * observation against the real installed PHPUnit, not repeated here);
- * assertSame()/assertEquals() on two STRING operands instead attach a
- * SebastianBergmann\Comparator\ComparisonFailure built from the raw
- * operands to the thrown exception, which only PHPUnit's own CLI/text
- * failure printer renders — never getMessage() itself (see
- * tests/CheckJsConfigsTest.php's own
- * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand() docblock
- * for the dated observation, not repeated here). This "never getMessage()"
- * property is scoped to string operands deliberately, not a simplification:
- * on a TYPE-MISMATCHED comparison (e.g. one operand `null`) PHPUnit's
- * IsIdentical constraint builds no ComparisonFailure at all and instead
- * embeds the raw operand directly into getMessage() via the base
- * Constraint::failureDescription()'s Exporter::export() call — a third path
- * that DOES reach getMessage(), detailed in that same docblock. Every real
+ * self::scrubbedForDiagnostic() suppresses neither: the first four embed
+ * the raw operand straight into getMessage(); assertSame()/assertEquals()
+ * on two STRING operands instead attach a
+ * SebastianBergmann\Comparator\ComparisonFailure that only PHPUnit's own
+ * CLI/text printer renders, never getMessage() — EXCEPT a
+ * TYPE-MISMATCHED comparison (e.g. one operand `null`), which reaches
+ * getMessage() by a third path instead. Both dated observations, their
+ * re-derivation commands, and that exception live in
+ * tests/CheckJsConfigsTest.php's own assertMessageDoesNotForgeWorkflowCommand()
+ * and readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
+ * docblocks respectively, not repeated here. Every real
  * assertSame()/assertEquals() call site self::RISKY_ASSERTIONS scans for in
  * this codebase compares same-typed (string) operands, so this guard's own
  * scope does not currently need to police that third path — but a future

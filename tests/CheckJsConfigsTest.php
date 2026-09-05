@@ -1609,46 +1609,24 @@ TS),
 
     /**
      * assertReadmeToolVersionMatchesDevDependenciesPin() compares $matches[1]
-     * and $actual — both are PR-editable content (README.md prose and
-     * package.json's devDependencies pin respectively) — via a manual
-     * mismatch check + self::fail(), never assertSame(): assertSame() on two
-     * differing STRING operands throws PHPUnit's own
-     * ExpectationFailedException carrying a
-     * SebastianBergmann\Comparator\ComparisonFailure built from the two RAW,
-     * unscrubbed operands, and only PHPUnit's CLI/text failure printer
-     * renders that object's diff (ComparisonFailure::getDiff()/toString()) —
-     * never the exception's own getMessage() — as observed 2026-09-05 against this repository's own installed
-     * PHPUnit (`.build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`):
-     * for two string operands, failureDescription() returns the fixed
-     * literal "two strings are identical", with no embedded operand; the raw
-     * comparison is instead attached as that ComparisonFailure object,
-     * rendered only by PHPUnit's own CLI/text failure printer — re-derive
-     * via `grep -n 'failureDescription' .build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`.
-     * This is a DIFFERENT dated observation from
-     * assertMessageDoesNotForgeWorkflowCommand()'s own docblock above, which
-     * covers the adjacent but distinct failureDescription()/getMessage()
-     * mechanism for assertStringContainsString()-shaped constraints, not
-     * this one. A type-mismatched comparison (e.g. one operand `null`) takes
-     * a THIRD path this class's own docblock does not need, since every
-     * operand pair here is a string: IsIdentical::evaluate() builds no
-     * ComparisonFailure when the operands are not both strings/both
-     * arrays/both enums, so failureDescription() falls through to the base
-     * Constraint::failureDescription(), which embeds the raw operand
-     * directly into getMessage() via Exporter::export() — reaching
-     * getMessage() after all, with no ComparisonFailure standing between it
-     * and the console. A custom, already-scrubbed assertSame() message does
-     * not change any of this: the diff is a separate rendering path,
-     * attached to the exception independently of the message string.
-     * self::fail() throws a plain AssertionFailedError with no
-     * ComparisonFailure at all, so its message (built here from
-     * scrubbedForDiagnostic() on both operands) is the WHOLE of what can
-     * ever reach the console. Drives the extracted check directly with a
-     * crafted README carrying a poisoned version string and a
-     * devDependencies pin that genuinely differs, so the assertion fails
-     * for the real, intended reason rather than being short-circuited by the
-     * regex-tightening guard above, then checks both reachable surfaces: the
-     * message text, and that no ComparisonFailure-bearing exception type was
-     * thrown in the first place.
+     * and $actual — both PR-editable content — via a manual mismatch check +
+     * self::fail(), never assertSame(): for two STRING operands, PHPUnit's
+     * IsIdentical constraint attaches the raw, unscrubbed pair only as a
+     * SebastianBergmann\Comparator\ComparisonFailure, which just PHPUnit's
+     * own CLI/text printer renders — never getMessage() — as observed
+     * 2026-09-05 against this repository's own installed PHPUnit; re-derive
+     * via `grep -n 'failureDescription'
+     * .build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`.
+     * EXCEPTION: a type-mismatched pair (e.g. one operand `null`) takes a
+     * different path that DOES reach getMessage() instead (same file, the
+     * branch above the string-vs-string one) — not this class's own concern,
+     * since every operand pair here is a string, but
+     * tests/ScrubbedDiagnosticGuardTest.php's own class docblock polices it
+     * for RISKY_ASSERTIONS generally and points back to THIS docblock for
+     * the dated observation and re-derivation command above, so keep the
+     * two consistent. self::fail() builds no ComparisonFailure at all, so
+     * scrubbedForDiagnostic() on both operands here is the whole of what
+     * can ever reach the console.
      */
     #[Test]
     public function readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand(): void
