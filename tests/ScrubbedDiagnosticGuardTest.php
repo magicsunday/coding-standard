@@ -175,9 +175,17 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * methods (`->getOutput()`/`->getErrorOutput()`), a regex-capture
      * variable (`$matches[`), or an array-key access shaped like captured
      * subprocess output (`['stdout']`/`['stderr']`, the shape
-     * runBuildToolsSeparated()'s own callers use in this file).
+     * runBuildToolsSeparated()'s own callers use in this file). Every `\s*`
+     * around an operator/bracket here mirrors self::openParenIndexAfter()'s
+     * own whitespace-skipping tolerance — without it, valid, compilable PHP
+     * like `$result -> output` (spaces around `->`) or
+     * `$result[ 'stdout' ]` (spaces inside brackets) would carry the exact
+     * same leak yet go undetected by this regex alone, even though this
+     * repository's own CGL step (`object_operator_without_whitespace`/
+     * `no_spaces_around_offset`) currently rejects that shape before this
+     * guard is ever reached.
      */
-    private const RAW_OUTPUT_PATTERN = '/->output\b|->getOutput\s*\(|->getErrorOutput\s*\(|\$matches\[|\[\'stdout\'\]|\[\'stderr\'\]/';
+    private const RAW_OUTPUT_PATTERN = '/->\s*output\b|->\s*getOutput\s*\(|->\s*getErrorOutput\s*\(|\$matches\s*\[|\[\s*\'stdout\'\s*\]|\[\s*\'stderr\'\s*\]/';
 
     /**
      * Every failed accept/reject-pattern regression this file's history
@@ -944,6 +952,33 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
                 . 'contains a variable immediately followed by a lone `(` character (an array-shaped '
                 . 'T_ENCAPSED_AND_WHITESPACE fragment, not a real opening paren token), even though a genuinely '
                 . 'unwrapped $result->output follows the wrap call in the same argument list.',
+        );
+    }
+
+    /**
+     * self::RAW_OUTPUT_PATTERN's own whitespace-tolerance control: valid,
+     * compilable PHP may put whitespace around the `->` operator
+     * (`$result -> output`), which self::openParenIndexAfter() already
+     * tolerates via self::nextNonWhitespaceIndex() on the wrap-recognition
+     * side — the regex side must tolerate the identical shape, not rely on
+     * this repository's own CGL step (`object_operator_without_whitespace`)
+     * to keep that shape from ever reaching this guard.
+     */
+    #[Test]
+    public function detectsARiskyAssertionUsingRawOutputWithWhitespaceAroundTheObjectOperator(): void
+    {
+        $findings = $this->findingsFor(
+            'whitespace-around-object-operator-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, "boom " . $result -> output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose raw operand carries whitespace around the `->` '
+                . 'operator ($result -> output), even though it is the exact same leak as the unspaced form.',
         );
     }
 }
