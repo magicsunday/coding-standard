@@ -26,6 +26,7 @@ use function array_key_exists;
 use function explode;
 use function file_put_contents;
 use function implode;
+use function in_array;
 use function is_string;
 use function str_contains;
 use function str_starts_with;
@@ -532,7 +533,15 @@ JS;
 
     /**
      * The clean-verdict decision: exit 0. Ported from the bash original's
-     * manifest_accepts().
+     * manifest_accepts(). Kept as a real assertSame(), unlike the must-carry
+     * checks below: both compared values are plain integers, so neither this
+     * call's own custom message nor PHPUnit's own auto-generated
+     * failure description for an integer comparison ever re-embeds raw
+     * output — only the custom message text can, so that text alone is
+     * scrubbed through scrubbedForDiagnostic() before being handed to
+     * assertSame(), rather than replacing the real assertion with a manual
+     * self::fail() (which would leave this method's own happy path
+     * performing no PHPUnit assertion at all).
      *
      * @param string $dir     The directory to run manifest_check() against.
      * @param string $message An optional assertion message.
@@ -547,15 +556,53 @@ JS;
     {
         $result = $this->runManifestCheck($dir);
 
-        self::assertSame(0, $result->exitCode, $message !== '' ? $message : "Rejected: {$result->output}");
+        self::assertSame(
+            0,
+            $result->exitCode,
+            $message !== '' ? $message : "Rejected.\n" . self::scrubbedForDiagnostic($result->output),
+        );
     }
 
     /**
-     * The drift-verdict decision: exit non-zero, NOT a crash (manifest_check()
-     * exits 1 to reject and Node exits 1 on an uncaught throw alike, so the
-     * exit code alone cannot tell them apart — GateResult::isDegraded()
-     * carries the same discriminator the bash original's manifest_crashed()
-     * does), and the report — with every "INFO " value line removed — carries
+     * The exit-code/degraded pair assertManifestRejects() and
+     * assertManifestReportsValue() both open with: exit non-zero, NOT a crash
+     * (manifest_check() exits 1 to reject and Node exits 1 on an uncaught
+     * throw alike, so the exit code alone cannot tell them apart —
+     * GateResult::isDegraded() carries the same discriminator the bash
+     * original's manifest_crashed() does). Kept as real assertNotSame()/
+     * assertFalse() calls, the same reasoning assertManifestAccepts() above
+     * gives: $result->exitCode is an integer and $result->isDegraded() a
+     * bool, so PHPUnit's own auto-generated failure description for either
+     * comparison never re-embeds raw output — only each call's own custom
+     * message can, so that text is scrubbed through scrubbedForDiagnostic()
+     * rather than the real assertion being replaced with a manual
+     * self::fail(), which would leave every caller's happy path (a genuine
+     * rejection) performing no PHPUnit assertion of its own until the
+     * must-carry check further down.
+     *
+     * @param GateResult $result  The captured run to check.
+     * @param string     $message An optional assertion message shared by both checks.
+     *
+     * @return void
+     */
+    private static function assertManifestRanAndRejected(GateResult $result, string $message = ''): void
+    {
+        self::assertNotSame(
+            0,
+            $result->exitCode,
+            $message !== '' ? $message : "Accepted, so the check does not discriminate.\n" . self::scrubbedForDiagnostic($result->output),
+        );
+
+        self::assertFalse(
+            $result->isDegraded(),
+            $message !== '' ? $message : "The gate did not run, it died.\n" . self::scrubbedForDiagnostic($result->output),
+        );
+    }
+
+    /**
+     * The drift-verdict decision: exit non-zero, NOT a crash — see
+     * assertManifestRanAndRejected() above, which this method opens with —
+     * and the report — with every "INFO " value line removed — carries
      * $mustCarry and, when given, does not carry $mustNotCarry. Ported from
      * the bash original's manifest_ran()/manifest_rejects().
      *
@@ -574,8 +621,7 @@ JS;
     {
         $result = $this->runManifestCheck($dir);
 
-        self::assertNotSame(0, $result->exitCode, $message !== '' ? $message : "Accepted, so the check does not discriminate.\n{$result->output}");
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : "The gate did not run, it died: {$result->output}");
+        self::assertManifestRanAndRejected($result, $message);
 
         $asserted = self::withoutInfoLines($result->output);
 
@@ -613,7 +659,15 @@ JS;
      * looks. Ported from the bash original's manifest_reports_value(), which
      * exists because the offending value itself lives on an INFO line: the
      * property under test is that the value reaches the operator at all, not
-     * merely that some sentence does.
+     * merely that some sentence does. Opens with the same
+     * assertManifestRanAndRejected() precondition assertManifestRejects()
+     * above does; the must-carry check itself is a manual in_array() +
+     * self::fail(), never assertContains() — for the identical reason those
+     * two methods' own docblocks give: $result->output is exactly the value a
+     * poisoned fixture can carry (the peerDependencies-name fixture further
+     * down drives this method with a genuine `##[error]forged` value), and a
+     * real failure of assertContains() would re-embed it raw into PHPUnit's
+     * own failure output.
      *
      * @param string $dir       The directory to run manifest_check() against.
      * @param string $exactLine The exact line the report must carry.
@@ -629,14 +683,13 @@ JS;
     {
         $result = $this->runManifestCheck($dir);
 
-        self::assertNotSame(0, $result->exitCode, $message !== '' ? $message : "Accepted, so the check does not discriminate.\n{$result->output}");
-        self::assertFalse($result->isDegraded(), $message !== '' ? $message : "The gate did not run, it died: {$result->output}");
+        self::assertManifestRanAndRejected($result, $message);
 
-        self::assertContains(
-            $exactLine,
-            explode("\n", $result->output),
-            $message !== '' ? $message : "The offending value never reached the operator: {$result->output}",
-        );
+        if (!in_array($exactLine, explode("\n", $result->output), true)) {
+            self::fail(
+                ($message !== '' ? $message : 'The offending value never reached the operator.') . "\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
     }
 
     /**
