@@ -389,6 +389,24 @@ JS;
      * pattern must match (AND, not OR); an alternation inside one pattern
      * already gets the OR case.
      *
+     * MUST NOT be used with a $result whose $result->output may itself carry
+     * attacker/consumer-influenced content that could embed a `##[` or `::`
+     * workflow-command forgery — assertMatchesRegularExpression() below hands
+     * $result->output straight to PHPUnit, whose Constraint::fail()/
+     * failureDescription() mechanism unconditionally re-embeds the FULL, RAW
+     * haystack into a failed assertion's own message (dated observation:
+     * see buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
+     * own docblock above, not repeated here). Every current caller of this
+     * method drives it with a non-adversarial fixture, so this is currently
+     * latent, not exploited — but it is the "obvious" helper a future
+     * reject-path poison-regression test would reach for, which would
+     * silently reintroduce the exact defect class GateTestCase's
+     * assertGateReportIsInert()/assertReportCarries() and this file's own
+     * safeSubprocessOutput()-based tests exist to prevent. A future test
+     * needing a poisoned $result here must use the manual
+     * str_contains()/preg_match() + self::fail() pattern instead, scrubbing
+     * the diagnostic first (see safeSubprocessOutput() above).
+     *
      * @param GateResult   $result          The captured run to check.
      * @param list<string> $mustAllMatch    PCRE fragments (no delimiter) every one of which must match $result->output.
      * @param bool         $caseInsensitive Whether every pattern is matched case-insensitively.
