@@ -30,9 +30,9 @@ use const T_COMMENT;
 use const T_DOC_COMMENT;
 
 /**
- * A structural, grep-shaped regression guard for the defect class GH-79's
- * round 11 fixed: a PHPUnit assertion whose own call — subject/actual
- * argument OR a hand-written custom message — carries a raw
+ * A structural, grep-shaped regression guard against a PHPUnit assertion
+ * whose own call — subject/actual argument OR a hand-written custom
+ * message — carries a raw
  * `$result->output`/`->getOutput()`/`->getErrorOutput()` access, run against
  * PR-editable content (this repository's own biome/base.json,
  * tsconfig/base.json, package.json, templates/jscpd.json, or subprocess
@@ -129,10 +129,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
     /**
      * Every failed accept/reject-pattern regression this file's history
-     * fixed lived in exactly these three files — see GH-79's round 11
-     * findings. A new file added to this suite that repeats the same
-     * biomeCi()/runTsc()-against-PR-editable-config shape would need adding
-     * here too; this guard only reads what it is told to.
+     * fixed lived in exactly the files returned below. A new file added to
+     * this suite that repeats the same biomeCi()/runTsc()-against-
+     * PR-editable-config shape would need adding here too; this guard only
+     * reads what it is told to.
      *
      * @return list<string>
      */
@@ -287,10 +287,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * The regression guard itself: after GH-79's round 11 fixes, none of the
-     * three files this class's own docblock names may call one of
-     * self::RISKY_ASSERTIONS with a raw, unscrubbed subprocess-output
-     * accessor anywhere in its own argument list. A future call site that
+     * The regression guard itself: none of the files self::guardedFiles()
+     * lists may call one of self::RISKY_ASSERTIONS with a raw, unscrubbed
+     * subprocess-output accessor anywhere in its own argument list. A future
+     * call site that
      * reintroduces the shape (rather than following the
      * self::scrubbedForDiagnostic()/diagnosticMessage()/messageOrDefault()
      * pattern, or the manual `if (...) { self::fail(...) }` shape this
