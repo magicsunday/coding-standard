@@ -746,59 +746,71 @@ TS),
     }
 
     /**
+     * Shared body for npmInstallWithIgnoreScriptsSuppressesPostinstall() and
+     * npmInstallWithoutIgnoreScriptsRunsPostinstall() below, which differ
+     * only in the presence of `--ignore-scripts`, the marker filename, and
+     * the assertion polarity each keeps as its own separately-named test.
+     * Each call gets its own FRESH consumer directory — reinstalling the
+     * identical tarball spec into the same node_modules can be treated by
+     * npm as already satisfied and silently skipped, which would pass the
+     * unsuppressed twin for the wrong reason (nothing ran, rather than the
+     * flag being honoured).
+     *
+     * @param bool   $ignoreScripts Whether `npm install` is given `--ignore-scripts`.
+     * @param string $markerName    The marker filename `IGNORE_SCRIPTS_PROBE_MARKER` names.
+     *
+     * @return array{result: GateResult, marker: string} The captured `npm install` run and the marker's absolute path.
+     */
+    private function installIgnoreScriptsProbe(bool $ignoreScripts, string $markerName): array
+    {
+        $dir = $this->fixture()->path();
+        $this->writeIgnoreScriptsProbePackage($dir);
+        $tarball = $this->packIgnoreScriptsProbeForInstall($dir);
+
+        $consumerDir = "{$dir}/consumer";
+        mkdir($consumerDir);
+        $init = $this->runCommand(['npm', 'init', '-y'], $consumerDir);
+        self::assertSame(0, $init->exitCode, "npm init -y failed.\n{$init->output}");
+
+        $command = ['npm', 'install', '--no-audit', '--no-fund'];
+
+        if ($ignoreScripts) {
+            $command[] = '--ignore-scripts';
+        }
+
+        $command[] = '--prefix';
+        $command[] = $consumerDir;
+        $command[] = $tarball;
+
+        $marker = "{$dir}/{$markerName}";
+        $result = $this->runCommand($command, null, ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker]);
+
+        return ['result' => $result, 'marker' => $marker];
+    }
+
+    /**
      * `npm install --ignore-scripts` suppresses postinstall.
      */
     #[Test]
     public function npmInstallWithIgnoreScriptsSuppressesPostinstall(): void
     {
-        $dir = $this->fixture()->path();
-        $this->writeIgnoreScriptsProbePackage($dir);
-        $tarball = $this->packIgnoreScriptsProbeForInstall($dir);
+        $probe = $this->installIgnoreScriptsProbe(true, 'postinstall-suppressed');
 
-        $consumerDir = "{$dir}/consumer";
-        mkdir($consumerDir);
-        $init = $this->runCommand(['npm', 'init', '-y'], $consumerDir);
-        self::assertSame(0, $init->exitCode, "npm init -y failed.\n{$init->output}");
-
-        $marker = "{$dir}/postinstall-suppressed";
-        $result = $this->runCommand(
-            ['npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts', '--prefix', $consumerDir, $tarball],
-            null,
-            ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker],
-        );
-
-        self::assertSame(0, $result->exitCode, "npm install (suppressed) failed.\n{$result->output}");
-        self::assertFileDoesNotExist($marker, 'npm install --ignore-scripts did not suppress postinstall.');
+        self::assertSame(0, $probe['result']->exitCode, "npm install (suppressed) failed.\n{$probe['result']->output}");
+        self::assertFileDoesNotExist($probe['marker'], 'npm install --ignore-scripts did not suppress postinstall.');
     }
 
     /**
-     * The negative twin, in a FRESH consumer directory (reinstalling the
-     * identical tarball spec into the same node_modules can be treated by
-     * npm as already satisfied and silently skipped, which would pass this
-     * twin for the wrong reason — nothing ran, rather than the flag being
-     * honoured).
+     * The negative twin — see installIgnoreScriptsProbe()'s own docblock for
+     * why each call needs its own fresh consumer directory.
      */
     #[Test]
     public function npmInstallWithoutIgnoreScriptsRunsPostinstall(): void
     {
-        $dir = $this->fixture()->path();
-        $this->writeIgnoreScriptsProbePackage($dir);
-        $tarball = $this->packIgnoreScriptsProbeForInstall($dir);
+        $probe = $this->installIgnoreScriptsProbe(false, 'postinstall-unsuppressed');
 
-        $consumerDir = "{$dir}/consumer";
-        mkdir($consumerDir);
-        $init = $this->runCommand(['npm', 'init', '-y'], $consumerDir);
-        self::assertSame(0, $init->exitCode, "npm init -y failed.\n{$init->output}");
-
-        $marker = "{$dir}/postinstall-unsuppressed";
-        $result = $this->runCommand(
-            ['npm', 'install', '--no-audit', '--no-fund', '--prefix', $consumerDir, $tarball],
-            null,
-            ['IGNORE_SCRIPTS_PROBE_MARKER' => $marker],
-        );
-
-        self::assertSame(0, $result->exitCode, "npm install (unsuppressed) failed.\n{$result->output}");
-        self::assertFileExists($marker, 'npm install without --ignore-scripts did not run postinstall — the mutation control no longer discriminates.');
+        self::assertSame(0, $probe['result']->exitCode, "npm install (unsuppressed) failed.\n{$probe['result']->output}");
+        self::assertFileExists($probe['marker'], 'npm install without --ignore-scripts did not run postinstall — the mutation control no longer discriminates.');
     }
 
     // -------------------------------------------------------------------
