@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\ExpectationFailedException;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
@@ -1539,31 +1540,42 @@ TS),
 
         $actual = $devDependencies[$tool] ?? null;
 
-        self::assertSame(
-            $matches[1],
-            $actual,
-            sprintf(
-                'README documents %s %s but package.json pins %s',
-                $tool,
-                self::scrubbedForDiagnostic($matches[1]),
-                self::scrubbedForDiagnostic($actual ?? 'nothing'),
-            ),
-        );
+        if ($matches[1] !== $actual) {
+            self::fail(
+                sprintf(
+                    'README documents %s %s but package.json pins %s',
+                    $tool,
+                    self::scrubbedForDiagnostic($matches[1]),
+                    self::scrubbedForDiagnostic($actual ?? 'nothing'),
+                ),
+            );
+        }
 
         return true;
     }
 
     /**
-     * assertReadmeToolVersionMatchesDevDependenciesPin()'s own assertSame()
-     * above embeds $matches[1] and $actual raw in its failure message — both
-     * are PR-editable content (README.md prose and package.json's
-     * devDependencies pin respectively), so a genuine mismatch (a real
-     * version bump landing in one file but not the other) could carry a
-     * forged workflow command straight into this assertion's own message.
-     * Drives the extracted check directly with a crafted README carrying a
-     * poisoned version string and a devDependencies pin that genuinely
-     * differs, so the assertion fails for the real, intended reason rather
-     * than being short-circuited by the regex-tightening guard above.
+     * assertReadmeToolVersionMatchesDevDependenciesPin() compares $matches[1]
+     * and $actual — both are PR-editable content (README.md prose and
+     * package.json's devDependencies pin respectively) — via a manual
+     * mismatch check + self::fail(), never assertSame(): assertSame() on two
+     * differing strings throws PHPUnit's own ExpectationFailedException
+     * carrying a SebastianBergmann\Comparator\ComparisonFailure built from
+     * the two RAW, unscrubbed operands, and only PHPUnit's CLI/text failure
+     * printer renders that object's diff (ComparisonFailure::getDiff()/
+     * toString()) — never the exception's own getMessage(). A custom,
+     * already-scrubbed assertSame() message does not change this: the diff
+     * is a separate rendering path, attached to the exception independently
+     * of the message string. self::fail() throws a plain
+     * AssertionFailedError with no ComparisonFailure at all, so its message
+     * (built here from scrubbedForDiagnostic() on both operands) is the
+     * WHOLE of what can ever reach the console. Drives the extracted check
+     * directly with a crafted README carrying a poisoned version string and
+     * a devDependencies pin that genuinely differs, so the assertion fails
+     * for the real, intended reason rather than being short-circuited by the
+     * regex-tightening guard above, then checks both reachable surfaces: the
+     * message text, and that no ComparisonFailure-bearing exception type was
+     * thrown in the first place.
      */
     #[Test]
     public function readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand(): void
@@ -1585,6 +1597,14 @@ TS),
             '::error title=pwned::forged',
             'The lockstep mismatch diagnostic forged a workflow command.',
         );
+
+        self::assertNotInstanceOf(
+            ExpectationFailedException::class,
+            $thrown,
+            'The mismatch threw an ExpectationFailedException carrying a ComparisonFailure — '
+            . "PHPUnit's own CLI diff renderer would then print the raw, unscrubbed README/"
+            . 'package.json content to the console, a sink getMessage() alone cannot see.',
+        );
     }
 
     /**
@@ -1603,11 +1623,11 @@ TS),
      * "5.0.16" — on a reversion of the `[^`\n]*` fix, the buggy `[^`]*`
      * pattern would capture that whole multi-line span into $matches[1],
      * and assertReadmeToolVersionMatchesDevDependenciesPin()'s own internal
-     * assertSame($matches[1], $actual, …) check would then compare it
+     * mismatch check (`$matches[1] !== $actual`) would then compare it
      * against whatever $actual is. Pinning a real "5.0.16" there would make
      * that internal check itself fail on a REVERTED regex (mismatch:
      * "5.0.16\nunexpected trailing content" !== "5.0.16"), so the test would
-     * go red via that unrelated assertSame() instead of via the
+     * go red via that unrelated check instead of via the
      * self::assertFalse() line below, on the wrong assertion's own message.
      * Matching the pin to the full buggy capture makes that internal check
      * pass on a reverted regex, so execution reaches self::assertFalse()
