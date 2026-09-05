@@ -627,30 +627,67 @@ final class GateTestCaseTest extends GateTestCase
      * `grep -n 'self::fail(' tests/GateTestCase.php` if this method's own
      * check order ever changes. Each test below therefore drives exactly ONE
      * branch in isolation, with a fixture carrying no earlier-checked forgery
-     * that would short-circuit past it.
+     * that would short-circuit past it — via
+     * assertOwnFailureMessageDoesNotForgeWorkflowCommand() below, which every
+     * one of them shares.
      */
-    #[Test]
-    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheEscapeByteBranch(): void
-    {
+
+    /**
+     * The shared "own failure message must not forge a workflow command"
+     * shape the six tests below each repeated independently before this
+     * existed: invoke a fixture-driving assertion that is EXPECTED to reject,
+     * capture the thrown AssertionFailedError, then check whether that
+     * exception's OWN message still carries the forged sequence it was
+     * poisoned with. $isForged and $redact are callables rather than a plain
+     * needle string because one call site (the modern `::` prefix) discriminates
+     * via a regex anchored to line start, not a plain str_contains() — every
+     * other call site's needle-based check fits the same two-callable shape.
+     *
+     * @param callable(): void         $invoke          Runs the fixture-driving assertion expected to throw.
+     * @param string                   $rejectedMessage The assertNotNull() message if $invoke did not throw at all.
+     * @param callable(string): bool   $isForged        Given the caught exception's message, returns whether the forgery survived.
+     * @param callable(string): string $redact          Given that message, returns a safe-to-print, redacted copy for self::fail().
+     * @param string                   $forgesMessage   The self::fail() prefix, used only when $isForged() reports true.
+     *
+     * @return void
+     */
+    private function assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+        callable $invoke,
+        string $rejectedMessage,
+        callable $isForged,
+        callable $redact,
+        string $forgesMessage,
+    ): void {
         $thrown = null;
 
         try {
-            $this->assertGateReportIsInert(
-                ['php', '-r', 'fwrite(STDOUT, "\x1B[31mred\x1B[0m\n"); exit(1);'],
-                $this->fixture()->path(),
-            );
+            $invoke();
         } catch (AssertionFailedError $exception) {
             $thrown = $exception;
         }
 
-        self::assertNotNull($thrown, 'assertGateReportIsInert() did not reject the ESC-byte fixture.');
+        self::assertNotNull($thrown, $rejectedMessage);
 
-        if (str_contains($thrown->getMessage(), "\x1B")) {
-            self::fail(
-                "assertGateReportIsInert()'s own ESC-byte failure message still carries a raw ANSI escape.\n"
-                    . str_replace("\x1B", '?', $thrown->getMessage()),
-            );
+        $message = $thrown->getMessage();
+
+        if ($isForged($message)) {
+            self::fail("{$forgesMessage}\n" . $redact($message));
         }
+    }
+
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheEscapeByteBranch(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "\x1B[31mred\x1B[0m\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateReportIsInert() did not reject the ESC-byte fixture.',
+            static fn (string $message): bool => str_contains($message, "\x1B"),
+            static fn (string $message): string => str_replace("\x1B", '?', $message),
+            "assertGateReportIsInert()'s own ESC-byte failure message still carries a raw ANSI escape.",
+        );
     }
 
     /**
@@ -660,27 +697,16 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheModernPrefixBranch(): void
     {
-        $thrown = null;
-
-        try {
-            $this->assertGateReportIsInert(
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
                 ['php', '-r', 'fwrite(STDOUT, "::error::forged\n"); exit(1);'],
                 $this->fixture()->path(),
-            );
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertGateReportIsInert() did not reject the `::`-forged fixture.');
-
-        $message = $thrown->getMessage();
-
-        if (preg_match('/^[ \t]*::/m', $message) === 1) {
-            self::fail(
-                "assertGateReportIsInert()'s own `::`-branch failure message still carries a `::` workflow command.\n"
-                    . str_replace('::', ':?:', $message),
-            );
-        }
+            ),
+            'assertGateReportIsInert() did not reject the `::`-forged fixture.',
+            static fn (string $message): bool => preg_match('/^[ \t]*::/m', $message) === 1,
+            static fn (string $message): string => str_replace('::', ':?:', $message),
+            "assertGateReportIsInert()'s own `::`-branch failure message still carries a `::` workflow command.",
+        );
     }
 
     /**
@@ -690,25 +716,16 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheLegacyPrefixBranch(): void
     {
-        $thrown = null;
-
-        try {
-            $this->assertGateReportIsInert(
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
                 ['php', '-r', 'fwrite(STDOUT, "##[error]forged\n"); exit(1);'],
                 $this->fixture()->path(),
-            );
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertGateReportIsInert() did not reject the `##[`-forged fixture.');
-
-        if (str_contains($thrown->getMessage(), '##[')) {
-            self::fail(
-                "assertGateReportIsInert()'s own `##[`-branch failure message still carries a legacy `##[` workflow command.\n"
-                    . str_replace('#[', '#?[', $thrown->getMessage()),
-            );
-        }
+            ),
+            'assertGateReportIsInert() did not reject the `##[`-forged fixture.',
+            static fn (string $message): bool => str_contains($message, '##['),
+            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            "assertGateReportIsInert()'s own `##[`-branch failure message still carries a legacy `##[` workflow command.",
+        );
     }
 
     /**
@@ -718,25 +735,16 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheBareCarriageReturnBranch(): void
     {
-        $thrown = null;
-
-        try {
-            $this->assertGateReportIsInert(
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
                 ['php', '-r', 'fwrite(STDOUT, "line one\rline two\n"); exit(1);'],
                 $this->fixture()->path(),
-            );
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertGateReportIsInert() did not reject the bare-CR fixture.');
-
-        if (str_contains($thrown->getMessage(), "\r")) {
-            self::fail(
-                "assertGateReportIsInert()'s own bare-CR failure message still carries a raw carriage return.\n"
-                    . str_replace("\r", '?', $thrown->getMessage()),
-            );
-        }
+            ),
+            'assertGateReportIsInert() did not reject the bare-CR fixture.',
+            static fn (string $message): bool => str_contains($message, "\r"),
+            static fn (string $message): string => str_replace("\r", '?', $message),
+            "assertGateReportIsInert()'s own bare-CR failure message still carries a raw carriage return.",
+        );
     }
 
     /**
@@ -752,26 +760,17 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertReportCarriesFailsWithoutForgingAWorkflowCommandInItsOwnMessage(): void
     {
-        $thrown = null;
-
-        try {
-            $this->assertGateRejects(
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateRejects(
                 ['php', '-r', 'fwrite(STDOUT, "  - x: ##[error]forged\n"); exit(1);'],
                 $this->fixture()->path(),
                 'a substring the report never prints',
-            );
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertGateRejects() did not reject the fixture missing the must-carry substring.');
-
-        if (str_contains($thrown->getMessage(), '##[')) {
-            self::fail(
-                "assertReportCarries()'s own failure message still carries a legacy `##[` workflow command.\n"
-                    . str_replace('#[', '#?[', $thrown->getMessage()),
-            );
-        }
+            ),
+            'assertGateRejects() did not reject the fixture missing the must-carry substring.',
+            static fn (string $message): bool => str_contains($message, '##['),
+            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            "assertReportCarries()'s own failure message still carries a legacy `##[` workflow command.",
+        );
     }
 
     /**
@@ -793,25 +792,16 @@ final class GateTestCaseTest extends GateTestCase
     #[Test]
     public function assertGateAcceptsFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheWrongExitCode(): void
     {
-        $thrown = null;
-
-        try {
-            $this->assertGateAccepts(
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateAccepts(
                 ['php', '-r', 'fwrite(STDOUT, "##[error]forged\n"); exit(1);'],
                 $this->fixture()->path(),
-            );
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, 'assertGateAccepts() did not reject the wrong-exit-code fixture.');
-
-        if (str_contains($thrown->getMessage(), '##[')) {
-            self::fail(
-                "runAndAssertVerdict()'s own wrong-exit-code failure message still carries a legacy `##[` workflow command.\n"
-                    . str_replace('#[', '#?[', $thrown->getMessage()),
-            );
-        }
+            ),
+            'assertGateAccepts() did not reject the wrong-exit-code fixture.',
+            static fn (string $message): bool => str_contains($message, '##['),
+            static fn (string $message): string => str_replace('#[', '#?[', $message),
+            "runAndAssertVerdict()'s own wrong-exit-code failure message still carries a legacy `##[` workflow command.",
+        );
     }
 
     /**
