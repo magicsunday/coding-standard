@@ -520,7 +520,7 @@ JS;
      *
      * @param string $output The gate's combined stdout+stderr text.
      *
-     * @return string $output with every "INFO " line removed.
+     * @return string The stripped $output, with every "INFO " line removed.
      */
     private static function withoutInfoLines(string $output): string
     {
@@ -1191,6 +1191,7 @@ JS;
             'devDependencies'  => ['@biomejs/biome' => '2.5.5'],
             'peerDependencies' => ['@biomejs/biome' => '^2.5.0'],
         ]);
+
         unlink($dir . '/biome/base.json');
 
         $this->assertManifestRejects($dir, 'could not be read for its', 'is not the canonical');

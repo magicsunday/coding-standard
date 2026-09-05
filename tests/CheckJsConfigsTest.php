@@ -381,7 +381,7 @@ JS;
      *
      * @param string $content The content to normalise.
      *
-     * @return string $content with exactly one trailing newline, or unchanged if empty.
+     * @return string The normalised $content, with exactly one trailing newline, or unchanged if empty.
      */
     private static function withTrailingNewline(string $content): string
     {
@@ -485,7 +485,7 @@ JS;
 
         $tarball = trim($pack->getOutput());
 
-        if (!$pack->isSuccessful() || $tarball === '' || !file_exists("{$consumerDir}/{$tarball}")) {
+        if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
             throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n{$pack->getErrorOutput()}");
         }
 
@@ -503,6 +503,7 @@ JS;
             "{$consumerDir}/{$tarball}",
             ...$tools,
         ], $consumerDir);
+
         $install->setTimeout(300.0);
         $install->run();
 
