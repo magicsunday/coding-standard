@@ -2089,7 +2089,12 @@ JS;
      * local package-name validation — no registry/network access needed —
      * quotes the offending spec verbatim in its error text, carrying the
      * embedded `##[` straight through to this class's own RuntimeException
-     * message unless safeSubprocessOutput() breaks it first. Drives a real
+     * message unless safeSubprocessOutput() breaks it first — measured
+     * directly against the installed npm (2026-09-05): `npm error code
+     * EINVALIDPACKAGENAME` / `npm error Invalid package name
+     * "forges-a-workflow-command-##[error]forged" of package
+     * "forges-a-workflow-command-##[error]forged@0.0.0-does-not-exist": name
+     * can only contain URL-friendly characters.`. Drives a real
      * `npm install` directly against a throwaway project rather than through
      * packagedConsumer() itself, whose only devDependencies source is this
      * repository's own real package.json — then, discriminatingly, calls
