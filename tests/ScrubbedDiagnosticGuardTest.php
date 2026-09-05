@@ -144,7 +144,7 @@ use const T_WHITESPACE;
  *   whitespace/quote-style gaps documented above, this one has no
  *   independent backstop: re-derive via `php-cs-fixer describe
  *   object_operator_without_whitespace` (or any other CGL rule) that this
- *   repository's own `@Symfony`/`@PER-CS2x0` ruleset does NOT normalize
+ *   repository's own `Symfony`/`PER-CS2x0` ruleset does NOT normalize
  *   curly-brace dynamic access away, so nothing upstream of this guard
  *   prevents the shape from being written. Confirmed via
  *   `grep -noF -- '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
@@ -237,7 +237,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * guard is ever reached — re-derive which fixer does so, and from which
      * ruleset, via `php-cs-fixer describe object_operator_without_whitespace`/
      * `php-cs-fixer describe no_spaces_around_offset` (both report
-     * "part of … @Symfony", the ruleset php-cs-fixer/base.php's own
+     * "part of … Symfony", the ruleset php-cs-fixer/base.php's own
      * `setRules()` enables) rather than trusting this citation if that
      * ruleset ever changes.
      */
