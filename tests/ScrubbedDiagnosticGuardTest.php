@@ -166,6 +166,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * through the scrub helpers would be unnecessary churn rather than
      * closing a real gap.
      *
+     * `tests/CheckCheckedExceptionsTest.php` and
+     * `tests/CheckDisallowedCallsTest.php` are peer gate-suite classes
+     * (AGENTS.md documents both) that DO carry the same unscrubbed-leak
+     * shape today; they are deliberately NOT added below and NOT fixed as
+     * part of this guard — that defect is tracked separately as #160.
+     *
      * @return list<string>
      */
     private static function guardedFiles(): array
