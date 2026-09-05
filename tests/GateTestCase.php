@@ -61,8 +61,10 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  * value under test for a forged workflow command, and a concrete test class
  * extending this one — confirmed for CheckConsumerConfigTest, via genuinely
  * poisoned fixtures such as a `##[error]forged` devDependency name; re-derive
- * the current full set with `grep -rl "extends GateTestCase" tests/` rather
- * than trusting this list to stay exhaustive — can and does hand it
+ * the current full set with `grep -rl "extends GateTestCas[e]" tests/`
+ * (the bracketed "[e]" keeps this very citation from matching its own
+ * copy of the search string, since this file does not itself extend
+ * GateTestCase) rather than trusting this list to stay exhaustive — can and does hand it
  * deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
  * tests/CheckJsConfigsTest.php's own
