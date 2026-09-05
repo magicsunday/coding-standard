@@ -548,6 +548,28 @@ JS;
     }
 
     /**
+     * assertMessageDoesNotForgeWorkflowCommand()'s own true-positive branch:
+     * every real call site in this file only ever exercises the "needle
+     * absent" (passing) path, so this drives it directly with a haystack
+     * that genuinely contains the needle, proving the helper's own
+     * str_contains() + self::fail() check actually fires rather than always
+     * passing regardless of input.
+     */
+    #[Test]
+    public function assertMessageDoesNotForgeWorkflowCommandFailsWhenTheNeedleIsPresent(): void
+    {
+        $thrown = null;
+
+        try {
+            self::assertMessageDoesNotForgeWorkflowCommand('haystack carrying ::error::forged', '::error::forged', 'label');
+        } catch (AssertionFailedError $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'assertMessageDoesNotForgeWorkflowCommand() did not fail when the haystack genuinely carries the needle.');
+    }
+
+    /**
      * The shared "reject unless $process succeeded, scrubbing the error
      * output first" shape buildToolsFromDevDependencies(), requireSuccessfulInit()
      * and requireSuccessfulInstall() below each drove separately before this
