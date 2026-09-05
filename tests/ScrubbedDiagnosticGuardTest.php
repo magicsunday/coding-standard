@@ -155,10 +155,24 @@ use const T_WHITESPACE;
  *   intentionally introduced into a guarded file, the guard would need a
  *   targeted extension at that point — not before.
  * - self::RISKY_ASSERTIONS/self::SAFE_WRAP_CALLS matching requires an exact
- *   T_STRING token match, so a call spelled with a namespace qualifier
- *   (e.g. `\PHPUnit\Framework\Assert::assertSame(...)` or
- *   `Foo\assertSame(...)`) tokenizes as T_NAME_QUALIFIED/
- *   T_NAME_FULLY_QUALIFIED and goes completely unmatched by either list.
+ *   T_STRING token match on the call NAME itself, not on whatever precedes
+ *   it — so a namespace-qualified STATIC call
+ *   (`\PHPUnit\Framework\Assert::assertSame(...)`, or any other class-name
+ *   qualifier before `::`) is still caught: `::` (T_DOUBLE_COLON) always
+ *   breaks name-fusion, so the method name that follows it tokenizes as an
+ *   ordinary, separate T_STRING no matter how the class name before it is
+ *   spelled (plain T_STRING, T_NAME_QUALIFIED or T_NAME_FULLY_QUALIFIED).
+ *   Confirmed via `php -r "var_dump(token_get_all('<?php
+ *   \PHPUnit\Framework\Assert::assertSame(1,2);'));"`: the `assertSame`
+ *   token is `[T_STRING, 'assertSame']`, identical in shape to the bare
+ *   `self::assertSame(...)` form — see
+ *   detectsARiskyAssertionCalledOnAFullyQualifiedClassName() below, which
+ *   pins this. The only shape that genuinely evades detection is a
+ *   namespaced FUNCTION call with no `::` at all (e.g. `Foo\assertSame(...)`),
+ *   which collapses into a single opaque T_NAME_QUALIFIED token this guard
+ *   never inspects — but no PHPUnit assertion is ever invoked that way
+ *   (they are all static methods, always called via `::`), so this is a
+ *   real but practically inapplicable gap for this guard's actual scope.
  *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assertSame|assertEquals|
  *   assertStringContainsString|assertStringNotContainsString|
  *   assertMatchesRegularExpression|assertDoesNotMatchRegularExpression)\('
@@ -1086,6 +1100,36 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
                 . 'contains a variable immediately followed by a lone `(` character (an array-shaped '
                 . 'T_ENCAPSED_AND_WHITESPACE fragment, not a real opening paren token), even though a genuinely '
                 . 'unwrapped $result->output follows the wrap call in the same argument list.',
+        );
+    }
+
+    /**
+     * Pins the corrected understanding this class's own docblock documents:
+     * a namespace-qualified STATIC call is still caught, because `::`
+     * (T_DOUBLE_COLON) always breaks name-fusion, so the method name after
+     * it tokenizes as an ordinary, separate T_STRING regardless of how the
+     * class name before it is spelled. Without this test, a future edit
+     * narrowing self::findUnscrubbedRawOutputAssertions() to require a
+     * specific token immediately before the T_STRING (e.g. only `self::`)
+     * could silently stop matching this shape.
+     */
+    #[Test]
+    public function detectsARiskyAssertionCalledOnAFullyQualifiedClassName(): void
+    {
+        $findings = $this->findingsFor(
+            'fully-qualified-static-call-fixture.php',
+            <<<'PHP'
+            <?php
+            \PHPUnit\Framework\Assert::assertSame(0, $result->exitCode, "boom\n{$result->output}");
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion called on a fully-qualified class name '
+                . '(\PHPUnit\Framework\Assert::assertSame(...)) — the method name after `::` still '
+                . 'tokenizes as a plain T_STRING, so this shape must be caught exactly like the bare '
+                . 'self:: form.',
         );
     }
 
