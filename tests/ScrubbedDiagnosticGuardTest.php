@@ -253,6 +253,21 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * punctuation token, `(`/`)`/`,`/`;`/… included) or as the
      * `array{0: int, 1: string, 2: int}` shape it uses for everything else.
      *
+     * This collapses the array/non-array distinction, so it must only be used
+     * for TEXT RECONSTRUCTION (self::tokensToText()) — never to test whether a
+     * token IS a genuine anonymous `(`/`)` punctuation token, which
+     * self::isRawParenToken() below checks directly on the raw token instead.
+     * A double-quoted or non-nowdoc-heredoc string is split by
+     * token_get_all() at every interpolation point, and the literal-text
+     * segment between two such points becomes its own array-shaped
+     * T_ENCAPSED_AND_WHITESPACE token — one whose $token[1] text can be
+     * exactly `(` or `)` when that is the only literal text in the segment
+     * (e.g. the fragment right after `{$id}` in `"count ({$id})"`). Comparing
+     * THIS method's collapsed return value against `'('`/`')'` would treat
+     * that array-shaped, string-interpolation-derived token identically to a
+     * real bare punctuation token — see this class's own docblock for the
+     * live-reproduced depth-miscount this caused.
+     *
      * @param string|array{0: int, 1: string, 2: int} $token One entry from self::significantTokens()'s output.
      *
      * @return string The token's own source text.
@@ -260,6 +275,26 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     private static function tokenText(string|array $token): string
     {
         return is_array($token) ? $token[1] : $token;
+    }
+
+    /**
+     * Whether $token is a genuine, anonymous single-character `$char`
+     * punctuation token — checked on the RAW token, never through
+     * self::tokenText()'s collapsed text. PHP's own token_get_all() returns
+     * an anonymous single-character punctuation token (`(`, `)`, `,`, `;`, …)
+     * as a bare PHP string, never as an array; every array-shaped token
+     * (including a T_ENCAPSED_AND_WHITESPACE string-interpolation fragment
+     * whose own text happens to equal `$char`) is therefore excluded here by
+     * construction, regardless of what its text looks like.
+     *
+     * @param string|array{0: int, 1: string, 2: int} $token One entry from self::significantTokens()'s output.
+     * @param string                                  $char  The single punctuation character to test for (`(` or `)`).
+     *
+     * @return bool True when $token is a real, bare `$char` punctuation token.
+     */
+    private static function isRawParenToken(string|array $token, string $char): bool
+    {
+        return !is_array($token) && ($token === $char);
     }
 
     /**
@@ -293,9 +328,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * Given the index of a T_STRING token naming a call, finds the index of
      * that call's own opening `(` — but only if the very next significant
-     * token actually IS the literal `(`; a bare identifier with no call
-     * following it (or followed by something else entirely) is not a call at
-     * all, so this returns null rather than a wrong index.
+     * token actually IS a genuine, bare `(` punctuation token (checked via
+     * self::isRawParenToken(), never self::tokenText()'s collapsed text, so
+     * an array-shaped T_ENCAPSED_AND_WHITESPACE fragment whose text happens
+     * to be `(` can never be mistaken for one); a bare identifier with no
+     * call following it (or followed by something else entirely) is not a
+     * call at all, so this returns null rather than a wrong index.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
      * @param int                                           $nameIndex The index of the T_STRING token naming the candidate call.
@@ -306,7 +344,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     {
         $index = self::nextNonWhitespaceIndex($tokens, $nameIndex + 1);
 
-        if (($index === null) || (self::tokenText($tokens[$index]) !== '(')) {
+        if (($index === null) || !self::isRawParenToken($tokens[$index], '(')) {
             return null;
         }
 
@@ -315,17 +353,24 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
     /**
      * Finds the index of the closing `)` balancing the `(` at
-     * $openParenIndex. Depth-counts only a token whose own text is exactly
-     * the single character `(` or `)` — every other token (a
-     * T_CONSTANT_ENCAPSED_STRING, a T_ENCAPSED_AND_WHITESPACE double-quoted/
-     * heredoc/nowdoc body, a T_STRING identifier, a cast token like
-     * `(int)`, anything else token_get_all() ever returns) is opaque with
-     * respect to depth-counting, because PHP's own tokenizer already carves
-     * such content into its own atomic token — a `(`/`)` BYTE inside one is
-     * never itself a separate `(`/`)` token to begin with, so it can no
-     * longer mis-balance the extent this returns the way a byte-level scan
-     * over reconstructed text could. See this class's own docblock for the
-     * incidents this structurally forecloses.
+     * $openParenIndex. Depth-counts only a token that self::isRawParenToken()
+     * confirms is a genuine, bare `(`/`)` punctuation token — every other
+     * token (a T_CONSTANT_ENCAPSED_STRING, a T_ENCAPSED_AND_WHITESPACE
+     * double-quoted/heredoc/nowdoc body OR interpolation-boundary fragment, a
+     * T_STRING identifier, a cast token like `(int)`, anything else
+     * token_get_all() ever returns) is opaque with respect to depth-counting,
+     * because PHP's own tokenizer already carves such content into its own
+     * atomic, array-shaped token — a `(`/`)` BYTE inside one is never itself
+     * a separate `(`/`)` token to begin with, so it can no longer mis-balance
+     * the extent this returns the way a byte-level scan over reconstructed
+     * text could. Checking via self::isRawParenToken() rather than
+     * self::tokenText() matters specifically for an interpolated string: the
+     * literal-text fragment token_get_all() emits between two interpolation
+     * points is itself array-shaped, so a fragment whose own text happens to
+     * be exactly `(`/`)` (e.g. the segment right after `{$id}` in
+     * `"count ({$id})"`) is still excluded here, never counted as a real
+     * paren. See this class's own docblock for the incidents this
+     * structurally forecloses.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens         self::significantTokens()'s output.
      * @param int                                           $openParenIndex The index of the opening `(` token.
@@ -338,11 +383,11 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         $count = count($tokens);
 
         for ($i = $openParenIndex + 1; $i < $count; ++$i) {
-            $text = self::tokenText($tokens[$i]);
+            $token = $tokens[$i];
 
-            if ($text === '(') {
+            if (self::isRawParenToken($token, '(')) {
                 ++$depth;
-            } elseif ($text === ')') {
+            } elseif (self::isRawParenToken($token, ')')) {
                 --$depth;
 
                 if ($depth === 0) {
@@ -828,6 +873,77 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             'The guard did not flag a risky assertion whose sanctioned-wrap OWN nowdoc argument carries an '
                 . 'embedded closing paren, even though a genuinely unwrapped $result->output follows the wrap '
                 . 'call in the same argument list.',
+        );
+    }
+
+    /**
+     * Live-reproduced against this round's token-array rewrite before
+     * self::isRawParenToken() existed: token_get_all() splits a
+     * double-quoted string at every `{$expr}` interpolation point, and the
+     * literal-text segment right after an interpolation becomes its own
+     * ARRAY-shaped T_ENCAPSED_AND_WHITESPACE token — one whose own text can
+     * be exactly the single character `)` when that is the only literal text
+     * in the segment, exactly as `"unexpected count ({$id})"` produces right
+     * after `{$id}`. self::tokenText() collapsed that array-shaped token's
+     * array-ness away, so comparing its collapsed text against `')'` treated
+     * it identically to a genuine bare punctuation token, making
+     * self::matchingCloseParenIndex() report depth-0 (a "closed call") right
+     * there — long before the assertion's TRUE closing `)`, which comes
+     * after `. $result->output`. The extracted argument span was truncated
+     * before ever reaching the trailing, genuinely unwrapped
+     * `$result->output`, so this call previously produced NO finding.
+     */
+    #[Test]
+    public function detectsARiskyAssertionWithRawOutputAfterAnInterpolatedStringWhoseSegmentIsALoneClosingParen(): void
+    {
+        $findings = $this->findingsFor(
+            'interpolated-lone-close-paren-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $id, "unexpected count ({$id})" . $result->output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose message argument interpolates a variable immediately '
+                . 'followed by a lone `)` character (an array-shaped T_ENCAPSED_AND_WHITESPACE fragment, not a real '
+                . 'closing paren token), even though a genuinely unwrapped $result->output follows it in the same '
+                . 'argument list.',
+        );
+    }
+
+    /**
+     * The opening-paren counterpart of the previous test, this time the fake
+     * punctuation token sits inside a SANCTIONED WRAP's own interpolated
+     * string argument: `self::scrubbedForDiagnostic("prefix {$a}(")`
+     * produces an array-shaped T_ENCAPSED_AND_WHITESPACE fragment whose text
+     * is exactly `(` right after `{$a}`. Before self::isRawParenToken(),
+     * self::tokenText() collapsed that fragment's array-ness away, inflating
+     * the depth count for the whole outer span so it never returned to 0 —
+     * self::matchingCloseParenIndex() returned null, and
+     * self::findUnscrubbedRawOutputAssertions()'s own
+     * `if ($closeParenIndex === null) { ++$i; continue; }` guard silently
+     * skipped the ENTIRE call, producing NO finding despite the plainly
+     * unwrapped trailing `$result->output`.
+     */
+    #[Test]
+    public function detectsARiskyAssertionWhereASanctionedWrapsInterpolatedStringSegmentIsALoneOpeningParen(): void
+    {
+        $findings = $this->findingsFor(
+            'interpolated-lone-open-paren-in-wrap-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, self::scrubbedForDiagnostic("prefix {$a}(") . $result->output);
+            PHP,
+        );
+
+        self::assertNotEmpty(
+            $findings,
+            'The guard did not flag a risky assertion whose sanctioned-wrap own interpolated string argument '
+                . 'contains a variable immediately followed by a lone `(` character (an array-shaped '
+                . 'T_ENCAPSED_AND_WHITESPACE fragment, not a real opening paren token), even though a genuinely '
+                . 'unwrapped $result->output follows the wrap call in the same argument list.',
         );
     }
 }
