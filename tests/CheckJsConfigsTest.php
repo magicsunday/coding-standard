@@ -899,12 +899,17 @@ TS),
      * unconditionally re-embeds the FULL, RAW haystack into the thrown
      * ExpectationFailedException's own message via failureDescription() — with
      * no length cap and no escaping of `#`, `[` or `:` — regardless of any
-     * custom $message argument passed alongside it, so a real failure of
-     * either assertStringContainsString()/assertStringNotContainsString()
-     * would forge the very annotation this test exists to prove is prevented.
+     * custom $message argument passed alongside it, as observed 2026-09-05
+     * against this repository's own installed PHPUnit
+     * (`.build/vendor/phpunit/phpunit`), so a real failure of either
+     * assertStringContainsString()/assertStringNotContainsString() would
+     * forge the very annotation this test exists to prove is prevented.
      * self::fail() takes a literal string with no such re-embedding, so each
      * diagnostic below scrubs $thrown->getMessage() through
-     * safeSubprocessOutput() before handing it to self::fail().
+     * safeSubprocessOutput() before handing it to self::fail(). Every other
+     * mention of this PHPUnit mechanism in this file (and in
+     * tests/GateTestCase.php and tests/CheckJsConfigsManifestTest.php) points
+     * back to this paragraph rather than repeating it.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
@@ -2056,13 +2061,12 @@ JS;
      * "added a regression test" claim did not actually catch.
      *
      * Every containment check below is a manual str_contains() + self::fail(),
-     * never assertStringContainsString()/assertStringNotContainsString():
-     * PHPUnit's own Constraint::fail() unconditionally re-embeds the FULL,
-     * RAW haystack into the thrown ExpectationFailedException's own message
-     * via failureDescription() — with no length cap and no escaping of `#`,
-     * `[` or `:` — regardless of any custom $message argument passed
-     * alongside it. Both haystacks checked below can legitimately carry the
-     * poison ($process->getErrorOutput() by this fixture's own deliberate
+     * never assertStringContainsString()/assertStringNotContainsString() — see
+     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
+     * own docblock above for the dated PHPUnit Constraint::fail()/
+     * failureDescription() re-embedding mechanism this is guarding against,
+     * not repeated here. Both haystacks checked below can legitimately carry
+     * the poison ($process->getErrorOutput() by this fixture's own deliberate
      * construction, $thrown->getMessage() on exactly the regression this test
      * exists to catch), and a PHPUnit assertion FAILURE message reaches
      * console output exactly as verbatim as an uncaught exception's message
