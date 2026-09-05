@@ -114,7 +114,7 @@ final class CheckJsConfigsTest extends GateTestCase
 {
     /**
      * A byte-for-byte copy of build_tools_from_devdependencies()'s own
-     * `node -e '...'` body (tests/check-js-configs.sh, ~lines 277-289).
+     * `node -e '...'` body from the now-PHPUnit-migrated check-js-configs.sh.
      */
     private const string BUILD_TOOLS_SCRIPT = <<<'JS'
 const d = require(process.env.ROOT + "/package.json").devDependencies;

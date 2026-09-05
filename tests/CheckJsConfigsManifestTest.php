@@ -48,9 +48,9 @@ use function unlink;
  * packaging-pipeline-dependent cases in CheckJsConfigsTest.
  *
  * MANIFEST_CHECK_SCRIPT is a byte-for-byte copy of the `node -e '...'` body
- * bash lines ~520-804 pass to node, including its own WHY comments: it is the
- * literal payload under test, not a paraphrase of it, and it has no other
- * home to be read from. runManifestCheck() invokes
+ * the now-PHPUnit-migrated check-js-configs.sh passed to node, including its
+ * own WHY comments: it is the literal payload under test, not a paraphrase
+ * of it, and it has no other home to be read from. runManifestCheck() invokes
  * it the same way the bash original does — via the ROOT environment
  * variable, not an argv position — so it cannot reuse
  * GateTestCase::assertGate*(), which always append the fixture directory as
@@ -118,8 +118,8 @@ final class CheckJsConfigsManifestTest extends GateTestCase
 
     /**
      * A byte-for-byte copy of manifest_check()'s own `node -e '...'` body
-     * (tests/check-js-configs.sh, ~lines 520-804) — see this class's own
-     * docblock for why it is copied verbatim rather than paraphrased.
+     * from the now-PHPUnit-migrated check-js-configs.sh — see this class's
+     * own docblock for why it is copied verbatim rather than paraphrased.
      */
     private const string MANIFEST_CHECK_SCRIPT = <<<'JS'
 const pkg = require(process.env.ROOT + "/package.json");
@@ -127,9 +127,9 @@ const pkg = require(process.env.ROOT + "/package.json");
 // The TYPE, before any shape test. `exec` and `test` call ToString on their
 // argument, so a one-element array joins straight back to the string and
 // satisfies a pattern the value never had.
-// `grep -nE "asString[(]" tests/check-js-configs.sh` lists the readers; the
-// pattern wants a literal paren, which this line does not carry, so it cannot
-// count itself.
+// `grep -nE "asString[(]" tests/CheckJsConfigsManifestTest.php` lists the
+// readers; the pattern wants a literal paren, which this line does not
+// carry, so it cannot count itself.
 // Declared above the first reader: a `const` is not hoisted, and placing it beside
 // a later one has produced a TDZ error twice.
 const asString = (value) => (typeof value === "string" ? value : "");
@@ -437,8 +437,9 @@ JS;
     }
 
     /**
-     * Writes $packageJson as package.json under $dir, applying the same
-     * engines-default injection manifest_fixture()'s node helper applies: an
+     * Writes $packageJson as package.json into this test's own fixture
+     * directory, applying the same engines-default injection
+     * manifest_fixture()'s node helper applies: an
      * ABSENT `engines` key gets a passing `{"node": ">=20"}` (every fixture
      * whose own point is not engines.node needs one, or it would reject for a
      * new, unintended reason the moment that requirement went live), and an
