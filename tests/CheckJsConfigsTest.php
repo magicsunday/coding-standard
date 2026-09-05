@@ -2272,12 +2272,32 @@ JS;
      * in $value itself into `?` before this method's own `::` step ever
      * runs. A poisoned value NOT placed at that position would not exercise
      * the property this method exists for at all.
+     *
+     * Asserted via assertFalse() on a boolean, never
+     * assertDoesNotMatchRegularExpression() directly against $message —
+     * $message is built from the very poisoned literal this test exists to
+     * prove is broken, so it can legitimately still carry the unbroken `::`
+     * prefix on exactly the regression this test exists to catch; see
+     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
+     * own docblock above for the dated PHPUnit Constraint::fail()/
+     * failureDescription() re-embedding mechanism this guards against, not
+     * repeated here. assertFalse()'s own failureDescription only ever
+     * exports the two BOOLEAN operands, never $message, so the custom
+     * message text is what carries the (re-scrubbed) diagnostic instead —
+     * built only on the failing branch, and only from a value already passed
+     * back through safeSubprocessOutput() a second time, never raw.
      */
     #[Test]
     public function safeSubprocessOutputBreaksAWorkflowCommandOpenedWithTheModernPrefix(): void
     {
-        $message = "npm error\n" . self::safeSubprocessOutput('::error title=pwned::forged');
+        $message     = "npm error\n" . self::safeSubprocessOutput('::error title=pwned::forged');
+        $stillForged = preg_match('/^[ \t]*::/m', $message) === 1;
 
-        self::assertDoesNotMatchRegularExpression('/^[ \t]*::/m', $message);
+        self::assertFalse(
+            $stillForged,
+            $stillForged
+                ? "safeSubprocessOutput() failed to break the modern :: workflow-command prefix.\n" . self::safeSubprocessOutput($message)
+                : '',
+        );
     }
 }
