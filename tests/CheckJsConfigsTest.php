@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\CodingStandard\Test;
 
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
+use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -284,11 +285,14 @@ JS;
     /**
      * Runs $command as a real subprocess, argv only, capturing stdout+stderr
      * combined in arrival order (matching the bash original's `2>&1`) — the
-     * same contract GateProcess gives the two real gates, generalised to the
+     * same contract GateProcess::runRaw() gives, generalised to the
      * arbitrary git/npm/tar/biome/tsc/jscpd invocations this suite drives
-     * that GateProcess's own `<command...> <fixtureDir>` shape cannot express
-     * (a fixture directory is not always $command's last positional
-     * argument, or an argument at all).
+     * that GateProcess::run()'s own `<command...> <fixtureDir>` shape cannot
+     * express (a fixture directory is not always $command's last positional
+     * argument, or an argument at all). Delegates the spawn-and-capture body
+     * itself to GateProcess::runRaw() rather than reimplementing it a third
+     * time — see that method's own docblock for the "start local, promote on
+     * second real need" precedent this class was the second caller of.
      *
      * @param list<string>          $command The interpreter/binary and its arguments.
      * @param string|null           $cwd     The working directory, or null for this process's own cwd.
@@ -298,15 +302,7 @@ JS;
      */
     private function runCommand(array $command, ?string $cwd = null, array $env = []): GateResult
     {
-        $process = new Process($command, $cwd, $env === [] ? null : $env);
-        $process->setTimeout(300.0);
-        $output = '';
-
-        $process->run(static function (string $type, string $buffer) use (&$output): void {
-            $output .= $buffer;
-        });
-
-        return new GateResult($output, $process->getExitCode() ?? -1);
+        return (new GateProcess())->runRaw($command, $cwd, $env, 300.0);
     }
 
     /**

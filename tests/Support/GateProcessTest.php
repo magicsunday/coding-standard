@@ -22,7 +22,11 @@ use function sys_get_temp_dir;
 /**
  * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
  * the fixture-directory positional argument contract, the optional working-
- * directory override, and best-effort chronological stdout/stderr interleaving.
+ * directory override, and best-effort chronological stdout/stderr
+ * interleaving, plus GateProcess::runRaw(), the shared spawn-and-capture body
+ * run() delegates to, verifying the properties that distinguish it from
+ * run() — no fixture-directory argument appended, and the optional $env
+ * argument.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -109,5 +113,66 @@ final class GateProcessTest extends TestCase
         $result  = $process->run(['php', '-r', 'fwrite(STDOUT, getcwd());'], sys_get_temp_dir(), $cwd);
 
         self::assertSame($cwd, $result->output);
+    }
+
+    /**
+     * Asserts that run() actually delegates to runRaw() rather than keeping
+     * its own copy of the spawn-and-capture body — proven the same way
+     * runCapturesExitCode() proves run() itself, through the shared method.
+     */
+    #[Test]
+    public function runRawCapturesExitCode(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'exit(7);']);
+
+        self::assertSame(7, $result->exitCode);
+    }
+
+    /**
+     * Asserts that $command is passed to the process AS-IS, with no
+     * fixture-directory argument appended — the property that distinguishes
+     * runRaw() from run() above, needed by a caller whose invocation does
+     * not fit run()'s `<command...> <fixtureDir>` shape.
+     */
+    #[Test]
+    public function runRawPassesCommandArgvUnchanged(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'fwrite(STDOUT, (string) ($argv[1] ?? "none"));']);
+
+        self::assertSame('none', $result->output);
+    }
+
+    /**
+     * Asserts that the optional $env argument is merged onto the child
+     * process's inherited environment.
+     */
+    #[Test]
+    public function runRawMergesTheGivenEnvironmentVariables(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(
+            ['php', '-r', 'fwrite(STDOUT, (string) getenv("GATE_PROCESS_TEST_VAR"));'],
+            null,
+            ['GATE_PROCESS_TEST_VAR' => 'proven'],
+        );
+
+        self::assertSame('proven', $result->output);
+    }
+
+    /**
+     * Asserts that an empty $env array leaves the inherited environment
+     * untouched, matching Process's own null-means-inherit contract — not
+     * an empty environment, which would break every caller relying on
+     * $PATH to resolve its interpreter/binary.
+     */
+    #[Test]
+    public function runRawWithNoEnvironmentInheritsThePath(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'fwrite(STDOUT, (string) getenv("PATH"));']);
+
+        self::assertNotSame('', $result->output);
     }
 }
