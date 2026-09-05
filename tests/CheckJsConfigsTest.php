@@ -1817,7 +1817,8 @@ TS);
         self::assertSame(
             0,
             $accept->exitCode,
-            "biome — an import spelling .{$targetExtension} from a .{$sourceExtension} source was rejected; the mapping row is wrong or missing.\n{$accept->output}",
+            "biome — an import spelling .{$targetExtension} from a .{$sourceExtension} source was rejected; the mapping row is wrong or missing.\n"
+                . self::scrubbedForDiagnostic($accept->output),
         );
 
         $this->mutateConsumerFile(
@@ -1831,7 +1832,8 @@ TS);
             $reject,
             ['lint/correctness/useImportExtensions'],
             false,
-            "biome — an extensionless import from a .{$sourceExtension} source was accepted, so useImportExtensions is not in force for that extension.\n{$reject->output}",
+            "biome — an extensionless import from a .{$sourceExtension} source was accepted, so useImportExtensions is not in force for that extension.\n"
+                . self::scrubbedForDiagnostic($reject->output),
         );
     }
 
@@ -1860,7 +1862,8 @@ TS);
         self::assertSame(
             0,
             $result->exitCode,
-            "biome — the asset fixture failed; either an asset import was told to add a .js extension, or it failed for an unrelated reason.\n{$result->output}",
+            "biome — the asset fixture failed; either an asset import was told to add a .js extension, or it failed for an unrelated reason.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
     }
 
@@ -1885,7 +1888,8 @@ JSON);
         self::assertSame(
             0,
             $result->exitCode,
-            "tsc no longer resolves the extensionless tsconfig \"extends\" specifier; the gate's suffixOptional=true assumption is wrong.\n{$result->output}",
+            "tsc no longer resolves the extensionless tsconfig \"extends\" specifier; the gate's suffixOptional=true assumption is wrong.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
     }
 
@@ -1909,7 +1913,8 @@ JSON);
             $result,
             ['not found|could not resolve'],
             true,
-            "biome resolved the extensionless specifier; the gate's requirement of the .json suffix for biome is wrong.\n{$result->output}",
+            "biome resolved the extensionless specifier; the gate's requirement of the .json suffix for biome is wrong.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
     }
 
