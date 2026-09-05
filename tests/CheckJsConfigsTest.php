@@ -894,10 +894,13 @@ TS),
      * into the thrown exception's own getMessage() (see
      * assertMessageDoesNotForgeWorkflowCommand()'s own docblock below for
      * the dated observation, not repeated here), while assertSame() on a
-     * mismatch instead attaches a
-     * SebastianBergmann\Comparator\ComparisonFailure built from the raw
+     * mismatch between two STRING operands (both are here) instead attaches
+     * a SebastianBergmann\Comparator\ComparisonFailure built from the raw
      * operands, rendered only by PHPUnit's own CLI/text failure printer and
-     * never part of getMessage() at all.
+     * never part of getMessage() at all — see
+     * assertReadmeToolVersionMatchesDevDependenciesPin()'s own docblock
+     * further below for the dated observation backing this claim and the
+     * type-mismatch exception to it, not repeated here.
      *
      * @param array<string, mixed> $devDependencies The devDependencies fragment to test.
      *
@@ -931,15 +934,17 @@ TS),
      * The negative twin, proving the six controls above fail for the stated
      * reason and not because every input is rejected. The stdout check below
      * is a manual condition + self::fail(), never assertSame():
-     * $result['stdout'] is exactly the value under test, and on a mismatch
-     * assertSame() would attach a SebastianBergmann\Comparator\ComparisonFailure
-     * built from the raw, unscrubbed operands to the thrown exception — only
+     * $result['stdout'] is exactly the value under test (always a string
+     * here), and on a mismatch between two string operands assertSame()
+     * would attach a SebastianBergmann\Comparator\ComparisonFailure built
+     * from the raw, unscrubbed operands to the thrown exception — only
      * PHPUnit's own CLI/text failure printer renders that object's diff,
      * never the exception's own getMessage() (see this file's own
      * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
      * docblock for the dated observation against the real installed
-     * PHPUnit, not repeated here). self::fail() throws a plain
-     * AssertionFailedError with no such object at all.
+     * PHPUnit and the type-mismatch exception to this claim, not repeated
+     * here). self::fail() throws a plain AssertionFailedError with no such
+     * object at all.
      */
     #[Test]
     public function acceptsAnOrdinaryDevDependencyPin(): void
@@ -997,14 +1002,19 @@ TS),
      * method's own docblock for the dated PHPUnit Constraint::fail()/
      * failureDescription() re-embedding mechanism, not repeated here. The
      * second check delegates to that same helper directly. Every other
-     * mention of this PHPUnit mechanism in this file (and in
-     * tests/GateTestCase.php and tests/CheckJsConfigsManifestTest.php) points
-     * back to assertMessageDoesNotForgeWorkflowCommand()'s own docblock
-     * rather than repeating it — re-derive via
+     * mention of the failureDescription()/getMessage() mechanism in this
+     * file (and in tests/GateTestCase.php and
+     * tests/CheckJsConfigsManifestTest.php) points back to
+     * assertMessageDoesNotForgeWorkflowCommand()'s own docblock rather than
+     * repeating it, and every mention of the DIFFERENT
+     * ComparisonFailure/IsIdentical mechanism points back to
+     * assertReadmeToolVersionMatchesDevDependenciesPin()'s own docblock —
+     * two distinct dated observations for two distinct mechanisms, neither
+     * one standing in for the other. Re-derive via
      * `grep -rn "as observed 2026-09-05 against this repos[i]tory" tests/*.php`
      * (the bracketed "[i]" keeps this very citation from matching its own
-     * search string), which must show exactly the one hit inside that
-     * docblock.
+     * search string), which must show exactly two hits, one inside each of
+     * those two docblocks.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
@@ -1602,19 +1612,39 @@ TS),
      * and $actual — both are PR-editable content (README.md prose and
      * package.json's devDependencies pin respectively) — via a manual
      * mismatch check + self::fail(), never assertSame(): assertSame() on two
-     * differing strings throws PHPUnit's own ExpectationFailedException
-     * carrying a SebastianBergmann\Comparator\ComparisonFailure built from
-     * the two RAW, unscrubbed operands, and only PHPUnit's CLI/text failure
-     * printer renders that object's diff (ComparisonFailure::getDiff()/
-     * toString()) — never the exception's own getMessage(). A custom,
-     * already-scrubbed assertSame() message does not change this: the diff
-     * is a separate rendering path, attached to the exception independently
-     * of the message string. self::fail() throws a plain
-     * AssertionFailedError with no ComparisonFailure at all, so its message
-     * (built here from scrubbedForDiagnostic() on both operands) is the
-     * WHOLE of what can ever reach the console. Drives the extracted check
-     * directly with a crafted README carrying a poisoned version string and
-     * a devDependencies pin that genuinely differs, so the assertion fails
+     * differing STRING operands throws PHPUnit's own
+     * ExpectationFailedException carrying a
+     * SebastianBergmann\Comparator\ComparisonFailure built from the two RAW,
+     * unscrubbed operands, and only PHPUnit's CLI/text failure printer
+     * renders that object's diff (ComparisonFailure::getDiff()/toString()) —
+     * never the exception's own getMessage() — as observed 2026-09-05 against this repository's own installed
+     * PHPUnit (`.build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`):
+     * for two string operands, failureDescription() returns the fixed
+     * literal "two strings are identical", with no embedded operand; the raw
+     * comparison is instead attached as that ComparisonFailure object,
+     * rendered only by PHPUnit's own CLI/text failure printer — re-derive
+     * via `grep -n 'failureDescription' .build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`.
+     * This is a DIFFERENT dated observation from
+     * assertMessageDoesNotForgeWorkflowCommand()'s own docblock above, which
+     * covers the adjacent but distinct failureDescription()/getMessage()
+     * mechanism for assertStringContainsString()-shaped constraints, not
+     * this one. A type-mismatched comparison (e.g. one operand `null`) takes
+     * a THIRD path this class's own docblock does not need, since every
+     * operand pair here is a string: IsIdentical::evaluate() builds no
+     * ComparisonFailure when the operands are not both strings/both
+     * arrays/both enums, so failureDescription() falls through to the base
+     * Constraint::failureDescription(), which embeds the raw operand
+     * directly into getMessage() via Exporter::export() — reaching
+     * getMessage() after all, with no ComparisonFailure standing between it
+     * and the console. A custom, already-scrubbed assertSame() message does
+     * not change any of this: the diff is a separate rendering path,
+     * attached to the exception independently of the message string.
+     * self::fail() throws a plain AssertionFailedError with no
+     * ComparisonFailure at all, so its message (built here from
+     * scrubbedForDiagnostic() on both operands) is the WHOLE of what can
+     * ever reach the console. Drives the extracted check directly with a
+     * crafted README carrying a poisoned version string and a
+     * devDependencies pin that genuinely differs, so the assertion fails
      * for the real, intended reason rather than being short-circuited by the
      * regex-tightening guard above, then checks both reachable surfaces: the
      * message text, and that no ComparisonFailure-bearing exception type was
