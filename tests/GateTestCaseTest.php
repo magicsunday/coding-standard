@@ -1052,16 +1052,19 @@ final class GateTestCaseTest extends GateTestCase
     /**
      * assertThrows()'s own "did not throw at all" branch: an $invoke that
      * returns normally must fail via assertNotNull()'s own
-     * AssertionFailedError carrying $rejectedMessage verbatim, rather than
-     * returning null or silently passing — the counterpart to
-     * assertThrowsPropagatesAMismatchedExceptionTypeUncaught() above, which
-     * covers the wrong-type branch of the same method.
+     * AssertionFailedError, whose message LEADS with $rejectedMessage
+     * verbatim (assertNotNull() itself appends its own "Failed asserting
+     * that null is not null." beneath it, so only the leading line — the
+     * contract this helper's $rejectedMessage parameter documents — is
+     * pinned here) rather than returning null or silently passing — the
+     * counterpart to assertThrowsPropagatesAMismatchedExceptionTypeUncaught()
+     * above, which covers the wrong-type branch of the same method.
      */
     #[Test]
     public function assertThrowsFailsWhenInvokeDoesNotThrowAtAll(): void
     {
         $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessageMatches('/^' . preg_quote('did not throw', '/') . '$/');
+        $this->expectExceptionMessageMatches('/^' . preg_quote('did not throw', '/') . '/');
 
         self::assertThrows(static fn () => null, RuntimeException::class, 'did not throw');
     }
