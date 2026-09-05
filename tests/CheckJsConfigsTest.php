@@ -61,9 +61,12 @@ use const JSON_THROW_ON_ERROR;
 
 // scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
 // bin/support/safe-report-value.php's own safeReportValue() applies to a shipped
-// gate's own report line. safeSubprocessOutput() below shares that core rather than
-// duplicating it, then layers its own `::`-scrubbing on top (see that method's own
-// docblock for why the `::` step lives here rather than inside the shared core).
+// gate's own report line, and GateTestCase::scrubbedForDiagnostic() (inherited by
+// this class, which extends GateTestCase — see that method's own docblock for why
+// the `::` step lives there rather than inside this shared core) shares for the
+// same reason. Required here directly for
+// scrubReportControlBytesReplacesControlBytesWithAQuestionMark() below, which
+// drives the shared core itself rather than the inherited wrapper.
 require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
@@ -116,12 +119,13 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  *     An UNCAUGHT exception message is a different matter and is not exempt
  *     from this concern: as observed 2026-09-05 against the installed
  *     PHPUnit (8.3-8.5), an uncaught exception's message is printed verbatim
- *     to console output — the safeSubprocessOutput() docblock below and
+ *     to console output —
  *     buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
- *     own docblock further down both point back to this observation rather
- *     than repeating it. See safeSubprocessOutput()'s own call sites in
- *     packagedConsumer() and buildToolsFromDevDependencies() below, which
- *     scrub subprocess error output for exactly that reason.
+ *     own docblock further down points back to this observation rather
+ *     than repeating it. See GateTestCase::scrubbedForDiagnostic()'s
+ *     (inherited by this class) call sites in packagedConsumer() and
+ *     buildToolsFromDevDependencies() below, which scrub subprocess error
+ *     output for exactly that reason.
  *     bin/check-js-config.mjs's OWN report-inertness is a different, separate
  *     concern this bash file never actually drove through the real binary in
  *     the first place (grep confirms no such call site), so there is nothing
@@ -397,15 +401,17 @@ JS;
      * haystack into a failed assertion's own message (dated observation:
      * see buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
      * own docblock above, not repeated here). Every current caller of this
-     * method drives it with a non-adversarial fixture, so this is currently
-     * latent, not exploited — but it is the "obvious" helper a future
-     * reject-path poison-regression test would reach for, which would
-     * silently reintroduce the exact defect class GateTestCase's
+     * method drives it with a non-adversarial fixture (verify via
+     * `grep -n 'assertRejectedForReason(' tests/CheckJsConfigsTest.php` that no
+     * call site passes adversarial output), so this is currently latent, not
+     * exploited — but it is the "obvious" helper a future reject-path
+     * poison-regression test would reach for, which would silently
+     * reintroduce the exact defect class GateTestCase's
      * assertGateReportIsInert()/assertReportCarries() and this file's own
-     * safeSubprocessOutput()-based tests exist to prevent. A future test
+     * scrubbedForDiagnostic()-based tests exist to prevent. A future test
      * needing a poisoned $result here must use the manual
      * str_contains()/preg_match() + self::fail() pattern instead, scrubbing
-     * the diagnostic first (see safeSubprocessOutput() above).
+     * the diagnostic first (see GateTestCase::scrubbedForDiagnostic(), inherited by this class).
      *
      * @param GateResult   $result          The captured run to check.
      * @param list<string> $mustAllMatch    PCRE fragments (no delimiter) every one of which must match $result->output.
@@ -484,55 +490,6 @@ JS;
     }
 
     /**
-     * Reduces $value — real npm/node subprocess error output — to something
-     * safe to embed in an uncaught RuntimeException message: shares
-     * scrubReportControlBytes()'s C0/DEL control-byte strip and legacy `##[`
-     * GitHub Actions workflow-command prefix break — the same core
-     * bin/support/safe-report-value.php's own safeReportValue() applies to a
-     * shipped gate's own report line — for the same reason (see this class's
-     * own docblock above for the dated observation that an uncaught
-     * exception's message reaches console output verbatim, the exact
-     * channel a runner scans unanchored for that prefix). Deliberately
-     * WITHOUT safeReportValue()'s own 64-byte cap: this message
-     * is a developer-facing diagnostic for an ordinary packaging/smoke
-     * failure, not a one-line machine-parsed report, and truncating a real
-     * npm error to 64 bytes would cost far more debugging value than the
-     * forgery this scrub actually closes. A devDependency name or value the
-     * shipped BUILD_TOOLS_SCRIPT's own unsafeAsArgument() check does not
-     * reject (no whitespace, not empty, no NUL, no leading dash) can still
-     * carry `##[` through to a real npm error naming that argument.
-     *
-     * Additionally breaks every `::` occurrence that opens a line — a step
-     * scrubReportControlBytes() itself deliberately does NOT take (its own body
-     * comment records why: `::` is legitimate in a namespaced identifier such as
-     * `Vendor\Package::method`, and changing that would mangle every OTHER
-     * caller's report line on every run). This file's own call sites do not carry
-     * that risk and cannot skip the `::` defence either: every one of them embeds
-     * $value directly after a literal `\n` in the exception message, i.e. at true
-     * column 0 of a new line — exactly the placement the modern `::cmd::` parser
-     * needs (it TrimStart()s first, so leading whitespace does not protect a
-     * line). scrubReportControlBytes() has already turned every control byte in
-     * $value — a raw embedded newline included — into `?` by the time this method's
-     * own `::` step runs, so $value's own FIRST character is the only line-start
-     * position a `::` can ever occupy in the final message; str_replace()'s
-     * left-to-right, non-overlapping scan always consumes a leading `::` pair
-     * first, so the result can never begin with `::` regardless of what follows.
-     * That is NOT the same as guaranteeing every `::` later in the string is gone
-     * too: an odd-length run of colons leaves one unmatched
-     * (`str_replace('::', ':?:', ':::')` produces `':?::'`, which still contains
-     * `::`) — harmless here only because no such residual position is ever a true
-     * line start, never because the scrub removed it.
-     *
-     * @param string $value The raw subprocess error output to embed.
-     *
-     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken — not literally every occurrence: a residual `::` can survive later in an odd-length colon run, but never at true line start, which is the only placement that matters.
-     */
-    private static function safeSubprocessOutput(string $value): string
-    {
-        return str_replace('::', ':?:', scrubReportControlBytes($value));
-    }
-
-    /**
      * The shared "must not carry $needle" shape
      * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand() and
      * assertRealThrowSiteCannotForgeAWorkflowCommand() below each drove
@@ -548,7 +505,8 @@ JS;
      * either constraint would forge the very annotation each caller exists
      * to prove is prevented. self::fail() takes a literal string with no
      * such re-embedding, so $haystack is scrubbed through
-     * safeSubprocessOutput() before it is handed to self::fail().
+     * GateTestCase::scrubbedForDiagnostic() (inherited by this class) before it is
+     * handed to self::fail().
      *
      * @param string $haystack     The value to check, which may itself legitimately carry the poison.
      * @param string $needle       The forged-workflow-command substring $haystack must not carry.
@@ -559,7 +517,7 @@ JS;
     private static function assertMessageDoesNotForgeWorkflowCommand(string $haystack, string $needle, string $failureLabel): void
     {
         if (str_contains($haystack, $needle)) {
-            self::fail("{$failureLabel}\n" . self::safeSubprocessOutput($haystack));
+            self::fail("{$failureLabel}\n" . self::scrubbedForDiagnostic($haystack));
         }
     }
 
@@ -581,7 +539,7 @@ JS;
     private static function requireSuccessfulProcess(Process $process, string $message): void
     {
         if (!$process->isSuccessful()) {
-            throw new RuntimeException("{$message}\n" . self::safeSubprocessOutput($process->getErrorOutput()));
+            throw new RuntimeException("{$message}\n" . self::scrubbedForDiagnostic($process->getErrorOutput()));
         }
     }
 
@@ -628,7 +586,7 @@ JS;
      * below, this method's own second real caller besides packagedConsumer()
      * itself: calling it directly and catching the RuntimeException it
      * actually throws is what makes that test fail if this method's own
-     * safeSubprocessOutput() wrap were ever reverted, which a hand-reconstructed
+     * scrubbedForDiagnostic() wrap were ever reverted, which a hand-reconstructed
      * expected message could not do.
      *
      * @param Process $pack        The already-run `npm pack` subprocess.
@@ -643,7 +601,7 @@ JS;
         $tarball = trim($pack->getOutput());
 
         if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
-            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput()));
+            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::scrubbedForDiagnostic($pack->getErrorOutput()));
         }
 
         return $tarball;
@@ -870,6 +828,24 @@ TS),
      * (not a crash) — driven against the REAL function, not a hand-reasoned
      * example.
      *
+     * The first check below is kept as a real assertNotSame(): both compared
+     * values are plain integers (0 and $result['exitCode']), so neither its
+     * own custom message nor PHPUnit's own auto-generated failure
+     * description for an integer comparison ever re-embeds raw output —
+     * only the custom message text can, so that text alone is scrubbed
+     * through scrubbedForDiagnostic() rather than the real assertion being
+     * replaced with a manual self::fail(), which would leave this method's
+     * own happy path performing no PHPUnit assertion at all. The remaining
+     * two checks ARE a manual condition + self::fail(), never
+     * assertSame()/assertStringContainsString(): $result['stdout'] and
+     * $result['stderr'] are exactly the values under test there, and while
+     * unsafeDevDependencyProvider()'s own fixtures are all non-adversarial
+     * today, PHPUnit's own Constraint::fail()/failureDescription() mechanism
+     * would otherwise unconditionally re-embed the FULL, RAW value into a
+     * failed assertion's own message on any future adversarial fixture added
+     * here (see assertMessageDoesNotForgeWorkflowCommand()'s own docblock
+     * below for the dated observation, not repeated here).
+     *
      * @param array<string, mixed> $devDependencies The devDependencies fragment to test.
      *
      * @return void
@@ -883,13 +859,22 @@ TS),
 
         $result = $this->runBuildToolsSeparated($dir);
 
-        self::assertNotSame(0, $result['exitCode'], "Accepted an unsafe devDependencies entry: {$result['stdout']}");
-        self::assertSame('', $result['stdout'], "Rejected on exit code, but still emitted to stdout: {$result['stdout']}");
-        self::assertStringContainsString(
-            'is not safe to pass to npm as an argument',
-            $result['stderr'],
-            "Rejected with empty stdout, but not via its own diagnostic (crashed instead?): {$result['stderr']}",
+        self::assertNotSame(
+            0,
+            $result['exitCode'],
+            "Accepted an unsafe devDependencies entry.\n" . self::scrubbedForDiagnostic($result['stdout']),
         );
+
+        if ($result['stdout'] !== '') {
+            self::fail("Rejected on exit code, but still emitted to stdout.\n" . self::scrubbedForDiagnostic($result['stdout']));
+        }
+
+        if (!str_contains($result['stderr'], 'is not safe to pass to npm as an argument')) {
+            self::fail(
+                "Rejected with empty stdout, but not via its own diagnostic (crashed instead?).\n"
+                    . self::scrubbedForDiagnostic($result['stderr']),
+            );
+        }
     }
 
     /**
@@ -937,8 +922,8 @@ TS),
      * `]`) would reach this class's own uncaught RuntimeException message,
      * which reaches console output the same verbatim way this class's own
      * docblock above dates (2026-09-05) — the exact channel a runner scans
-     * unanchored for that prefix. safeSubprocessOutput() must break it
-     * before it gets there.
+     * unanchored for that prefix. GateTestCase::scrubbedForDiagnostic() (inherited
+     * by this class) must break it before it gets there.
      *
      * The first check below (that the entry was merely broken, not dropped
      * entirely) is a manual str_contains() + self::fail(), the same shape
@@ -952,7 +937,9 @@ TS),
      * mention of this PHPUnit mechanism in this file (and in
      * tests/GateTestCase.php and tests/CheckJsConfigsManifestTest.php) points
      * back to assertMessageDoesNotForgeWorkflowCommand()'s own docblock
-     * rather than repeating it.
+     * rather than repeating it — re-derive via
+     * `grep -rn "as observed 2026-09-05 against this repository" tests/*.php`,
+     * which must show exactly the one hit inside that docblock.
      */
     #[Test]
     public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
@@ -975,7 +962,7 @@ TS),
         if (!str_contains($message, 'forged')) {
             self::fail(
                 "The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.\n"
-                    . self::safeSubprocessOutput($message),
+                    . self::scrubbedForDiagnostic($message),
             );
         }
 
@@ -2097,7 +2084,7 @@ JS;
      * RuntimeException whose own getMessage() no longer carries the poison.
      * Catching $throwSite()'s real exception rather than hand-reconstructing
      * the expected message string locally is what makes this discriminating:
-     * reverting safeSubprocessOutput()'s wrap at that production throw site
+     * reverting scrubbedForDiagnostic()'s wrap at that production throw site
      * fails the final assertion here, not merely leaves a differently-worded
      * but still-green test standing — a defect a prior round's own
      * "added a regression test" claim did not actually catch.
@@ -2124,13 +2111,13 @@ JS;
         self::assertFalse(
             $process->isSuccessful(),
             "{$label} unexpectedly succeeded — this control fixture is not testing what it claims.\n"
-                . self::safeSubprocessOutput($process->getOutput() . $process->getErrorOutput()),
+                . self::scrubbedForDiagnostic($process->getOutput() . $process->getErrorOutput()),
         );
 
         if (!str_contains($process->getErrorOutput(), '##[')) {
             self::fail(
                 "{$label} — the control fixture's own raw npm error no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
-                    . self::safeSubprocessOutput($process->getErrorOutput()),
+                    . self::scrubbedForDiagnostic($process->getErrorOutput()),
             );
         }
 
@@ -2160,7 +2147,7 @@ JS;
      * local package-name validation — no registry/network access needed —
      * quotes the offending spec verbatim in its error text, carrying the
      * embedded `##[` straight through to this class's own RuntimeException
-     * message unless safeSubprocessOutput() breaks it first — measured
+     * message unless scrubbedForDiagnostic() breaks it first — measured
      * directly against the installed npm (2026-09-05): `npm error code
      * EINVALIDPACKAGENAME` / `npm error Invalid package name
      * "forges-a-workflow-command-##[error]forged" of package
@@ -2181,7 +2168,7 @@ JS;
         $init = new Process(['npm', 'init', '-y'], $dir);
         $init->run();
 
-        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
+        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n" . self::scrubbedForDiagnostic($init->getErrorOutput()));
 
         // Not rejected by unsafeAsArgument() (a non-empty string, no
         // whitespace, no NUL, no leading dash) but not a URL-friendly npm
@@ -2277,17 +2264,17 @@ JS;
      * narrowed to `[\x01-\x1F\x7F]` (dropping NUL) would still pass unchanged
      * without it — not because this function's own docblock singles NUL out
      * as the reason it exists (it groups every C0/DEL byte together instead),
-     * and this file's own established vocabulary elsewhere (safeSubprocessOutput()'s
-     * own docblock above, "at true column 0 of a new line") attributes "reach
-     * column 0" to an embedded NEWLINE, not NUL specifically. Measured directly
-     * against the installed PHP (2026-09-05):
+     * and this file's own established vocabulary elsewhere
+     * (GateTestCase::scrubbedForDiagnostic()'s own docblock, "at true column 0 of
+     * a new line") attributes "reach column 0" to an embedded NEWLINE, not NUL
+     * specifically. Measured directly against the installed PHP (2026-09-05):
      * `scrubReportControlBytes("a\x00b\x1fc\x7fd")` produces `"a?b?c?d"` —
      * \x00 (NUL), \x1f (a C0 control byte) and \x7f (DEL) each replaced by a
      * literal `?`, the ordinary ASCII bytes either side left untouched.
      * Calls the shared bin/support/safe-report-value.php function directly
-     * (required near the top of this file), not this class's own
-     * safeSubprocessOutput() wrapper, since the property under test belongs
-     * to the shared core.
+     * (required near the top of this file), not the inherited
+     * GateTestCase::scrubbedForDiagnostic() wrapper, since the property under
+     * test belongs to the shared core.
      */
     #[Test]
     public function scrubReportControlBytesReplacesControlBytesWithAQuestionMark(): void
@@ -2296,11 +2283,11 @@ JS;
     }
 
     /**
-     * safeSubprocessOutput()'s own `::`-breaking step, direct and independent
-     * of any real subprocess invocation — the three forgery-regression tests
-     * above only ever poison the LEGACY `##[` prefix, so a missing or reverted
-     * `str_replace('::', ':?:', ...)` step could ship silently, unnoticed by
-     * any of them. Composes the value the same way every real call site in
+     * GateTestCase::scrubbedForDiagnostic()'s own `::`-breaking step, direct and
+     * independent of any real subprocess invocation — the three forgery-regression
+     * tests above only ever poison the LEGACY `##[` prefix, so a missing or
+     * reverted `str_replace('::', ':?:', ...)` step could ship silently, unnoticed
+     * by any of them. Composes the value the same way every real call site in
      * this file does: a literal `\n` from the surrounding message text,
      * immediately followed by $value — the only position in the final
      * message a `::` can ever open a line, since scrubReportControlBytes()
@@ -2314,25 +2301,25 @@ JS;
      * $message is built from the very poisoned literal this test exists to
      * prove is broken, so it can legitimately still carry the unbroken `::`
      * prefix on exactly the regression this test exists to catch; see
-     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
-     * own docblock above for the dated PHPUnit Constraint::fail()/
-     * failureDescription() re-embedding mechanism this guards against, not
-     * repeated here. assertFalse()'s own failureDescription only ever
-     * exports the two BOOLEAN operands, never $message, so the custom
-     * message text is what carries the (re-scrubbed) diagnostic instead —
-     * built only on the failing branch, and only from a value already passed
-     * back through safeSubprocessOutput() a second time, never raw.
+     * assertMessageDoesNotForgeWorkflowCommand()'s own docblock above for the
+     * dated PHPUnit Constraint::fail()/failureDescription() re-embedding
+     * mechanism this guards against, not repeated here. assertFalse()'s own
+     * failureDescription only ever exports the two BOOLEAN operands, never
+     * $message, so the custom message text is what carries the (re-scrubbed)
+     * diagnostic instead — built only on the failing branch, and only from a
+     * value already passed back through scrubbedForDiagnostic() a second time,
+     * never raw.
      */
     #[Test]
-    public function safeSubprocessOutputBreaksAWorkflowCommandOpenedWithTheModernPrefix(): void
+    public function scrubbedForDiagnosticBreaksAWorkflowCommandOpenedWithTheModernPrefix(): void
     {
-        $message     = "npm error\n" . self::safeSubprocessOutput('::error title=pwned::forged');
+        $message     = "npm error\n" . self::scrubbedForDiagnostic('::error title=pwned::forged');
         $stillForged = preg_match('/^[ \t]*::/m', $message) === 1;
 
         self::assertFalse(
             $stillForged,
             $stillForged
-                ? "safeSubprocessOutput() failed to break the modern :: workflow-command prefix.\n" . self::safeSubprocessOutput($message)
+                ? "scrubbedForDiagnostic() failed to break the modern :: workflow-command prefix.\n" . self::scrubbedForDiagnostic($message)
                 : '',
         );
     }
