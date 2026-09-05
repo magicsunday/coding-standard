@@ -179,10 +179,11 @@ final class GateProcessTest extends TestCase
     }
 
     /**
-     * Asserts that an empty $env array leaves the inherited environment
-     * untouched, matching Process's own null-means-inherit contract — not
-     * an empty environment, which would break every caller relying on
-     * $PATH to resolve its interpreter/binary.
+     * Asserts that calling runRaw() with no $env argument at all (the
+     * default empty array) leaves the inherited environment untouched — not
+     * an empty environment, which would break every caller relying on $PATH
+     * to resolve its interpreter/binary. See runRaw()'s own docblock for why
+     * an empty array behaves identically to null here.
      */
     #[Test]
     public function runRawWithNoEnvironmentInheritsThePath(): void

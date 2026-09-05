@@ -84,9 +84,16 @@ final readonly class GateProcess
      * @param string|null           $cwd     The working directory the process starts in, or
      *                                       null for the current process's own cwd.
      * @param array<string, string> $env     Extra environment variables, merged onto the
-     *                                       inherited environment; an empty array leaves
-     *                                       the environment untouched, matching Process's
-     *                                       own null-means-inherit contract.
+     *                                       inherited environment. An empty array behaves
+     *                                       identically to omitting it: Process's constructor
+     *                                       only special-cases `null` (by skipping its own
+     *                                       setEnv() call), but setEnv([]) leaves $env at the
+     *                                       same empty array the property already defaults
+     *                                       to, and start() treats an empty $env as falsy
+     *                                       either way — merging in the process's own
+     *                                       inherited environment regardless. Verified against
+     *                                       the installed symfony/process
+     *                                       (.build/vendor/symfony/process/Process.php).
      * @param float                 $timeout The process timeout in seconds.
      *
      * @return GateResult
@@ -97,7 +104,7 @@ final readonly class GateProcess
      */
     public function runRaw(array $command, ?string $cwd = null, array $env = [], float $timeout = 60.0): GateResult
     {
-        $process = new Process($command, $cwd, $env === [] ? null : $env);
+        $process = new Process($command, $cwd, $env);
         $process->setTimeout($timeout);
         $output = '';
 
