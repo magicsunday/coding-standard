@@ -17,11 +17,17 @@ use PHPUnit\Framework\Attributes\Test;
 use function file_get_contents;
 use function file_put_contents;
 use function implode;
+use function is_array;
 use function preg_match;
+use function preg_replace;
 use function strlen;
 use function strpos;
 use function substr;
 use function substr_count;
+use function token_get_all;
+
+use const T_COMMENT;
+use const T_DOC_COMMENT;
 
 /**
  * A structural, grep-shaped regression guard for the defect class GH-79's
@@ -53,12 +59,26 @@ use function substr_count;
  *   scrub would need adding to self::SAFE_WRAP_CALLS below, or this guard
  *   would false-positive on it.
  * - self::fail() call sites (the manual `if (...) { self::fail(...) }`
- *   shape every fix in this round converged on) are deliberately OUT OF
- *   SCOPE: self::fail() takes a single literal string with no re-export
- *   mechanism, so a raw value reaching it is a DIFFERENT, already-covered
- *   concern (the message itself must be built with the scrub wrap, which is
- *   a per-call-site fix, not a PHPUnit-mechanism leak this guard exists to
- *   catch).
+ *   shape the rest of this suite uses instead of a risky assertion) are
+ *   deliberately OUT OF SCOPE: self::fail() takes a single literal string
+ *   with no re-export mechanism, so a raw value reaching it is a DIFFERENT,
+ *   already-covered concern (the message itself must be built with the
+ *   scrub wrap, which is a per-call-site fix, not a PHPUnit-mechanism leak
+ *   this guard exists to catch).
+ * - self::RAW_OUTPUT_PATTERN also flags a regex-capture variable
+ *   (`$matches[`) and an array-key access shaped like subprocess output
+ *   (`['stdout']`/`['stderr']`), on top of the direct `->output`/
+ *   `->getOutput()`/`->getErrorOutput()` accessors — but it still matches by
+ *   fixed literal shape, not real data-flow, so a raw value reaching a risky
+ *   assertion through a differently-named variable or a deeper array/object
+ *   path is not detected.
+ * - Source is scanned with every T_COMMENT/T_DOC_COMMENT token blanked out
+ *   first (self::stripComments()), so a comment or docblock merely quoting a
+ *   risky-assertion call as illustrative prose is not flagged; a call
+ *   embedded inside a string literal (e.g. a heredoc fixture, as
+ *   detectsAnIntentionallyReintroducedRawOutputAssertion() below builds) is
+ *   still real PHP source to the tokenizer either way and is scanned
+ *   normally.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
@@ -98,11 +118,14 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     ];
 
     /**
-     * The pattern a raw, unscrubbed subprocess-output accessor takes in this
-     * codebase: a property access (`->output`) or one of the two Process
-     * accessor methods.
+     * The shapes a raw, unscrubbed value under test takes in this codebase:
+     * a `$result->output` property access, one of the two Process accessor
+     * methods (`->getOutput()`/`->getErrorOutput()`), a regex-capture
+     * variable (`$matches[`), or an array-key access shaped like captured
+     * subprocess output (`['stdout']`/`['stderr']`, the shape
+     * runBuildToolsSeparated()'s own callers use in this file).
      */
-    private const RAW_OUTPUT_PATTERN = '/->output\b|->getOutput\s*\(|->getErrorOutput\s*\(/';
+    private const RAW_OUTPUT_PATTERN = '/->output\b|->getOutput\s*\(|->getErrorOutput\s*\(|\$matches\[|\[\'stdout\'\]|\[\'stderr\'\]/';
 
     /**
      * Every failed accept/reject-pattern regression this file's history
@@ -182,13 +205,52 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
+     * Blanks out every T_COMMENT/T_DOC_COMMENT token in $source, replacing
+     * each byte but a literal newline with a space so line numbers and byte
+     * offsets into the returned string still line up with $source. Without
+     * this, a comment or docblock merely quoting a risky-assertion call as
+     * illustrative prose (this class's own docblock is exactly such a case)
+     * would false-positive findUnscrubbedRawOutputAssertions() below.
+     *
+     * @param string $source The PHP source to strip comments from.
+     *
+     * @return string The source with every comment/docblock token blanked out.
+     */
+    private static function stripComments(string $source): string
+    {
+        $out = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (!is_array($token)) {
+                $out .= $token;
+
+                continue;
+            }
+
+            [$id, $text] = $token;
+
+            if (($id === T_COMMENT) || ($id === T_DOC_COMMENT)) {
+                $out .= preg_replace('/[^\n]/', ' ', $text);
+
+                continue;
+            }
+
+            $out .= $text;
+        }
+
+        return $out;
+    }
+
+    /**
      * Scans $path for every call to one of self::RISKY_ASSERTIONS and, for
      * each one, strips every self::SAFE_WRAP_CALLS wrap from its own
      * argument list — the message argument included, since a hand-written
      * custom message embedding raw output unscrubbed is the SAME defect
-     * class this round's Fix 4/Fix 5 closed, not merely the PHPUnit
-     * auto-export mechanism. Whatever still matches self::RAW_OUTPUT_PATTERN
-     * afterwards is a finding.
+     * class as a hand-rolled message that skips the scrub helper, not merely
+     * the PHPUnit auto-export mechanism. Whatever still matches
+     * self::RAW_OUTPUT_PATTERN afterwards is a finding. $path is read
+     * through self::stripComments() first, so a comment/docblock quoting a
+     * risky-assertion call in prose is not scanned.
      *
      * @param string $path Absolute path to the PHP source file to scan.
      *
@@ -196,7 +258,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      */
     private static function findUnscrubbedRawOutputAssertions(string $path): array
     {
-        $source   = (string) file_get_contents($path);
+        $source   = self::stripComments((string) file_get_contents($path));
         $findings = [];
 
         foreach (self::RISKY_ASSERTIONS as $assertionName) {
@@ -305,5 +367,92 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         $findings = self::findUnscrubbedRawOutputAssertions($path);
 
         self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside a sanctioned scrub wrap.');
+    }
+
+    /**
+     * self::RAW_OUTPUT_PATTERN's `$matches[` alternative: a risky assertion
+     * comparing a regex-capture variable directly (the exact shape
+     * assertReadmeToolVersionMatchesDevDependenciesPin() carried before it
+     * was converted to a manual mismatch check + self::fail()) must be
+     * flagged, not just the `->output`/`->getOutput()`/`->getErrorOutput()`
+     * accessors.
+     */
+    #[Test]
+    public function detectsARiskyAssertionUsingARegexCaptureVariable(): void
+    {
+        $dir  = $this->fixture()->path();
+        $path = "{$dir}/poisoned-matches-fixture.php";
+
+        file_put_contents(
+            $path,
+            <<<'PHP'
+            <?php
+            self::assertSame($matches[1], $actual, 'boom');
+            PHP,
+        );
+
+        $findings = self::findUnscrubbedRawOutputAssertions($path);
+
+        self::assertNotEmpty($findings, 'The guard did not flag a risky assertion using a regex-capture variable ($matches[1]) as its raw operand.');
+    }
+
+    /**
+     * self::RAW_OUTPUT_PATTERN's `['stdout']`/`['stderr']` alternative: a
+     * risky assertion comparing an array-key access shaped like captured
+     * subprocess output — the real shape runBuildToolsSeparated()'s own
+     * callers use in tests/CheckJsConfigsTest.php — must be flagged too.
+     */
+    #[Test]
+    public function detectsARiskyAssertionUsingAnArrayKeyAccess(): void
+    {
+        $dir  = $this->fixture()->path();
+        $path = "{$dir}/poisoned-array-key-fixture.php";
+
+        file_put_contents(
+            $path,
+            <<<'PHP'
+            <?php
+            self::assertSame('typescript@5.0.16', trim($result['stdout']));
+            PHP,
+        );
+
+        $findings = self::findUnscrubbedRawOutputAssertions($path);
+
+        self::assertNotEmpty($findings, "The guard did not flag a risky assertion using an array-key access (\$result['stdout']) as its raw operand.");
+    }
+
+    /**
+     * self::stripComments()'s own control: a docblock or comment merely
+     * mentioning a risky-assertion call in prose (exactly the shape this
+     * class's own docblock and several method docblocks in this suite use)
+     * must NOT be flagged — without stripping comments first, this guard
+     * would false-positive on its own documentation.
+     */
+    #[Test]
+    public function doesNotFlagARiskyAssertionMentionedOnlyInAComment(): void
+    {
+        $dir  = $this->fixture()->path();
+        $path = "{$dir}/commented-mention-fixture.php";
+
+        file_put_contents(
+            $path,
+            <<<'PHP'
+            <?php
+
+            /**
+             * See self::assertSame($matches[1], $result['stdout'], $result->output) for
+             * an illustrative example of the shape this guard rejects — never actually
+             * called here.
+             */
+            // Also mentioned in a single-line comment: assertSame($result->output, $x);
+            final class CommentedMentionFixture
+            {
+            }
+            PHP,
+        );
+
+        $findings = self::findUnscrubbedRawOutputAssertions($path);
+
+        self::assertSame([], $findings, 'The guard flagged a risky-assertion call that only appears inside a comment/docblock, never as real code.');
     }
 }
