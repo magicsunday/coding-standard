@@ -519,7 +519,7 @@ abstract class GateTestCase extends TestCase
      * } catch ($exceptionClass $exception) { $thrown = $exception; }
      * self::assertNotNull($thrown, …)" shape this class's subclasses repeated
      * at every call site proving a production method rejects bad input —
-     * re-derive the current call sites via `grep -rn 'assertThrows(' tests/*.php`.
+     * re-derive the current call sites via `grep -rn "self::assert[T]hrows(" tests/`.
      * Catches Throwable rather than $exceptionClass directly so a call site
      * that throws the WRONG exception class still propagates it uncaught —
      * narrowing the catch to $exceptionClass would silently swallow a
