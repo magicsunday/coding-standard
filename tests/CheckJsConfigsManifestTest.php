@@ -559,7 +559,7 @@ JS;
         self::assertSame(
             0,
             $result->exitCode,
-            $message !== '' ? $message : "Rejected.\n" . self::scrubbedForDiagnostic($result->output),
+            self::messageOrDefault($message, 'Rejected.', $result->output),
         );
     }
 
@@ -590,12 +590,12 @@ JS;
         self::assertNotSame(
             0,
             $result->exitCode,
-            $message !== '' ? $message : "Accepted, so the check does not discriminate.\n" . self::scrubbedForDiagnostic($result->output),
+            self::messageOrDefault($message, 'Accepted, so the check does not discriminate.', $result->output),
         );
 
         self::assertFalse(
             $result->isDegraded(),
-            $message !== '' ? $message : "The gate did not run, it died.\n" . self::scrubbedForDiagnostic($result->output),
+            self::messageOrDefault($message, 'The gate did not run, it died.', $result->output),
         );
     }
 
@@ -1320,13 +1320,11 @@ JS;
 
         self::assertTrue(
             $result->isDegraded(),
-            "A malformed package.json must crash the gate, not silently produce a verdict.\n" . self::scrubbedForDiagnostic($result->output),
+            self::diagnosticMessage('A malformed package.json must crash the gate, not silently produce a verdict.', $result->output),
         );
 
         if (!str_contains($result->output, 'is not valid JSON')) {
-            self::fail(
-                "The crash diagnostic did not report the expected malformed-JSON reason.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('The crash diagnostic did not report the expected malformed-JSON reason.', $result->output));
         }
     }
 }

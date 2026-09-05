@@ -237,9 +237,7 @@ abstract class GateTestCase extends TestCase
         $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
         if (str_contains($result->output, "\x1B")) {
-            self::fail(
-                "An ANSI escape from a consumer value reached the report.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('An ANSI escape from a consumer value reached the report.', $result->output));
         }
 
         // This regex carries no `u` modifier, so a lead byte outside ASCII
@@ -248,22 +246,15 @@ abstract class GateTestCase extends TestCase
         // analogous `::` check (lines ~479-495). See GateResult::isDegraded()'s
         // docblock for the re-derivation command.
         if (preg_match('/^[[:space:]]*::[A-Za-z0-9_-]+/m', $result->output) === 1) {
-            self::fail(
-                "A consumer value forged a `::` workflow command.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('A consumer value forged a `::` workflow command.', $result->output));
         }
 
         if (str_contains($result->output, '##[')) {
-            self::fail(
-                'A consumer value forged the legacy workflow-command prefix.'
-                    . "\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('A consumer value forged the legacy workflow-command prefix.', $result->output));
         }
 
         if (str_contains($result->output, "\r")) {
-            self::fail(
-                "A consumer value carried a bare carriage return, which opens a line to the runner.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('A consumer value carried a bare carriage return, which opens a line to the runner.', $result->output));
         }
 
         // grep -c . counts NON-EMPTY lines — a blank line must not count toward the limit.
@@ -454,6 +445,46 @@ abstract class GateTestCase extends TestCase
     protected static function scrubbedForDiagnostic(string $value): string
     {
         return str_replace('::', ':?:', scrubReportControlBytes($value));
+    }
+
+    /**
+     * Composes a self::fail()-ready diagnostic message: $label followed by a
+     * newline and $output scrubbed through self::scrubbedForDiagnostic().
+     * Collapses the `<label> . "\n" . self::scrubbedForDiagnostic($output)`
+     * shape repeated at nearly every PR-editable-content diagnostic in this
+     * class and its subclasses into one call, rather than each site pairing
+     * the newline and the scrub call by hand.
+     *
+     * @param string $label  The failure label, used verbatim.
+     * @param string $output The raw value to scrub before appending.
+     *
+     * @return string $label, a newline, then $output scrubbed.
+     */
+    protected static function diagnosticMessage(string $label, string $output): string
+    {
+        return $label . "\n" . self::scrubbedForDiagnostic($output);
+    }
+
+    /**
+     * Resolves an optional caller-supplied assertion $message against a
+     * scrubbed default: $message verbatim when non-empty, otherwise
+     * diagnosticMessage()'s $default label followed by $output scrubbed.
+     * Collapses the
+     * `$message !== '' ? $message : <default> . "\n" . self::scrubbedForDiagnostic($output)`
+     * shape repeated at every optional-message call site in this class and
+     * its subclasses into one call. Not a fit for a call site where the
+     * scrubbed output must be appended regardless of whether $message is
+     * empty — that is a different shape and stays hand-written.
+     *
+     * @param string $message The caller-supplied message, used verbatim when non-empty.
+     * @param string $default The failure label used when $message is empty.
+     * @param string $output  The raw value to scrub before appending, when $message is empty.
+     *
+     * @return string $message verbatim, or $default plus $output scrubbed when $message is empty.
+     */
+    protected static function messageOrDefault(string $message, string $default, string $output): string
+    {
+        return $message !== '' ? $message : self::diagnosticMessage($default, $output);
     }
 
     /**

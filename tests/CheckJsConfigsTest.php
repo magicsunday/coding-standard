@@ -426,19 +426,35 @@ JS;
         self::assertNotSame(
             0,
             $result->exitCode,
-            $message !== '' ? $message : "Accepted; the rule is not in force.\n" . self::scrubbedForDiagnostic($result->output),
+            self::messageOrDefault($message, 'Accepted; the rule is not in force.', $result->output),
         );
 
         $flags = $caseInsensitive ? 'i' : '';
 
         foreach ($mustAllMatch as $pattern) {
             if (preg_match("#{$pattern}#{$flags}", $result->output) !== 1) {
-                self::fail(
-                    ($message !== '' ? $message : 'Rejected, but not for the tested reason.')
-                        . "\n" . self::scrubbedForDiagnostic($result->output),
-                );
+                self::fail(self::messageOrDefault($message, 'Rejected, but not for the tested reason.', $result->output));
             }
         }
+    }
+
+    /**
+     * The exit-0 accept-path check nearly every biomeCi()/runTsc() call in
+     * this file drives — mirrors tests/CheckJsConfigsManifestTest.php's own
+     * assertManifestAccepts() shape. $context both labels the failure and is
+     * the only thing that varies between call sites, so this collapses the
+     * hand-rolled `self::assertSame(0, $result->exitCode,
+     * self::diagnosticMessage(<label>, $result->output))` triad repeated at
+     * every accept-path assertion into one call.
+     *
+     * @param GateResult $result  The captured biomeCi()/runTsc() run to check.
+     * @param string     $context Describes the tool/fixture under test, used as the failure label.
+     *
+     * @return void
+     */
+    private function assertAccepted(GateResult $result, string $context): void
+    {
+        self::assertSame(0, $result->exitCode, self::diagnosticMessage($context, $result->output));
     }
 
     /**
@@ -523,7 +539,7 @@ JS;
     private static function assertMessageDoesNotForgeWorkflowCommand(string $haystack, string $needle, string $failureLabel): void
     {
         if (str_contains($haystack, $needle)) {
-            self::fail("{$failureLabel}\n" . self::scrubbedForDiagnostic($haystack));
+            self::fail(self::diagnosticMessage($failureLabel, $haystack));
         }
     }
 
@@ -545,7 +561,7 @@ JS;
     private static function requireSuccessfulProcess(Process $process, string $message): void
     {
         if (!$process->isSuccessful()) {
-            throw new RuntimeException("{$message}\n" . self::scrubbedForDiagnostic($process->getErrorOutput()));
+            throw new RuntimeException(self::diagnosticMessage($message, $process->getErrorOutput()));
         }
     }
 
@@ -607,7 +623,7 @@ JS;
         $tarball = trim($pack->getOutput());
 
         if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
-            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::scrubbedForDiagnostic($pack->getErrorOutput()));
+            throw new RuntimeException(self::diagnosticMessage('npm pack produced no tarball — cannot run the smoke.', $pack->getErrorOutput()));
         }
 
         return $tarball;
@@ -868,18 +884,15 @@ TS),
         self::assertNotSame(
             0,
             $result['exitCode'],
-            "Accepted an unsafe devDependencies entry.\n" . self::scrubbedForDiagnostic($result['stdout']),
+            self::diagnosticMessage('Accepted an unsafe devDependencies entry.', $result['stdout']),
         );
 
         if ($result['stdout'] !== '') {
-            self::fail("Rejected on exit code, but still emitted to stdout.\n" . self::scrubbedForDiagnostic($result['stdout']));
+            self::fail(self::diagnosticMessage('Rejected on exit code, but still emitted to stdout.', $result['stdout']));
         }
 
         if (!str_contains($result['stderr'], 'is not safe to pass to npm as an argument')) {
-            self::fail(
-                "Rejected with empty stdout, but not via its own diagnostic (crashed instead?).\n"
-                    . self::scrubbedForDiagnostic($result['stderr']),
-            );
+            self::fail(self::diagnosticMessage('Rejected with empty stdout, but not via its own diagnostic (crashed instead?).', $result['stderr']));
         }
     }
 
@@ -968,10 +981,7 @@ TS),
         $message = $thrown->getMessage();
 
         if (!str_contains($message, 'forged')) {
-            self::fail(
-                "The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.\n"
-                    . self::scrubbedForDiagnostic($message),
-            );
+            self::fail(self::diagnosticMessage('The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.', $message));
         }
 
         self::assertMessageDoesNotForgeWorkflowCommand(
@@ -1077,11 +1087,7 @@ TS),
     {
         $probe = $this->packIgnoreScriptsProbe(true, 'prepack-suppressed');
 
-        self::assertSame(
-            0,
-            $probe['result']->exitCode,
-            "npm pack (suppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
-        );
+        self::assertSame(0, $probe['result']->exitCode, self::diagnosticMessage('npm pack (suppressed) failed.', $probe['result']->output));
         self::assertFileDoesNotExist($probe['marker'], 'npm pack --ignore-scripts did not suppress prepack.');
     }
 
@@ -1095,11 +1101,7 @@ TS),
     {
         $probe = $this->packIgnoreScriptsProbe(false, 'prepack-unsuppressed');
 
-        self::assertSame(
-            0,
-            $probe['result']->exitCode,
-            "npm pack (unsuppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
-        );
+        self::assertSame(0, $probe['result']->exitCode, self::diagnosticMessage('npm pack (unsuppressed) failed.', $probe['result']->output));
         self::assertFileExists($probe['marker'], 'npm pack without --ignore-scripts did not run prepack — the mutation control no longer discriminates.');
     }
 
@@ -1115,7 +1117,7 @@ TS),
     private function packIgnoreScriptsProbeForInstall(string $dir): string
     {
         $pack = $this->runCommand(['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'], $dir);
-        self::assertSame(0, $pack->exitCode, "npm pack failed.\n" . self::scrubbedForDiagnostic($pack->output));
+        self::assertSame(0, $pack->exitCode, self::diagnosticMessage('npm pack failed.', $pack->output));
 
         return "{$dir}/" . trim($pack->output);
     }
@@ -1145,7 +1147,7 @@ TS),
         $consumerDir = "{$dir}/consumer";
         mkdir($consumerDir);
         $init = $this->runCommand(['npm', 'init', '-y'], $consumerDir);
-        self::assertSame(0, $init->exitCode, "npm init -y failed.\n" . self::scrubbedForDiagnostic($init->output));
+        self::assertSame(0, $init->exitCode, self::diagnosticMessage('npm init -y failed.', $init->output));
 
         $command = ['npm', 'install', '--no-audit', '--no-fund'];
 
@@ -1171,11 +1173,7 @@ TS),
     {
         $probe = $this->installIgnoreScriptsProbe(true, 'postinstall-suppressed');
 
-        self::assertSame(
-            0,
-            $probe['result']->exitCode,
-            "npm install (suppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
-        );
+        self::assertSame(0, $probe['result']->exitCode, self::diagnosticMessage('npm install (suppressed) failed.', $probe['result']->output));
         self::assertFileDoesNotExist($probe['marker'], 'npm install --ignore-scripts did not suppress postinstall.');
     }
 
@@ -1188,11 +1186,7 @@ TS),
     {
         $probe = $this->installIgnoreScriptsProbe(false, 'postinstall-unsuppressed');
 
-        self::assertSame(
-            0,
-            $probe['result']->exitCode,
-            "npm install (unsuppressed) failed.\n" . self::scrubbedForDiagnostic($probe['result']->output),
-        );
+        self::assertSame(0, $probe['result']->exitCode, self::diagnosticMessage('npm install (unsuppressed) failed.', $probe['result']->output));
         self::assertFileExists($probe['marker'], 'npm install without --ignore-scripts did not run postinstall — the mutation control no longer discriminates.');
     }
 
@@ -1216,8 +1210,7 @@ TS),
         self::assertSame(
             0,
             $result->exitCode,
-            "The installed npm bin entry (check-js-config) did not run — package.json's \"bin\" mapping may be broken.\n"
-                . self::scrubbedForDiagnostic($result->output),
+            self::diagnosticMessage('The installed npm bin entry (check-js-config) did not run — package.json\'s "bin" mapping may be broken.', $result->output),
         );
     }
 
@@ -1239,15 +1232,11 @@ TS),
         self::assertSame(
             1,
             $result->exitCode,
-            "The installed npm bin entry (check-js-config) exited {$result->exitCode}, not the 1 a reported drift needs.\n"
-                . self::scrubbedForDiagnostic($result->output),
+            self::diagnosticMessage("The installed npm bin entry (check-js-config) exited {$result->exitCode}, not the 1 a reported drift needs.", $result->output),
         );
 
         if (!str_contains($result->output, 'biome.json: not valid JSON(C).')) {
-            self::fail(
-                "The installed npm bin entry (check-js-config) did not report the expected malformed-JSON diagnostic.\n"
-                    . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage('The installed npm bin entry (check-js-config) did not report the expected malformed-JSON diagnostic.', $result->output));
         }
     }
 
@@ -1263,11 +1252,7 @@ TS),
     private function tarballEntries(string $tarball): array
     {
         $result = $this->runCommand(['tar', '-tzf', $tarball]);
-        self::assertSame(
-            0,
-            $result->exitCode,
-            "Could not list the tarball contents.\n" . self::scrubbedForDiagnostic($result->output),
-        );
+        self::assertSame(0, $result->exitCode, self::diagnosticMessage('Could not list the tarball contents.', $result->output));
 
         $entries = [];
 
@@ -1397,16 +1382,8 @@ TS),
         $pack    = $this->runCommand(['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'], $archiveDir);
         $tarball = trim($pack->output);
 
-        self::assertSame(
-            0,
-            $pack->exitCode,
-            "npm pack produced no tarball.\n" . self::scrubbedForDiagnostic($pack->output),
-        );
-        self::assertNotSame(
-            '',
-            $tarball,
-            "npm pack produced no tarball.\n" . self::scrubbedForDiagnostic($pack->output),
-        );
+        self::assertSame(0, $pack->exitCode, self::diagnosticMessage('npm pack produced no tarball.', $pack->output));
+        self::assertNotSame('', $tarball, self::diagnosticMessage('npm pack produced no tarball.', $pack->output));
 
         return "{$dir}/{$tarball}";
     }
@@ -1656,18 +1633,10 @@ TS),
         $consumerDir = self::packagedConsumer()['consumerDir'];
 
         $biome = $this->biomeCi($consumerDir);
-        self::assertSame(
-            0,
-            $biome->exitCode,
-            "biome ci — shared config rejected or the clean fixture reported findings.\n" . self::scrubbedForDiagnostic($biome->output),
-        );
+        $this->assertAccepted($biome, 'biome ci — shared config rejected or the clean fixture reported findings.');
 
         $tsc = $this->runTsc($consumerDir);
-        self::assertSame(
-            0,
-            $tsc->exitCode,
-            "tsc — shared config rejected or the clean fixture failed to compile.\n" . self::scrubbedForDiagnostic($tsc->output),
-        );
+        $this->assertAccepted($tsc, 'tsc — shared config rejected or the clean fixture failed to compile.');
     }
 
     /**
@@ -1709,21 +1678,15 @@ TS),
             $result->exitCode,
             'The poisoned unknown key did not make biome ci fail — this test is not exercising the trap it claims to.',
         );
+
         if (!str_contains($result->output, $poison)) {
-            self::fail(
-                "The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
-                    . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::diagnosticMessage("The poisoned config's own raw biome output no longer carries the poisoned sequence; this test is not exercising the trap it claims to.", $result->output));
         }
 
         $thrown = null;
 
         try {
-            self::assertSame(
-                0,
-                $result->exitCode,
-                "biome ci — shared config rejected or the clean fixture reported findings.\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            $this->assertAccepted($result, 'biome ci — shared config rejected or the clean fixture reported findings.');
         } catch (AssertionFailedError $exception) {
             $thrown = $exception;
         }
@@ -1823,18 +1786,10 @@ export const doubled = (): number => value * 2;
 TS);
 
         $biome = $this->biomeCi($consumerDir);
-        self::assertSame(
-            0,
-            $biome->exitCode,
-            "biome — the house .js import extension was rejected.\n" . self::scrubbedForDiagnostic($biome->output),
-        );
+        $this->assertAccepted($biome, 'biome — the house .js import extension was rejected.');
 
         $tsc = $this->runTsc($consumerDir);
-        self::assertSame(
-            0,
-            $tsc->exitCode,
-            "tsc — the house .js import extension failed to compile.\n" . self::scrubbedForDiagnostic($tsc->output),
-        );
+        $this->assertAccepted($tsc, 'tsc — the house .js import extension failed to compile.');
     }
 
     /**
@@ -1900,20 +1855,14 @@ TS);
         sort($provenKeys);
 
         if ($provenKeys !== $mappedKeys) {
-            self::fail(
-                "biome/base.json's extensionMappings keys no longer match the set this suite proves.\n"
-                    . self::scrubbedForDiagnostic(json_encode($mappedKeys, JSON_THROW_ON_ERROR)),
-            );
+            self::fail(self::diagnosticMessage("biome/base.json's extensionMappings keys no longer match the set this suite proves.", json_encode($mappedKeys, JSON_THROW_ON_ERROR)));
         }
 
         foreach (self::PROVEN_EXTENSION_TARGETS as $source => $want) {
             $mapped = $mappings[$source] ?? null;
 
             if ($want !== $mapped) {
-                self::fail(
-                    "biome/base.json maps .{$source} to something other than .{$want}, the target this smoke proves.\n"
-                        . self::scrubbedForDiagnostic((string) $mapped),
-                );
+                self::fail(self::diagnosticMessage("biome/base.json maps .{$source} to something other than .{$want}, the target this smoke proves.", (string) $mapped));
             }
         }
     }
@@ -1959,12 +1908,7 @@ TS);
         );
 
         $accept = $this->biomeCi($consumerDir);
-        self::assertSame(
-            0,
-            $accept->exitCode,
-            "biome — an import spelling .{$targetExtension} from a .{$sourceExtension} source was rejected; the mapping row is wrong or missing.\n"
-                . self::scrubbedForDiagnostic($accept->output),
-        );
+        $this->assertAccepted($accept, "biome — an import spelling .{$targetExtension} from a .{$sourceExtension} source was rejected; the mapping row is wrong or missing.");
 
         $this->mutateConsumerFile(
             $consumerDir,
@@ -1977,8 +1921,7 @@ TS);
             $reject,
             ['lint/correctness/useImportExtensions'],
             false,
-            "biome — an extensionless import from a .{$sourceExtension} source was accepted, so useImportExtensions is not in force for that extension.\n"
-                . self::scrubbedForDiagnostic($reject->output),
+            self::diagnosticMessage("biome — an extensionless import from a .{$sourceExtension} source was accepted, so useImportExtensions is not in force for that extension.", $reject->output),
         );
     }
 
@@ -2004,12 +1947,7 @@ TS);
 
         $result = $this->biomeCi($consumerDir);
 
-        self::assertSame(
-            0,
-            $result->exitCode,
-            "biome — the asset fixture failed; either an asset import was told to add a .js extension, or it failed for an unrelated reason.\n"
-                . self::scrubbedForDiagnostic($result->output),
-        );
+        $this->assertAccepted($result, 'biome — the asset fixture failed; either an asset import was told to add a .js extension, or it failed for an unrelated reason.');
     }
 
     /**
@@ -2030,12 +1968,7 @@ JSON);
 
         $result = $this->runTsc($consumerDir);
 
-        self::assertSame(
-            0,
-            $result->exitCode,
-            "tsc no longer resolves the extensionless tsconfig \"extends\" specifier; the gate's suffixOptional=true assumption is wrong.\n"
-                . self::scrubbedForDiagnostic($result->output),
-        );
+        $this->assertAccepted($result, 'tsc no longer resolves the extensionless tsconfig "extends" specifier; the gate\'s suffixOptional=true assumption is wrong.');
     }
 
     /**
@@ -2058,8 +1991,7 @@ JSON);
             $result,
             ['not found|could not resolve'],
             true,
-            "biome resolved the extensionless specifier; the gate's requirement of the .json suffix for biome is wrong.\n"
-                . self::scrubbedForDiagnostic($result->output),
+            self::diagnosticMessage('biome resolved the extensionless specifier; the gate\'s requirement of the .json suffix for biome is wrong.', $result->output),
         );
     }
 
@@ -2199,10 +2131,7 @@ JSON,
         sort($provenFormats);
 
         if ($provenFormats !== $templateFormats) {
-            self::fail(
-                "templates/jscpd.json's format list no longer matches the set this suite proves — a format was added or dropped without a matching fixture.\n"
-                    . self::scrubbedForDiagnostic(json_encode($templateFormats, JSON_THROW_ON_ERROR)),
-            );
+            self::fail(self::diagnosticMessage("templates/jscpd.json's format list no longer matches the set this suite proves — a format was added or dropped without a matching fixture.", json_encode($templateFormats, JSON_THROW_ON_ERROR)));
         }
     }
 
@@ -2304,8 +2233,7 @@ JS;
             $result,
             ['clone|duplicat'],
             true,
-            "jscpd control — no clone found in two identical .{$extension} files; the \"{$format}\" format name no longer analyses anything.\n"
-                . self::scrubbedForDiagnostic($result->output),
+            self::diagnosticMessage("jscpd control — no clone found in two identical .{$extension} files; the \"{$format}\" format name no longer analyses anything.", $result->output),
         );
     }
 
@@ -2426,15 +2354,11 @@ JS;
     {
         self::assertFalse(
             $process->isSuccessful(),
-            "{$label} unexpectedly succeeded — this control fixture is not testing what it claims.\n"
-                . self::scrubbedForDiagnostic($process->getOutput() . $process->getErrorOutput()),
+            self::diagnosticMessage("{$label} unexpectedly succeeded — this control fixture is not testing what it claims.", $process->getOutput() . $process->getErrorOutput()),
         );
 
         if (!str_contains($process->getErrorOutput(), '##[')) {
-            self::fail(
-                "{$label} — the control fixture's own raw npm error no longer carries the poisoned sequence; this test is not exercising the trap it claims to.\n"
-                    . self::scrubbedForDiagnostic($process->getErrorOutput()),
-            );
+            self::fail(self::diagnosticMessage("{$label} — the control fixture's own raw npm error no longer carries the poisoned sequence; this test is not exercising the trap it claims to.", $process->getErrorOutput()));
         }
 
         $thrown = null;
@@ -2484,7 +2408,7 @@ JS;
         $init = new Process(['npm', 'init', '-y'], $dir);
         $init->run();
 
-        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n" . self::scrubbedForDiagnostic($init->getErrorOutput()));
+        self::assertTrue($init->isSuccessful(), self::diagnosticMessage('npm init -y control failed.', $init->getErrorOutput()));
 
         // Not rejected by unsafeAsArgument() (a non-empty string, no
         // whitespace, no NUL, no leading dash) but not a URL-friendly npm
@@ -2629,14 +2553,12 @@ JS;
     #[Test]
     public function scrubbedForDiagnosticBreaksAWorkflowCommandOpenedWithTheModernPrefix(): void
     {
-        $message     = "npm error\n" . self::scrubbedForDiagnostic('::error title=pwned::forged');
+        $message     = self::diagnosticMessage('npm error', '::error title=pwned::forged');
         $stillForged = preg_match('/^[ \t]*::/m', $message) === 1;
 
         self::assertFalse(
             $stillForged,
-            $stillForged
-                ? "scrubbedForDiagnostic() failed to break the modern :: workflow-command prefix.\n" . self::scrubbedForDiagnostic($message)
-                : '',
+            $stillForged ? self::diagnosticMessage('scrubbedForDiagnostic() failed to break the modern :: workflow-command prefix.', $message) : '',
         );
     }
 }
