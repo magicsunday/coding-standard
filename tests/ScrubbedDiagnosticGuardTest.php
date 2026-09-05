@@ -64,10 +64,10 @@ use const T_WHITESPACE;
  * self::openParenIndexAfter()/self::matchingCloseParenIndex()/
  * self::stripBalancedCallsFromTokens() below), instead of flattening the
  * tokens into a reconstructed string plus a parallel byte-mask that a
- * caller has to keep manually realigned through every strip — a prior
- * round's byte-mask-plus-strpos() approach twice produced a live-reproduced
- * bypass this round's rewrite closes structurally rather than by adding a
- * further special case:
+ * caller has to keep manually realigned through every strip — this file's
+ * earlier byte-mask-plus-strpos() approach twice produced a live-reproduced
+ * bypass, which walking the token array directly closes structurally rather
+ * than by adding a further special case:
  * - STRING/HEREDOC/NOWDOC-CONTENT-SAFE, INTERPOLATED OR NOT:
  *   self::matchingCloseParenIndex()/self::openParenIndexAfter()
  *   depth-count/identify a paren only via self::isRawParenToken(), which
@@ -100,9 +100,9 @@ use const T_WHITESPACE;
  *   see doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument()
  *   below for the closing-paren half of the non-interpolated case and
  *   detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen()
- *   for the opening-paren half a prior round already fixed; all four are now
+ *   for the opening-paren half of the same fix; all four are now
  *   structural consequences of token atomicity plus the raw-token identity
- *   check, rather than a maintained byte-mask. A prior round's byte-mask masked string CONTENT correctly
+ *   check, rather than a maintained byte-mask. The earlier byte-mask masked string CONTENT correctly
  *   but never consulted the mask when first LOCATING a candidate call — a
  *   sanctioned wrap name appearing only as decoy TEXT inside a PRECEDING
  *   string literal (e.g. `'Use messageOrDefault(...) to build this: ' .
@@ -289,7 +289,8 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * a case) would false-positive
      * self::findUnscrubbedRawOutputAssertions() below; dropping the token
      * outright (rather than blanking its text in a reconstructed string, the
-     * prior round's approach) means a later step never sees it at all.
+     * byte-mask approach this file used previously) means a later step never
+     * sees it at all.
      *
      * @param string $source The PHP source to tokenize.
      *
@@ -557,9 +558,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * (find the balancing `)`) — the exact "locate a call, extract its own
      * argument tokens" sequence self::findUnscrubbedRawOutputAssertions() and
      * self::strippedArgumentTextFor() both need. Sharing it here means a
-     * future fix to either chained lookup (this file's own history: three
-     * consecutive rounds each fixed a live-reproduced bypass here) only needs
-     * ONE call site updated, not two kept in sync by hand.
+     * future fix to either chained lookup (this file's own history already
+     * shows self::openParenIndexAfter() and self::matchingCloseParenIndex()
+     * each independently fixing a live-reproduced bypass) only needs ONE
+     * call site updated, not two kept in sync by hand.
      *
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens    self::significantTokens()'s output.
      * @param int                                           $nameIndex The index of the token naming the candidate call.
@@ -909,8 +911,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Live-reproduced against the prior round's byte-mask-plus-strpos()
-     * mechanism before this round's token-array rewrite: a sanctioned
+     * Live-reproduced against this file's earlier byte-mask-plus-strpos()
+     * mechanism, before the token-array rewrite (self::significantTokens()/
+     * self::openParenIndexAfter()/self::matchingCloseParenIndex()): a sanctioned
      * wrap-call NAME appearing merely as decoy TEXT inside a PRECEDING
      * string literal (never a real call) was matched by a plain needle
      * search as if it were one, then the prior mechanism's balanced-call
@@ -1029,7 +1032,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Live-reproduced against this round's token-array rewrite before
+     * Live-reproduced against the token-array rewrite before
      * self::isRawParenToken() existed: token_get_all() splits a
      * double-quoted string at every `{$expr}` interpolation point, and the
      * literal-text segment right after an interpolation becomes its own
