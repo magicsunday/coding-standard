@@ -2202,10 +2202,13 @@ JS;
      * scrub and checks that PREFIX is broken, so a broken or narrowed
      * `[\x00-\x1F\x7F]` character class (an off-by-one, a typo'd range)
      * could ship silently, unnoticed by any of them. The probe includes
-     * `\x00` (NUL) alongside a mid-range C0 byte and DEL — NUL is the
-     * primary "reach column 0" byte this function's own docblock names as
-     * the reason it exists, and a character class narrowed to `[\x01-\x1F\x7F]`
-     * (dropping NUL) would pass unchanged without it. Measured directly
+     * `\x00` (NUL) alongside a mid-range C0 byte and DEL so a character class
+     * narrowed to `[\x01-\x1F\x7F]` (dropping NUL) would still pass unchanged
+     * without it — not because this function's own docblock singles NUL out
+     * as the reason it exists (it groups every C0/DEL byte together instead),
+     * and this file's own established vocabulary elsewhere (safeSubprocessOutput()'s
+     * own docblock above, "at true column 0 of a new line") attributes "reach
+     * column 0" to an embedded NEWLINE, not NUL specifically. Measured directly
      * against the installed PHP (2026-09-05):
      * `scrubReportControlBytes("a\x00b\x1fc\x7fd")` produces `"a?b?c?d"` —
      * \x00 (NUL), \x1f (a C0 control byte) and \x7f (DEL) each replaced by a
