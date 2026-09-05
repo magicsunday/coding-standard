@@ -1501,7 +1501,7 @@ TS),
      * than skipped, which is a correctness bug in its own right.
      *
      * @param string                $readme          The full README.md contents.
-     * @param array<string, string> $devDependencies package.json's devDependencies map.
+     * @param array<string, string> $devDependencies The devDependencies map from package.json.
      * @param string                $tool            The devDependency name to check (e.g. "typescript").
      *
      * @return bool Whether $readme documents a version pin for $tool at all.
