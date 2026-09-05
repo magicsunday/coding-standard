@@ -966,4 +966,43 @@ final class GateTestCaseTest extends GateTestCase
             'a custom reports-once message',
         );
     }
+
+    /**
+     * A direct unit test of messageOrDefault()'s/diagnosticMessage()'s/
+     * messageWithOutput()'s own composition semantics — otherwise only
+     * exercised indirectly through every other test in this class and its
+     * siblings, which pins call-site behaviour but never the composition
+     * logic itself: a prior double-append regression in exactly this
+     * composition was only caught by manual re-reading, not a test.
+     * messageOrDefault() and messageWithOutput() differ in exactly one way
+     * — whether the output is appended when $message is non-empty — so this
+     * asserts both sides of that difference explicitly.
+     */
+    #[Test]
+    public function theMessageCompositionHelpersComposeAsDocumented(): void
+    {
+        self::assertSame(
+            'custom',
+            self::messageOrDefault('custom', 'default', 'raw with ::error::x::y'),
+            'messageOrDefault() must return a non-empty $message verbatim, with no scrub applied.',
+        );
+
+        self::assertSame(
+            self::diagnosticMessage('default', 'raw with ::error::x::y'),
+            self::messageOrDefault('', 'default', 'raw with ::error::x::y'),
+            'messageOrDefault() must fall back to diagnosticMessage()\'s own composition when $message is empty.',
+        );
+
+        self::assertSame(
+            'default' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::messageWithOutput('', 'default', 'raw with ::error::x::y'),
+            'messageWithOutput() must append the scrubbed output when $message is empty.',
+        );
+
+        self::assertSame(
+            'custom' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::messageWithOutput('custom', 'default', 'raw with ::error::x::y'),
+            'messageWithOutput() must append the scrubbed output even when $message is non-empty, unlike messageOrDefault().',
+        );
+    }
 }
