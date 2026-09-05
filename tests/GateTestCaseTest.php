@@ -601,40 +601,38 @@ final class GateTestCaseTest extends GateTestCase
         );
     }
 
-    /**
-     * The regression the whole assertGateReportIsInert()/assertReportCarries()
-     * defect class boils down to: their own FAILURE message must not forge
-     * the very CI annotation the check exists to catch. Every
-     * assertGateReportIsInertFailsOn*() test above (re-derive the current set
-     * with `grep -n 'functio[n] assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
-     * — anchored on "function", with the "n" bracket-split so this citation's
-     * own copy of the command text does not also match)
-     * only proves AN AssertionFailedError was thrown (expectException()),
-     * never what that exception's own message carries — reverting
-     * GateTestCase's own
-     * scrubbedForDiagnostic() wrap at any of its self::fail() call sites (or a
-     * regression back to assertStringNotContainsString()/
-     * assertDoesNotMatchRegularExpression(), which is exactly what those
-     * call sites replaced) would leave every one of them still green, because
-     * none of them ever inspects the caught exception's own message.
-     *
-     * Five independent self::fail() call sites reach $result->output/the
-     * report content this way — the ESC-byte check, the modern `::` check,
-     * the legacy `##[` check and the bare-CR check inside
-     * assertGateReportIsInert() itself, plus assertReportCarries()'s own
-     * must-carry check — and a single combined fixture carrying every forgery
-     * at once would only ever discriminate the FIRST one in that order (the
-     * ESC-byte check runs first and self::fail()s immediately), leaving the
-     * other four's own scrubbing completely unproven. re-derive via
-     * `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
-     * on the leading whitespace so it counts only real call sites, not this
-     * docblock's own mentions of self::fail()) if this method's own
-     * check order ever changes. Each test below therefore drives exactly ONE
-     * branch in isolation, with a fixture carrying no earlier-checked forgery
-     * that would short-circuit past it — via
-     * assertOwnFailureMessageDoesNotForgeWorkflowCommand() below, which every
-     * one of them shares.
-     */
+    // The regression the whole assertGateReportIsInert()/assertReportCarries()
+    // defect class boils down to: their own FAILURE message must not forge
+    // the very CI annotation the check exists to catch. Every
+    // assertGateReportIsInertFailsOn*() test above (re-derive the current set
+    // with `grep -n 'functio[n] assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
+    // — anchored on "function", with the "n" bracket-split so this citation's
+    // own copy of the command text does not also match)
+    // only proves AN AssertionFailedError was thrown (expectException()),
+    // never what that exception's own message carries — reverting
+    // GateTestCase's own
+    // scrubbedForDiagnostic() wrap at any of its self::fail() call sites (or a
+    // regression back to assertStringNotContainsString()/
+    // assertDoesNotMatchRegularExpression(), which is exactly what those
+    // call sites replaced) would leave every one of them still green, because
+    // none of them ever inspects the caught exception's own message.
+    //
+    // Five independent self::fail() call sites reach $result->output/the
+    // report content this way — the ESC-byte check, the modern `::` check,
+    // the legacy `##[` check and the bare-CR check inside
+    // assertGateReportIsInert() itself, plus assertReportCarries()'s own
+    // must-carry check — and a single combined fixture carrying every forgery
+    // at once would only ever discriminate the FIRST one in that order (the
+    // ESC-byte check runs first and self::fail()s immediately), leaving the
+    // other four's own scrubbing completely unproven. re-derive via
+    // `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
+    // on the leading whitespace so it counts only real call sites, not this
+    // comment's own mentions of self::fail()) if this method's own
+    // check order ever changes. Each test below therefore drives exactly ONE
+    // branch in isolation, with a fixture carrying no earlier-checked forgery
+    // that would short-circuit past it — via
+    // assertOwnFailureMessageDoesNotForgeWorkflowCommand() below, which every
+    // one of them shares.
 
     /**
      * The shared "own failure message must not forge a workflow command"
