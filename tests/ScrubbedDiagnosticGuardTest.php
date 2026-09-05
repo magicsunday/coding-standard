@@ -66,22 +66,41 @@ use const T_WHITESPACE;
  * round's byte-mask-plus-strpos() approach twice produced a live-reproduced
  * bypass this round's rewrite closes structurally rather than by adding a
  * further special case:
- * - STRING/HEREDOC/NOWDOC-CONTENT-SAFE: self::matchingCloseParenIndex()
- *   depth-counts only a token whose own text is the single character `(`
- *   or `)`; a T_CONSTANT_ENCAPSED_STRING, a T_ENCAPSED_AND_WHITESPACE
- *   double-quoted/heredoc/nowdoc body, or any other multi-character token
- *   is opaque with respect to depth-counting, because PHP's own tokenizer
- *   already carves such content into its own atomic token — a `(`/`)`
- *   BYTE inside one was never itself a separate `(`/`)` token to begin
- *   with. Verified via token_get_all() directly: a heredoc/nowdoc BODY
- *   tokenizes as T_ENCAPSED_AND_WHITESPACE, the identical opaque-token
- *   shape as any other string content, so it is handled the same way —
+ * - STRING/HEREDOC/NOWDOC-CONTENT-SAFE, INTERPOLATED OR NOT:
+ *   self::matchingCloseParenIndex()/self::openParenIndexAfter()
+ *   depth-count/identify a paren only via self::isRawParenToken(), which
+ *   checks the RAW token — never self::tokenText()'s collapsed text — for
+ *   `!is_array($token) && ($token === $char)`. Every T_CONSTANT_ENCAPSED_STRING,
+ *   every T_ENCAPSED_AND_WHITESPACE double-quoted/heredoc/nowdoc body OR
+ *   interpolation-boundary fragment, and any other multi-character or
+ *   array-shaped token is therefore opaque with respect to paren-identity,
+ *   because PHP's own tokenizer represents an anonymous `(`/`)` punctuation
+ *   token as a bare PHP string and everything else as an array — a `(`/`)`
+ *   BYTE inside a string's content is never itself a bare punctuation token
+ *   to begin with, and this is now true even for the ONE array-shaped token
+ *   shape whose own text CAN legitimately equal a single `(`/`)` character:
+ *   the literal-text fragment token_get_all() splits out between two
+ *   interpolation points in a double-quoted string or non-nowdoc heredoc
+ *   (e.g. the fragment right after `{$id}` in `"count ({$id})"`, whose text
+ *   is exactly `)`). An earlier version of this guard checked paren-identity
+ *   through self::tokenText() instead, which collapses array-ness away —
+ *   that version mis-balanced on exactly this interpolated-fragment shape,
+ *   live-reproduced in
+ *   detectsARiskyAssertionWithRawOutputAfterAnInterpolatedStringWhoseSegmentIsALoneClosingParen()
+ *   and
+ *   detectsARiskyAssertionWhereASanctionedWrapsInterpolatedStringSegmentIsALoneOpeningParen()
+ *   below; self::isRawParenToken() forecloses it structurally, because an
+ *   array-shaped token can never satisfy `!is_array($token)` regardless of
+ *   what its text looks like. Verified via token_get_all() directly: a
+ *   heredoc/nowdoc BODY tokenizes as T_ENCAPSED_AND_WHITESPACE, the
+ *   identical opaque-token shape as any other string content, so it is
+ *   handled the same way —
  *   see doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument()
- *   below for the closing-paren half of this and
+ *   below for the closing-paren half of the non-interpolated case and
  *   detectsARiskyAssertionWhoseWrapArgumentCarriesAnUnmatchedOpeningParen()
- *   for the opening-paren half a prior round already fixed; both are now
- *   structural consequences of token atomicity rather than a maintained
- *   byte-mask. A prior round's byte-mask masked string CONTENT correctly
+ *   for the opening-paren half a prior round already fixed; all four are now
+ *   structural consequences of token atomicity plus the raw-token identity
+ *   check, rather than a maintained byte-mask. A prior round's byte-mask masked string CONTENT correctly
  *   but never consulted the mask when first LOCATING a candidate call — a
  *   sanctioned wrap name appearing only as decoy TEXT inside a PRECEDING
  *   string literal (e.g. `'Use messageOrDefault(...) to build this: ' .
