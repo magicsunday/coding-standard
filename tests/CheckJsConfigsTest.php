@@ -25,6 +25,7 @@ use function array_key_exists;
 use function array_keys;
 use function array_unique;
 use function array_values;
+use function bin2hex;
 use function dirname;
 use function explode;
 use function file_exists;
@@ -39,6 +40,7 @@ use function mkdir;
 use function preg_match;
 use function preg_quote;
 use function preg_replace;
+use function random_bytes;
 use function rtrim;
 use function sort;
 use function sprintf;
@@ -46,7 +48,6 @@ use function str_starts_with;
 use function strlen;
 use function sys_get_temp_dir;
 use function trim;
-use function uniqid;
 use function unlink;
 
 use const JSON_PRETTY_PRINT;
@@ -253,6 +254,34 @@ JS;
     }
 
     /**
+     * Creates a real, class-scoped temporary directory with a
+     * collision-free name, the same way tests/Support/FixtureDirectory.php's
+     * constructor does for its own per-test root: the path is generated
+     * locally with `bin2hex(random_bytes(16))`, not reserved via
+     * `uniqid()`'s weaker, time-seeded entropy, so mkdir() is the only
+     * filesystem call that decides existence — no unlink()-then-recreate gap
+     * for a co-resident process to win a symlink race in. `$label`
+     * distinguishes the archive root from the consumer root in a directory
+     * listing, nothing more.
+     *
+     * @param string $label A short, human-readable tag for this directory's purpose.
+     *
+     * @return string The absolute path to the newly created directory.
+     *
+     * @throws RuntimeException If mkdir() cannot create the directory.
+     */
+    private static function makeTempDir(string $label): string
+    {
+        $path = sprintf('%s/coding-standard-js-%s-%s', sys_get_temp_dir(), $label, bin2hex(random_bytes(16)));
+
+        if (!mkdir($path, 0o700, true)) {
+            throw new RuntimeException("Could not create temporary directory: {$path}");
+        }
+
+        return $path;
+    }
+
+    /**
      * Runs $command as a real subprocess, argv only, capturing stdout+stderr
      * combined in arrival order (matching the bash original's `2>&1`) — the
      * same contract GateProcess gives the two real gates, generalised to the
@@ -394,8 +423,7 @@ JS;
 
         $archiveTree = trim($writeTree->getOutput());
 
-        $archiveDir = sprintf('%s/coding-standard-js-archive-%s', sys_get_temp_dir(), uniqid('', true));
-        mkdir($archiveDir, 0o755, true);
+        $archiveDir                   = self::makeTempDir('archive');
         self::$temporaryDirectories[] = $archiveDir;
 
         $archive = new Process(['git', '-C', $root, 'archive', $archiveTree]);
@@ -415,8 +443,7 @@ JS;
             throw new RuntimeException("git archive {$archiveTree} could not be extracted.");
         }
 
-        $consumerDir = sprintf('%s/coding-standard-js-consumer-%s', sys_get_temp_dir(), uniqid('', true));
-        mkdir($consumerDir, 0o755, true);
+        $consumerDir                  = self::makeTempDir('consumer');
         self::$temporaryDirectories[] = $consumerDir;
 
         $pack = new Process(['npm', 'pack', '--ignore-scripts', '--pack-destination', $consumerDir, '--loglevel=error'], $archiveDir);
