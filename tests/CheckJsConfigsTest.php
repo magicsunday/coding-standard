@@ -80,16 +80,19 @@ use const JSON_THROW_ON_ERROR;
  * `executionOrder="depends,defects"` (phpunit.xml.dist) does not guarantee
  * declaration order.
  *
- * Ported and NOT ported, and why — see this repository's own #79 dispatch
- * notes for the full reasoning, not repeated per test method below:
- *   - harness_probe_report_inertness (bash ~lines 85-177) and its own nested
- *     self-tests are bash-only plumbing protecting THIS FILE's hand-rolled
- *     `pass`/`fail` echo helpers against forging a workflow command — not
+ * Ported and NOT ported, and why, not repeated per test method below:
+ *   - probe_reporters, harness_probe_report_inertness and its own nested
+ *     probe_work_nested_scratch_is_cleaned_up_after_hard_abort, and
+ *     harness_assert_no_stray_increments's own bookkeeping check are
+ *     bash-only plumbing protecting THIS FILE's hand-rolled `pass`/`fail`/
+ *     `safe_report` echo helpers against a devDependency name or a `files`
+ *     entry forging a workflow command in output a CI runner scans — not
  *     applicable once reporting goes through PHPUnit's own trusted assertion
- *     API. bin/check-js-config.mjs's OWN report-inertness is a different,
- *     separate concern this bash file never actually drove through the real
- *     binary in the first place (grep confirms no such call site), so there
- *     is nothing of that shape to port here either.
+ *     API, which never echoes a raw value to a log a runner scans for one.
+ *     bin/check-js-config.mjs's OWN report-inertness is a different, separate
+ *     concern this bash file never actually drove through the real binary in
+ *     the first place (grep confirms no such call site), so there is nothing
+ *     of that shape to port here either.
  *   - harness_assert_tool_rejects's bash triad becomes assertRejectedForReason()
  *     below, a private helper local to this class (house convention: start
  *     local, promote to GateTestCase only on a second real need) rather than
