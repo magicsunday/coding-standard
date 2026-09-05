@@ -1318,7 +1318,15 @@ JS;
 
         $result = $this->runManifestCheck($dir);
 
-        self::assertTrue($result->isDegraded(), "A malformed package.json must crash the gate, not silently produce a verdict.\n{$result->output}");
-        self::assertStringContainsString('is not valid JSON', $result->output);
+        self::assertTrue(
+            $result->isDegraded(),
+            "A malformed package.json must crash the gate, not silently produce a verdict.\n" . self::scrubbedForDiagnostic($result->output),
+        );
+
+        if (!str_contains($result->output, 'is not valid JSON')) {
+            self::fail(
+                "The crash diagnostic did not report the expected malformed-JSON reason.\n" . self::scrubbedForDiagnostic($result->output),
+            );
+        }
     }
 }
