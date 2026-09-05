@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use LogicException;
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
@@ -18,6 +19,7 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
 use function dirname;
 use function file_get_contents;
@@ -668,15 +670,11 @@ final class GateTestCaseTest extends GateTestCase
         callable $redact,
         string $forgesMessage,
     ): void {
-        $thrown = null;
-
-        try {
-            $invoke();
-        } catch (AssertionFailedError $exception) {
-            $thrown = $exception;
-        }
-
-        self::assertNotNull($thrown, $rejectedMessage);
+        $thrown = self::assertThrows(
+            $invoke,
+            AssertionFailedError::class,
+            $rejectedMessage,
+        );
 
         $message = $thrown->getMessage();
 
@@ -1024,6 +1022,30 @@ final class GateTestCaseTest extends GateTestCase
             'custom' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
             self::messageWithOutput('custom', 'default', 'raw with ::error::x::y'),
             'messageWithOutput() must append the scrubbed output even when $message is non-empty, unlike messageOrDefault().',
+        );
+    }
+
+    /**
+     * assertThrows()'s own rethrow branch: re-derive via
+     * `grep -rn 'assertThrows(' tests/*.php` that every OTHER real call site
+     * only ever exercises the matching-type path (an $invoke that throws
+     * exactly $exceptionClass) — this is the one call site that deliberately
+     * does not, so without it a mutation dropping the `instanceof` guard —
+     * accepting ANY caught Throwable as satisfying ANY requested
+     * $exceptionClass — would leave the whole suite green, silently
+     * reintroducing the exact false-pass ("wrong exception type read as not
+     * thrown at all") this helper was extracted to rule out.
+     */
+    #[Test]
+    public function assertThrowsPropagatesAMismatchedExceptionTypeUncaught(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('wrong exception type', '/') . '$/');
+
+        self::assertThrows(
+            static fn () => throw new LogicException('wrong exception type'),
+            RuntimeException::class,
+            'assertThrows() did not run $invoke at all.',
         );
     }
 }

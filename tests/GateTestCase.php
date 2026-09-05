@@ -20,6 +20,7 @@ use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessStartFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use Throwable;
 
 use function array_filter;
 use function count;
@@ -509,6 +510,47 @@ abstract class GateTestCase extends TestCase
     protected static function messageWithOutput(string $message, string $default, string $output): string
     {
         return self::diagnosticMessage($message !== '' ? $message : $default, $output);
+    }
+
+    /**
+     * Runs $invoke, expecting it to throw an instance of $exceptionClass, and
+     * returns that instance for the caller's own follow-up assertions (e.g.
+     * on getMessage()). Collapses the "declare $thrown = null; try { $invoke();
+     * } catch ($exceptionClass $exception) { $thrown = $exception; }
+     * self::assertNotNull($thrown, …)" shape this class's subclasses repeated
+     * at every call site proving a production method rejects bad input —
+     * re-derive the current call sites via `grep -rn 'assertThrows(' tests/*.php`.
+     * Catches Throwable rather than $exceptionClass directly so a call site
+     * that throws the WRONG exception class still propagates it uncaught —
+     * narrowing the catch to $exceptionClass would silently swallow a
+     * mismatched exception type into "not thrown", the same false pass this
+     * helper exists to rule out.
+     *
+     * @template T of Throwable
+     *
+     * @param callable(): mixed $invoke          Runs the code expected to throw $exceptionClass; any return value is discarded.
+     * @param class-string<T>   $exceptionClass  The exact exception class $invoke must throw; any other Throwable propagates uncaught.
+     * @param string            $rejectedMessage The assertNotNull() message used when $invoke did not throw at all.
+     *
+     * @return T The caught exception, for the caller's own follow-up assertions.
+     */
+    protected static function assertThrows(callable $invoke, string $exceptionClass, string $rejectedMessage): Throwable
+    {
+        $thrown = null;
+
+        try {
+            $invoke();
+        } catch (Throwable $exception) {
+            if (!$exception instanceof $exceptionClass) {
+                throw $exception;
+            }
+
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, $rejectedMessage);
+
+        return $thrown;
     }
 
     /**
