@@ -1859,14 +1859,22 @@ TS);
         sort($mappedKeys);
         sort($provenKeys);
 
-        self::assertSame($provenKeys, $mappedKeys, 'biome/base.json\'s extensionMappings keys no longer match the set this suite proves.');
+        if ($provenKeys !== $mappedKeys) {
+            self::fail(
+                "biome/base.json's extensionMappings keys no longer match the set this suite proves.\n"
+                    . self::scrubbedForDiagnostic(json_encode($mappedKeys, JSON_THROW_ON_ERROR)),
+            );
+        }
 
         foreach (self::PROVEN_EXTENSION_TARGETS as $source => $want) {
-            self::assertSame(
-                $want,
-                $mappings[$source] ?? null,
-                "biome/base.json maps .{$source} to something other than .{$want}, the target this smoke proves.",
-            );
+            $mapped = $mappings[$source] ?? null;
+
+            if ($want !== $mapped) {
+                self::fail(
+                    "biome/base.json maps .{$source} to something other than .{$want}, the target this smoke proves.\n"
+                        . self::scrubbedForDiagnostic((string) $mapped),
+                );
+            }
         }
     }
 
@@ -2150,11 +2158,12 @@ JSON,
         sort($templateFormats);
         sort($provenFormats);
 
-        self::assertSame(
-            $provenFormats,
-            $templateFormats,
-            'templates/jscpd.json\'s format list no longer matches the set this suite proves — a format was added or dropped without a matching fixture.',
-        );
+        if ($provenFormats !== $templateFormats) {
+            self::fail(
+                "templates/jscpd.json's format list no longer matches the set this suite proves — a format was added or dropped without a matching fixture.\n"
+                    . self::scrubbedForDiagnostic(json_encode($templateFormats, JSON_THROW_ON_ERROR)),
+            );
+        }
     }
 
     /**
