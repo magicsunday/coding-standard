@@ -514,6 +514,28 @@ JS;
     }
 
     /**
+     * The shared "reject unless $process succeeded, scrubbing the error
+     * output first" shape buildToolsFromDevDependencies(), requireSuccessfulInit()
+     * and requireSuccessfulInstall() below each drove separately before this
+     * existed — requirePackedTarball() above keeps its own, differently-shaped
+     * three-part condition (also checking the produced tarball name and its
+     * existence on disk) and is deliberately NOT routed through this helper.
+     *
+     * @param Process $process The already-run subprocess to check.
+     * @param string  $message The diagnostic prefix, used verbatim ahead of the scrubbed error output.
+     *
+     * @return void
+     *
+     * @throws RuntimeException If $process did not succeed.
+     */
+    private static function requireSuccessfulProcess(Process $process, string $message): void
+    {
+        if (!$process->isSuccessful()) {
+            throw new RuntimeException("{$message}\n" . self::safeSubprocessOutput($process->getErrorOutput()));
+        }
+    }
+
+    /**
      * Runs BUILD_TOOLS_SCRIPT against $root's own package.json — the SAME
      * validation runBuildToolsSeparated() drives against a synthetic fixture
      * further below — so packagedConsumer()'s real `npm install` argument
@@ -536,9 +558,7 @@ JS;
         $process->setTimeout(60.0);
         $process->run();
 
-        if (!$process->isSuccessful()) {
-            throw new RuntimeException("package.json's devDependencies are not safe to pass to npm as arguments.\n" . self::safeSubprocessOutput($process->getErrorOutput()));
-        }
+        self::requireSuccessfulProcess($process, "package.json's devDependencies are not safe to pass to npm as arguments.");
 
         $tools = array_values(array_filter(explode("\n", trim($process->getOutput())), static fn (string $tool): bool => $tool !== ''));
 
@@ -593,9 +613,7 @@ JS;
      */
     private static function requireSuccessfulInit(Process $init): void
     {
-        if (!$init->isSuccessful()) {
-            throw new RuntimeException("npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
-        }
+        self::requireSuccessfulProcess($init, 'npm init -y failed.');
     }
 
     /**
@@ -612,9 +630,7 @@ JS;
      */
     private static function requireSuccessfulInstall(Process $install): void
     {
-        if (!$install->isSuccessful()) {
-            throw new RuntimeException("npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput()));
-        }
+        self::requireSuccessfulProcess($install, 'npm install failed — cannot run the smoke.');
     }
 
     /**
