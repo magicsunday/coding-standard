@@ -1387,13 +1387,15 @@ TS),
 
     /**
      * assertFilesAllowListEntryIsPresentInTarball()'s own assertTrue() above
-     * embeds $entry raw — and $entry is PR-editable content (a package.json
-     * "files" entry), not a test-authored literal, so a files entry crafted to
-     * carry a forged `::`/`##[` workflow command would reach this assertion's
-     * own failure message verbatim on a genuine absence. Drives the extracted
-     * check directly with a $packed list that deliberately excludes the
-     * poisoned entry, rather than rebuilding a real tarball for it, the same
-     * way buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
+     * wraps $entry in scrubbedForDiagnostic() before embedding it — and
+     * $entry is PR-editable content (a package.json "files" entry), not a
+     * test-authored literal, so an unscrubbed files entry crafted to carry a
+     * forged `::`/`##[` workflow command would otherwise reach this
+     * assertion's own failure message verbatim on a genuine absence; this
+     * regression test proves the wrap holds. Drives the extracted check
+     * directly with a $packed list that deliberately excludes the poisoned
+     * entry, rather than rebuilding a real tarball for it, the same way
+     * buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
      * above drives its own throw site directly instead of the full packaging
      * pipeline.
      */
@@ -1613,9 +1615,8 @@ TS),
      * self::fail(), never assertSame(): for two STRING operands, PHPUnit's
      * IsIdentical constraint attaches the raw, unscrubbed pair only as a
      * SebastianBergmann\Comparator\ComparisonFailure, which just PHPUnit's
-     * own CLI/text printer renders — never getMessage() — as observed
-     * 2026-09-05 against this repository's own installed PHPUnit; re-derive
-     * via `grep -n 'failureDescription'
+     * own CLI/text printer renders, never getMessage(), as observed 2026-09-05 against this repository's
+     * own installed PHPUnit; re-derive via `grep -n 'failureDescription'
      * .build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`.
      * EXCEPTION: a type-mismatched pair (e.g. one operand `null`) takes a
      * different path that DOES reach getMessage() instead (same file, the
