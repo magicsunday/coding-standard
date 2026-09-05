@@ -397,7 +397,10 @@ JS;
      * Several callers drive this with a $result whose $result->output comes
      * from running Biome/tsc against the shared, PR-editable
      * packagedConsumer() config — re-derive the current caller list with
-     * `grep -n 'assertRejectedForReason(' tests/CheckJsConfigsTest.php`
+     * `grep -n '$thi[s]->assertRejectedForReason(' tests/CheckJsConfigsTest.php`
+     * (anchored on the `$this->` call syntax, with the "s" bracket-split so
+     * this citation's own copy of the command text does not also match,
+     * alongside the method's own declaration and the prose mention above)
      * rather than trusting a name list frozen here. A poisoned
      * biome/base.json or tsconfig/base.json could otherwise forge a
      * `##[`/`::` workflow-command sequence through this method's own default

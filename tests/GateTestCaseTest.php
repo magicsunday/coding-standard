@@ -606,8 +606,9 @@ final class GateTestCaseTest extends GateTestCase
      * defect class boils down to: their own FAILURE message must not forge
      * the very CI annotation the check exists to catch. Every
      * assertGateReportIsInertFailsOn*() test above (re-derive the current set
-     * with `grep -n 'function assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
-     * — anchored on "function" so it does not also match this citation)
+     * with `grep -n 'functio[n] assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
+     * — anchored on "function", with the "n" bracket-split so this citation's
+     * own copy of the command text does not also match)
      * only proves AN AssertionFailedError was thrown (expectException()),
      * never what that exception's own message carries — reverting
      * GateTestCase's own
