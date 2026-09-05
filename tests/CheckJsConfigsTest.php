@@ -48,6 +48,7 @@ use function rmdir;
 use function rtrim;
 use function sort;
 use function sprintf;
+use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function sys_get_temp_dir;
@@ -102,8 +103,13 @@ use const JSON_THROW_ON_ERROR;
  *     bash-only plumbing protecting THIS FILE's hand-rolled `pass`/`fail`/
  *     `safe_report` echo helpers against a devDependency name or a `files`
  *     entry forging a workflow command in output a CI runner scans — not
- *     applicable once reporting goes through PHPUnit's own trusted assertion
- *     API, which never echoes a raw value to a log a runner scans for one.
+ *     applicable to a normal PHPUnit assertion failure, which goes through
+ *     PHPUnit's own trusted assertion API rather than an echoed report line.
+ *     An UNCAUGHT exception message is a different matter (PHPUnit prints it
+ *     verbatim to its own console output) and is not exempt from this
+ *     concern — see safeSubprocessOutput()'s own call sites in
+ *     packagedConsumer() and buildToolsFromDevDependencies() below, which
+ *     scrub subprocess error output for exactly that reason.
  *     bin/check-js-config.mjs's OWN report-inertness is a different, separate
  *     concern this bash file never actually drove through the real binary in
  *     the first place (grep confirms no such call site), so there is nothing
@@ -448,6 +454,33 @@ JS;
     }
 
     /**
+     * Reduces $value — real npm/node subprocess error output — to something
+     * safe to embed in an uncaught RuntimeException message: strips the
+     * C0/DEL control bytes and breaks the legacy `##[` GitHub Actions
+     * workflow-command prefix into `#?[`, the same two defences
+     * bin/support/safe-report-value.php's safeReportValue() applies to a
+     * shipped gate's own report line — for the same reason, since PHPUnit
+     * echoes an uncaught exception's message to its own console output
+     * verbatim, the exact channel a runner scans unanchored for that prefix.
+     * Deliberately WITHOUT that function's 64-byte cap: this message is a
+     * developer-facing diagnostic for an ordinary packaging/smoke failure,
+     * not a one-line machine-parsed report, and truncating a real npm error
+     * to 64 bytes would cost far more debugging value than the forgery this
+     * scrub actually closes. A devDependency name or value the shipped
+     * BUILD_TOOLS_SCRIPT's own unsafeAsArgument() check does not reject
+     * (no whitespace, not empty, no NUL, no leading dash) can still carry
+     * `##[` through to a real npm error naming that argument.
+     *
+     * @param string $value The raw subprocess error output to embed.
+     *
+     * @return string
+     */
+    private static function safeSubprocessOutput(string $value): string
+    {
+        return str_replace('#[', '#?[', preg_replace('/[\x00-\x1F\x7F]/', '?', $value) ?? '?');
+    }
+
+    /**
      * Runs BUILD_TOOLS_SCRIPT against $root's own package.json — the SAME
      * validation runBuildToolsSeparated() drives against a synthetic fixture
      * further below — so packagedConsumer()'s real `npm install` argument
@@ -471,7 +504,7 @@ JS;
         $process->run();
 
         if (!$process->isSuccessful()) {
-            throw new RuntimeException("package.json's devDependencies are not safe to pass to npm as arguments.\n{$process->getErrorOutput()}");
+            throw new RuntimeException("package.json's devDependencies are not safe to pass to npm as arguments.\n" . self::safeSubprocessOutput($process->getErrorOutput()));
         }
 
         $tools = array_values(array_filter(explode("\n", trim($process->getOutput())), static fn (string $tool): bool => $tool !== ''));
@@ -545,14 +578,14 @@ JS;
         $tarball = trim($pack->getOutput());
 
         if (!$pack->isSuccessful() || ($tarball === '') || !file_exists("{$consumerDir}/{$tarball}")) {
-            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n{$pack->getErrorOutput()}");
+            throw new RuntimeException("npm pack produced no tarball — cannot run the smoke.\n" . self::safeSubprocessOutput($pack->getErrorOutput()));
         }
 
         $init = new Process(['npm', 'init', '-y'], $consumerDir);
         $init->run();
 
         if (!$init->isSuccessful()) {
-            throw new RuntimeException("npm init -y failed.\n{$init->getErrorOutput()}");
+            throw new RuntimeException("npm init -y failed.\n" . self::safeSubprocessOutput($init->getErrorOutput()));
         }
 
         $tools = self::buildToolsFromDevDependencies($root);
@@ -567,7 +600,7 @@ JS;
         $install->run();
 
         if (!$install->isSuccessful()) {
-            throw new RuntimeException("npm install failed — cannot run the smoke.\n{$install->getErrorOutput()}");
+            throw new RuntimeException("npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput()));
         }
 
         mkdir("{$consumerDir}/src", 0o755, true);
@@ -731,6 +764,43 @@ TS),
         $this->expectExceptionMessageMatches('/are not safe to pass to npm as arguments/');
 
         self::buildToolsFromDevDependencies($dir);
+    }
+
+    /**
+     * The rejection message above embeds BUILD_TOOLS_SCRIPT's own
+     * JSON.stringify()-encoded copy of the offending entry verbatim — so a
+     * devDependency name or value carrying the legacy `##[` GitHub Actions
+     * workflow-command prefix (JSON.stringify() does not escape `#`, `[` or
+     * `]`) would reach this class's own uncaught RuntimeException message,
+     * which PHPUnit echoes to its own console output, the exact channel a
+     * runner scans unanchored for that prefix. safeSubprocessOutput() must
+     * break it before it gets there.
+     */
+    #[Test]
+    public function buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand(): void
+    {
+        $dir = $this->fixture()->path();
+        $this->fixture()->writeJson('package.json', ['devDependencies' => ['typescript' => '5.0.16 ##[error]forged']]);
+
+        $thrown = null;
+
+        try {
+            self::buildToolsFromDevDependencies($dir);
+        } catch (RuntimeException $exception) {
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, 'buildToolsFromDevDependencies() did not reject the unsafe entry.');
+        self::assertStringContainsString(
+            'forged',
+            $thrown->getMessage(),
+            "The scrub dropped the offending entry entirely instead of merely breaking the forged prefix.\n{$thrown->getMessage()}",
+        );
+        self::assertStringNotContainsString(
+            '##[',
+            $thrown->getMessage(),
+            "The exception message still carries the legacy workflow-command prefix.\n{$thrown->getMessage()}",
+        );
     }
 
     /**
@@ -1830,5 +1900,57 @@ JS;
         $this->expectExceptionMessageMatches('/^Could not create temporary directory: /');
 
         self::makeTempDir('probe', $blocked);
+    }
+
+    /**
+     * The harder case buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()
+     * above cannot reach: a devDependency VALUE BUILD_TOOLS_SCRIPT's own
+     * unsafeAsArgument() does not reject at all (a non-empty string, no
+     * whitespace, no NUL, no leading dash) still reaches npm's own argv as
+     * the real `npm install` call packagedConsumer() drives, and npm's own
+     * local package-name validation — no registry/network access needed —
+     * quotes the offending spec verbatim in its error text, carrying the
+     * embedded `##[` straight through to this class's own RuntimeException
+     * message unless safeSubprocessOutput() breaks it first. Drives a real
+     * `npm install` directly against a throwaway project rather than through
+     * packagedConsumer() itself, whose only devDependencies source is this
+     * repository's own real package.json.
+     */
+    #[Test]
+    public function npmInstallFailureCannotForgeAWorkflowCommandThroughTheExceptionMessage(): void
+    {
+        $dir = $this->fixture()->path();
+
+        $init = new Process(['npm', 'init', '-y'], $dir);
+        $init->run();
+
+        self::assertTrue($init->isSuccessful(), "npm init -y control failed.\n{$init->getErrorOutput()}");
+
+        // Not rejected by unsafeAsArgument() (a non-empty string, no
+        // whitespace, no NUL, no leading dash) but not a URL-friendly npm
+        // package name either.
+        $poisonedTool = 'forges-a-workflow-command-##[error]forged@0.0.0-does-not-exist';
+
+        $install = new Process(['npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts', $poisonedTool], $dir);
+        $install->setTimeout(120.0);
+        $install->run();
+
+        self::assertFalse(
+            $install->isSuccessful(),
+            "npm install of a deliberately invalid package name unexpectedly succeeded — this control fixture is not testing what it claims.\n{$install->getOutput()}{$install->getErrorOutput()}",
+        );
+        self::assertStringContainsString(
+            '##[',
+            $install->getErrorOutput(),
+            "The control fixture's own raw npm error no longer carries the poisoned sequence — this test is not exercising the trap it claims to.\n{$install->getErrorOutput()}",
+        );
+
+        $message = "npm install failed — cannot run the smoke.\n" . self::safeSubprocessOutput($install->getErrorOutput());
+
+        self::assertStringNotContainsString(
+            '##[',
+            $message,
+            "The scrubbed exception message still carries the legacy workflow-command prefix.\n{$message}",
+        );
     }
 }
