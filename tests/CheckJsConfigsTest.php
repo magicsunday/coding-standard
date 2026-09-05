@@ -1619,8 +1619,12 @@ TS),
      * own installed PHPUnit; re-derive via `grep -n 'failureDescription'
      * .build/vendor/phpunit/phpunit/src/Framework/Constraint/IsIdentical.php`.
      * EXCEPTION: a type-mismatched pair (e.g. one operand `null`) takes a
-     * different path that DOES reach getMessage() instead (same file, the
-     * branch above the string-vs-string one) — not this class's own concern,
+     * different path that DOES reach getMessage() instead — none of
+     * IsIdentical::failureDescription()'s own branches (object/resource/
+     * string/array) match a type-mismatched pair, so it falls through to the
+     * base Constraint::failureDescription() in a DIFFERENT file
+     * (.build/vendor/phpunit/phpunit/src/Framework/Constraint/Constraint.php),
+     * which embeds the raw operand via Exporter::export() — not this class's own concern,
      * since every operand pair here is a string, but
      * tests/ScrubbedDiagnosticGuardTest.php's own class docblock polices it
      * for RISKY_ASSERTIONS generally and points back to THIS docblock for
