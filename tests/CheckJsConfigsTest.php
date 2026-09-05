@@ -43,6 +43,7 @@ use function preg_match;
 use function preg_quote;
 use function preg_replace;
 use function random_bytes;
+use function rmdir;
 use function rtrim;
 use function sort;
 use function sprintf;
@@ -288,15 +289,21 @@ JS;
      * distinguishes the archive root from the consumer root in a directory
      * listing, nothing more.
      *
-     * @param string $label A short, human-readable tag for this directory's purpose.
+     * @param string      $label         A short, human-readable tag for this directory's purpose.
+     * @param string|null $baseDirectory The directory to create the new directory under, or null
+     *                                   for sys_get_temp_dir() — every real caller relies on that
+     *                                   default; the override exists only so this method's own
+     *                                   mkdir()-failure branch can be forced deterministically
+     *                                   (a plain file at $baseDirectory), since the random suffix
+     *                                   below cannot be pre-occupied by name.
      *
      * @return string The absolute path to the newly created directory.
      *
      * @throws RuntimeException If mkdir() cannot create the directory.
      */
-    private static function makeTempDir(string $label): string
+    private static function makeTempDir(string $label, ?string $baseDirectory = null): string
     {
-        $path = sprintf('%s/coding-standard-js-%s-%s', sys_get_temp_dir(), $label, bin2hex(random_bytes(16)));
+        $path = sprintf('%s/coding-standard-js-%s-%s', $baseDirectory ?? sys_get_temp_dir(), $label, bin2hex(random_bytes(16)));
 
         if (!mkdir($path, 0o700, true)) {
             throw new RuntimeException("Could not create temporary directory: {$path}");
@@ -674,6 +681,47 @@ TS),
 
         self::assertSame(0, $result['exitCode'], "Rejected an ordinary pin: {$result['stderr']}");
         self::assertSame('typescript@5.0.16', trim($result['stdout']));
+    }
+
+    /**
+     * buildToolsFromDevDependencies()'s own first throw branch, called
+     * DIRECTLY rather than only through runBuildToolsSeparated()'s hand-rolled
+     * node invocation above: that helper drives BUILD_TOOLS_SCRIPT on its
+     * own, so it never actually calls buildToolsFromDevDependencies() itself,
+     * and packagedConsumer() — the method's only real call site — always runs
+     * it against this repository's own valid package.json, so this throw was
+     * dead from a coverage standpoint until now.
+     */
+    #[Test]
+    public function buildToolsFromDevDependenciesThrowsOnAnUnsafeDevDependenciesEntry(): void
+    {
+        $dir = $this->fixture()->path();
+        $this->fixture()->writeJson('package.json', ['devDependencies' => ['typescript' => '5.0.16 --no-ignore-scripts']]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/are not safe to pass to npm as arguments/');
+
+        self::buildToolsFromDevDependencies($dir);
+    }
+
+    /**
+     * buildToolsFromDevDependencies()'s own second throw branch — an empty
+     * devDependencies object, which BUILD_TOOLS_SCRIPT itself accepts (it
+     * simply prints nothing), reported by buildToolsFromDevDependencies()
+     * itself as "nothing to pin the smoke to" rather than silently installing
+     * no tools at all. See the docblock above for why a direct call is what
+     * actually proves this, not runBuildToolsSeparated().
+     */
+    #[Test]
+    public function buildToolsFromDevDependenciesThrowsWhenThereAreNoDevDependencies(): void
+    {
+        $dir = $this->fixture()->path();
+        $this->fixture()->writeJson('package.json', ['devDependencies' => []]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/no devDependencies in package\.json/');
+
+        self::buildToolsFromDevDependencies($dir);
     }
 
     // -------------------------------------------------------------------
@@ -1656,5 +1704,84 @@ JS;
             true,
             "jscpd control — no clone found in two identical .{$extension} files; the \"{$format}\" format name no longer analyses anything.\n{$result->output}",
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening guards this suite's own harness relies on — tearDown()'s
+    // restore-failure handling and makeTempDir()'s mkdir()-failure branch —
+    // both untested since the round that introduced them (a broken guard
+    // would have shipped silently).
+    // -------------------------------------------------------------------
+
+    /**
+     * tearDown()'s own restore-failure handling: a mutation whose restore
+     * fails must be REPORTED (naming the path) and must invalidate
+     * self::$packagedConsumer, so the next test that calls packagedConsumer()
+     * rebuilds a fresh, uncorrupted consumer instead of silently inheriting
+     * the corruption. Calls tearDown() directly — it is `protected` and this
+     * is a test method on the same class — then lets PHPUnit's own automatic
+     * tearDown() call run once more afterwards as a no-op, since the manual
+     * call already reset $this->consumerFileMutations.
+     *
+     * The mutation exercises the `$original === null` branch (a file
+     * mutateConsumerFile() created rather than one it is restoring), then
+     * replaces that file with a directory before tearDown() runs: unlink()
+     * on a directory fails deterministically regardless of permissions,
+     * mirroring FixtureDirectoryTest's own file-blocks-mkdir() pattern in the
+     * opposite direction (a directory blocking unlink() here).
+     */
+    #[Test]
+    public function tearDownReportsEveryFailedPathAndInvalidatesTheSharedConsumerCache(): void
+    {
+        $consumerDir = self::packagedConsumer()['consumerDir'];
+        $path        = $this->mutateConsumerFile($consumerDir, 'src/teardown-guard-probe.ts', "export const value = 1;\n");
+
+        unlink($path);
+        mkdir($path, 0o700);
+
+        $thrown = null;
+
+        try {
+            $this->tearDown();
+        } catch (RuntimeException $exception) {
+            $thrown = $exception;
+        } finally {
+            if (is_dir($path)) {
+                rmdir($path);
+            }
+        }
+
+        self::assertNotNull($thrown, 'tearDown() did not report the failed restore.');
+        self::assertStringContainsString($path, $thrown->getMessage());
+        self::assertNull(
+            self::$packagedConsumer,
+            'A failed restore must invalidate the shared packagedConsumer cache so the next test rebuilds it.',
+        );
+    }
+
+    /**
+     * makeTempDir()'s own mkdir()-failure branch. The random suffix mkdir()
+     * appends cannot be pre-occupied by name (unlike FixtureDirectoryTest's
+     * own fixed-name probes), and overriding sys_get_temp_dir() itself via
+     * `putenv("TMPDIR=...")` does not work here: PHP's sys_get_temp_dir()
+     * memoizes its result for the lifetime of the process (verified against
+     * the installed PHP — a putenv() call made after ANYTHING else in the
+     * same process has already called sys_get_temp_dir(), including
+     * PHPUnit's own harness, has no effect at all, even under
+     * #[RunInSeparateProcess]). makeTempDir()'s own optional $baseDirectory
+     * parameter exists for exactly this: a plain FILE (not a directory)
+     * passed as the base forces mkdir()'s recursive creation to fail
+     * deterministically, regardless of the random suffix.
+     */
+    #[Test]
+    public function makeTempDirThrowsWhenMkdirCannotCreateTheDirectory(): void
+    {
+        $blocked = $this->fixture()->path() . '/not-a-directory';
+        file_put_contents($blocked, 'blocking mkdir');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/^Could not create temporary directory: /');
+
+        self::makeTempDir('probe', $blocked);
     }
 }
