@@ -1198,7 +1198,8 @@ TS),
         self::assertSame(
             0,
             $result->exitCode,
-            "The installed npm bin entry (check-js-config) did not run — package.json's \"bin\" mapping may be broken.\n{$result->output}",
+            "The installed npm bin entry (check-js-config) did not run — package.json's \"bin\" mapping may be broken.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
     }
 
@@ -1220,9 +1221,16 @@ TS),
         self::assertSame(
             1,
             $result->exitCode,
-            "The installed npm bin entry (check-js-config) exited {$result->exitCode}, not the 1 a reported drift needs.\n{$result->output}",
+            "The installed npm bin entry (check-js-config) exited {$result->exitCode}, not the 1 a reported drift needs.\n"
+                . self::scrubbedForDiagnostic($result->output),
         );
-        self::assertStringContainsString('biome.json: not valid JSON(C).', $result->output);
+
+        if (!str_contains($result->output, 'biome.json: not valid JSON(C).')) {
+            self::fail(
+                "The installed npm bin entry (check-js-config) did not report the expected malformed-JSON diagnostic.\n"
+                    . self::scrubbedForDiagnostic($result->output),
+            );
+        }
     }
 
     // -------------------------------------------------------------------
@@ -1237,7 +1245,11 @@ TS),
     private function tarballEntries(string $tarball): array
     {
         $result = $this->runCommand(['tar', '-tzf', $tarball]);
-        self::assertSame(0, $result->exitCode, "Could not list the tarball contents.\n{$result->output}");
+        self::assertSame(
+            0,
+            $result->exitCode,
+            "Could not list the tarball contents.\n" . self::scrubbedForDiagnostic($result->output),
+        );
 
         $entries = [];
 
@@ -1367,8 +1379,16 @@ TS),
         $pack    = $this->runCommand(['npm', 'pack', '--ignore-scripts', '--pack-destination', $dir, '--loglevel=error'], $archiveDir);
         $tarball = trim($pack->output);
 
-        self::assertSame(0, $pack->exitCode, "npm pack produced no tarball.\n{$pack->output}");
-        self::assertNotSame('', $tarball, "npm pack produced no tarball.\n{$pack->output}");
+        self::assertSame(
+            0,
+            $pack->exitCode,
+            "npm pack produced no tarball.\n" . self::scrubbedForDiagnostic($pack->output),
+        );
+        self::assertNotSame(
+            '',
+            $tarball,
+            "npm pack produced no tarball.\n" . self::scrubbedForDiagnostic($pack->output),
+        );
 
         return "{$dir}/{$tarball}";
     }
@@ -1440,10 +1460,12 @@ TS),
                 continue;
             }
 
-            self::assertFileExists(
-                "{$archiveDir}/{$exported}",
-                "{$exported} is missing from the archived tree, so a github: install and the Composer dist archive both lose it.",
-            );
+            if (!file_exists("{$archiveDir}/{$exported}")) {
+                self::fail(
+                    'Missing from the archived tree, so a github: install and the Composer dist archive both lose it: '
+                        . self::scrubbedForDiagnostic($exported),
+                );
+            }
         }
     }
 
