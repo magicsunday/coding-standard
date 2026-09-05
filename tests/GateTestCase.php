@@ -346,10 +346,7 @@ abstract class GateTestCase extends TestCase
         self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
 
         if ($result->exitCode !== $expectedExitCode) {
-            self::fail(
-                ($message !== '' ? $message : "Expected {$exitCodeLabel}, got exit {$result->exitCode}.")
-                . "\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::messageWithOutput($message, "Expected {$exitCodeLabel}, got exit {$result->exitCode}.", $result->output));
         }
 
         return $result;
@@ -413,7 +410,7 @@ abstract class GateTestCase extends TestCase
             return;
         }
 
-        self::fail(($message !== '' ? $message : $defaultMessage) . "\n" . self::scrubbedForDiagnostic($result->output));
+        self::fail(self::messageWithOutput($message, $defaultMessage, $result->output));
     }
 
     /**
@@ -485,6 +482,29 @@ abstract class GateTestCase extends TestCase
     protected static function messageOrDefault(string $message, string $default, string $output): string
     {
         return $message !== '' ? $message : self::diagnosticMessage($default, $output);
+    }
+
+    /**
+     * Composes a self::fail()-ready diagnostic message that always appends
+     * $output scrubbed, regardless of whether $message is empty: $message
+     * verbatim when non-empty, otherwise $default, either way followed by a
+     * newline and $output scrubbed through self::scrubbedForDiagnostic().
+     * Collapses the
+     * `($message !== '' ? $message : $default) . "\n" . self::scrubbedForDiagnostic($output)`
+     * shape repeated at several call sites in this class and its subclasses
+     * into one call. Distinct from messageOrDefault(), whose "$message
+     * verbatim, no scrub applied" semantics do not append $output when
+     * $message is non-empty.
+     *
+     * @param string $message The caller-supplied message, used verbatim when non-empty.
+     * @param string $default The failure label used when $message is empty.
+     * @param string $output  The raw value to scrub before appending.
+     *
+     * @return string $message or $default, followed by $output scrubbed.
+     */
+    protected static function messageWithOutput(string $message, string $default, string $output): string
+    {
+        return ($message !== '' ? $message : $default) . "\n" . self::scrubbedForDiagnostic($output);
     }
 
     /**

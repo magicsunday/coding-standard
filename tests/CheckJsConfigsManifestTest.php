@@ -641,15 +641,11 @@ JS;
         // constraint here would forge, in PHPUnit's own failure output, the
         // very annotation this gate's own tests exist to prove is prevented.
         if (!str_contains($asserted, $mustCarry)) {
-            self::fail(
-                ($message !== '' ? $message : 'Rejected, but not for the tested reason.') . "\n" . self::scrubbedForDiagnostic($asserted),
-            );
+            self::fail(self::messageWithOutput($message, 'Rejected, but not for the tested reason.', $asserted));
         }
 
         if (($mustNotCarry !== null) && str_contains($asserted, $mustNotCarry)) {
-            self::fail(
-                ($message !== '' ? $message : 'Reported a second, wrong cause as well.') . "\n" . self::scrubbedForDiagnostic($asserted),
-            );
+            self::fail(self::messageWithOutput($message, 'Reported a second, wrong cause as well.', $asserted));
         }
     }
 
@@ -686,9 +682,7 @@ JS;
         self::assertManifestRanAndRejected($result, $message);
 
         if (!in_array($exactLine, explode("\n", $result->output), true)) {
-            self::fail(
-                ($message !== '' ? $message : 'The offending value never reached the operator.') . "\n" . self::scrubbedForDiagnostic($result->output),
-            );
+            self::fail(self::messageWithOutput($message, 'The offending value never reached the operator.', $result->output));
         }
     }
 
