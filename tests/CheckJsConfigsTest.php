@@ -48,7 +48,6 @@ use function rmdir;
 use function rtrim;
 use function sort;
 use function sprintf;
-use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function sys_get_temp_dir;
@@ -57,6 +56,13 @@ use function unlink;
 
 use const JSON_PRETTY_PRINT;
 use const JSON_THROW_ON_ERROR;
+
+// scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
+// bin/support/safe-report-value.php's own safeReportValue() applies to a shipped
+// gate's own report line. safeSubprocessOutput() below shares that core rather than
+// duplicating it, then layers its own `::`-scrubbing on top (see that method's own
+// docblock for why the `::` step lives here rather than inside the shared core).
+require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
  * Fixture-driven cases for tests/check-js-configs.sh, migrated off that bash
@@ -455,29 +461,29 @@ JS;
 
     /**
      * Reduces $value — real npm/node subprocess error output — to something
-     * safe to embed in an uncaught RuntimeException message: strips the
-     * C0/DEL control bytes and breaks the legacy `##[` GitHub Actions
-     * workflow-command prefix into `#?[`, the same two defences
-     * bin/support/safe-report-value.php's safeReportValue() applies to a
+     * safe to embed in an uncaught RuntimeException message: shares
+     * scrubReportControlBytes()'s C0/DEL control-byte strip and legacy `##[`
+     * GitHub Actions workflow-command prefix break — the same core
+     * bin/support/safe-report-value.php's own safeReportValue() applies to a
      * shipped gate's own report line — for the same reason, since PHPUnit
      * echoes an uncaught exception's message to its own console output
      * verbatim, the exact channel a runner scans unanchored for that prefix.
-     * Deliberately WITHOUT that function's 64-byte cap: this message is a
-     * developer-facing diagnostic for an ordinary packaging/smoke failure,
-     * not a one-line machine-parsed report, and truncating a real npm error
-     * to 64 bytes would cost far more debugging value than the forgery this
-     * scrub actually closes. A devDependency name or value the shipped
-     * BUILD_TOOLS_SCRIPT's own unsafeAsArgument() check does not reject
-     * (no whitespace, not empty, no NUL, no leading dash) can still carry
-     * `##[` through to a real npm error naming that argument.
+     * Deliberately WITHOUT safeReportValue()'s own 64-byte cap: this message
+     * is a developer-facing diagnostic for an ordinary packaging/smoke
+     * failure, not a one-line machine-parsed report, and truncating a real
+     * npm error to 64 bytes would cost far more debugging value than the
+     * forgery this scrub actually closes. A devDependency name or value the
+     * shipped BUILD_TOOLS_SCRIPT's own unsafeAsArgument() check does not
+     * reject (no whitespace, not empty, no NUL, no leading dash) can still
+     * carry `##[` through to a real npm error naming that argument.
      *
      * @param string $value The raw subprocess error output to embed.
      *
-     * @return string
+     * @return string The value scrubbed per scrubReportControlBytes(), uncapped.
      */
     private static function safeSubprocessOutput(string $value): string
     {
-        return str_replace('#[', '#?[', preg_replace('/[\x00-\x1F\x7F]/', '?', $value) ?? '?');
+        return scrubReportControlBytes($value);
     }
 
     /**
