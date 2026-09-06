@@ -179,6 +179,22 @@ use const T_WHITESPACE;
  *   tests/GateTestCase.php tests/CheckJsConfigsTest.php
  *   tests/CheckJsConfigsManifestTest.php`: every real call site in
  *   self::guardedFiles() today is spelled with the bare `self::` prefix.
+ * - self::stripBalancedCallsFromTokens() strips an ENTIRE self::SAFE_WRAP_CALLS
+ *   call span as safe once the wrap NAME matches, with no notion that a wrap
+ *   may scrub only SOME of its own arguments. messageOrDefault() is exactly
+ *   that case: its non-empty-$message branch returns $message verbatim, with
+ *   no scrub at all (unlike its $default/$output branch, which delegates to
+ *   diagnosticMessage()) — a raw ->output value embedded in messageOrDefault()'s
+ *   FIRST argument would be stripped as safe by this guard and never flagged.
+ *   Live-reproduced 2026-09-06 against a standalone extraction of this class's
+ *   own detection method: `self::messageOrDefault('prefix: ' . $result->output,
+ *   'default', $result->output)` produces zero findings, versus the identical
+ *   leak outside any wrap correctly flagged. No current call site in
+ *   self::guardedFiles() does this (every real messageOrDefault() call passes
+ *   a developer-literal or empty string as $message), so nothing is missed
+ *   today — but this guard's trust model, not just its pattern coverage, has
+ *   a real gap here; a targeted fix would special-case messageOrDefault()'s
+ *   argument index rather than trusting the wrap name alone.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
