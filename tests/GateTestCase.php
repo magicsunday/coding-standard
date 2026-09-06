@@ -454,20 +454,16 @@ abstract class GateTestCase extends TestCase
      * Collapses the `<label> . "\n" . self::scrubbedForDiagnostic($output)`
      * shape repeated at nearly every PR-editable-content diagnostic in this
      * class and its subclasses into one call, rather than each site pairing
-     * the newline and the scrub call by hand. $label is scrubbed too, even
-     * though every current call site passes only a developer/DataProvider
-     * literal never derived from PR-editable content — this closes the gap
-     * for a call site a future test author builds from fixture content
-     * without realising only $output was ever protected.
+     * the newline and the scrub call by hand.
      *
-     * @param string $label  The failure label, scrubbed the same as $output.
+     * @param string $label  The failure label, used verbatim.
      * @param string $output The raw value to scrub before appending.
      *
-     * @return string The label scrubbed, a newline, then the output scrubbed.
+     * @return string The label, a newline, then the output scrubbed.
      */
     protected static function diagnosticMessage(string $label, string $output): string
     {
-        return self::scrubbedForDiagnostic($label) . "\n" . self::scrubbedForDiagnostic($output);
+        return $label . "\n" . self::scrubbedForDiagnostic($output);
     }
 
     /**
