@@ -456,6 +456,18 @@ abstract class GateTestCase extends TestCase
      * class and its subclasses into one call, rather than each site pairing
      * the newline and the scrub call by hand.
      *
+     * $label is used verbatim, not scrubbed like $output: every current call
+     * site passes only a developer- or DataProvider-authored string literal,
+     * never PR-editable content, so scrubbing it would only cosmetically
+     * mangle a legitimate label that happens to contain "::" as prose (e.g.
+     * assertGateReportIsInert()'s own "forged a `::` workflow command" labels
+     * a few lines above) for no reachable benefit — verified 2026-09-06 across
+     * every diagnosticMessage()/messageOrDefault()/messageWithOutput() call
+     * site in this repository's own tests/. Re-derive before trusting this:
+     * `grep -rn "diagnosti[c]Message(\|messageOr[D]efault(\|messageWith[O]utput(" tests/`.
+     * Should a future call site ever build $label from fixture content, scrub
+     * it at that call site rather than reintroducing a blanket scrub here.
+     *
      * @param string $label  The failure label, used verbatim.
      * @param string $output The raw value to scrub before appending.
      *
