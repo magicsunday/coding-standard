@@ -460,8 +460,8 @@ abstract class GateTestCase extends TestCase
      * site passes only a developer- or DataProvider-authored string literal,
      * never PR-editable content, so scrubbing it would only cosmetically
      * mangle a legitimate label that happens to contain "::" as prose (e.g.
-     * assertGateReportIsInert()'s own "forged a `::` workflow command" labels
-     * a few lines above) for no reachable benefit — verified 2026-09-06 across
+     * assertGateReportIsInert()'s own "forged a `::` workflow command" labels)
+     * for no reachable benefit — verified 2026-09-06 across
      * every diagnosticMessage()/messageOrDefault()/messageWithOutput() call
      * site in this repository's own tests/. Re-derive before trusting this:
      * `grep -rn "diagnosti[c]Message(\|messageOr[D]efault(\|messageWith[O]utput(" tests/`.

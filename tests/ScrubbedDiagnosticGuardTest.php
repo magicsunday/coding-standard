@@ -186,11 +186,11 @@ use const T_WHITESPACE;
  *   no scrub at all (unlike its $default/$output branch, which delegates to
  *   diagnosticMessage()) — a raw ->output value embedded in messageOrDefault()'s
  *   FIRST argument would be stripped as safe by this guard and never flagged.
- *   Live-reproduced 2026-09-06 against a standalone extraction of this class's
- *   own detection method: `self::messageOrDefault('prefix: ' . $result->output,
- *   'default', $result->output)` produces zero findings, versus the identical
- *   leak outside any wrap correctly flagged. No current call site in
- *   self::guardedFiles() does this (every real messageOrDefault() call passes
+ *   Pinned by doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument()
+ *   below, whose assertion is deliberately the opposite of every sibling
+ *   control: it proves the gap, not the guard's soundness, so it stays a
+ *   re-derivable fact rather than a one-off manual claim. No current call
+ *   site in self::guardedFiles() does this (every real messageOrDefault() call passes
  *   a developer-literal or empty string as $message), so nothing is missed
  *   today — but this guard's trust model, not just its pattern coverage, has
  *   a real gap here; a targeted fix would special-case messageOrDefault()'s
@@ -821,6 +821,40 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         );
 
         self::assertSame([], $findings, 'The guard flagged a call whose only ->output access is inside self::messageWithOutput().');
+    }
+
+    /**
+     * Pins a KNOWN, accepted gap in this class's own docblock (the
+     * self::SAFE_WRAP_CALLS/messageOrDefault() trust-model paragraph): once
+     * self::stripBalancedCallsFromTokens() matches the wrap NAME, it strips
+     * the WHOLE call span, with no notion that messageOrDefault()'s
+     * non-empty-$message branch never scrubs that argument. This assertion
+     * is deliberately the OPPOSITE of every sibling control above — it
+     * proves the gap exists, not that the guard is sound — so this class's
+     * own docblock's "live-reproduced" claim stays a real, re-derivable fact
+     * rather than an unfalsifiable one. If self::stripBalancedCallsFromTokens()
+     * is ever made argument-aware for messageOrDefault(), $findings below
+     * MUST start reporting this call site, and this test's own assertion
+     * needs updating in lockstep with that docblock paragraph.
+     */
+    #[Test]
+    public function doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument(): void
+    {
+        $findings = $this->findingsFor(
+            'messageordefault-first-argument-leak.php',
+            <<<'PHP'
+            <?php
+            self::assertSame(0, $x, self::messageOrDefault('prefix: ' . $result->output, 'default', $result->output));
+            PHP,
+        );
+
+        self::assertSame(
+            [],
+            $findings,
+            "This is the accepted gap, not a regression: messageOrDefault()'s "
+            . 'first argument is never scrubbed, and this guard cannot see that '
+            . 'a sanctioned wrap only conditionally scrubs its own arguments.',
+        );
     }
 
     /**
