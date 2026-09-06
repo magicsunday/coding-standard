@@ -1026,6 +1026,25 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * diagnosticMessage() scrubs $label the same way it scrubs $output — a
+     * poisoned label (e.g. a future assertReportCarries()-style default
+     * built from fixture content, unlike every current call site's
+     * developer/DataProvider literal) must not forge a workflow command any
+     * more than a poisoned $output could. Defense-in-depth: no current call
+     * site can trigger this, but the composition helper itself must not
+     * silently trust one side and scrub the other.
+     */
+    #[Test]
+    public function diagnosticMessageScrubsThePoisonedLabelToo(): void
+    {
+        self::assertSame(
+            self::scrubbedForDiagnostic('label with ::error::x::y') . "\n" . self::scrubbedForDiagnostic('output'),
+            self::diagnosticMessage('label with ::error::x::y', 'output'),
+            'diagnosticMessage() must scrub $label exactly like $output, not use it verbatim.',
+        );
+    }
+
+    /**
      * assertThrows()'s own rethrow branch: re-derive via
      * `grep -rn "self::assert[T]hrows(" tests/` that every OTHER real call
      * site only ever exercises the matching-type path (an $invoke that
