@@ -1067,6 +1067,10 @@ final class GateTestCaseTest extends GateTestCase
         $this->expectException(AssertionFailedError::class);
         $this->expectExceptionMessageMatches('/^' . preg_quote('did not throw', '/') . '/');
 
-        self::assertThrows(static fn () => null, RuntimeException::class, 'did not throw');
+        self::assertThrows(
+            static fn () => null,
+            RuntimeException::class,
+            'did not throw',
+        );
     }
 }
