@@ -1029,12 +1029,13 @@ final class GateTestCaseTest extends GateTestCase
      * assertThrows()'s own rethrow branch: re-derive via
      * `grep -rn "self::assert[T]hrows(" tests/` that every OTHER real call
      * site only ever exercises the matching-type path (an $invoke that
-     * throws exactly $exceptionClass) — this is the one call site that
-     * deliberately does not, so without it a mutation dropping the
-     * `instanceof` guard — accepting ANY caught Throwable as satisfying ANY
-     * requested $exceptionClass — would leave the whole suite green, silently
-     * reintroducing the exact false-pass ("wrong exception type read as not
-     * thrown at all") this helper was extracted to rule out.
+     * throws exactly $exceptionClass) — this and
+     * assertThrowsFailsWhenInvokeDoesNotThrowAtAll() below are the two call
+     * sites that deliberately don't, so without this one a mutation dropping
+     * the `instanceof` guard — accepting ANY caught Throwable as satisfying
+     * ANY requested $exceptionClass — would leave the whole suite green,
+     * silently reintroducing the exact false-pass ("wrong exception type
+     * read as not thrown at all") this helper was extracted to rule out.
      */
     #[Test]
     public function assertThrowsPropagatesAMismatchedExceptionTypeUncaught(): void
