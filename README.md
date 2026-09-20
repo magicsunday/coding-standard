@@ -63,8 +63,8 @@ updates its tools together with this package, not independently of it. That is t
 same bargain as the PHP side, where the toolchain versions are pinned here once for
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
-The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.10`,
-`typescript 7.0.2`, `jscpd 5.0.16`) and are what Dependabot tracks — `peerDependencies` are not parsed
+The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.13`,
+`typescript 7.0.2`, `jscpd 5.2.0`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
@@ -969,7 +969,7 @@ contradiction until the measurements are written down, so here they are:
 | File | `"//"` | Because |
 |---|---|---|
 | `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
-| `templates/jscpd.json` | **yes** | jscpd reads strict JSON — `"//"` is a legal string key, not JSON5 tolerance; verified against the pinned 5.0.16, a `//` line comment or a trailing comma is rejected outright — the smoke runs the template verbatim, note key and all |
+| `templates/jscpd.json` | **yes** | jscpd reads strict JSON — `"//"` is a legal string key, not JSON5 tolerance; verified against the pinned 5.2.0, a `//` line comment or a trailing comma is rejected outright — the smoke runs the template verbatim, note key and all |
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
 The gate follows the same split: it reports a `"//"` key in a consumer's
