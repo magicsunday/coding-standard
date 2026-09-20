@@ -824,7 +824,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * rather than an unfalsifiable one. If self::stripBalancedCallsFromTokens()
      * is ever made argument-aware for messageOrDefault(), $findings below
      * MUST start reporting this call site, and this test's own assertion
-     * needs updating in lockstep with that docblock paragraph.
+     * needs updating in lockstep with that docblock paragraph. Why nothing
+     * is missed TODAY: no current call site in self::guardedFiles() does
+     * this — every real messageOrDefault() call passes a developer-literal
+     * or empty string as $message (re-derive via `grep -rn
+     * "self::messageOrDefault(" tests/GateTestCase.php tests/CheckJsConfigsTest.php
+     * tests/CheckJsConfigsManifestTest.php` and read each call site's first argument).
      */
     #[Test]
     public function doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument(): void
