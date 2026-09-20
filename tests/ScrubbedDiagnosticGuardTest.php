@@ -828,8 +828,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * is missed TODAY: `self::messageOrDefault(`'s own call sites all pass
      * the bare parameter `$message`, so re-deriving this claim means tracing
      * every CALLER of the wrapper methods that resolve it instead — `grep -n
-     * "assertManifestAccepts(\|assertManifestRanAndRejected(\|assertManifestReportsValue(\|assertRejectedForReason("
-     * tests/CheckJsConfigsManifestTest.php tests/CheckJsConfigsTest.php` and
+     * "assertManifestAccepts(\|assertManifestRanAndRejected(\|assertManifestReportsValue(\|assertManifestRejects(\|assertRejectedForReason("
+     * tests/CheckJsConfigsManifestTest.php tests/CheckJsConfigsTest.php` (assertManifestRejects()
+     * itself only forwards its own $message parameter into assertManifestRanAndRejected(),
+     * so its own callers are the ones that actually resolve it) and
      * read each call site's own $message argument. Every one in
      * self::guardedFiles() today is either omitted (the '' default), a
      * developer-typed literal, or an already-scrubbed self::diagnosticMessage()
