@@ -181,20 +181,9 @@ use const T_WHITESPACE;
  *   self::guardedFiles() today is spelled with the bare `self::` prefix.
  * - self::stripBalancedCallsFromTokens() strips an ENTIRE self::SAFE_WRAP_CALLS
  *   call span as safe once the wrap NAME matches, with no notion that a wrap
- *   may scrub only SOME of its own arguments. messageOrDefault() is exactly
- *   that case: its non-empty-$message branch returns $message verbatim, with
- *   no scrub at all (unlike its $default/$output branch, which delegates to
- *   diagnosticMessage()) — a raw ->output value embedded in messageOrDefault()'s
- *   FIRST argument would be stripped as safe by this guard and never flagged.
- *   Pinned by doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument()
- *   below, whose assertion is deliberately the opposite of every sibling
- *   control: it proves the gap, not the guard's soundness, so it stays a
- *   re-derivable fact rather than a one-off manual claim. No current call
- *   site in self::guardedFiles() does this (every real messageOrDefault() call passes
- *   a developer-literal or empty string as $message), so nothing is missed
- *   today — but this guard's trust model, not just its pattern coverage, has
- *   a real gap here; a targeted fix would special-case messageOrDefault()'s
- *   argument index rather than trusting the wrap name alone.
+ *   may scrub only SOME of its own arguments — messageOrDefault() is exactly
+ *   that case. See doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument()
+ *   below for the mechanism, the reproduction, and why nothing is missed today.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
@@ -841,7 +830,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     public function doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument(): void
     {
         $findings = $this->findingsFor(
-            'messageordefault-first-argument-leak.php',
+            'message-or-default-first-argument-leak-fixture.php',
             <<<'PHP'
             <?php
             self::assertSame(0, $x, self::messageOrDefault('prefix: ' . $result->output, 'default', $result->output));
