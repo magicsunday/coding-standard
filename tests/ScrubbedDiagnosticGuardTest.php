@@ -825,11 +825,15 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * is ever made argument-aware for messageOrDefault(), $findings below
      * MUST start reporting this call site, and this test's own assertion
      * needs updating in lockstep with that docblock paragraph. Why nothing
-     * is missed TODAY: no current call site in self::guardedFiles() does
-     * this — every real messageOrDefault() call passes a developer-literal
-     * or empty string as $message (re-derive via `grep -rn
-     * "self::messageOrDefault(" tests/GateTestCase.php tests/CheckJsConfigsTest.php
-     * tests/CheckJsConfigsManifestTest.php` and read each call site's first argument).
+     * is missed TODAY: `self::messageOrDefault(`'s own call sites all pass
+     * the bare parameter `$message`, so re-deriving this claim means tracing
+     * every CALLER of the wrapper methods that resolve it instead — `grep -n
+     * "assertManifestAccepts(\|assertManifestRanAndRejected(\|assertManifestReportsValue(\|assertRejectedForReason("
+     * tests/CheckJsConfigsManifestTest.php tests/CheckJsConfigsTest.php` and
+     * read each call site's own $message argument. Every one in
+     * self::guardedFiles() today is either omitted (the '' default), a
+     * developer-typed literal, or an already-scrubbed self::diagnosticMessage()
+     * composite — never a raw, unscrubbed $result->output embedded directly.
      */
     #[Test]
     public function doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument(): void
