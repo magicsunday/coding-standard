@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function realpath;
 use function sys_get_temp_dir;
@@ -22,7 +23,11 @@ use function sys_get_temp_dir;
 /**
  * Tests for GateProcess::run(), verifying exit-code capture, stdout capture,
  * the fixture-directory positional argument contract, the optional working-
- * directory override, and best-effort chronological stdout/stderr interleaving.
+ * directory override, and best-effort chronological stdout/stderr
+ * interleaving, plus GateProcess::runRaw(), the shared spawn-and-capture body
+ * run() delegates to, verifying the properties that distinguish it from
+ * run() — no fixture-directory argument appended, and the optional $env
+ * argument.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -109,5 +114,83 @@ final class GateProcessTest extends TestCase
         $result  = $process->run(['php', '-r', 'fwrite(STDOUT, getcwd());'], sys_get_temp_dir(), $cwd);
 
         self::assertSame($cwd, $result->output);
+    }
+
+    /**
+     * Asserts that run() actually delegates to runRaw() rather than keeping
+     * its own copy of the spawn-and-capture body — proven the same way
+     * runCapturesExitCode() proves run() itself, through the shared method.
+     */
+    #[Test]
+    public function runRawCapturesExitCode(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'exit(7);']);
+
+        self::assertSame(7, $result->exitCode);
+    }
+
+    /**
+     * Asserts that $command is passed to the process AS-IS, with no
+     * fixture-directory argument appended — the property that distinguishes
+     * runRaw() from run() above, needed by a caller whose invocation does
+     * not fit run()'s `<command...> <fixtureDir>` shape.
+     */
+    #[Test]
+    public function runRawPassesCommandArgvUnchanged(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'fwrite(STDOUT, (string) ($argv[1] ?? "none"));']);
+
+        self::assertSame('none', $result->output);
+    }
+
+    /**
+     * Asserts that the optional $env argument is merged onto the child
+     * process's inherited environment.
+     */
+    #[Test]
+    public function runRawMergesTheGivenEnvironmentVariables(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(
+            ['php', '-r', 'fwrite(STDOUT, (string) getenv("GATE_PROCESS_TEST_VAR"));'],
+            null,
+            ['GATE_PROCESS_TEST_VAR' => 'proven'],
+        );
+
+        self::assertSame('proven', $result->output);
+    }
+
+    /**
+     * Asserts that the optional $timeout argument is actually wired to
+     * Process::setTimeout() and not silently ignored — a short custom
+     * timeout against a deliberately slower child process must throw rather
+     * than wait for it to finish.
+     */
+    #[Test]
+    public function runRawHonoursACustomTimeout(): void
+    {
+        $process = new GateProcess();
+
+        $this->expectException(ProcessTimedOutException::class);
+
+        $process->runRaw(['php', '-r', 'usleep(200000);'], null, [], 0.05);
+    }
+
+    /**
+     * Asserts that calling runRaw() with no $env argument at all (the
+     * default empty array) leaves the inherited environment untouched — not
+     * an empty environment, which would break every caller relying on $PATH
+     * to resolve its interpreter/binary. See runRaw()'s own docblock for why
+     * an empty array behaves identically to null here.
+     */
+    #[Test]
+    public function runRawWithNoEnvironmentInheritsThePath(): void
+    {
+        $process = new GateProcess();
+        $result  = $process->runRaw(['php', '-r', 'fwrite(STDOUT, (string) getenv("PATH"));']);
+
+        self::assertNotSame('', $result->output);
     }
 }

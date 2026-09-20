@@ -14,7 +14,6 @@ namespace MagicSunday\CodingStandard\Test;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
-use function dirname;
 use function file_put_contents;
 use function json_encode;
 use function mkdir;
@@ -349,14 +348,6 @@ final class CheckConsumerSuggestLockstepTest extends GateTestCase
     {
         mkdir($dir . '/tests/consumer', 0o700, true);
         file_put_contents($dir . '/tests/consumer/composer.json', (string) json_encode(['require-dev' => $requireDev]));
-    }
-
-    /**
-     * @return string Absolute path to the repository root.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
     }
 
     /**

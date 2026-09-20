@@ -11,7 +11,7 @@
  * decoded base + overlay pair, instead of only through
  * tests/CheckConsumerConfigTest.php's assertBoth*() differential accept/reject
  * interface (the suite that actually drives this gate's foldExtendsChain
- * against fixture pairs — tests/check-js-configs.sh is a broader smoke
+ * against fixture pairs — tests/CheckJsConfigsTest.php is a broader smoke
  * harness against the real Biome/tsc binaries, not this behaviour's prior
  * test path). Mirrors tests/MergeConfigLayerTest.php's PHP cases; see that
  * function's own docblock (bin/support/merge-config-layer.mjs) for the

@@ -20,15 +20,26 @@ use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessStartFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use Throwable;
 
 use function array_filter;
 use function count;
+use function dirname;
 use function explode;
+use function preg_match;
 use function sprintf;
 use function str_contains;
 use function str_repeat;
+use function str_replace;
 use function strlen;
 use function substr;
+
+// scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
+// this class's own scrubbedForDiagnostic() shares rather than duplicating; every
+// concrete subclass (tests/CheckJsConfigsTest.php and
+// tests/CheckJsConfigsManifestTest.php included) reuses that inherited method
+// rather than requiring this file a second time.
+require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
@@ -42,6 +53,29 @@ use function substr;
  * plays the same role as PHPUnit's own TestCase (installed under
  * .build/vendor/phpunit/phpunit, itself abstract) — an abstract base every
  * concrete test class extends, without that prefix either.
+ *
+ * assertGateReportIsInert() and assertReportCarries() below drive their
+ * containment/regex checks against $result->output by hand
+ * (str_contains()/preg_match() + self::fail()), never
+ * assertStringContainsString()/assertStringNotContainsString()/
+ * assertDoesNotMatchRegularExpression(): $result->output is exactly the
+ * value under test for a forged workflow command, and a concrete test class
+ * extending this one — confirmed for CheckConsumerConfigTest, via genuinely
+ * poisoned fixtures such as a `##[error]forged` devDependency name; re-derive
+ * the current full set with `grep -rl "extends GateTestCas[e]" tests/`
+ * (the bracketed "[e]" keeps this very citation from matching its own
+ * copy of the search string, since this file does not itself extend
+ * GateTestCase) rather than trusting this list to stay exhaustive — can and does hand it
+ * deliberately-poisoned content. PHPUnit's own
+ * Constraint::fail()/failureDescription() mechanism — dated and detailed in
+ * tests/CheckJsConfigsTest.php's own
+ * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here;
+ * re-derive via `grep -n 'function assertMessageDoesNotForgeWorkflowCommand'
+ * tests/CheckJsConfigsTest.php` — unconditionally re-embeds the FULL, RAW
+ * haystack into a failed assertion's own exception message, so a real
+ * failure of one of those PHPUnit constraints here would forge, in PHPUnit's
+ * own failure output, the very annotation these two methods exist to prove
+ * is prevented.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -206,20 +240,26 @@ abstract class GateTestCase extends TestCase
     ): void {
         $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
-        self::assertStringNotContainsString("\x1B", $result->output, 'An ANSI escape from a consumer value reached the report.');
+        if (str_contains($result->output, "\x1B")) {
+            self::fail(self::diagnosticMessage('An ANSI escape from a consumer value reached the report.', $result->output));
+        }
 
         // This regex carries no `u` modifier, so a lead byte outside ASCII
         // whitespace is not admitted here either — the same known,
         // deliberately-left-open gap tests/harness.sh documents for its
         // analogous `::` check (lines ~479-495). See GateResult::isDegraded()'s
         // docblock for the re-derivation command.
-        self::assertDoesNotMatchRegularExpression(
-            '/^[[:space:]]*::[A-Za-z0-9_-]+/m',
-            $result->output,
-            'A consumer value forged a `::` workflow command.',
-        );
-        self::assertStringNotContainsString('##[', $result->output, 'A consumer value forged a legacy `##[…]` workflow command.');
-        self::assertStringNotContainsString("\r", $result->output, 'A consumer value carried a bare carriage return, which opens a line to the runner.');
+        if (preg_match('/^[[:space:]]*::[A-Za-z0-9_-]+/m', $result->output) === 1) {
+            self::fail(self::diagnosticMessage('A consumer value forged a `::` workflow command.', $result->output));
+        }
+
+        if (str_contains($result->output, '##[')) {
+            self::fail(self::diagnosticMessage('A consumer value forged the legacy workflow-command prefix.', $result->output));
+        }
+
+        if (str_contains($result->output, "\r")) {
+            self::fail(self::diagnosticMessage('A consumer value carried a bare carriage return, which opens a line to the runner.', $result->output));
+        }
 
         // grep -c . counts NON-EMPTY lines — a blank line must not count toward the limit.
         $nonEmptyLines = array_filter(explode("\n", $result->output), static fn (string $line): bool => $line !== '');
@@ -301,12 +341,17 @@ abstract class GateTestCase extends TestCase
     ): GateResult {
         $result = $this->gateProcess()->run($command, $fixtureDir);
 
+        // A real, unconditional assertion, unlike the exit-code check below:
+        // isDegraded() reduces $result->output to a plain bool, and neither
+        // this call's default message nor PHPUnit's own auto-generated
+        // failure description for a boolean comparison ever re-embeds the
+        // raw output, so there is nothing here for a poisoned fixture to
+        // forge through.
         self::assertFalse($result->isDegraded(), $message !== '' ? $message : 'The gate ran degraded — it emitted a diagnostic.');
-        self::assertSame(
-            $expectedExitCode,
-            $result->exitCode,
-            $message !== '' ? $message : "Expected {$exitCodeLabel}, got exit {$result->exitCode}.\n{$result->output}",
-        );
+
+        if ($result->exitCode !== $expectedExitCode) {
+            self::fail(self::messageWithOutput($message, "Expected {$exitCodeLabel}, got exit {$result->exitCode}.", $result->output));
+        }
 
         return $result;
     }
@@ -340,9 +385,17 @@ abstract class GateTestCase extends TestCase
      * that has a must-carry substring, so the guard-then-assert pairing is
      * made once, not at every call site.
      *
+     * The containment check itself is a manual str_contains() + self::fail(),
+     * never assertStringContainsString() — see this class's own docblock
+     * above for why: $result->output is exactly the value a forged-workflow-
+     * command fixture poisons, and CheckConsumerConfigTest calls this
+     * (transitively, via assertGateRejects()/assertGateUsageError()/
+     * assertGateReportIsInert()) with genuinely poisoned $expectedSubstring
+     * values.
+     *
      * @param GateResult $result            The captured run to check.
      * @param string     $expectedSubstring The substring the report must carry.
-     * @param string     $message           An optional assertion message; used verbatim when non-empty.
+     * @param string     $message           An optional assertion message; used as the failure prefix when non-empty, followed either way by the scrubbed report content.
      * @param string     $defaultMessage    The message used when $message is empty.
      *
      * @return void
@@ -356,7 +409,163 @@ abstract class GateTestCase extends TestCase
         string $defaultMessage,
     ): void {
         self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
-        self::assertStringContainsString($expectedSubstring, $result->output, $message !== '' ? $message : $defaultMessage);
+
+        if (str_contains($result->output, $expectedSubstring)) {
+            return;
+        }
+
+        self::fail(self::messageWithOutput($message, $defaultMessage, $result->output));
+    }
+
+    /**
+     * Reduces $value to something safe to embed in a self::fail() diagnostic
+     * when $value may itself be exactly the forged CI annotation the calling
+     * assertion exists to catch — see this class's own docblock above for
+     * why assertGateReportIsInert() and assertReportCarries() need this
+     * rather than a PHPUnit string-containment/regex constraint. Shares
+     * scrubReportControlBytes()'s control-byte strip and legacy `##[` break
+     * (bin/support/safe-report-value.php, required near the top of this
+     * file), then additionally breaks every `::` occurrence for the same
+     * reason: scrubReportControlBytes() deliberately leaves `::` alone (a
+     * namespaced identifier is legitimate report content), but every
+     * diagnostic this method feeds places $value directly after a literal
+     * `\n`, i.e. at true column 0 of a new line — exactly the placement a
+     * `::cmd::` workflow command needs.
+     *
+     * `protected`, not `private`: both tests/CheckJsConfigsManifestTest.php's
+     * own assertManifestRejects() and tests/CheckJsConfigsTest.php extend this
+     * class and reuse this one method directly for the identical scrub,
+     * rather than each growing its own private copy — CheckJsConfigsTest.php
+     * carried such a copy (safeSubprocessOutput()) before it was recognised
+     * as a byte-for-byte duplicate of this method and deleted.
+     *
+     * @param string $value The raw value to scrub before embedding in a self::fail() message.
+     *
+     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken.
+     */
+    protected static function scrubbedForDiagnostic(string $value): string
+    {
+        return str_replace('::', ':?:', scrubReportControlBytes($value));
+    }
+
+    /**
+     * Composes a self::fail()-ready diagnostic message: $label followed by a
+     * newline and $output scrubbed through self::scrubbedForDiagnostic().
+     * Collapses the `<label> . "\n" . self::scrubbedForDiagnostic($output)`
+     * shape repeated at nearly every PR-editable-content diagnostic in this
+     * class and its subclasses into one call, rather than each site pairing
+     * the newline and the scrub call by hand.
+     *
+     * $label is used verbatim, not scrubbed like $output: every current call
+     * site passes only a developer- or DataProvider-authored string literal,
+     * never PR-editable content, so scrubbing it would only cosmetically
+     * mangle a legitimate label that happens to contain "::" as prose (e.g.
+     * assertGateReportIsInert()'s own "forged a `::` workflow command" labels)
+     * for no reachable benefit — verified 2026-09-06 across
+     * every diagnosticMessage()/messageOrDefault()/messageWithOutput() call
+     * site in this repository's own tests/. Re-derive before trusting this:
+     * `grep -rn "diagnosti[c]Message(\|messageOr[D]efault(\|messageWith[O]utput(" tests/`.
+     * Should a future call site ever build $label from fixture content, scrub
+     * it at that call site rather than reintroducing a blanket scrub here.
+     *
+     * @param string $label  The failure label, used verbatim.
+     * @param string $output The raw value to scrub before appending.
+     *
+     * @return string The label, a newline, then the output scrubbed.
+     */
+    protected static function diagnosticMessage(string $label, string $output): string
+    {
+        return $label . "\n" . self::scrubbedForDiagnostic($output);
+    }
+
+    /**
+     * Resolves an optional caller-supplied assertion $message against a
+     * scrubbed default: $message verbatim when non-empty, otherwise
+     * diagnosticMessage()'s $default label followed by $output scrubbed. In
+     * other words, appends the scrubbed $output only when $message is empty.
+     * Collapses the
+     * `$message !== '' ? $message : <default> . "\n" . self::scrubbedForDiagnostic($output)`
+     * shape repeated at every optional-message call site in this class and
+     * its subclasses into one call. Not a fit for a call site where the
+     * scrubbed output must be appended regardless of whether $message is
+     * empty — self::messageWithOutput() below is that different shape.
+     *
+     * @param string $message The caller-supplied message, used verbatim when non-empty.
+     * @param string $default The failure label used when $message is empty.
+     * @param string $output  The raw value to scrub before appending, when $message is empty.
+     *
+     * @return string The message verbatim, or the default plus the output scrubbed when the message is empty.
+     */
+    protected static function messageOrDefault(string $message, string $default, string $output): string
+    {
+        return $message !== '' ? $message : self::diagnosticMessage($default, $output);
+    }
+
+    /**
+     * Composes a self::fail()-ready diagnostic message that always appends
+     * $output scrubbed, regardless of whether $message is empty: $message
+     * verbatim when non-empty, otherwise $default, either way followed by a
+     * newline and $output scrubbed through self::scrubbedForDiagnostic().
+     * Delegates the actual label-plus-scrubbed-output composition to
+     * self::diagnosticMessage() rather than repeating its own copy of the
+     * `<label> . "\n" . self::scrubbedForDiagnostic($output)` shape — the
+     * only thing this method adds on top is picking $message over $default.
+     * Distinct from messageOrDefault(), whose "$message verbatim, no scrub
+     * applied" semantics do not append $output when $message is non-empty.
+     *
+     * @param string $message The caller-supplied message, used verbatim when non-empty.
+     * @param string $default The failure label used when $message is empty.
+     * @param string $output  The raw value to scrub before appending.
+     *
+     * @return string The message or the default, followed by the output scrubbed.
+     */
+    protected static function messageWithOutput(string $message, string $default, string $output): string
+    {
+        return self::diagnosticMessage($message !== '' ? $message : $default, $output);
+    }
+
+    /**
+     * Runs $invoke, expecting it to throw an instance of $exceptionClass, and
+     * returns that instance for the caller's own follow-up assertions (e.g.
+     * on getMessage()). Collapses the "declare $thrown = null; try { $invoke();
+     * } catch ($exceptionClass $exception) { $thrown = $exception; }
+     * self::assertNotNull($thrown, …)" shape this class's subclasses repeated
+     * at every call site proving a production method rejects bad input —
+     * re-derive the current call sites via `grep -rn "self::assert[T]hrows(" tests/`.
+     * Catches Throwable rather than $exceptionClass directly so a call site
+     * that throws the WRONG exception class still propagates it uncaught —
+     * narrowing the catch to $exceptionClass would silently swallow a
+     * mismatched exception type into "not thrown", the same false pass this
+     * helper exists to rule out.
+     *
+     * @template T of Throwable
+     *
+     * @param callable(): mixed $invoke          Runs the code expected to throw $exceptionClass; any return value is discarded.
+     * @param class-string<T>   $exceptionClass  The exact exception class $invoke must throw; any other Throwable propagates uncaught.
+     * @param string            $rejectedMessage The assertNotNull() message used when $invoke did not throw at all.
+     *
+     * @return T The caught exception, for the caller's own follow-up assertions.
+     *
+     * @throws AssertionFailedError If $invoke did not throw $exceptionClass at all.
+     * @throws Throwable            If $invoke threw something other than $exceptionClass; propagated uncaught.
+     */
+    protected static function assertThrows(callable $invoke, string $exceptionClass, string $rejectedMessage): Throwable
+    {
+        $thrown = null;
+
+        try {
+            $invoke();
+        } catch (Throwable $exception) {
+            if (!$exception instanceof $exceptionClass) {
+                throw $exception;
+            }
+
+            $thrown = $exception;
+        }
+
+        self::assertNotNull($thrown, $rejectedMessage);
+
+        return $thrown;
     }
 
     /**
@@ -382,5 +591,13 @@ abstract class GateTestCase extends TestCase
         self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
 
         return $out;
+    }
+
+    /**
+     * @return string Absolute path to the repository root.
+     */
+    protected static function root(): string
+    {
+        return dirname(__DIR__);
     }
 }

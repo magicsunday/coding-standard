@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use LogicException;
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
@@ -18,11 +19,15 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
+use function preg_match;
 use function preg_quote;
+use function str_contains;
+use function str_replace;
 
 /**
  * Meta-tests proving GateTestCase's own five decisions are wired correctly —
@@ -598,6 +603,249 @@ final class GateTestCaseTest extends GateTestCase
         );
     }
 
+    // The regression the whole assertGateReportIsInert()/assertReportCarries()
+    // defect class boils down to: their own FAILURE message must not forge
+    // the very CI annotation the check exists to catch. Every
+    // assertGateReportIsInertFailsOn*() test above (re-derive the current set
+    // with `grep -n 'functio[n] assertGateReportIsInertFailsOn' tests/GateTestCaseTest.php`
+    // — anchored on "function", with the "n" bracket-split so this citation's
+    // own copy of the command text does not also match)
+    // only proves AN AssertionFailedError was thrown (expectException()),
+    // never what that exception's own message carries — reverting
+    // GateTestCase's own
+    // scrubbedForDiagnostic() wrap at any of its self::fail() call sites (or a
+    // regression back to assertStringNotContainsString()/
+    // assertDoesNotMatchRegularExpression(), which is exactly what those
+    // call sites replaced) would leave every one of them still green, because
+    // none of them ever inspects the caught exception's own message.
+    //
+    // Five independent self::fail() call sites reach $result->output/the
+    // report content this way — the ESC-byte check, the modern `::` check,
+    // the legacy `##[` check and the bare-CR check inside
+    // assertGateReportIsInert() itself, plus assertReportCarries()'s own
+    // must-carry check — and a single combined fixture carrying every forgery
+    // at once would only ever discriminate the FIRST one in that order (the
+    // ESC-byte check runs first and self::fail()s immediately), leaving the
+    // other four's own scrubbing completely unproven. re-derive via
+    // `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
+    // on the leading whitespace so it counts only real call sites, not this
+    // comment's own mentions of self::fail()) if this method's own
+    // check order ever changes — that command currently returns SIX matches
+    // for the whole file, not five: it also catches runAndAssertVerdict()'s
+    // own unrelated exit-code self::fail(), between assertGateReportIsInert()
+    // and assertReportCarries() in file order, so scope the count to the two
+    // methods this comment describes, not the file-wide grep result. Each
+    // test below therefore drives exactly ONE
+    // branch in isolation, with a fixture carrying no earlier-checked forgery
+    // that would short-circuit past it — via
+    // assertOwnFailureMessageDoesNotForgeWorkflowCommand() below, which every
+    // one of them shares.
+
+    /**
+     * The shared "own failure message must not forge a workflow command"
+     * shape the tests below each repeated independently before this existed:
+     * invoke a fixture-driving assertion that is EXPECTED to reject, capture
+     * the thrown AssertionFailedError, then check whether that exception's
+     * OWN message still carries the forged sequence it was poisoned with.
+     * $isForged and $redact are callables rather than a plain needle string
+     * because one call site (the modern `::` prefix) discriminates via a
+     * regex anchored to line start, not a plain str_contains() — every other
+     * call site's needle-based check fits the same two-callable shape; the
+     * three legacy `##[` call sites share theirs via
+     * legacyPrefixSurvivedInMessage()/redactLegacyPrefixInMessage() below
+     * rather than repeating the pair inline.
+     *
+     * @param callable(): void         $invoke          Runs the fixture-driving assertion expected to throw.
+     * @param string                   $rejectedMessage The assertNotNull() message if $invoke did not throw at all.
+     * @param callable(string): bool   $isForged        Given the caught exception's message, returns whether the forgery survived.
+     * @param callable(string): string $redact          Given that message, returns a safe-to-print, redacted copy for self::fail().
+     * @param string                   $forgesMessage   The self::fail() prefix, used only when $isForged() reports true.
+     *
+     * @return void
+     */
+    private function assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+        callable $invoke,
+        string $rejectedMessage,
+        callable $isForged,
+        callable $redact,
+        string $forgesMessage,
+    ): void {
+        $thrown = self::assertThrows(
+            $invoke,
+            AssertionFailedError::class,
+            $rejectedMessage,
+        );
+
+        $message = $thrown->getMessage();
+
+        if ($isForged($message)) {
+            self::fail("{$forgesMessage}\n" . $redact($message));
+        }
+    }
+
+    /**
+     * The shared $isForged check for the three legacy `##[` call sites of
+     * assertOwnFailureMessageDoesNotForgeWorkflowCommand() above
+     * (assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheLegacyPrefixBranch(),
+     * assertReportCarriesFailsWithoutForgingAWorkflowCommandInItsOwnMessage(),
+     * assertGateAcceptsFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheWrongExitCode()),
+     * each of which repeated this check inline before it was extracted here.
+     *
+     * @param string $message The caught exception's message.
+     *
+     * @return bool Whether the legacy `##[` workflow-command prefix survived.
+     */
+    private static function legacyPrefixSurvivedInMessage(string $message): bool
+    {
+        return str_contains($message, '##[');
+    }
+
+    /**
+     * The matching redaction for legacyPrefixSurvivedInMessage() above — see
+     * that method's own docblock for the three call sites sharing this pair.
+     *
+     * @param string $message The message to redact before self::fail() prints it.
+     *
+     * @return string The message with the legacy `##[` prefix broken.
+     */
+    private static function redactLegacyPrefixInMessage(string $message): string
+    {
+        return str_replace('#[', '#?[', $message);
+    }
+
+    /**
+     * Isolates the ESC-byte self::fail() call site — see this class's own
+     * docblock above for why a combined fixture cannot prove this branch.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheEscapeByteBranch(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "\x1B[31mred\x1B[0m\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateReportIsInert() did not reject the ESC-byte fixture.',
+            static fn (string $message): bool => str_contains($message, "\x1B"),
+            static fn (string $message): string => str_replace("\x1B", '?', $message),
+            "assertGateReportIsInert()'s own ESC-byte failure message still carries a raw ANSI escape.",
+        );
+    }
+
+    /**
+     * Isolates the modern `::` self::fail() call site — see this class's own
+     * docblock above for why a combined fixture cannot prove this branch.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheModernPrefixBranch(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "::error::forged\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateReportIsInert() did not reject the `::`-forged fixture.',
+            static fn (string $message): bool => preg_match('/^[ \t]*::/m', $message) === 1,
+            static fn (string $message): string => str_replace('::', ':?:', $message),
+            "assertGateReportIsInert()'s own `::`-branch failure message still carries a `::` workflow command.",
+        );
+    }
+
+    /**
+     * Isolates the legacy `##[` self::fail() call site — see this class's own
+     * docblock above for why a combined fixture cannot prove this branch.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheLegacyPrefixBranch(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "##[error]forged\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateReportIsInert() did not reject the `##[`-forged fixture.',
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
+            "assertGateReportIsInert()'s own `##[`-branch failure message still carries a legacy `##[` workflow command.",
+        );
+    }
+
+    /**
+     * Isolates the bare-CR self::fail() call site — see this class's own
+     * docblock above for why a combined fixture cannot prove this branch.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheBareCarriageReturnBranch(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateReportIsInert(
+                ['php', '-r', 'fwrite(STDOUT, "line one\rline two\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateReportIsInert() did not reject the bare-CR fixture.',
+            static fn (string $message): bool => str_contains($message, "\r"),
+            static fn (string $message): string => str_replace("\r", '?', $message),
+            "assertGateReportIsInert()'s own bare-CR failure message still carries a raw carriage return.",
+        );
+    }
+
+    /**
+     * Isolates assertReportCarries()'s OWN self::fail() call site — the fifth
+     * of the five this class's own docblock above enumerates, and the one
+     * assertGateReportIsInert() cannot reach with a poisoned fixture at all,
+     * because a report carrying `##[`/`::`/an ESC byte/a bare CR is always
+     * caught by one of the four checks above it first. assertGateRejects()
+     * reaches assertReportCarries() WITHOUT running any of those four checks,
+     * so a `##[`-forged report that simply never carries the expected
+     * substring drives this branch directly.
+     */
+    #[Test]
+    public function assertReportCarriesFailsWithoutForgingAWorkflowCommandInItsOwnMessage(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateRejects(
+                ['php', '-r', 'fwrite(STDOUT, "  - x: ##[error]forged\n"); exit(1);'],
+                $this->fixture()->path(),
+                'a substring the report never prints',
+            ),
+            'assertGateRejects() did not reject the fixture missing the must-carry substring.',
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
+            "assertReportCarries()'s own failure message still carries a legacy `##[` workflow command.",
+        );
+    }
+
+    /**
+     * The identical regression, one level up: runAndAssertVerdict() is the
+     * shared precondition every assertGate*() decision calls FIRST (before
+     * assertGateReportIsInert()'s own four checks ever run), and its
+     * exit-code-mismatch self::fail() call site needs the same proof
+     * independently of assertGateReportIsInert()'s own. (Its OTHER check,
+     * isDegraded(), stayed a real, unconditional assertFalse() rather than a
+     * manual self::fail() — isDegraded() reduces $result->output to a plain
+     * bool, and neither that call's message nor PHPUnit's own
+     * auto-generated failure description for a boolean comparison ever
+     * re-embeds raw output, so there is nothing there for a poisoned fixture
+     * to forge through, and no reason to sacrifice the real assertion.)
+     * Drives assertGateAccepts() (which expects exit 0) with a fixture that
+     * exits with the WRONG code while carrying a forged legacy `##[`
+     * sequence, discriminating the exit-code branch specifically.
+     */
+    #[Test]
+    public function assertGateAcceptsFailsWithoutForgingAWorkflowCommandInItsOwnMessageOnTheWrongExitCode(): void
+    {
+        $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            fn () => $this->assertGateAccepts(
+                ['php', '-r', 'fwrite(STDOUT, "##[error]forged\n"); exit(1);'],
+                $this->fixture()->path(),
+            ),
+            'assertGateAccepts() did not reject the wrong-exit-code fixture.',
+            self::legacyPrefixSurvivedInMessage(...),
+            self::redactLegacyPrefixInMessage(...),
+            "runAndAssertVerdict()'s own wrong-exit-code failure message still carries a legacy `##[` workflow command.",
+        );
+    }
+
     /**
      * Verifies that assertGateAccepts, driven end-to-end, accepts the real
      * PHP gate against a fixture carrying the shared canonical phpunit.xml.
@@ -717,6 +965,112 @@ final class GateTestCaseTest extends GateTestCase
             $this->fixture()->path(),
             'x',
             'a custom reports-once message',
+        );
+    }
+
+    /**
+     * A direct unit test of messageOrDefault()'s/diagnosticMessage()'s/
+     * messageWithOutput()'s own composition semantics — otherwise only
+     * exercised indirectly through every other test in this class and its
+     * siblings, which pins call-site behaviour but never the composition
+     * logic itself: a prior double-append regression in exactly this
+     * composition was only caught by manual re-reading, not a test.
+     * messageOrDefault() and messageWithOutput() differ in exactly one way
+     * — whether the output is appended when $message is non-empty — so this
+     * asserts both sides of that difference explicitly.
+     *
+     * The messageOrDefault()-delegates-to-diagnosticMessage() assertion below
+     * reuses diagnosticMessage() itself to build its own expected value, so a
+     * mutation inside diagnosticMessage()'s own composition (e.g. doubling
+     * the "\n") changes both sides identically and that assertion alone would
+     * stay green — it pins the delegation relationship, not
+     * diagnosticMessage()'s own contract. The companion assertion
+     * immediately below it instead builds its expected value from a hand-
+     * written literal, independent of diagnosticMessage(), so it is the one
+     * that actually pins that contract; verified live by temporarily
+     * doubling diagnosticMessage()'s own "\n" — the literal-based assertion
+     * goes red, the reused-implementation one does not.
+     */
+    #[Test]
+    public function theMessageCompositionHelpersComposeAsDocumented(): void
+    {
+        self::assertSame(
+            'custom',
+            self::messageOrDefault('custom', 'default', 'raw with ::error::x::y'),
+            'messageOrDefault() must return a non-empty $message verbatim, with no scrub applied.',
+        );
+
+        self::assertSame(
+            self::diagnosticMessage('default', 'raw with ::error::x::y'),
+            self::messageOrDefault('', 'default', 'raw with ::error::x::y'),
+            'messageOrDefault() must fall back to diagnosticMessage()\'s own composition when $message is empty.',
+        );
+
+        self::assertSame(
+            'default' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::diagnosticMessage('default', 'raw with ::error::x::y'),
+            'diagnosticMessage() must compose label + newline + scrubbed output exactly once.',
+        );
+
+        self::assertSame(
+            'default' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::messageWithOutput('', 'default', 'raw with ::error::x::y'),
+            'messageWithOutput() must append the scrubbed output when $message is empty.',
+        );
+
+        self::assertSame(
+            'custom' . "\n" . self::scrubbedForDiagnostic('raw with ::error::x::y'),
+            self::messageWithOutput('custom', 'default', 'raw with ::error::x::y'),
+            'messageWithOutput() must append the scrubbed output even when $message is non-empty, unlike messageOrDefault().',
+        );
+    }
+
+    /**
+     * assertThrows()'s own rethrow branch: re-derive via
+     * `grep -rn "self::assert[T]hrows(" tests/` that every OTHER real call
+     * site only ever exercises the matching-type path (an $invoke that
+     * throws exactly $exceptionClass) — this and
+     * assertThrowsFailsWhenInvokeDoesNotThrowAtAll() below are the two call
+     * sites that deliberately don't, so without this one a mutation dropping
+     * the `instanceof` guard — accepting ANY caught Throwable as satisfying
+     * ANY requested $exceptionClass — would leave the whole suite green,
+     * silently reintroducing the exact false-pass ("wrong exception type
+     * read as not thrown at all") this helper was extracted to rule out.
+     */
+    #[Test]
+    public function assertThrowsPropagatesAMismatchedExceptionTypeUncaught(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('wrong exception type', '/') . '$/');
+
+        self::assertThrows(
+            static fn () => throw new LogicException('wrong exception type'),
+            RuntimeException::class,
+            'assertThrows() did not run $invoke at all.',
+        );
+    }
+
+    /**
+     * assertThrows()'s own "did not throw at all" branch: an $invoke that
+     * returns normally must fail via assertNotNull()'s own
+     * AssertionFailedError, whose message LEADS with $rejectedMessage
+     * verbatim (assertNotNull() itself appends its own "Failed asserting
+     * that null is not null." beneath it, so only the leading line — the
+     * contract this helper's $rejectedMessage parameter documents — is
+     * pinned here) rather than returning null or silently passing — the
+     * counterpart to assertThrowsPropagatesAMismatchedExceptionTypeUncaught()
+     * above, which covers the wrong-type branch of the same method.
+     */
+    #[Test]
+    public function assertThrowsFailsWhenInvokeDoesNotThrowAtAll(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('did not throw', '/') . '/');
+
+        self::assertThrows(
+            static fn () => null,
+            RuntimeException::class,
+            'did not throw',
         );
     }
 }

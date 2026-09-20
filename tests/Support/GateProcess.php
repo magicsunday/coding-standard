@@ -64,8 +64,49 @@ final readonly class GateProcess
      */
     public function run(array $command, string $fixtureDir, ?string $cwd = null): GateResult
     {
-        $process = new Process([...$command, $fixtureDir], $cwd);
-        $output  = '';
+        return $this->runRaw([...$command, $fixtureDir], $cwd);
+    }
+
+    /**
+     * Runs $command as a real subprocess, no fixture-directory argument
+     * appended and no `<gate> <fixtureDir>` argv shape assumed — the
+     * generalised counterpart of run() above for a caller whose invocation
+     * does not fit that shape (a fixture directory that is not $command's
+     * last positional argument, or not an argument at all — e.g.
+     * CheckJsConfigsTest's own git/npm/tar/biome/tsc/jscpd invocations).
+     * Extracted once that second real caller needed the identical
+     * spawn-and-capture body run() already had, per this project's own
+     * "start local, promote on second real need" convention (see
+     * GateTestCase::padJsonToCap()'s own docblock for the precedent);
+     * run() itself now delegates here rather than keeping two copies.
+     *
+     * @param list<string>          $command The interpreter/binary and its arguments.
+     * @param string|null           $cwd     The working directory the process starts in, or
+     *                                       null for the current process's own cwd.
+     * @param array<string, string> $env     Extra environment variables, merged onto the
+     *                                       inherited environment. An empty array behaves
+     *                                       identically to omitting it: Process's constructor
+     *                                       only special-cases `null` (by skipping its own
+     *                                       setEnv() call), but setEnv([]) leaves $env at the
+     *                                       same empty array the property already defaults
+     *                                       to, and start() treats an empty $env as falsy
+     *                                       either way — merging in the process's own
+     *                                       inherited environment regardless. Verified against
+     *                                       the installed symfony/process
+     *                                       (.build/vendor/symfony/process/Process.php).
+     * @param float                 $timeout The process timeout in seconds.
+     *
+     * @return GateResult
+     *
+     * @throws ProcessStartFailedException If the process could not be started.
+     * @throws ProcessTimedOutException    If the process exceeds its timeout.
+     * @throws ProcessSignaledException    If the process was killed by a signal.
+     */
+    public function runRaw(array $command, ?string $cwd = null, array $env = [], float $timeout = 60.0): GateResult
+    {
+        $process = new Process($command, $cwd, $env);
+        $process->setTimeout($timeout);
+        $output = '';
 
         $process->run(static function (string $type, string $buffer) use (&$output): void {
             $output .= $buffer;

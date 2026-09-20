@@ -15,7 +15,6 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
-use function dirname;
 use function file_put_contents;
 use function implode;
 use function json_encode;
@@ -538,14 +537,6 @@ final class CheckVersionLockstepTest extends GateTestCase
         file_put_contents($dir . '/README.md', $readmeBody . "\n");
 
         return $dir;
-    }
-
-    /**
-     * @return string Absolute path to the repository root.
-     */
-    private static function root(): string
-    {
-        return dirname(__DIR__);
     }
 
     /**

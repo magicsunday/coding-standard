@@ -39,9 +39,9 @@ assert_report_is_inert() { harness_report_is_inert "$gate" "$@"; }
 # consumer-controlled file name on its ACCEPT path — every well-formed file gets
 # printed too — which is the common case, not the rare one: most files a pull
 # request adds parse just fine. No shared helper covers "accepted, and the
-# report stayed inert", so this one is local, the same way
-# tests/check-js-configs.sh keeps its own manifest_crashed rather than sharing
-# tests/harness.sh's degraded().
+# report stayed inert", so this one is local, the same way the
+# now-PHPUnit-migrated check-js-configs.sh kept its own manifest_crashed
+# rather than sharing tests/harness.sh's degraded() (#79).
 assert_ok_report_is_inert() { # <dir> <label> [<scrubbed payload the report must carry>]
     local dir="$1" label="$2" out rc reason=''
     out="$(php "$gate" "$dir" 2>&1)" && rc=0 || rc=$?

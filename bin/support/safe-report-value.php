@@ -10,8 +10,10 @@
 declare(strict_types=1);
 
 /**
- * Defines safeReportValue() for the PHP gates that echo a value read out of a
- * repository file. Re-derive which those are rather than trusting a list here:
+ * Defines safeReportValue() (and the scrubReportControlBytes() core it shares with
+ * tests/CheckJsConfigsTest.php's own layered wrapper) for the PHP gates that echo a
+ * value read out of a repository file. Re-derive which those are rather than
+ * trusting a list here:
  * `grep -rln "^require_once .*safe-report-value" bin tests`. Anchored, and naming
  * the statement rather than the path: the bare path also matches files that only
  * MENTION it, including shell files that cannot require a PHP file at all, and
@@ -20,11 +22,7 @@ declare(strict_types=1);
  * (bin/support/safe-report-value.mjs, re-derive its importers with
  * `grep -rl "from '\./support/safe-report-value.mjs'" bin`) — the consumer-facing
  * node gate (bin/check-js-config.mjs) imports it directly, same as this file's PHP
- * requirers import this one. tests/check-js-configs.sh's OWN embedded self-check
- * (its `manifest_check`/peer-range JS, not the shipped gate) is on the same trust
- * boundary as both and carries its own local `encodeValue()` instead, for the
- * same reason neither the PHP nor the .mjs helper is reachable from a bash
- * heredoc.
+ * requirers import this one.
  *
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
@@ -45,11 +43,11 @@ declare(strict_types=1);
  * src/Runner.Common/ActionCommand.cs and the unconditional v1 fallback in
  * src/Runner.Worker/ActionCommandManager.cs — read 2026-08-19.
  *
- * So this function does two things: it removes the control characters that let a
- * value reach column 0, and it breaks the legacy prefix. Interpolated raw, such a
- * value can split one violation line into several, forge annotations and a
- * clean-run verdict, and — where the source format permits ESC — hide preceding
- * lines in a maintainer's terminal with `ESC[2K`.
+ * So scrubReportControlBytes() does two things: it removes the control characters
+ * that let a value reach column 0, and it breaks the legacy prefix. Interpolated
+ * raw, such a value can split one violation line into several, forge annotations
+ * and a clean-run verdict, and — where the source format permits ESC — hide
+ * preceding lines in a maintainer's terminal with `ESC[2K`.
  *
  * The exit code still carries the real verdict, which is what keeps this log
  * integrity rather than a gate bypass.
@@ -60,38 +58,25 @@ declare(strict_types=1);
  */
 
 /**
- * Reduces a consumer-supplied value to something safe to echo in a report.
+ * Reduces a consumer-supplied value to the two defences every report site needs
+ * regardless of length: strips the C0/DEL control bytes that let it reach column 0,
+ * and breaks the legacy `##[` GitHub Actions workflow-command prefix.
  *
  * Byte-wise on purpose, with no `/u`: a value carrying invalid UTF-8 must still be
  * reported rather than collapse. With `/u`, `preg_replace` returns null on such
  * input and the `?? '?'` below would replace the entire value with a single `?`.
  *
- * The 64-byte cap bounds a report the consumer would otherwise control the length
- * of — measured on the phpunit path, a 5000-byte attribute produced a 5224-byte
- * report.
+ * @param string $value The raw value to scrub.
  *
- * `mb_strcut`, not `substr`: it budgets in BYTES too, so the bound above still holds,
- * and it does not split a multi-byte character at the boundary. The byte budget is
- * the load-bearing half, so the recipe prints the LENGTH as well as the validity — a
- * character-budgeting cut would answer 65 here and the two validity checks alone
- * could not tell it apart:
- *
- *     php -r '$v = str_repeat("a", 63) . "\u{00fc}";
- *         var_dump(strlen(mb_strcut($v, 0, 64, "UTF-8")),
- *                  mb_check_encoding(mb_strcut($v, 0, 64, "UTF-8"), "UTF-8"),
- *                  mb_check_encoding(substr($v, 0, 64), "UTF-8"));'
- *
- * 63 / true / false today. On the invalid UTF-8 this function must survive the two
- * agree byte for byte, with no throw and no warning — measured over a lone lead byte
- * and a run of 0xff.
- *
- * @param int|string $value The raw value read out of a consumer file.
- *
- * @return string
+ * @return string The value with its control bytes replaced by `?` and its legacy
+ *                `##[` prefix broken. What matters is that no `##[` substring
+ *                survives, not the exact resulting bytes: `str_replace` matches the
+ *                trailing two characters of the leading `##`, so `##[error]` becomes
+ *                `##?[error]`, not `#?[error]`.
  */
-function safeReportValue(int|string $value): string
+function scrubReportControlBytes(string $value): string
 {
-    $clean = preg_replace('/[\x00-\x1F\x7F]/', '?', (string) $value) ?? '?';
+    $clean = preg_replace('/[\x00-\x1F\x7F]/', '?', $value) ?? '?';
 
     // `#[`, not `##[`, so the scrubbed value is safe INDEPENDENTLY of the constant
     // text it gets interpolated into: a report ending in `#` would otherwise supply
@@ -114,7 +99,40 @@ function safeReportValue(int|string $value): string
     // three rounds — it called `  - ` non-whitespace, it went stale the moment a new
     // report prefix landed, and the grep it handed the reader returned a hit it did
     // not account for. The test can contradict the code; a paragraph cannot.
-    $clean = str_replace('#[', '#?[', $clean);
+    return str_replace('#[', '#?[', $clean);
+}
+
+/**
+ * Reduces a consumer-supplied value to something safe to echo in a report:
+ * scrubReportControlBytes()'s control-byte strip and `##[` break, then capped to a
+ * bounded length.
+ *
+ * The 64-byte cap bounds a report the consumer would otherwise control the length
+ * of — measured on the phpunit path, a 5000-byte attribute produced a 5224-byte
+ * report.
+ *
+ * `mb_strcut`, not `substr`: it budgets in BYTES too, so the bound above still holds,
+ * and it does not split a multi-byte character at the boundary. The byte budget is
+ * the load-bearing half, so the recipe prints the LENGTH as well as the validity — a
+ * character-budgeting cut would answer 65 here and the two validity checks alone
+ * could not tell it apart:
+ *
+ *     php -r '$v = str_repeat("a", 63) . "\u{00fc}";
+ *         var_dump(strlen(mb_strcut($v, 0, 64, "UTF-8")),
+ *                  mb_check_encoding(mb_strcut($v, 0, 64, "UTF-8"), "UTF-8"),
+ *                  mb_check_encoding(substr($v, 0, 64), "UTF-8"));'
+ *
+ * 63 / true / false today. On the invalid UTF-8 this function must survive the two
+ * agree byte for byte, with no throw and no warning — measured over a lone lead byte
+ * and a run of 0xff.
+ *
+ * @param int|string $value The raw value read out of a consumer file.
+ *
+ * @return string The value scrubbed per scrubReportControlBytes(), capped to 64 bytes with a trailing `…` marker when truncated.
+ */
+function safeReportValue(int|string $value): string
+{
+    $clean = scrubReportControlBytes((string) $value);
 
     return strlen($clean) > 64 ? mb_strcut($clean, 0, 64, 'UTF-8') . '…' : $clean;
 }

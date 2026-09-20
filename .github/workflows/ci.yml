@@ -151,8 +151,18 @@ jobs:
             # there is what makes beStrictAboutCoverageMetadata actually
             # evaluate, which is the enforcement this flag exists for, not a
             # human-facing report; the other legs run the bare command.
+            #
+            # CheckJsConfigsTest and CheckJsConfigsManifestTest (both tagged
+            # #[Group('js-packaging')] — see CheckJsConfigsTest's own
+            # docblock) drive a real git-archive/npm-pack/npm-install/Biome/
+            # tsc/jscpd pipeline that exercises none of this package's own
+            # PHP-version-dependent code, so running the group on all three
+            # matrix legs would triple its real CI cost for zero additional
+            # coverage. --exclude-group it on every leg except this
+            # repository's own floor (composer.json's `require.php`, '8.3 -
+            # 8.5') so the group still runs exactly once per CI run.
             - name: PHPUnit
-              run: composer ci:test:phpunit${{ matrix.coverage != 'none' && ' -- --coverage-text' || '' }}
+              run: composer ci:test:phpunit -- ${{ matrix.php != '8.3' && '--exclude-group js-packaging' || '' }} ${{ matrix.coverage != 'none' && '--coverage-text' || '' }}
 
             # tests/consumer/composer.json's require-dev hand-copies each
             # opt-in strict-tier package's version constraint from composer.json's
@@ -334,13 +344,13 @@ jobs:
               with:
                   node-version: 24
 
-            # The PHP consumer smoke has no JS counterpart, which is how an
-            # unloadable biome/base.json shipped: `ci:test:json` proves the file
-            # parses as JSON, but Biome rejects an unknown key outright, so a
-            # perfectly valid JSON document can still fail every consumer. This
-            # packs the package as npm ships it, installs it into a throwaway
-            # consumer and runs Biome and tsc against the shared configs — with
-            # controls proving a rule violation and an unchecked index are
-            # actually rejected, so the gate cannot pass vacuously.
-            - name: JS consumer smoke
+            # The packing/consumer-smoke half of this (npm-ships-it packaging,
+            # a throwaway consumer, real Biome/tsc runs) moved to
+            # tests/CheckJsConfigsTest.php and tests/CheckJsConfigsManifestTest.php
+            # (#79) — PHPUnit suites run by the "build" job's PHPUnit step
+            # above, which sets up Node itself for exactly that reason. This
+            # step is left with the native node:test suite over
+            # bin/support/merge-config-layer.mjs (tests/*.test.mjs), unrelated
+            # to config packaging.
+            - name: JS unit tests
               run: npm run --silent ci:test:js

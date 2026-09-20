@@ -81,7 +81,7 @@ alone: it is honoured only by npm >= 10.9, which with `onFail: "error"`
 hard-fails the `install`, `ci` or `run` it precedes, and ignored entirely by
 older versions (npm/cli PR 7766, shipped in v10.9.0 — re-derive with
 `curl -s https://api.github.com/repos/npm/cli/releases/tags/v10.9.0 | grep -c 4d57928`).
-`tests/check-js-configs.sh` is the backstop: it fails outright on an older
+`tests/CheckJsConfigsManifestTest.php` is the backstop: it fails outright on an older
 Node, and the CI job pins `node-version: 24` rather than the floating `lts/*`
 alias, which would move up a major on its own every October.
 
@@ -93,7 +93,7 @@ consumer's Node — why >=20 specifically, and exactly when `EBADENGINE` is a
 hard failure rather than a warning, are both on the `sourceContainsLoneSurrogate`
 docblock in `bin/check-js-config.mjs`, not restated here. A consumer below
 that floor gets an uncaught crash instead of a clean
-gate report if nothing declares the requirement. `tests/check-js-configs.sh`
+gate report if nothing declares the requirement. `tests/CheckJsConfigsManifestTest.php`
 enforces this floor too, independently of the devEngines one: it rejects a
 `package.json` whose `engines.node` is anything other than a single, literal
 `>=X[.Y[.Z]]` lower bound at or above what the shipped script needs — absent,
@@ -101,7 +101,7 @@ unparseable, too low, and any shape it does not fully evaluate (an OR-range,
 a caret/tilde/`.x` range, a bare version, `*`) all reject, because a shape it
 cannot verify could state a floor npm actually reads as looser than it looks
 — the OR-range example and its semver verification are on the check itself
-in `tests/check-js-configs.sh`, not restated here. Bumping `devEngines` to
+in `tests/CheckJsConfigsManifestTest.php`, not restated here. Bumping `devEngines` to
 track a newer toolchain does not raise
 `engines`, and the reverse — the two are reasoned about, and checked,
 separately.
@@ -985,10 +985,11 @@ The Biome case is not hypothetical — this package shipped a `biome/base.json` 
 one, and it was dead config for every consumer that extended it while `ci:test:json`
 reported the file as perfectly valid JSON. That is what the JS smoke exists for.
 
-`tests/check-js-configs.sh` guards this — it packs the package as npm
+`tests/CheckJsConfigsTest.php` guards this — it packs the package as npm
 ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
 shared configs, with controls proving a `==` comparison and an unchecked array index
-are actually rejected. The `js` CI job runs it on every pull request and on every push to `main`.
+are actually rejected. The `build` job's PHPUnit step runs it on every pull request and
+on every push to `main`.
 
 ## License
 
