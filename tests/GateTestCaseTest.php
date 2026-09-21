@@ -885,6 +885,21 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * An empty needle is contained in every report, so assertOutputDoesNotContain()
+     * fails on it by construction rather than passing vacuously. An early return
+     * for an empty needle would switch that off silently, so it is pinned here.
+     */
+    #[Test]
+    public function assertOutputDoesNotContainFailsOnAnEmptyNeedle(): void
+    {
+        self::assertThrows(
+            static fn () => self::assertOutputDoesNotContain(new GateResult('x', 0), '', 'unused'),
+            AssertionFailedError::class,
+            'assertOutputDoesNotContain() accepted an empty needle.',
+        );
+    }
+
+    /**
      * The two forgery tests only prove the forged prefixes are absent, which a
      * message reduced to an empty string would satisfy too and so silently drop
      * the report from the CI output; this pins that the label comes first and
