@@ -14,6 +14,7 @@ namespace MagicSunday\CodingStandard\Test;
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
+use MagicSunday\CodingStandard\Test\Support\ScrubbedDiagnostics;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -30,16 +31,8 @@ use function preg_match;
 use function sprintf;
 use function str_contains;
 use function str_repeat;
-use function str_replace;
 use function strlen;
 use function substr;
-
-// scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
-// this class's own scrubbedForDiagnostic() shares rather than duplicating; every
-// concrete subclass (tests/CheckJsConfigsTest.php and
-// tests/CheckJsConfigsManifestTest.php included) reuses that inherited method
-// rather than requiring this file a second time.
-require_once __DIR__ . '/../bin/support/safe-report-value.php';
 
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
@@ -54,9 +47,10 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  * .build/vendor/phpunit/phpunit, itself abstract) — an abstract base every
  * concrete test class extends, without that prefix either.
  *
- * assertGateReportIsInert() and assertReportCarries() below drive their
- * containment/regex checks against $result->output by hand
- * (str_contains()/preg_match() + self::fail()), never
+ * assertGateReportIsInert() drives its containment/regex checks against
+ * $result->output by hand (str_contains()/preg_match() + self::fail()), and
+ * assertReportCarries() does the same through
+ * ScrubbedDiagnostics::assertOutputContains(), never
  * assertStringContainsString()/assertStringNotContainsString()/
  * assertDoesNotMatchRegularExpression(): $result->output is exactly the
  * value under test for a forged workflow command, and a concrete test class
@@ -83,6 +77,8 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  */
 abstract class GateTestCase extends TestCase
 {
+    use ScrubbedDiagnostics;
+
     /**
      * This test's throwaway fixture directory, created lazily by fixture()
      * and shared across calls within the same test; null until first requested.
@@ -379,19 +375,15 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
-     * Guards against a must-carry argument that is empty — an empty needle
-     * would make the subsequent containment check assert nothing — then
-     * asserts the report carries it. Shared by every assertGate* decision
-     * that has a must-carry substring, so the guard-then-assert pairing is
-     * made once, not at every call site.
-     *
-     * The containment check itself is a manual str_contains() + self::fail(),
-     * never assertStringContainsString() — see this class's own docblock
-     * above for why: $result->output is exactly the value a forged-workflow-
-     * command fixture poisons, and CheckConsumerConfigTest calls this
-     * (transitively, via assertGateRejects()/assertGateUsageError()/
-     * assertGateReportIsInert()) with genuinely poisoned $expectedSubstring
-     * values.
+     * Asserts the report carries $expectedSubstring, resolving the optional
+     * caller-supplied $message against a call-site default. Shared by every
+     * assertGate* decision that has a must-carry substring, so that
+     * message-or-default choice is made once, not at every call site; the
+     * containment check itself, and why it is never
+     * assertStringContainsString(), is ScrubbedDiagnostics::assertOutputContains()'s
+     * own concern. CheckConsumerConfigTest reaches this (transitively, via
+     * assertGateRejects()/assertGateUsageError()/assertGateReportIsInert())
+     * with genuinely poisoned $expectedSubstring values.
      *
      * @param GateResult $result            The captured run to check.
      * @param string     $expectedSubstring The substring the report must carry.
@@ -408,120 +400,7 @@ abstract class GateTestCase extends TestCase
         string $message,
         string $defaultMessage,
     ): void {
-        self::assertNotSame('', $expectedSubstring, 'The must-carry argument is empty, so it would assert nothing.');
-
-        if (str_contains($result->output, $expectedSubstring)) {
-            return;
-        }
-
-        self::fail(self::messageWithOutput($message, $defaultMessage, $result->output));
-    }
-
-    /**
-     * Reduces $value to something safe to embed in a self::fail() diagnostic
-     * when $value may itself be exactly the forged CI annotation the calling
-     * assertion exists to catch — see this class's own docblock above for
-     * why assertGateReportIsInert() and assertReportCarries() need this
-     * rather than a PHPUnit string-containment/regex constraint. Shares
-     * scrubReportControlBytes()'s control-byte strip and legacy `##[` break
-     * (bin/support/safe-report-value.php, required near the top of this
-     * file), then additionally breaks every `::` occurrence for the same
-     * reason: scrubReportControlBytes() deliberately leaves `::` alone (a
-     * namespaced identifier is legitimate report content), but every
-     * diagnostic this method feeds places $value directly after a literal
-     * `\n`, i.e. at true column 0 of a new line — exactly the placement a
-     * `::cmd::` workflow command needs.
-     *
-     * `protected`, not `private`: both tests/CheckJsConfigsManifestTest.php's
-     * own assertManifestRejects() and tests/CheckJsConfigsTest.php extend this
-     * class and reuse this one method directly for the identical scrub,
-     * rather than each growing its own private copy — CheckJsConfigsTest.php
-     * carried such a copy (safeSubprocessOutput()) before it was recognised
-     * as a byte-for-byte duplicate of this method and deleted.
-     *
-     * @param string $value The raw value to scrub before embedding in a self::fail() message.
-     *
-     * @return string The value scrubbed per scrubReportControlBytes(), with every `::` occurrence that opens a line broken.
-     */
-    protected static function scrubbedForDiagnostic(string $value): string
-    {
-        return str_replace('::', ':?:', scrubReportControlBytes($value));
-    }
-
-    /**
-     * Composes a self::fail()-ready diagnostic message: $label followed by a
-     * newline and $output scrubbed through self::scrubbedForDiagnostic().
-     * Collapses the `<label> . "\n" . self::scrubbedForDiagnostic($output)`
-     * shape repeated at nearly every PR-editable-content diagnostic in this
-     * class and its subclasses into one call, rather than each site pairing
-     * the newline and the scrub call by hand.
-     *
-     * $label is used verbatim, not scrubbed like $output: every current call
-     * site passes only a developer- or DataProvider-authored string literal,
-     * never PR-editable content, so scrubbing it would only cosmetically
-     * mangle a legitimate label that happens to contain "::" as prose (e.g.
-     * assertGateReportIsInert()'s own "forged a `::` workflow command" labels)
-     * for no reachable benefit — verified 2026-09-06 across
-     * every diagnosticMessage()/messageOrDefault()/messageWithOutput() call
-     * site in this repository's own tests/. Re-derive before trusting this:
-     * `grep -rn "diagnosti[c]Message(\|messageOr[D]efault(\|messageWith[O]utput(" tests/`.
-     * Should a future call site ever build $label from fixture content, scrub
-     * it at that call site rather than reintroducing a blanket scrub here.
-     *
-     * @param string $label  The failure label, used verbatim.
-     * @param string $output The raw value to scrub before appending.
-     *
-     * @return string The label, a newline, then the output scrubbed.
-     */
-    protected static function diagnosticMessage(string $label, string $output): string
-    {
-        return $label . "\n" . self::scrubbedForDiagnostic($output);
-    }
-
-    /**
-     * Resolves an optional caller-supplied assertion $message against a
-     * scrubbed default: $message verbatim when non-empty, otherwise
-     * diagnosticMessage()'s $default label followed by $output scrubbed. In
-     * other words, appends the scrubbed $output only when $message is empty.
-     * Collapses the
-     * `$message !== '' ? $message : <default> . "\n" . self::scrubbedForDiagnostic($output)`
-     * shape repeated at every optional-message call site in this class and
-     * its subclasses into one call. Not a fit for a call site where the
-     * scrubbed output must be appended regardless of whether $message is
-     * empty — self::messageWithOutput() below is that different shape.
-     *
-     * @param string $message The caller-supplied message, used verbatim when non-empty.
-     * @param string $default The failure label used when $message is empty.
-     * @param string $output  The raw value to scrub before appending, when $message is empty.
-     *
-     * @return string The message verbatim, or the default plus the output scrubbed when the message is empty.
-     */
-    protected static function messageOrDefault(string $message, string $default, string $output): string
-    {
-        return $message !== '' ? $message : self::diagnosticMessage($default, $output);
-    }
-
-    /**
-     * Composes a self::fail()-ready diagnostic message that always appends
-     * $output scrubbed, regardless of whether $message is empty: $message
-     * verbatim when non-empty, otherwise $default, either way followed by a
-     * newline and $output scrubbed through self::scrubbedForDiagnostic().
-     * Delegates the actual label-plus-scrubbed-output composition to
-     * self::diagnosticMessage() rather than repeating its own copy of the
-     * `<label> . "\n" . self::scrubbedForDiagnostic($output)` shape — the
-     * only thing this method adds on top is picking $message over $default.
-     * Distinct from messageOrDefault(), whose "$message verbatim, no scrub
-     * applied" semantics do not append $output when $message is non-empty.
-     *
-     * @param string $message The caller-supplied message, used verbatim when non-empty.
-     * @param string $default The failure label used when $message is empty.
-     * @param string $output  The raw value to scrub before appending.
-     *
-     * @return string The message or the default, followed by the output scrubbed.
-     */
-    protected static function messageWithOutput(string $message, string $default, string $output): string
-    {
-        return self::diagnosticMessage($message !== '' ? $message : $default, $output);
+        self::assertOutputContains($result, $expectedSubstring, $message !== '' ? $message : $defaultMessage);
     }
 
     /**

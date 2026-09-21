@@ -11,10 +11,13 @@ declare(strict_types=1);
 
 namespace MagicSunday\CodingStandard\Test;
 
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function array_diff;
+use function array_keys;
 use function array_slice;
 use function count;
 use function file_get_contents;
@@ -22,6 +25,7 @@ use function file_put_contents;
 use function implode;
 use function in_array;
 use function is_array;
+use function is_file;
 use function preg_match;
 use function token_get_all;
 
@@ -37,11 +41,13 @@ use const T_WHITESPACE;
  * `$result->output`/`->getOutput()`/`->getErrorOutput()` access, run against
  * PR-editable content (this repository's own biome/base.json,
  * tsconfig/base.json, package.json, templates/jscpd.json, or subprocess
- * output produced against them). All six of self::RISKY_ASSERTIONS leak the
+ * output produced against them). The string-containment, regex, assertSame()
+ * and assertEquals() entries of self::RISKY_ASSERTIONS leak the
  * raw subject/actual operand on a failure, but through TWO DIFFERENT
  * PHPUnit mechanisms, and wrapping only a custom $message in
- * self::scrubbedForDiagnostic() suppresses neither: the first four embed
- * the raw operand straight into getMessage(); assertSame()/assertEquals()
+ * self::scrubbedForDiagnostic() suppresses neither: the containment and
+ * regex ones embed the raw operand straight into getMessage();
+ * assertSame()/assertEquals()
  * on two STRING operands instead attach a
  * SebastianBergmann\Comparator\ComparisonFailure that only PHPUnit's own
  * CLI/text printer renders, never getMessage() — EXCEPT a
@@ -52,11 +58,27 @@ use const T_WHITESPACE;
  * and readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
  * docblocks respectively, not repeated here. Every real
  * assertSame()/assertEquals() call site self::RISKY_ASSERTIONS scans for in
- * this codebase compares same-typed (string) operands, so this guard's own
+ * this codebase compares same-typed operands, so this guard's own
  * scope does not currently need to police that third path — but a future
  * `assertSame($stringOrNull, $poisonedString)`-shaped call would need the
  * same manual self::fail() treatment even though it builds no
  * ComparisonFailure.
+ *
+ * assertNotSame() and the two ScrubbedDiagnostics containment helpers are
+ * listed for a different reason: their subject does not carry report content
+ * in the guarded suites (an int exit code, an empty-string sentinel that fails
+ * only on `''`, a GateResult), so the channel there is a custom message or
+ * label that interpolates the raw output. The scan still checks a listed
+ * call's whole argument list, so even `assertNotSame('', $result->output,
+ * 'msg')`, which cannot leak, is flagged; keep the report out of such a call
+ * or wrap it.
+ *
+ * Labels are not followed: a raw report that reaches a label through a local
+ * variable or a callable (CheckDisallowedCallsTest passes
+ * `$failureMessage($function)`, where `$function` is a name its extractor
+ * restricts to `[a-z0-9_]+`) is invisible, and
+ * so is one inside a whole self::SAFE_WRAP_CALLS span such as
+ * `diagnosticMessage()`, which is stripped as scrubbed.
  *
  * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser.
  * Detection walks the token_get_all() TOKEN ARRAY directly, by a token
@@ -148,7 +170,9 @@ use const T_WHITESPACE;
  *   curly-brace dynamic access away, so nothing upstream of this guard
  *   prevents the shape from being written. Confirmed via
  *   `grep -noF -- '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
- *   tests/CheckJsConfigsManifestTest.php` (the `--` is required: without it,
+ *   tests/CheckJsConfigsManifestTest.php tests/CheckCheckedExceptionsTest.php
+ *   tests/CheckDisallowedCallsTest.php tests/Support/ScrubbedDiagnostics.php`
+ *   (the `--` is required: without it,
  *   a pattern starting with `-` is parsed as an option, not the search
  *   text): no current call site in any of
  *   self::guardedFiles() uses this syntax. If this construct is ever
@@ -174,11 +198,15 @@ use const T_WHITESPACE;
  *   (they are all static methods, always called via `::`), so this is a
  *   real but practically inapplicable gap for this guard's actual scope.
  *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assertSame|assertEquals|
+ *   assertNotSame|assertOutputContains|assertOutputDoesNotContain|
  *   assertStringContainsString|assertStringNotContainsString|
  *   assertMatchesRegularExpression|assertDoesNotMatchRegularExpression)\('
  *   tests/GateTestCase.php tests/CheckJsConfigsTest.php
- *   tests/CheckJsConfigsManifestTest.php`: every real call site in
- *   self::guardedFiles() today is spelled with the bare `self::` prefix.
+ *   tests/CheckJsConfigsManifestTest.php tests/CheckCheckedExceptionsTest.php
+ *   tests/CheckDisallowedCallsTest.php tests/Support/ScrubbedDiagnostics.php`:
+ *   every hit is either a docblock mention or a call spelled with the bare
+ *   `self::` prefix, so no call site in self::guardedFiles() uses another
+ *   spelling.
  * - self::stripBalancedCallsFromTokens() strips an ENTIRE self::SAFE_WRAP_CALLS
  *   call span as safe once the wrap NAME matches, with no notion that a wrap
  *   may scrub only SOME of its own arguments — messageOrDefault() is exactly
@@ -200,10 +228,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * The PHPUnit assertion functions whose own subject/actual argument
      * leaks raw on a failure — via failureDescription() into getMessage()
-     * for the first four, via a raw ComparisonFailure PHPUnit's CLI/text
-     * printer renders (never getMessage(), for two string operands — see
-     * this class's own docblock above for the type-mismatch exception) for
-     * the last two; see this class's own docblock above for the distinction.
+     * for the containment and regex ones, via a raw ComparisonFailure
+     * PHPUnit's CLI/text printer renders (never getMessage(), for two string
+     * operands — see this class's own docblock above for the type-mismatch
+     * exception) for assertSame()/assertEquals() — plus the calls that leak
+     * only through an interpolated message or label; see this class's own
+     * docblock above for the distinction.
      */
     private const RISKY_ASSERTIONS = [
         'assertStringContainsString',
@@ -212,6 +242,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         'assertDoesNotMatchRegularExpression',
         'assertSame',
         'assertEquals',
+        'assertNotSame',
+        'assertOutputContains',
+        'assertOutputDoesNotContain',
     ];
 
     /**
@@ -250,13 +283,23 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
     /**
      * Every failed accept/reject-pattern regression this file's history
-     * fixed lived in exactly the files returned below. A new file added to
-     * this suite that repeats the same biomeCi()/runTsc()-against-
-     * PR-editable-config shape would need adding here too; this guard only
+     * fixed lived in the first three files returned below. The two PHPStan
+     * gate suites are listed because they assert on a raw PHPStan report, and
+     * tests/Support/ScrubbedDiagnostics.php because it holds the containment
+     * assertions. A new file added to this suite that repeats
+     * the same biomeCi()/runTsc()-against-PR-editable-config shape, or asserts
+     * on a subprocess report, would need adding here too; this guard only
      * reads what it is told to.
      *
-     * tests/Support/GateProcessTest.php's runCapturesStdout() (a plain
-     * `self::assertStringContainsString('hello', $result->output)`) and
+     * tests/CheckConsumerConfigTest.php is deliberately absent: what it must
+     * keep out of a failure message is the CONTENT of a repository file held
+     * in a plain local variable, a shape RAW_OUTPUT_PATTERN cannot see, so
+     * listing it would prove nothing. Its one live instance is pinned by
+     * aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage() instead.
+     *
+     * tests/Support/GateProcessTest.php (several plain
+     * `self::assertStringContainsString('hello', $result->output)`-style
+     * calls, e.g. in runCapturesStdout()) and
      * tests/GateTestCaseTest.php's own
      * theMessageCompositionHelpersComposeAsDocumented() (several assertSame()
      * calls against a hand-authored literal carrying `::error::`) share the
@@ -265,12 +308,6 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * PR can never influence, not PR-editable content, so routing them
      * through the scrub helpers would be unnecessary churn rather than
      * closing a real gap.
-     *
-     * `tests/CheckCheckedExceptionsTest.php` and
-     * `tests/CheckDisallowedCallsTest.php` are peer gate-suite classes
-     * (AGENTS.md documents both) that DO carry the same unscrubbed-leak
-     * shape today; they are deliberately NOT added below and NOT fixed as
-     * part of this guard — that defect is tracked separately as #160.
      *
      * @return list<string>
      */
@@ -282,6 +319,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             "{$root}/tests/GateTestCase.php",
             "{$root}/tests/CheckJsConfigsTest.php",
             "{$root}/tests/CheckJsConfigsManifestTest.php",
+            "{$root}/tests/CheckCheckedExceptionsTest.php",
+            "{$root}/tests/CheckDisallowedCallsTest.php",
+            "{$root}/tests/Support/ScrubbedDiagnostics.php",
         ];
     }
 
@@ -613,6 +653,10 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      */
     private static function findUnscrubbedRawOutputAssertions(string $path): array
     {
+        if (!is_file($path)) {
+            self::fail("The file to scan does not exist, so the guard would find nothing: {$path}");
+        }
+
         $tokens   = self::significantTokens((string) file_get_contents($path));
         $count    = count($tokens);
         $findings = [];
@@ -732,6 +776,12 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     {
         $findings = [];
 
+        self::assertContains(
+            self::root() . '/tests/Support/ScrubbedDiagnostics.php',
+            self::guardedFiles(),
+            'The file that holds the containment assertions is no longer guarded.',
+        );
+
         foreach (self::guardedFiles() as $file) {
             $findings = [...$findings, ...self::findUnscrubbedRawOutputAssertions($file)];
         }
@@ -746,29 +796,80 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * The guard's own control: without it, an intentionally reintroduced raw
-     * `assertSame(0, $result->exitCode, "…\n{$result->output}")`-shaped call
-     * embedded in a throwaway fixture string (never written to a real file,
-     * so the actual suite's own content is untouched) would go undetected —
-     * proving self::findUnscrubbedRawOutputAssertions() actually discriminates
-     * rather than always returning an empty list regardless of input.
+     * One row per assertion name the guard must flag: a raw report interpolated
+     * into that call's message is found. The rows are spelled out here, not
+     * derived from self::RISKY_ASSERTIONS, because a name removed from the
+     * constant would then remove its own row and nothing would go red; the
+     * lockstep test below covers one direction and each row's own test the other.
+     *
+     * @param string $assertion A name the guard must flag.
      */
     #[Test]
-    public function detectsAnIntentionallyReintroducedRawOutputAssertion(): void
+    #[DataProvider('riskyAssertionProvider')]
+    public function detectsARawOutputInterpolatedIntoEveryListedAssertion(string $assertion): void
     {
         $findings = $this->findingsFor(
-            'poisoned-fixture.php',
-            <<<'PHP'
-            <?php
-            self::assertSame(0, $result->exitCode, "boom\n{$result->output}");
-            PHP,
+            'poisoned-per-name-fixture.php',
+            "<?php\nself::{$assertion}(0, \$x, \"boom\\n{\$result->output}\");\n",
         );
 
-        self::assertNotEmpty($findings, 'The guard did not flag a deliberately unscrubbed assertSame() call — it is not exercising the check it claims to.');
+        self::assertCount(1, $findings, "The guard did not flag a raw report interpolated into an {$assertion}() call.");
     }
 
     /**
-     * The guard's own second control, for the sanctioned wrap itself: a call
+     * Every name the guard lists has a row. The other direction, a row for a
+     * name the guard no longer lists, already fails in that row's own test:
+     * the scan only matches listed names, so it finds nothing to flag.
+     */
+    #[Test]
+    public function everyAssertionTheGuardListsHasARow(): void
+    {
+        self::assertSame(
+            [],
+            array_diff(self::RISKY_ASSERTIONS, array_keys(self::riskyAssertionProvider())),
+            'The guard lists a name no row pins.',
+        );
+    }
+
+    /**
+     * The assertion names the guard must flag, spelled out on purpose (see
+     * detectsARawOutputInterpolatedIntoEveryListedAssertion()).
+     *
+     * @return array<string, array{0: string}> Every name the guard must flag, keyed by itself.
+     */
+    public static function riskyAssertionProvider(): array
+    {
+        return [
+            'assertStringContainsString'          => ['assertStringContainsString'],
+            'assertStringNotContainsString'       => ['assertStringNotContainsString'],
+            'assertMatchesRegularExpression'      => ['assertMatchesRegularExpression'],
+            'assertDoesNotMatchRegularExpression' => ['assertDoesNotMatchRegularExpression'],
+            'assertSame'                          => ['assertSame'],
+            'assertEquals'                        => ['assertEquals'],
+            'assertNotSame'                       => ['assertNotSame'],
+            'assertOutputContains'                => ['assertOutputContains'],
+            'assertOutputDoesNotContain'          => ['assertOutputDoesNotContain'],
+        ];
+    }
+
+    /**
+     * A guarded file that does not exist would otherwise be read as an empty
+     * source and yield no findings, so a rename or move would silently switch
+     * the guard off for that file (a failed read is only a warning, which
+     * does not fail this run).
+     */
+    #[Test]
+    public function refusesToScanAFileThatDoesNotExist(): void
+    {
+        self::assertThrows(
+            static fn (): array => self::findUnscrubbedRawOutputAssertions(self::root() . '/tests/DoesNotExist.php'),
+            AssertionFailedError::class,
+            'The scanner accepted a path that is not a file.',
+        );
+    }
+
+    /**
+     * The guard's control for the sanctioned wrap itself: a call
      * whose only `->output` access is inside a
      * self::scrubbedForDiagnostic()/diagnosticMessage()/messageOrDefault()
      * wrap must NOT be flagged — without this, a guard that flagged
@@ -790,7 +891,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * The guard's own third control, for the fourth sanctioned wrap:
+     * The guard's control for the fourth sanctioned wrap:
      * messageWithOutput() was added after self::SAFE_WRAP_CALLS was first
      * written and, like the other three wraps, must not be flagged when it
      * is the ONLY thing carrying a risky assertion's `->output` access —

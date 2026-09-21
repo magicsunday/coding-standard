@@ -32,12 +32,20 @@ use function sprintf;
  * findings, which is why `CheckDisallowedCallsTest` extended `TestCase`
  * directly instead of `GateTestCase`.
  *
+ * What the two lineages DO share is the failure-message hygiene, through
+ * ScrubbedDiagnostics: a PHPStan report is built from fixture content, so the
+ * suites extending this class assert on it via assertOutputContains()/
+ * assertOutputDoesNotContain() and build every message that carries the
+ * report with diagnosticMessage(), never a raw `$result->output`.
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
  * @link    https://github.com/magicsunday/coding-standard/
  */
 abstract class AbstractConsumerPhpstanGateTestCase extends TestCase
 {
+    use ScrubbedDiagnostics;
+
     /**
      * Skips every test in this class until tests/consumer is installed,
      * instead of failing it — this class is also reached by the plain

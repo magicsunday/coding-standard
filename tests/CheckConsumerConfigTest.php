@@ -22,6 +22,8 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 use function array_diff;
 use function array_filter;
+use function array_map;
+use function array_values;
 use function chmod;
 use function chr;
 use function copy;
@@ -862,10 +864,77 @@ final class CheckConsumerConfigTest extends GateTestCase
         self::assertSame([], array_diff(self::REQUIRED_ROOT_FLAGS, $gateFlags), 'the gate no longer requires a phpunit.xml attribute this suite proves');
         self::assertSame([], array_diff($gateFlags, self::REQUIRED_ROOT_FLAGS), 'the gate requires a phpunit.xml attribute this suite does not drive');
 
-        $canonXml = (string) file_get_contents(self::canon() . '/phpunit.xml');
+        self::assertCanonSetsEveryRequiredFlag((string) file_get_contents(self::canon() . '/phpunit.xml'));
+    }
 
-        foreach (self::REQUIRED_ROOT_FLAGS as $flag) {
-            self::assertStringContainsString("{$flag}=\"true\"", $canonXml, "the canon phpunit.xml does not set {$flag}=\"true\", so its cases modify nothing");
+    /**
+     * Compares the list of flags the canon does not set against an empty
+     * list, so the message can only ever name flags from the constant, never
+     * $canonXml: assertStringContainsString() would re-embed the whole
+     * PR-editable haystack, see the regression test below.
+     *
+     * @param string $canonXml The canon phpunit.xml's content.
+     *
+     * @return void
+     */
+    private static function assertCanonSetsEveryRequiredFlag(string $canonXml): void
+    {
+        $unset = array_values(array_filter(
+            self::REQUIRED_ROOT_FLAGS,
+            static fn (string $flag): bool => !str_contains($canonXml, "{$flag}=\"true\""),
+        ));
+
+        self::assertSame(
+            [],
+            $unset,
+            'the canon phpunit.xml does not set these flags to "true", so its cases modify nothing: ' . implode(', ', $unset),
+        );
+    }
+
+    /**
+     * The canon phpunit.xml is PR-editable content, so a failed flag check
+     * must not carry it into the failure message: a poisoned copy (a comment
+     * planted at the start of a line) would otherwise forge a workflow
+     * command in the run of whichever LATER PR first leaves the canon without a required flag.
+     * PHPUnit's string-containment constraint re-embeds the whole haystack
+     * into the exception message no matter what custom message accompanies it.
+     */
+    #[Test]
+    public function aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage(): void
+    {
+        $thrown = self::assertThrows(
+            static fn () => self::assertCanonSetsEveryRequiredFlag("<!--\n::error::forged\n##[error]forged\n-->"),
+            AssertionFailedError::class,
+            'assertCanonSetsEveryRequiredFlag() accepted XML that sets no required flag.',
+        );
+
+        if (str_contains($thrown->getMessage(), 'forged')) {
+            self::fail('The failed canon flag check still embeds the canon content in its message.');
+        }
+    }
+
+    /**
+     * A required flag set to "false" is not set: the check matches the flag
+     * together with its "true" value, not the bare attribute name, and reports
+     * the flag it found wrong.
+     */
+    #[Test]
+    public function aCanonThatSetsARequiredFlagToFalseIsRejectedByName(): void
+    {
+        $wrong = self::REQUIRED_ROOT_FLAGS[0];
+        $xml   = implode(' ', array_map(
+            static fn (string $flag): string => $flag . '="' . ($flag === $wrong ? 'false' : 'true') . '"',
+            self::REQUIRED_ROOT_FLAGS,
+        ));
+
+        $thrown = self::assertThrows(
+            static fn () => self::assertCanonSetsEveryRequiredFlag($xml),
+            AssertionFailedError::class,
+            'assertCanonSetsEveryRequiredFlag() accepted a canon that sets a required flag to false.',
+        );
+
+        if (!str_contains($thrown->getMessage(), $wrong)) {
+            self::fail("The rejection did not name the flag {$wrong}.");
         }
     }
 

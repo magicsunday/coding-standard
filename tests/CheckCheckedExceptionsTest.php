@@ -76,15 +76,15 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             'undocumentedThrow() throws checked exception',
-            $result->output,
-            "base.neon did not report the undocumented throw in undocumentedThrow().\n{$result->output}",
+            'base.neon did not report the undocumented throw in undocumentedThrow().',
         );
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             'missing from the PHPDoc @throws tag',
-            $result->output,
-            "the report did not carry the expected missing-@throws message.\n{$result->output}",
+            'the report did not carry the expected missing-@throws message.',
         );
     }
 
@@ -104,10 +104,10 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         // also a substring of "undocumentedThrow()" and would false-positive
         // against the previous test's own, expected finding.
         self::assertResultIsNotDegraded($result);
-        self::assertStringNotContainsString(
+        self::assertOutputDoesNotContain(
+            $result,
             '::documentedThrow()',
-            $result->output,
-            "the correctly documented throw in documentedThrow() was reported anyway.\n{$result->output}",
+            'the correctly documented throw in documentedThrow() was reported anyway.',
         );
     }
 
@@ -129,10 +129,10 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringNotContainsString(
+        self::assertOutputDoesNotContain(
+            $result,
             '::uncheckedProgrammerError()',
-            $result->output,
-            "the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway.\n{$result->output}",
+            'the unchecked InvalidArgumentException in uncheckedProgrammerError() was reported anyway.',
         );
     }
 
@@ -154,10 +154,10 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringNotContainsString(
+        self::assertOutputDoesNotContain(
+            $result,
             '::uncheckedByInheritanceOnly()',
-            $result->output,
-            "the exception in uncheckedByInheritanceOnly() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.\n{$result->output}",
+            'the exception in uncheckedByInheritanceOnly() was reported anyway — uncheckedExceptionClasses no longer covers it by inheritance.',
         );
     }
 
@@ -182,15 +182,15 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             'staleThrows() has',
-            $result->output,
-            "base.neon did not report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/base.neon's comment against the installed PHPStan version.\n{$result->output}",
+            "base.neon did not report the stale @throws in staleThrows() — tooWideThrowType may no longer default to true; re-verify phpstan/base.neon's comment against the installed PHPStan version.",
         );
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             "but it's not thrown",
-            $result->output,
-            "the report did not carry the expected stale-@throws message.\n{$result->output}",
+            'the report did not carry the expected stale-@throws message.',
         );
     }
 
@@ -209,16 +209,25 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
     {
         $result = self::baseResult();
 
+        $missingThrows = substr_count($result->output, 'missing from the PHPDoc @throws tag');
+        $staleThrows   = substr_count($result->output, "but it's not thrown");
+
         self::assertResultIsNotDegraded($result);
         self::assertSame(
             1,
-            substr_count($result->output, 'missing from the PHPDoc @throws tag'),
-            "expected exactly one missing-@throws report, the fixture and the config have drifted.\n{$result->output}",
+            $missingThrows,
+            self::diagnosticMessage(
+                'expected exactly one missing-@throws report, the fixture and the config have drifted.',
+                $result->output,
+            ),
         );
         self::assertSame(
             2,
-            substr_count($result->output, "but it's not thrown"),
-            "expected exactly two stale-@throws reports (staleThrows() and overriddenStaleThrows()), the fixture and the config have drifted.\n{$result->output}",
+            $staleThrows,
+            self::diagnosticMessage(
+                'expected exactly two stale-@throws reports (staleThrows() and overriddenStaleThrows()), the fixture and the config have drifted.',
+                $result->output,
+            ),
         );
     }
 
@@ -239,15 +248,15 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::baseResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             'overriddenStaleThrows() has',
-            $result->output,
-            "base.neon did not report the stale override in overriddenStaleThrows() — checkTooWideThrowTypesInProtectedAndPublicMethods may not be reaching overrides any more.\n{$result->output}",
+            'base.neon did not report the stale override in overriddenStaleThrows() — checkTooWideThrowTypesInProtectedAndPublicMethods may not be reaching overrides any more.',
         );
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             "but it's not thrown",
-            $result->output,
-            "the report did not carry the expected stale-@throws message.\n{$result->output}",
+            'the report did not carry the expected stale-@throws message.',
         );
     }
 
@@ -268,10 +277,10 @@ final class CheckCheckedExceptionsTest extends AbstractConsumerPhpstanGateTestCa
         $result = self::strictResult();
 
         self::assertResultIsNotDegraded($result);
-        self::assertStringContainsString(
+        self::assertOutputContains(
+            $result,
             'undocumentedThrow() throws checked exception',
-            $result->output,
-            "the strict tier did not report the undocumented throw in undocumentedThrow() — base.neon's checked-exceptions config may no longer be reaching consumers of the strict tier.\n{$result->output}",
+            "the strict tier did not report the undocumented throw in undocumentedThrow() — base.neon's checked-exceptions config may no longer be reaching consumers of the strict tier.",
         );
     }
 

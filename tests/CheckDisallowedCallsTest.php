@@ -85,7 +85,10 @@ final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
         self::assertSame(
             0,
             $result->exitCode,
-            "base.neon alone reports on the case-folding fixture, so a report in the positive run would not prove disallowed-calls.neon fired.\n{$result->output}",
+            self::diagnosticMessage(
+                'base.neon alone reports on the case-folding fixture, so a report in the positive run would not prove disallowed-calls.neon fired.',
+                $result->output,
+            ),
         );
     }
 
@@ -103,7 +106,10 @@ final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
         self::assertNotSame(
             0,
             $result->exitCode,
-            "the case-folding config reported nothing — it loads but does not fire.\n{$result->output}",
+            self::diagnosticMessage(
+                'the case-folding config reported nothing — it loads but does not fire.',
+                $result->output,
+            ),
         );
     }
 
@@ -139,10 +145,12 @@ final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
         self::assertSame(
             count($banned),
             $reported,
-            sprintf(
-                "%d report(s) for %d ban(s) — the fixture and the config have drifted.\n%s",
-                $reported,
-                count($banned),
+            self::diagnosticMessage(
+                sprintf(
+                    '%d report(s) for %d ban(s) — the fixture and the config have drifted.',
+                    $reported,
+                    count($banned),
+                ),
                 $result->output,
             ),
         );
@@ -165,7 +173,10 @@ final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
         self::assertNotSame(
             0,
             $result->exitCode,
-            "the strict tier reported nothing on the case-folding fixture, so the documented automatic inclusion does not hold.\n{$result->output}",
+            self::diagnosticMessage(
+                'the strict tier reported nothing on the case-folding fixture, so the documented automatic inclusion does not hold.',
+                $result->output,
+            ),
         );
     }
 
@@ -291,9 +302,9 @@ final class CheckDisallowedCallsTest extends AbstractConsumerPhpstanGateTestCase
     private static function assertResultReportsEveryBannedFunctionByName(GateResult $result, callable $failureMessage): void
     {
         foreach (self::bannedFunctions() as $function) {
-            self::assertStringContainsString(
+            self::assertOutputContains(
+                $result,
                 "Calling {$function}() is forbidden",
-                $result->output,
                 $failureMessage($function),
             );
         }
