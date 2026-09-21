@@ -15,8 +15,10 @@ use LogicException;
 use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\GateProcess;
 use MagicSunday\CodingStandard\Test\Support\GateResult;
+use MagicSunday\CodingStandard\Test\Support\ScrubbedDiagnostics;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
@@ -28,6 +30,7 @@ use function preg_match;
 use function preg_quote;
 use function str_contains;
 use function str_replace;
+use function str_starts_with;
 
 /**
  * Meta-tests proving GateTestCase's own five decisions are wired correctly —
@@ -44,6 +47,7 @@ use function str_replace;
  * @link    https://github.com/magicsunday/coding-standard/
  */
 #[CoversClass(GateTestCase::class)]
+#[CoversTrait(ScrubbedDiagnostics::class)]
 #[UsesClass(FixtureDirectory::class)]
 #[UsesClass(GateProcess::class)]
 #[UsesClass(GateResult::class)]
@@ -611,30 +615,28 @@ final class GateTestCaseTest extends GateTestCase
     // — anchored on "function", with the "n" bracket-split so this citation's
     // own copy of the command text does not also match)
     // only proves AN AssertionFailedError was thrown (expectException()),
-    // never what that exception's own message carries — reverting
-    // GateTestCase's own
-    // scrubbedForDiagnostic() wrap at any of its self::fail() call sites (or a
-    // regression back to assertStringNotContainsString()/
-    // assertDoesNotMatchRegularExpression(), which is exactly what those
-    // call sites replaced) would leave every one of them still green, because
-    // none of them ever inspects the caught exception's own message.
+    // never what that exception's own message carries — reverting the scrub
+    // wrap (ScrubbedDiagnostics::scrubbedForDiagnostic()) at any of the
+    // self::fail() call sites below (or a regression back to
+    // assertStringNotContainsString()/assertDoesNotMatchRegularExpression(),
+    // which is exactly what those call sites replaced) would leave every one
+    // of them still green, because none of them ever inspects the caught
+    // exception's own message.
     //
-    // Five independent self::fail() call sites reach $result->output/the
-    // report content this way — the ESC-byte check, the modern `::` check,
-    // the legacy `##[` check and the bare-CR check inside
-    // assertGateReportIsInert() itself, plus assertReportCarries()'s own
-    // must-carry check — and a single combined fixture carrying every forgery
-    // at once would only ever discriminate the FIRST one in that order (the
-    // ESC-byte check runs first and self::fail()s immediately), leaving the
-    // other four's own scrubbing completely unproven. re-derive via
-    // `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php` (anchored
-    // on the leading whitespace so it counts only real call sites, not this
-    // comment's own mentions of self::fail()) if this method's own
-    // check order ever changes — that command currently returns SIX matches
-    // for the whole file, not five: it also catches runAndAssertVerdict()'s
-    // own unrelated exit-code self::fail(), between assertGateReportIsInert()
-    // and assertReportCarries() in file order, so scope the count to the two
-    // methods this comment describes, not the file-wide grep result. Each
+    // The independent self::fail() call sites that reach $result->output/the
+    // report content are the ESC-byte, modern `::`, legacy `##[` and bare-CR
+    // checks inside assertGateReportIsInert(), and the must-carry check in
+    // ScrubbedDiagnostics::assertOutputContains(), which assertReportCarries()
+    // delegates to. A single combined fixture carrying every forgery at once
+    // would only ever discriminate the FIRST one in that order (the ESC-byte
+    // check runs first and self::fail()s immediately), leaving the others' own
+    // scrubbing completely unproven. Re-derive the sites with
+    // `grep -nE '^[[:space:]]*self::fail\(' tests/GateTestCase.php tests/Support/ScrubbedDiagnostics.php`
+    // (anchored on the leading whitespace so it counts only real call sites,
+    // not this comment's own mentions) if the check order ever changes, and read
+    // each hit instead of counting them: the hits in GateTestCase.php include
+    // runAndAssertVerdict()'s own unrelated exit-code self::fail(), and the
+    // trait's second one belongs to assertOutputDoesNotContain(). Each
     // test below therefore drives exactly ONE
     // branch in isolation, with a fixture carrying no earlier-checked forgery
     // that would short-circuit past it — via
@@ -648,9 +650,9 @@ final class GateTestCaseTest extends GateTestCase
      * the thrown AssertionFailedError, then check whether that exception's
      * OWN message still carries the forged sequence it was poisoned with.
      * $isForged and $redact are callables rather than a plain needle string
-     * because one call site (the modern `::` prefix) discriminates via a
-     * regex anchored to line start, not a plain str_contains() — every other
-     * call site's needle-based check fits the same two-callable shape; the
+     * because the modern `::` prefix is discriminated by a regex anchored to
+     * line start, not a plain str_contains() — every needle-based check fits
+     * the same two-callable shape; the
      * three legacy `##[` call sites share theirs via
      * legacyPrefixSurvivedInMessage()/redactLegacyPrefixInMessage() below
      * rather than repeating the pair inline.
@@ -661,7 +663,7 @@ final class GateTestCaseTest extends GateTestCase
      * @param callable(string): string $redact          Given that message, returns a safe-to-print, redacted copy for self::fail().
      * @param string                   $forgesMessage   The self::fail() prefix, used only when $isForged() reports true.
      *
-     * @return void
+     * @return string The caught exception's message, for a caller that pins more of it.
      */
     private function assertOwnFailureMessageDoesNotForgeWorkflowCommand(
         callable $invoke,
@@ -669,7 +671,7 @@ final class GateTestCaseTest extends GateTestCase
         callable $isForged,
         callable $redact,
         string $forgesMessage,
-    ): void {
+    ): string {
         $thrown = self::assertThrows(
             $invoke,
             AssertionFailedError::class,
@@ -681,6 +683,8 @@ final class GateTestCaseTest extends GateTestCase
         if ($isForged($message)) {
             self::fail("{$forgesMessage}\n" . $redact($message));
         }
+
+        return $message;
     }
 
     /**
@@ -745,8 +749,8 @@ final class GateTestCaseTest extends GateTestCase
                 $this->fixture()->path(),
             ),
             'assertGateReportIsInert() did not reject the `::`-forged fixture.',
-            static fn (string $message): bool => preg_match('/^[ \t]*::/m', $message) === 1,
-            static fn (string $message): string => str_replace('::', ':?:', $message),
+            self::forgedCommandSurvivedInMessage(...),
+            self::redactForgedCommandInMessage(...),
             "assertGateReportIsInert()'s own `::`-branch failure message still carries a `::` workflow command.",
         );
     }
@@ -790,8 +794,8 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
-     * Isolates assertReportCarries()'s OWN self::fail() call site — the fifth
-     * of the five this class's own docblock above enumerates, and the one
+     * Isolates the must-carry self::fail() call site (assertReportCarries()
+     * delegates it to ScrubbedDiagnostics::assertOutputContains()), the one
      * assertGateReportIsInert() cannot reach with a poisoned fixture at all,
      * because a report carrying `##[`/`::`/an ESC byte/a bare CR is always
      * caught by one of the four checks above it first. assertGateRejects()
@@ -813,6 +817,126 @@ final class GateTestCaseTest extends GateTestCase
             self::redactLegacyPrefixInMessage(...),
             "assertReportCarries()'s own failure message still carries a legacy `##[` workflow command.",
         );
+    }
+
+    /**
+     * The must-carry helper shared with the two PHPStan gate suites
+     * (AbstractConsumerPhpstanGateTestCase): its own failure message must not
+     * forge a workflow command out of a poisoned report either. The fixture
+     * carries BOTH forgery shapes, because the helper is a plain
+     * scrubbedForDiagnostic() consumer and either surviving would mean the
+     * scrub was dropped from its self::fail() call site.
+     */
+    #[Test]
+    public function assertOutputContainsFailsWithoutForgingAWorkflowCommandInItsOwnMessage(): void
+    {
+        $message = $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            static fn () => self::assertOutputContains(
+                self::forgedReport(),
+                'a substring the report never prints',
+                'the needle is missing.',
+            ),
+            'assertOutputContains() did not reject a report missing the needle.',
+            self::forgedCommandSurvivedInMessage(...),
+            self::redactForgedCommandInMessage(...),
+            "assertOutputContains()'s own failure message still carries a forged workflow command.",
+        );
+
+        self::assertMessageKeepsLabelAndScrubbedReport($message, 'the needle is missing.');
+    }
+
+    /**
+     * The must-NOT-carry direction of the same regression: the report here
+     * DOES carry the needle, so the helper fails, and that failure message
+     * embeds the very report that carried it.
+     */
+    #[Test]
+    public function assertOutputDoesNotContainFailsWithoutForgingAWorkflowCommandInItsOwnMessage(): void
+    {
+        $message = $this->assertOwnFailureMessageDoesNotForgeWorkflowCommand(
+            static fn () => self::assertOutputDoesNotContain(
+                self::forgedReport(),
+                'forged',
+                'the needle was reported anyway.',
+            ),
+            'assertOutputDoesNotContain() did not reject a report carrying the needle.',
+            self::forgedCommandSurvivedInMessage(...),
+            self::redactForgedCommandInMessage(...),
+            "assertOutputDoesNotContain()'s own failure message still carries a forged workflow command.",
+        );
+
+        self::assertMessageKeepsLabelAndScrubbedReport($message, 'the needle was reported anyway.');
+    }
+
+    /**
+     * Both directions accept the case they exist to accept. A helper that
+     * always fails would also break every real caller, but
+     * assertOutputDoesNotContain() is called only by the PHPStan suites, which
+     * self-skip in the plain PHPUnit step, so this is its accept path's only
+     * pin there.
+     */
+    #[Test]
+    public function theOutputContainmentHelpersAcceptTheirOwnDirection(): void
+    {
+        $report = new GateResult("Calling strtoupper() is forbidden\n", 1);
+
+        self::assertOutputContains($report, 'strtoupper()', 'unused');
+        self::assertOutputDoesNotContain($report, 'strtolower()', 'unused');
+    }
+
+    /**
+     * The two forgery tests only prove the forged prefixes are absent, which a
+     * message reduced to an empty string would satisfy too and so silently drop
+     * the report from the CI output; this pins that the label comes first and
+     * the scrubbed report follows.
+     *
+     * @param string $message The caught failure message.
+     * @param string $label   The label the failing helper call was given.
+     */
+    private static function assertMessageKeepsLabelAndScrubbedReport(string $message, string $label): void
+    {
+        if (!str_starts_with($message, $label)) {
+            self::fail("A failure message no longer starts with its label \"{$label}\".");
+        }
+
+        if (!str_contains($message, ':?:error:?:forged')) {
+            self::fail("The failure message for \"{$label}\" no longer carries the scrubbed report.");
+        }
+    }
+
+    /**
+     * @return GateResult A report carrying both workflow-command forgery shapes, each at the start of a line.
+     */
+    private static function forgedReport(): GateResult
+    {
+        return new GateResult("::error::forged\n##[error]forged\n", 1);
+    }
+
+    /**
+     * The $isForged check for the two assertOutput*() failure-message tests
+     * above: either forgery shape, the modern `::` prefix only where it opens
+     * a line (the position a workflow command needs) or the legacy `##[`.
+     *
+     * @param string $message The caught exception's message.
+     *
+     * @return bool Whether a workflow-command prefix survived.
+     */
+    private static function forgedCommandSurvivedInMessage(string $message): bool
+    {
+        return self::legacyPrefixSurvivedInMessage($message)
+            || (preg_match('/^[ \t]*::/m', $message) === 1);
+    }
+
+    /**
+     * The matching redaction for forgedCommandSurvivedInMessage() above.
+     *
+     * @param string $message The message to redact before self::fail() prints it.
+     *
+     * @return string The message with both prefix shapes broken.
+     */
+    private static function redactForgedCommandInMessage(string $message): string
+    {
+        return str_replace('::', ':?:', self::redactLegacyPrefixInMessage($message));
     }
 
     /**

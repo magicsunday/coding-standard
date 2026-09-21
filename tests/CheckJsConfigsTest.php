@@ -62,7 +62,7 @@ use const JSON_THROW_ON_ERROR;
 
 // scrubReportControlBytes() — the control-byte-strip + legacy-`##[`-break core
 // bin/support/safe-report-value.php's own safeReportValue() applies to a shipped
-// gate's own report line, and GateTestCase::scrubbedForDiagnostic() (inherited by
+// gate's own report line, and ScrubbedDiagnostics::scrubbedForDiagnostic() (inherited by
 // this class, which extends GateTestCase — see that method's own docblock for why
 // the `::` step lives there rather than inside this shared core) shares for the
 // same reason. Required here directly for
@@ -123,7 +123,7 @@ require_once __DIR__ . '/../bin/support/safe-report-value.php';
  *     to console output —
  *     buildToolsFromDevDependenciesThrowsWithoutForgingAWorkflowCommand()'s
  *     own docblock further down points back to this observation rather
- *     than repeating it. See GateTestCase::scrubbedForDiagnostic()'s
+ *     than repeating it. See ScrubbedDiagnostics::scrubbedForDiagnostic()'s
  *     (inherited by this class) call sites in packagedConsumer() and
  *     buildToolsFromDevDependencies() below, which scrub subprocess error
  *     output for exactly that reason.
@@ -531,7 +531,7 @@ JS;
      * either constraint would forge the very annotation each caller exists
      * to prove is prevented. self::fail() takes a literal string with no
      * such re-embedding, so $haystack is scrubbed through
-     * GateTestCase::scrubbedForDiagnostic() (inherited by this class) before it is
+     * ScrubbedDiagnostics::scrubbedForDiagnostic() (inherited by this class) before it is
      * handed to self::fail().
      *
      * @param string $haystack     The value to check, which may itself legitimately carry the poison.
@@ -986,7 +986,7 @@ TS),
      * `]`) would reach this class's own uncaught RuntimeException message,
      * which reaches console output the same verbatim way this class's own
      * docblock above dates (2026-09-05) — the exact channel a runner scans
-     * unanchored for that prefix. GateTestCase::scrubbedForDiagnostic() (inherited
+     * unanchored for that prefix. ScrubbedDiagnostics::scrubbedForDiagnostic() (inherited
      * by this class) must break it before it gets there.
      *
      * The first check below (that the entry was merely broken, not dropped
@@ -999,8 +999,8 @@ TS),
      * failureDescription() re-embedding mechanism, not repeated here. The
      * second check delegates to that same helper directly. Every other
      * mention of the failureDescription()/getMessage() mechanism in this
-     * file (and in tests/GateTestCase.php and
-     * tests/CheckJsConfigsManifestTest.php) points back to
+     * file (and in tests/GateTestCase.php, tests/Support/ScrubbedDiagnostics.php
+     * and tests/CheckJsConfigsManifestTest.php) points back to
      * assertMessageDoesNotForgeWorkflowCommand()'s own docblock rather than
      * repeating it, and every mention of the DIFFERENT
      * ComparisonFailure/IsIdentical mechanism points back to
@@ -1348,7 +1348,7 @@ TS),
      * — a field any PR can edit — and reaches this method's own failure
      * message on a genuine absence (an entry declared but not shipped,
      * whether a real packaging mistake or a deliberately forged one), so it
-     * must be scrubbed through GateTestCase::scrubbedForDiagnostic() (inherited
+     * must be scrubbed through ScrubbedDiagnostics::scrubbedForDiagnostic() (inherited
      * by this class) before landing there, the same way every other
      * PR-editable-content diagnostic in this file already is.
      *
@@ -2576,16 +2576,14 @@ JS;
      * narrowed to `[\x01-\x1F\x7F]` (dropping NUL) would still pass unchanged
      * without it — not because this function's own docblock singles NUL out
      * as the reason it exists (it groups every C0/DEL byte together instead),
-     * and this file's own established vocabulary elsewhere
-     * (GateTestCase::scrubbedForDiagnostic()'s own docblock, "at true column 0 of
-     * a new line") attributes "reach column 0" to an embedded NEWLINE, not NUL
-     * specifically. Measured directly against the installed PHP (2026-09-05):
+     * and bin/support/safe-report-value.php's own wording ("reach column 0")
+     * is about an embedded NEWLINE, not NUL specifically. Measured directly against the installed PHP (2026-09-05):
      * `scrubReportControlBytes("a\x00b\x1fc\x7fd")` produces `"a?b?c?d"` —
      * \x00 (NUL), \x1f (a C0 control byte) and \x7f (DEL) each replaced by a
      * literal `?`, the ordinary ASCII bytes either side left untouched.
      * Calls the shared bin/support/safe-report-value.php function directly
      * (required near the top of this file), not the inherited
-     * GateTestCase::scrubbedForDiagnostic() wrapper, since the property under
+     * ScrubbedDiagnostics::scrubbedForDiagnostic() wrapper, since the property under
      * test belongs to the shared core.
      */
     #[Test]
@@ -2595,7 +2593,7 @@ JS;
     }
 
     /**
-     * GateTestCase::scrubbedForDiagnostic()'s own `::`-breaking step, direct and
+     * ScrubbedDiagnostics::scrubbedForDiagnostic()'s own `::`-breaking step, direct and
      * independent of any real subprocess invocation — the three forgery-regression
      * tests above only ever poison the LEGACY `##[` prefix, so a missing or
      * reverted `str_replace('::', ':?:', ...)` step could ship silently, unnoticed
