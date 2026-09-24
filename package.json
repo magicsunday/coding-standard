@@ -40,8 +40,8 @@
         "ci:test:js": "node --test tests/*.test.mjs"
     },
     "devDependencies": {
-        "@biomejs/biome": "2.5.13",
-        "jscpd": "5.2.0",
+        "@biomejs/biome": "2.5.14",
+        "jscpd": "5.2.1",
         "typescript": "7.0.2"
     },
     "peerDependencies": {
