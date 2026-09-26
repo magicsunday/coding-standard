@@ -45,9 +45,9 @@ final readonly class GateResult
      * whitespace (NBSP, the U+2000 block, U+3000). Whether the bash
      * original's `grep` recognises those bytes depends on the invocation's
      * locale and implementation and is not settled here; tests/harness.sh
-     * (~lines 479-495) documents this as a known, deliberately-left-open gap
-     * in its analogous `::` workflow-command check, including why closing it
-     * isn't simple. Re-derive for your own actual invocation rather than
+     * (removed in #71; its final revision is in git history, ~lines 479-495)
+     * documented this as a known, deliberately-left-open gap in its analogous
+     * `::` workflow-command check, including why closing it isn't simple. Re-derive for your own actual invocation rather than
      * trust a specific verdict:
      *
      *     printf '\xe2\x80\x80at x\n' | grep -qE '^[[:space:]]+at ' && echo MATCH || echo NO-MATCH
