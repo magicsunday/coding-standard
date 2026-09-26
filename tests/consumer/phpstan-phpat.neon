@@ -1,0 +1,23 @@
+# CI fixture: includes the opt-in phpat preset exactly as a consumer does, next to
+# base.neon. Scoped to the `phpat/` fixture directory, which holds one rule class and
+# a final/non-final pair of leaf classes. This run is EXPECTED TO FAIL —
+# `tests/CheckPhpatPresetTest.php` asserts that it reports the non-final leaf (and
+# only that one), proving the preset loads phpat from an installed vendor layout and
+# that a registered rule actually fires.
+includes:
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/phpat.neon
+
+parameters:
+    phpVersion:
+        min: 80300
+        max: 80500
+
+    paths:
+        - phpat
+
+services:
+    -
+        class: MagicSunday\CodingStandard\Fixture\Phpat\PhpatFixtureRules
+        tags:
+            - phpat.test

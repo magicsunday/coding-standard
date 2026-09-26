@@ -19,9 +19,9 @@ php-cs-fixer, PHPStan and its rule packs, Rector, phplint **and PHPUnit**
 (`^12.0 || ^13.0`). A consumer on the **base** tier therefore declares nothing
 else in `require-dev`; the runner and every analysis tool are version-pinned
 here, in one place, and bumped once for all repositories. The opt-in strict
-PHPStan tier (`phpstan/strict.neon`) and Infection are the exception — they need
-the extra packages listed under `suggest`, added directly by the repositories
-that adopt them.
+PHPStan tier (`phpstan/strict.neon`), the opt-in phpat preset (`phpstan/phpat.neon`)
+and Infection are the exception — they need the extra packages listed under
+`suggest`, added directly by the repositories that adopt them.
 
 For the JS/TS configs, add a GitHub git dependency (no npm-registry account needed —
 the same mechanism `webtrees-chart-lib` uses):
@@ -113,7 +113,7 @@ The directory a file lives in states how it is meant to be consumed:
 | Location | Kind | How a consumer uses it |
 |---|---|---|
 | `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
-| `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root |
+| `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root; the phpat rule class is copied because it carries the consumer's own namespace and rules |
 | repository root | **this package's own dev config** | `.phplint.yml`, `phpstan.neon` (`composer ci:test:php:analyse` — level 6 plus `phpstan/disallowed-function-calls.neon`'s case-folding bans over the PHP files under `bin/` and `tests/`), `.php-cs-fixer.dist.php` (`composer ci:test:php:cgl` — the shared `php-cs-fixer/base.php` ruleset over `bin/`, `tests/` excluding `tests/consumer`, and `php-cs-fixer/` itself, GH-83), `.github/`, `tests/`, `phpunit.xml.dist` (`composer ci:test:phpunit`, GH-77) — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
 
 Every include path below is written as `.build/vendor/…`, the house layout: the
@@ -636,14 +636,78 @@ layer (the framework, webtrees core) are reported as "uncovered" but do not fail
 the run; `--fail-on-uncovered` is left off because every external dependency is
 uncovered.
 
-This supersedes the older per-repo phpat layer rules. phpat and its
-subject-liveness guard have been removed from this package; a consumer still
-carrying phpat rules migrates the layer-dependency ones to Deptrac and re-homes
-the `Abstract*`/`final` structural rules itself — as a PHPStan rule, or a PHPUnit
-test **outside** `tests/Architecture/`, which the shipped `phpunit.xml.dist`
-template excludes from the suite unconditionally. Deptrac cannot express either
-structural rule itself: its collectors model `classLike`/`class`/`interface`/
-`trait` and have no notion of a class modifier.
+This supersedes the older per-repo phpat layer rules: layer dependencies are
+Deptrac's job. phpat stays available for what Deptrac cannot express — see the
+next section.
+
+### phpat — opt-in preset — `phpstan/phpat.neon`
+
+**Deptrac first, phpat only where Deptrac cannot.** Deptrac models "who may depend
+on whom" and nothing else, so two kinds of rule are out of its reach:
+
+- **Structural invariants** on a class — "every class in X is `final`", "every
+  abstract class is named `Abstract*`", "every DTO implements `JsonSerializable`".
+  These are class properties, not dependencies: Deptrac's collectors model
+  `classLike`/`class`/`interface`/`trait` and have no notion of a modifier or a
+  name, and a ruleset can forbid a dependency but never require one.
+- **Sub-layer boundaries** — "only `Repository\` and `Support\Database\` may use
+  the database manager". Deptrac checks a class against **every** layer it belongs
+  to, so one sub-namespace of the shared `Support` layer cannot be granted an edge
+  the rest of `Support` is denied: a `Support\Database` layer of its own puts its
+  classes in both layers (verified against deptrac 4.7.2 and the shared ruleset:
+  229 violations), and allowing the edge for all of `Support` stops rejecting e.g.
+  `Support\Gedcom` touching the database.
+
+phpat covers both, as PHPStan rules. It is **not** delivered by this package's
+`require` — only listed under `suggest` — so a repository with no such rule never
+installs it. A repository that has one requires phpat itself and includes the
+preset next to the base:
+
+```shell
+composer require --dev phpat/phpat
+```
+
+```neon
+# phpstan.neon
+includes:
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+    - .build/vendor/magicsunday/coding-standard/phpstan/phpat.neon
+
+services:
+    -
+        class: Vendor\Package\Test\Architecture\ArchitectureTest
+        tags:
+            - phpat.test
+```
+
+The preset loads phpat's extension by a path relative to itself — like `base.neon`'s
+rule packs, and for the same reason: it stays valid in Rector's `phpstanConfig`
+context, which `phpstan/extension-installer` does not reach — and turns on
+`phpat.show_rule_names`, so every finding names the rule that fired.
+`templates/ArchitectureTest.php` is the starting point for the rule class: the two
+house-wide structural rules (`Abstract*` naming, final leaf classes) plus a
+commented sub-layer-boundary example. Keep it under `tests/Architecture/`, which the
+shipped `phpunit.xml.dist` excludes from the PHPUnit suite — a phpat rule class is
+not a PHPUnit test.
+
+Two rules for what goes into it:
+
+- **Every rule carries a comment naming why Deptrac does not fit** — structural
+  invariant or sub-layer boundary. A plain layer-dependency rule written in phpat
+  is the drift this split exists to prevent; it belongs in `deptrac.yaml`.
+- **Prove each new subject once against a deliberate violation.** A rule whose
+  subject matches nothing enforces nothing while PHPStan stays green — a
+  `Selector::inNamespace()` on a namespace holding only traits is the known case,
+  since phpat resolves subjects through PHPStan's `InClassNode`, which never fires
+  for a trait. The subject-liveness guard that used to catch this
+  (`bin/check-phpat-subjects.php`) was removed with phpat in 2.0.0; bringing it
+  back is tracked in #184.
+
+`composer ci:test:phpat-preset` (`tests/CheckPhpatPresetTest.php`) proves the preset
+against the installed CI fixture: a registered rule reports a non-final class under
+its rule name, stays quiet on its final sibling and reports nothing else, and the
+same rule class registered against `base.neon` alone reports nothing — phpat is
+loaded by the preset only.
 
 ## Templates (copy-and-adapt)
 
@@ -660,6 +724,7 @@ from drifting from this package.
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
+| `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: `Abstract*` naming + final leaves, and a sub-layer-boundary example; see the phpat section above |
 
 ### Lockstep gate — `bin/check-consumer-config.php`
 

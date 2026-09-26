@@ -313,6 +313,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             "{$root}/tests/CheckJsConfigsManifestTest.php",
             "{$root}/tests/CheckCheckedExceptionsTest.php",
             "{$root}/tests/CheckDisallowedCallsTest.php",
+            "{$root}/tests/CheckPhpatPresetTest.php",
             "{$root}/tests/CheckReleaseTagLockstepTest.php",
             "{$root}/tests/CheckPhpCsFixerTest.php",
             "{$root}/tests/Support/ScrubbedDiagnostics.php",

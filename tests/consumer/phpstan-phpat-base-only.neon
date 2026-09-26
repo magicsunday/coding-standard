@@ -1,0 +1,22 @@
+# CI fixture: the CONTRAST run for phpstan-phpat.neon. Registers the same phpat rule
+# class against the same `phpat/` fixture, but includes base.neon WITHOUT the opt-in
+# preset. `tests/CheckPhpatPresetTest.php` asserts this run reports no phpat finding,
+# proving phpat is loaded only by the preset and has not crept back into base.neon
+# (GH-45 removed it from there). The registration is what makes that assertion
+# discriminate: without it, no rule would run whether base.neon loaded phpat or not.
+includes:
+    - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+
+parameters:
+    phpVersion:
+        min: 80300
+        max: 80500
+
+    paths:
+        - phpat
+
+services:
+    -
+        class: MagicSunday\CodingStandard\Fixture\Phpat\PhpatFixtureRules
+        tags:
+            - phpat.test

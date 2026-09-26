@@ -40,6 +40,7 @@
         "shipmonk/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^4.0",
         "symplify/phpstan-rules": "Required for the opt-in strict PHPStan tier (phpstan/strict.neon): ^14.7",
         "spaze/phpstan-disallowed-calls": "Required for the case-folding bans in phpstan/disallowed-calls.neon, included by the strict tier: ^4.13",
+        "phpat/phpat": "Required for the opt-in phpat preset (phpstan/phpat.neon) — only for rules Deptrac cannot express (structural invariants, sub-layer boundaries): ^0.12.4",
         "infection/infection": "Mutation testing driven by templates/infection.json5: ^0.34",
         "roave/backward-compatibility-check": "Public-API break detection for a library consumer: ^8.21. Install it via its OWN tools/backward-compatibility/composer.json, never into the root manifest — it requires php ~8.4.0 || ~8.5.0 and would make the root lock uninstallable on an 8.3 matrix leg (see the README)"
     },
@@ -73,6 +74,7 @@
         "ci:test:release-tag": "@php tests/check-release-tag-lockstep.php",
         "ci:test:disallowed-calls": "phpunit --filter CheckDisallowedCallsTest --fail-on-skipped --fail-on-empty-test-suite",
         "ci:test:checked-exceptions": "phpunit --filter CheckCheckedExceptionsTest --fail-on-skipped --fail-on-empty-test-suite",
+        "ci:test:phpat-preset": "phpunit --filter CheckPhpatPresetTest --fail-on-skipped --fail-on-empty-test-suite",
         "ci:test:phpunit": "phpunit"
     },
     "scripts-descriptions": {
@@ -86,6 +88,7 @@
         "ci:test:release-tag": "Assert the tag package.json's version names actually resolves on the remote and, if it does, that it is an ancestor of HEAD — i.e. that this branch's own history actually contains it — the two failure shapes ci:test:version cannot see, since it only ever compares two copies inside this repository. Runs on push to main (see .github/workflows/ci.yml) and on every tag push (see .github/workflows/release-tag-lockstep.yml), never on the release PR; no matching tag yet is not a violation.",
         "ci:test:disallowed-calls": "Re-runs CheckDisallowedCallsTest, which self-skips under the plain ci:test:phpunit step above (that step runs before tests/consumer is installed): proves the case-folding config loads from an installed vendor layout and reports all five banned functions, both on its own and through the strict tier. Positioned after the Consumer smoke install step in .github/workflows/ci.yml for that reason; --fail-on-skipped turns a still-skipped run at THIS position (a drifted phpstan binary path, a broken consumer install) into a hard failure instead of a silent pass, unlike the earlier step where a skip is the expected outcome; --fail-on-empty-test-suite is the same belt-and-suspenders guarantee against a --filter typo or a class rename matching nothing, on top of the installed PHPUnit's own default 'No tests executed!' exit(1) for that case.",
         "ci:test:checked-exceptions": "Re-runs CheckCheckedExceptionsTest, same self-skip/positioning shape as ci:test:disallowed-calls above: proves phpstan/base.neon's checked-exceptions config (GH-139, promoted from strict.neon by GH-144) fires on an undocumented @throws, stays quiet on a correctly documented one, stays quiet on a plain unchecked programmer-error exception (outside checkedExceptionRegexes entirely), separately stays quiet on a checked-namespace exception exempted only by LogicException inheritance (uncheckedExceptionClasses), and reports a stale @throws both unconditionally (a final class) and only through checkTooWideThrowTypesInProtectedAndPublicMethods (a non-final class's override) — through base.neon as a consumer installs it, not a hand-rebuilt config, plus one assertion that the strict tier still inherits the check.",
+        "ci:test:phpat-preset": "Re-runs CheckPhpatPresetTest, same self-skip/positioning shape as ci:test:checked-exceptions above: proves the opt-in phpat preset phpstan/phpat.neon (GH-183) loads phpat from an installed vendor layout next to base.neon, reports a non-final class under its rule name (phpat.show_rule_names), stays quiet on the final sibling and reports nothing else, and — through the same rule class registered against base.neon alone — that phpat is loaded only by the preset, never by base.neon.",
         "ci:test:phpunit": "Runs this repository's own PHPUnit suite (tests/Support, GateTestCase's meta-tests, and every fixture-driven gate self-test, all migrated off the former tests/*.sh bash harnesses, #71)."
     }
 }
