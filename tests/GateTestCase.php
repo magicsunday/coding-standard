@@ -473,6 +473,32 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
+     * Builds a plain-text document of EXACTLY $bound bytes: $prefix and
+     * $suffix are kept byte-for-byte, and the gap between them is filled
+     * with $filler repeated enough times to land the whole document on the
+     * cap. Ported from tests/harness.sh's harness_pad_text_to_cap(); shared
+     * here, the same way padJsonToCap() above was, once a second caller
+     * (CheckGitattributesLockstepTest, #71) needed it — until then it lived
+     * as a private copy in tests/CheckVersionLockstepTest.php (#80).
+     *
+     * @param int    $bound  The exact byte length the returned document must have.
+     * @param string $prefix Content kept byte-for-byte at the start.
+     * @param string $filler A single filler character, repeated to fill the gap.
+     * @param string $suffix Content kept byte-for-byte at the end.
+     *
+     * @return string The padded document, exactly $bound bytes.
+     */
+    protected static function padTextToCap(int $bound, string $prefix, string $filler, string $suffix): string
+    {
+        $pad = $bound - strlen($prefix) - strlen($suffix);
+        $out = $prefix . str_repeat($filler, $pad) . $suffix;
+
+        self::assertSame($bound, strlen($out), sprintf('fixture is %d bytes, not the cap of %d', strlen($out), $bound));
+
+        return $out;
+    }
+
+    /**
      * @return string Absolute path to the repository root.
      */
     protected static function root(): string

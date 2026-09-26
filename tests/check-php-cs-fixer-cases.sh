@@ -29,7 +29,8 @@
 
 set -euo pipefail
 
-# CDPATH= — see check-gitattributes-lockstep-cases.sh's identical guard.
+# CDPATH= because the target starts with neither /, ./ nor ../ and would
+# otherwise be searched in CDPATH, resolving to a foreign tree.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 
