@@ -739,15 +739,17 @@ in `src/`. phpat finds a rule method two ways, a `#[TestRule]` attribute (under 
 import alias or casing) or a public method named `test*`, and the guard recognises
 both; a non-public method is a rule under neither.
 
-- `Selector::inNamespace(NS)` needs a non-trait, non-interface, non-enum class in `NS`
-  — a trait-only or empty namespace reds (the manifested bug);
-- `Selector::classname(FQCN)` needs that class to exist — a renamed, moved or
-  mistyped target reds;
+- `Selector::inNamespace(NS)` needs a class, interface or enum in `NS` — a trait-only
+  or empty namespace reds (the manifested bug: PHPStan visits a trait through
+  `InTraitNode`, never the `InClassNode` phpat reads);
+- `Selector::classname(FQCN)` needs that class, interface or enum to exist — a
+  renamed, moved, mistyped or trait target reds;
 - `Selector::isAbstract()` is a conditional naming guard that legitimately matches
   nothing until an abstract class is added, so it is not liveness-checked.
 
 The argument must be a single-quoted literal or `self::NAMESPACE_ROOT` (a
-single-quoted class constant), optionally followed by one `. '\Sub'` literal. It is a
+single-quoted class constant), optionally followed by one `. '\Sub'` literal, and `->classes()` takes exactly one
+selector — phpat accepts several, but the guard reads one. It is a
 **static** check — it does not run PHPStan — and it **fails closed**: any other
 selector, any other argument shape and a rule method with no recognisable subject red
 the run rather than pass unexamined. Exit 0 means every checked subject is live (or

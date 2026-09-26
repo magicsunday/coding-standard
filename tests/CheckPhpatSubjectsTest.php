@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
 use function copy;
+use function rename;
 use function str_repeat;
 
 /**
@@ -148,6 +149,76 @@ final class CheckPhpatSubjectsTest extends AbstractPhpatSubjectsTestCase
         self::writeArchTest($dir, self::methods(self::MODEL_RULE, self::CONFIG_RULE));
 
         $this->assertGateRejects(self::gate(), $dir, 'classname(Vendor\Mod\Configuration)');
+    }
+
+    /**
+     * An interface is a live subject: PHPStan emits InClassNode for it, so phpat
+     * enforces an inNamespace() rule on an interface-only namespace.
+     */
+    #[Test]
+    public function acceptsAnInNamespaceSubjectOnAnInterfaceOnlyNamespace(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Model/NodeInterface.php', 'Vendor\Mod\Model', 'interface', 'NodeInterface');
+        self::writeClass($dir, 'Configuration.php', 'Vendor\Mod', 'final class', 'Configuration');
+        self::writeArchTest($dir, self::methods(self::MODEL_RULE, self::CONFIG_RULE));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * An enum is a live subject too — InClassNode fires for it as for a class.
+     */
+    #[Test]
+    public function acceptsAnInNamespaceSubjectOnAnEnumOnlyNamespace(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Model/NodeKind.php', 'Vendor\Mod\Model', 'enum', 'NodeKind');
+        self::writeClass($dir, 'Configuration.php', 'Vendor\Mod', 'final class', 'Configuration');
+        self::writeArchTest($dir, self::methods(self::MODEL_RULE, self::CONFIG_RULE));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * classname() on an interface names a live subject; only a trait is vacuous.
+     */
+    #[Test]
+    public function acceptsAClassnameSubjectOnAnInterface(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Model/Node.php', 'Vendor\Mod\Model', 'final class', 'Node');
+        self::writeClass($dir, 'Configuration.php', 'Vendor\Mod', 'interface', 'Configuration');
+        self::writeArchTest($dir, self::methods(self::MODEL_RULE, self::CONFIG_RULE));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * phpat's classes() is variadic. A live first selector must not carry an
+     * unchecked, trait-only second one through, so a multi-selector call fails
+     * closed rather than being read as its first argument alone.
+     */
+    #[Test]
+    public function rejectsAMultiSelectorClassesCall(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Model/Node.php', 'Vendor\Mod\Model', 'final class', 'Node');
+        self::writeClass($dir, 'Traits/ModuleTrait.php', 'Vendor\Mod\Traits', 'trait', 'ModuleTrait');
+        self::writeClass($dir, 'Configuration.php', 'Vendor\Mod', 'final class', 'Configuration');
+        self::writeArchTest($dir, self::methods(<<<'RULE'
+                #[TestRule]
+                public function modelAndTraitsAreLeaves(): Rule
+                {
+                    return PHPat::rule()
+                        ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\Model'), Selector::inNamespace(self::NAMESPACE_ROOT . '\Traits'))
+                        ->shouldNot()->dependOn()
+                        ->classes(Selector::classname(self::NAMESPACE_ROOT . '\Configuration'))
+                        ->because('Model and Traits are leaves.');
+                }
+            RULE, self::CONFIG_RULE));
+
+        $this->assertGateRejects(self::gate(), $dir, 'modelAndTraitsAreLeaves: could not identify a subject selector');
     }
 
     /**
@@ -448,6 +519,26 @@ final class CheckPhpatSubjectsTest extends AbstractPhpatSubjectsTestCase
         self::writeClass($dir, 'Model/Node.php', 'Vendor\Mod\Model', 'final class', 'Node');
 
         $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * The second conventional location: tests/ArchitectureTest.php is read when
+     * tests/Architecture/ArchitectureTest.php is absent. A vacuous rule there must
+     * red the run — the skip for "no ArchitectureTest found" would hide it.
+     */
+    #[Test]
+    public function rejectsAVacuousRuleInTheFlatArchitectureTestLocation(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Traits/ModuleTrait.php', 'Vendor\Mod\Traits', 'trait', 'ModuleTrait');
+        self::writeClass($dir, 'Configuration.php', 'Vendor\Mod', 'final class', 'Configuration');
+        self::writeArchTest($dir, self::methods(self::MODEL_RULE_ON_TRAITS, self::CONFIG_RULE));
+        self::assertTrue(
+            rename(self::archTestPath($dir), "{$dir}/tests/ArchitectureTest.php"),
+            'Could not move the ArchitectureTest to the flat location.',
+        );
+
+        $this->assertGateRejects(self::gate(), $dir, 'inNamespace(Vendor\Mod\Traits) matches no class');
     }
 
     /**

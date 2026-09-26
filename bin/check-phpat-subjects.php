@@ -31,11 +31,12 @@ declare(strict_types=1);
  * to this gate, which tokenises `ArchitectureTest.php` alone. Pre-existing for the
  * attribute path; carried over unchanged for the name-based one, not a new gap this
  * adds:
- *   - `Selector::inNamespace(NS)`  → at least one non-trait, non-interface, non-enum
- *                                     class exists in NS (a trait-only namespace, the
- *                                     manifested bug, fails here);
- *   - `Selector::classname(FQCN)`  → that class exists (a renamed or mistyped target
- *                                     fails here);
+ *   - `Selector::inNamespace(NS)`  → at least one class, interface or enum exists in
+ *                                     NS (a trait-only namespace, the manifested bug,
+ *                                     fails here: PHPStan visits a trait through
+ *                                     InTraitNode, never the InClassNode phpat reads);
+ *   - `Selector::classname(FQCN)`  → that class, interface or enum exists (a renamed,
+ *                                     mistyped or trait target fails here);
  *   - `Selector::isAbstract()`     → NOT liveness-checked: it is a conditional naming
  *                                     guard that legitimately matches nothing until an
  *                                     abstract class is added, so an empty match is
@@ -548,18 +549,32 @@ foreach ($directory as $file) {
 }
 
 /**
- * Reports whether at least one concrete or abstract CLASS (not a trait, interface or
- * enum) lives in the given namespace or a sub-namespace of it — the condition phpat's
+ * Whether a declaration of this kind can be a phpat subject. PHPStan emits the
+ * `InClassNode` phpat resolves subjects through for every class-like declaration
+ * EXCEPT a trait, which it visits through `InTraitNode` instead — so a class
+ * (concrete or abstract), an interface and an enum are all live, a trait never is.
+ * Measured against phpat 0.12 in tests/consumer: an interface-only and an enum-only
+ * namespace subject each reported their forbidden dependency.
+ *
+ * @param string|null $kind The inventory kind, or null for an absent declaration.
+ *
+ * @return bool True when phpat can match a declaration of this kind.
+ */
+$isLiveKind = static fn (?string $kind): bool => ($kind !== null) && ($kind !== 'trait');
+
+/**
+ * Reports whether at least one live declaration (see $isLiveKind: anything but a
+ * trait) lives in the given namespace or a sub-namespace of it — the condition phpat's
  * `InClassNode` needs for an `inNamespace` subject to match anything.
  *
  * @param array<string, string> $inventory FQCN to declaration kind, as built above.
  * @param string                $namespace The namespace the subject names.
  *
- * @return bool True when at least one class lives there.
+ * @return bool True when at least one live declaration lives there.
  */
-$namespaceHasClass = static function (array $inventory, string $namespace): bool {
+$namespaceHasClass = static function (array $inventory, string $namespace) use ($isLiveKind): bool {
     foreach ($inventory as $fqcn => $kind) {
-        if (($kind !== 'class') && ($kind !== 'abstract-class')) {
+        if (!$isLiveKind($kind)) {
             continue;
         }
 
@@ -1352,7 +1367,11 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     $stop = preg_match('/->should(?:Not)?\s*\(/', $methodBody, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($methodBody);
     $head = substr($methodBody, 0, $stop);
 
-    if (preg_match('/->classes\s*\(\s*Selector::(\w+)\s*\(([^)]*)\)/', $head, $subj) !== 1) {
+    // Anchored on the `)` that closes `->classes(` itself: phpat's classes() is
+    // variadic, and a second selector argument would otherwise go unchecked — a live
+    // first subject would carry a trait-only second one through. A multi-selector
+    // call therefore fails closed here, like every other shape this gate cannot read.
+    if (preg_match('/->classes\s*\(\s*Selector::(\w+)\s*\(([^)]*)\)\s*\)/', $head, $subj) !== 1) {
         $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', safeReportValue($ruleName));
 
         continue;
@@ -1415,7 +1434,7 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     if ($selector === 'classname') {
         $kind = $inventory[$resolved] ?? null;
 
-        if (!$inventoryIncomplete && ($kind !== 'class') && ($kind !== 'abstract-class')) {
+        if (!$inventoryIncomplete && !$isLiveKind($kind)) {
             $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', safeReportValue($ruleName), safeReportValue($resolved));
         }
 

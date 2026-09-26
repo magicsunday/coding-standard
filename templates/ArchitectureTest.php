@@ -51,7 +51,8 @@ use PHPat\Test\PHPat;
  * see the README. It reads each subject statically, so keep it to
  * Selector::inNamespace(), Selector::classname() or Selector::isAbstract() with a
  * single-quoted literal argument (or a single-quoted `NAMESPACE_ROOT` class
- * constant plus one `. '\Sub'` literal); any other shape fails closed.
+ * constant plus one `. '\Sub'` literal), one selector per ->classes() call; any
+ * other shape fails closed.
  *
  * @internal
  */

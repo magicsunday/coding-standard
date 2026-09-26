@@ -62,6 +62,10 @@ use const FILE_APPEND;
  * GateTestCase's own meta-suite proves its decisions generically, and a
  * failed PHPUnit decision throws rather than bumping a counter.
  *
+ * POSIX only, like the CI that runs it (ubuntu-latest): gateFromInside() goes
+ * through `sh`, the mode-000 read cases rely on chmod() denying reads, and the
+ * poisoned-name fixtures carry bytes NTFS refuses in a file name.
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
  * @link    https://github.com/magicsunday/coding-standard/
