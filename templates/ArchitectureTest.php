@@ -46,7 +46,12 @@ use PHPat\Test\PHPat;
  * The two structural rules below (Abstract* naming, final leaves) are house-wide
  * and generic — keep them. A subject that matches no class enforces nothing while
  * PHPStan stays green (e.g. a namespace holding only traits: phpat never visits a
- * trait), so check each new subject against a deliberate violation once.
+ * trait), so wire the subject-liveness guard next to the preset — a
+ * `"ci:test:php:phpat-subjects": ["check-phpat-subjects.php ."]` composer script,
+ * see the README. It reads each subject statically, so keep it to
+ * Selector::inNamespace(), Selector::classname() or Selector::isAbstract() with a
+ * single-quoted literal argument (or a single-quoted `NAMESPACE_ROOT` class
+ * constant plus one `. '\Sub'` literal); any other shape fails closed.
  *
  * @internal
  */

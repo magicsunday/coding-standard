@@ -117,8 +117,8 @@ $packages = array_intersect_key($suggest, $requireDev);
 ksort($packages);
 
 // A require-dev hand-copying nothing composer.json suggests would make this
-// gate pass vacuously — exactly the failure mode a subject-liveness check
-// exists to prevent.
+// gate pass vacuously — exactly the failure mode the phpat subject-liveness
+// guard (bin/check-phpat-subjects.php) exists to prevent.
 if (count($packages) === 0) {
     fwrite(\STDERR, "tests/consumer/composer.json's require-dev hand-copies no package composer.json also suggests — the lockstep check has nothing to compare.\n");
     exit(1);
