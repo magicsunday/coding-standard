@@ -2,7 +2,7 @@
 #
 # Deptrac first, phpat only where Deptrac cannot. Layer dependencies ("who may
 # depend on whom") belong in Deptrac — `deptrac/layers.yaml` plus the consumer's
-# `deptrac.yaml`. phpat is for the two kinds of rule Deptrac cannot express:
+# `deptrac.yaml`. phpat is for the three kinds of rule Deptrac cannot express:
 #
 #   - structural invariants on a class: "every class in X is final", "every DTO
 #     implements JsonSerializable" — class properties, not dependencies; Deptrac
@@ -10,9 +10,12 @@
 #   - sub-layer boundaries: "only Repository\ and Support\Database\ may use the
 #     database manager" — Deptrac checks a class against EVERY layer it belongs
 #     to, so one sub-namespace of a shared layer cannot be granted an edge the
-#     rest of that layer is denied.
+#     rest of that layer is denied;
+#   - a shared layer narrowed for one module: "in this package Model is a pure
+#     leaf" — Deptrac unites the rulesets across `imports:`, so a consumer's
+#     `deptrac.yaml` can only widen a shared layer, never narrow it.
 #
-# Give every phpat rule a comment naming which of the two it is, i.e. why Deptrac
+# Give every phpat rule a comment naming which of the three it is, i.e. why Deptrac
 # does not fit. A plain layer-dependency rule written in phpat is the drift this
 # policy exists to prevent.
 #
