@@ -1,0 +1,51 @@
+# Opt-in phpat preset for magicsunday/* projects (GH-183).
+#
+# Deptrac first, phpat only where Deptrac cannot. Layer dependencies ("who may
+# depend on whom") belong in Deptrac — `deptrac/layers.yaml` plus the consumer's
+# `deptrac.yaml`. phpat is for the two kinds of rule Deptrac cannot express:
+#
+#   - structural invariants on a class: "every class in X is final", "every DTO
+#     implements JsonSerializable" — class properties, not dependencies; Deptrac
+#     can forbid a dependency but cannot require one or inspect a modifier;
+#   - sub-layer boundaries: "only Repository\ and Support\Database\ may use the
+#     database manager" — Deptrac checks a class against EVERY layer it belongs
+#     to, so one sub-namespace of a shared layer cannot be granted an edge the
+#     rest of that layer is denied.
+#
+# Give every phpat rule a comment naming which of the two it is, i.e. why Deptrac
+# does not fit. A plain layer-dependency rule written in phpat is the drift this
+# policy exists to prevent.
+#
+# phpat is NOT delivered by this package's `require` — it is listed under
+# `suggest`, so a repository without such rules never installs it. Adopting the
+# preset means requiring it yourself and including this file next to base.neon:
+#
+#     composer require --dev phpat/phpat
+#
+#     includes:
+#         - .build/vendor/magicsunday/coding-standard/phpstan/base.neon
+#         - .build/vendor/magicsunday/coding-standard/phpstan/phpat.neon
+#
+#     services:
+#         -
+#             class: Vendor\Package\Test\Architecture\ArchitectureTest
+#             tags:
+#                 - phpat.test
+#
+# (the `.build/vendor` prefix is the consumer's own vendor-dir). Keep the rule
+# class under tests/Architecture/: the shipped phpunit.xml.dist template excludes
+# that directory from the PHPUnit suite, since it holds no PHPUnit tests.
+#
+# The extension is included by a path relative to THIS file, like base.neon's
+# rule packs, so the preset is valid in every context that loads it — the main
+# PHPStan run and Rector's phpstanConfig alike. `phpat.show_rule_names` is only
+# schema-valid where phpat's extension.neon is loaded, which is exactly what this
+# file guarantees; phpstan/extension-installer would not, for Rector.
+includes:
+    - ../../../phpat/phpat/extension.neon
+
+parameters:
+    phpat:
+        # Prefix every finding with the rule method's name, so a report points
+        # at the rule that fired, not only at the offending class.
+        show_rule_names: true

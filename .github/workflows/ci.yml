@@ -204,6 +204,15 @@ jobs:
             - name: Checked-exceptions self-test
               run: composer ci:test:checked-exceptions
 
+            # Same shape and same reason as the two self-tests above:
+            # CheckPhpatPresetTest self-skipped under the plain "PHPUnit" step.
+            # Proves the opt-in phpat preset (phpstan/phpat.neon, GH-183) loads
+            # phpat from the installed fixture next to base.neon, that a
+            # registered rule reports its violation under the rule's name and
+            # nothing else, and that base.neon alone never loads phpat.
+            - name: phpat preset self-test
+              run: composer ci:test:phpat-preset
+
             # This step sits AFTER the consumer smoke steps on purpose. A failing
             # step skips every later one, and what it catches is a documentation
             # mismatch — a release that
@@ -288,6 +297,9 @@ jobs:
 
             - name: Checked-exceptions self-test
               run: composer ci:test:checked-exceptions
+
+            - name: phpat preset self-test
+              run: composer ci:test:phpat-preset
 
     js:
         name: JS/TS configs
