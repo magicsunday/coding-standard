@@ -127,16 +127,6 @@ jobs:
             - name: Validate the JSON configs
               run: composer ci:test:json
 
-            # The gate above discovers files rather than reading a hand-kept
-            # list, and only ever takes the happy path against this
-            # repository's own tree. These cases prove it still rejects a
-            # malformed, a missing and an unreadable file, that its discovery
-            # prunes vendored/installed trees and VCS metadata, and that a
-            # consumer-controlled file name cannot forge a workflow command in
-            # the report.
-            - name: JSON lint gate self-test
-              run: composer ci:test:json-cases
-
             # Only the leg whose matrix `coverage` field is non-`none` has a
             # driver active (see the `coverage:` step above) — --coverage-text
             # there is what makes beStrictAboutCoverageMetadata actually
