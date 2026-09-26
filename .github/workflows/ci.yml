@@ -108,15 +108,6 @@ jobs:
             - name: Statically analyse the PHP gate scripts
               run: composer ci:test:php:analyse
 
-            # phpstan.neon's own include of phpstan/disallowed-function-calls.neon
-            # has no other proof: bin/ and tests/ currently call none of the five
-            # banned functions, so a broken include would leave the step above
-            # silently green. CheckDisallowedCallsTest (run by the Case-folding
-            # self-test step below) proves the ban LIST fires, but only through
-            # tests/consumer's installed copy, never phpstan.neon itself.
-            - name: PHP gate self-analysis self-test
-              run: composer ci:test:php:analyse-cases
-
             # phplint above is syntax-only and PHPStan above catches arity/type/
             # dead-code issues, but neither enforces the shared house style over
             # this package's OWN first-party PHP — the only php-cs-fixer step
@@ -135,16 +126,6 @@ jobs:
 
             - name: Validate the JSON configs
               run: composer ci:test:json
-
-            # The gate above discovers files rather than reading a hand-kept
-            # list, and only ever takes the happy path against this
-            # repository's own tree. These cases prove it still rejects a
-            # malformed, a missing and an unreadable file, that its discovery
-            # prunes vendored/installed trees and VCS metadata, and that a
-            # consumer-controlled file name cannot forge a workflow command in
-            # the report.
-            - name: JSON lint gate self-test
-              run: composer ci:test:json-cases
 
             # Only the leg whose matrix `coverage` field is non-`none` has a
             # driver active (see the `coverage:` step above) — --coverage-text
@@ -250,13 +231,6 @@ jobs:
             # silently leave this package's own dist archive out of step.
             - name: Gitattributes lockstep gate
               run: composer ci:test:gitattributes
-
-            # The gate above runs against this repository, where every
-            # applicable entry already agrees — so it only ever takes the happy
-            # path and would stay green if it lost the ability to fail. These
-            # cases put it in each failing state on purpose.
-            - name: Gitattributes lockstep gate self-test
-              run: composer ci:test:gitattributes-lockstep
 
             # GH-42: the version lockstep gate above proves package.json's
             # `version` and every README pin agree with EACH OTHER — both live

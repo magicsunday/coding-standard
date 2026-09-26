@@ -29,7 +29,8 @@
 
 set -euo pipefail
 
-# CDPATH= — see check-gitattributes-lockstep-cases.sh's identical guard.
+# CDPATH= because the target starts with neither /, ./ nor ../ and would
+# otherwise be searched in CDPATH, resolving to a foreign tree.
 ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tests/harness.sh"
 
@@ -290,6 +291,37 @@ elif [ -d "$preservation_owned_dir" ]; then
     report_failure 'preservation: a directory this invocation owns was not removed by harness_rmdir_if_owned'
 else
     printf 'ok (preservation): a directory this invocation owns is removed by cleanup\n'
+fi
+
+# Case D: genuinely OWNED, but it gained real content between creation and
+# cleanup — the concurrent-write window this file's ownership comments call a
+# documented real hazard. rmdir refuses a non-empty directory, and
+# harness_rmdir_if_owned's `|| true` exists to absorb exactly that refusal:
+# without it the braced group is the last command of the `&&` list, so its
+# failure aborts a `set -e` caller — an EXIT trap included — before any later
+# cleanup runs. Cases A-C never reach that refusal (#158). The call runs in
+# its own `set -e` subshell so an abort is reported by name here instead of
+# killing this script; the subshell must not sit in an `if`/`||` condition,
+# which would switch `set -e` off inside it and hide the abort.
+preservation_raced_dir="$preservation_root/owned-then-populated"
+owned="$(harness_mkdir_owned "$preservation_raced_dir")"
+printf '<?php\n' > "$preservation_raced_dir/written-after-creation.php"
+set +e
+(
+    set -e
+    harness_rmdir_if_owned "$preservation_raced_dir" "$owned"
+)
+raced_status=$?
+set -e
+
+if [ "$owned" -ne 1 ]; then
+    report_failure 'preservation: harness_mkdir_owned did not report ownership for a directory it just created'
+elif [ "$raced_status" -ne 0 ]; then
+    report_failure 'preservation: harness_rmdir_if_owned aborted a set -e caller on an owned directory that gained content'
+elif [ ! -f "$preservation_raced_dir/written-after-creation.php" ]; then
+    report_failure 'preservation: an owned directory that gained content lost it during cleanup'
+else
+    printf 'ok (preservation): an owned directory that gained content survives cleanup without aborting\n'
 fi
 
 verdict

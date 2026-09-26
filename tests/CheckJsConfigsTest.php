@@ -686,6 +686,72 @@ JS;
     }
 
     /**
+     * Extracts what $repository's index would ship into $archiveDir:
+     * `git write-tree` of the index, then `git archive` of that tree, which
+     * applies the tree's own `.gitattributes` export-ignore entries — the
+     * artefact a `github:` install and the Composer dist archive both
+     * receive. Shared by packagedConsumer() and the export-ignore fixtures
+     * (#100), so those fixtures drive the same mechanism the smoke relies on
+     * rather than a copy of it.
+     *
+     * @param string $repository A git work tree whose index is what would ship.
+     * @param string $archiveDir An existing, empty directory to extract into.
+     *
+     * @return string The archived tree's object name.
+     *
+     * @throws RuntimeException If writing, archiving or extracting the tree failed.
+     */
+    private static function archiveIndexInto(string $repository, string $archiveDir): string
+    {
+        $writeTree = new Process(['git', '-C', $repository, 'write-tree']);
+        $writeTree->run();
+
+        if (!$writeTree->isSuccessful()) {
+            throw new RuntimeException('git write-tree failed — cannot determine what this commit would ship.');
+        }
+
+        $archiveTree = trim($writeTree->getOutput());
+
+        $archive = new Process(['git', '-C', $repository, 'archive', $archiveTree]);
+        $archive->setTimeout(300.0);
+        $archive->run();
+
+        if (!$archive->isSuccessful()) {
+            throw new RuntimeException("git archive {$archiveTree} failed — cannot pack the artefact a consumer receives.");
+        }
+
+        $extract = new Process(['tar', '-x', '-C', $archiveDir]);
+        $extract->setInput($archive->getOutput());
+        $extract->setTimeout(300.0);
+        $extract->run();
+
+        if (!$extract->isSuccessful()) {
+            throw new RuntimeException("git archive {$archiveTree} could not be extracted.");
+        }
+
+        return $archiveTree;
+    }
+
+    /**
+     * The entries of $paths that are not present under $archiveDir — the
+     * verdict everyPackagingSurfacePathReachesAConsumerThroughTheGitArchive()
+     * reports on, held apart so the export-ignore fixtures (#100) can prove it
+     * against a deliberately broken archive too. Empty entries are skipped.
+     *
+     * @param string       $archiveDir The extracted archive.
+     * @param list<string> $paths      Repository-relative paths that must ship.
+     *
+     * @return list<string> The paths missing from the archive, in input order.
+     */
+    private static function pathsMissingFromArchive(string $archiveDir, array $paths): array
+    {
+        return array_values(array_filter(
+            $paths,
+            static fn (string $path): bool => ($path !== '') && !file_exists("{$archiveDir}/{$path}"),
+        ));
+    }
+
+    /**
      * Builds the ONE throwaway npm project this suite's packaging-pipeline-
      * dependent tests share: `git write-tree` + `git archive` (the artefact a
      * `github:` install/`npm pack` actually ships, `.gitattributes`
@@ -712,34 +778,9 @@ JS;
 
         $root = self::root();
 
-        $writeTree = new Process(['git', '-C', $root, 'write-tree']);
-        $writeTree->run();
-
-        if (!$writeTree->isSuccessful()) {
-            throw new RuntimeException('git write-tree failed — cannot determine what this commit would ship.');
-        }
-
-        $archiveTree = trim($writeTree->getOutput());
-
         $archiveDir                   = self::makeTempDir('archive');
         self::$temporaryDirectories[] = $archiveDir;
-
-        $archive = new Process(['git', '-C', $root, 'archive', $archiveTree]);
-        $archive->setTimeout(300.0);
-        $archive->run();
-
-        if (!$archive->isSuccessful()) {
-            throw new RuntimeException("git archive {$archiveTree} failed — cannot pack the artefact a consumer receives.");
-        }
-
-        $extract = new Process(['tar', '-x', '-C', $archiveDir]);
-        $extract->setInput($archive->getOutput());
-        $extract->setTimeout(300.0);
-        $extract->run();
-
-        if (!$extract->isSuccessful()) {
-            throw new RuntimeException("git archive {$archiveTree} could not be extracted.");
-        }
+        $archiveTree                  = self::archiveIndexInto($root, $archiveDir);
 
         $consumerDir                  = self::makeTempDir('consumer');
         self::$temporaryDirectories[] = $consumerDir;
@@ -1494,18 +1535,79 @@ TS),
             ...$leaves,
         ]);
 
-        foreach ($exportedPaths as $exported) {
-            if ($exported === '') {
-                continue;
-            }
+        $missing = self::pathsMissingFromArchive($archiveDir, array_values($exportedPaths));
 
-            if (!file_exists("{$archiveDir}/{$exported}")) {
-                self::fail(
-                    'Missing from the archived tree, so a github: install and the Composer dist archive both lose it: '
-                        . self::scrubbedForDiagnostic($exported),
-                );
-            }
+        if ($missing !== []) {
+            self::fail(
+                'Missing from the archived tree, so a github: install and the Composer dist archive both lose it: '
+                    . self::scrubbedForDiagnostic(implode(', ', $missing)),
+            );
         }
+    }
+
+    /**
+     * Builds a disposable git repository shipping bin/support/helper.php, with
+     * $gitattributes as its `.gitattributes`, and returns what
+     * self::pathsMissingFromArchive() reports for that file after
+     * self::archiveIndexInto() — the same two steps the smoke and the check
+     * above use against this repository.
+     *
+     * @param string $gitattributes The fixture repository's `.gitattributes` content.
+     *
+     * @return list<string> The shipped path, when the archive lost it; empty otherwise.
+     */
+    private function missingAfterArchivingFixtureWith(string $gitattributes): array
+    {
+        $repository = $this->fixture()->path() . '/repository';
+        $archiveDir = $this->fixture()->path() . '/archive';
+
+        mkdir("{$repository}/bin/support", 0o755, true);
+        mkdir($archiveDir);
+        file_put_contents("{$repository}/bin/support/helper.php", "<?php\n");
+        file_put_contents("{$repository}/.gitattributes", $gitattributes);
+
+        foreach ([['init', '--quiet'], ['add', '--all']] as $gitArguments) {
+            $result = $this->runCommand(['git', '-C', $repository, ...$gitArguments]);
+            self::assertSame(0, $result->exitCode, 'Could not build the export-ignore fixture repository.');
+        }
+
+        self::archiveIndexInto($repository, $archiveDir);
+
+        return self::pathsMissingFromArchive($archiveDir, ['bin/support/helper.php']);
+    }
+
+    /**
+     * The failure path the check above has never taken against this
+     * repository's own, clean `.gitattributes` (#100): export-ignoring an
+     * ANCESTOR directory of a shipped file — the `/bin/support export-ignore`
+     * incident — drops the file from the archive, and the check names it.
+     * Removing the archive step (packing the raw tree instead) or breaking
+     * the missing-path check would turn this red; the control below proves
+     * the fixture itself ships the file when nothing ignores it.
+     */
+    #[Test]
+    public function anExportIgnoredAncestorDirectoryIsReportedAsMissingFromTheArchive(): void
+    {
+        self::assertSame(
+            ['bin/support/helper.php'],
+            $this->missingAfterArchivingFixtureWith("/bin/support export-ignore\n"),
+            'Export-ignoring bin/support/ did not drop bin/support/helper.php from the archive, or the check missed it.',
+        );
+    }
+
+    /**
+     * The control for the case above: the same fixture repository with an
+     * export-ignore entry that names an unrelated path ships the file, so the
+     * case above fails for the ignored ancestor and nothing else.
+     */
+    #[Test]
+    public function aFileNoExportIgnoreEntryCoversReachesTheArchive(): void
+    {
+        self::assertSame(
+            [],
+            $this->missingAfterArchivingFixtureWith("/tests export-ignore\n"),
+            'The fixture repository did not ship bin/support/helper.php although nothing export-ignores it.',
+        );
     }
 
     // -------------------------------------------------------------------
@@ -1553,8 +1655,7 @@ TS),
      * test-authored literal — fed into a plain PHP string comparison that
      * NEVER routes through GateProcess/GateTestCase's own scrub apparatus, a
      * structurally different path from every subprocess-output assertion
-     * that RISKY_ASSERTIONS-style checks (see
-     * tests/ScrubbedDiagnosticGuardTest.php) scan for.
+     * that tests/ScrubbedDiagnosticGuardTest.php scans for.
      *
      * The capture pattern excludes a literal newline explicitly
      * (`[^`\n]*` rather than `[^`]*`) as defense in depth on top of the
@@ -1616,7 +1717,7 @@ TS),
      * which embeds the raw operand via Exporter::export() — not this class's own concern,
      * since every operand pair here is a string, but
      * tests/ScrubbedDiagnosticGuardTest.php's own class docblock polices it
-     * for RISKY_ASSERTIONS generally and points back to THIS docblock for
+     * for every guarded call and points back to THIS docblock for
      * the dated observation and re-derivation command above, so keep the
      * two consistent. self::fail() builds no ComparisonFailure at all, so
      * scrubbedForDiagnostic() on both operands here is the whole of what

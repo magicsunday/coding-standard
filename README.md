@@ -910,7 +910,8 @@ files, it keeps no root copy of its own) is silently not applicable, the same
 asymmetry `bin/check-consumer-config.php` uses for its own optional configs; a
 commented-out template directive (`biome.json`/`tsconfig.json`/`biome.jsonc`, kept
 inactive on purpose — see that file's own header) is likewise never a requirement.
-`composer ci:test:gitattributes-lockstep` is its fixture-driven self-test.
+`tests/CheckGitattributesLockstepTest.php`, run by `composer ci:test:phpunit`, is its
+fixture-driven self-test.
 
 Unlike the consumer gates in this README, this one is not shipped for anyone else to
 run — it guards this repository's own dist hygiene.

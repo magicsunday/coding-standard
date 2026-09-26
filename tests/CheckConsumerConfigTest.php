@@ -3361,6 +3361,40 @@ final class CheckConsumerConfigTest extends GateTestCase
     }
 
     /**
+     * A lone surrogate in an object KEY, or inside an array ELEMENT, rather
+     * than a top-level string value — the two positions #72 found no fixture
+     * for. The node gate scans every string literal of the source text
+     * (sourceContainsLoneSurrogate() in bin/support/jsonc.mjs), keys and
+     * array members alike; a scan narrowed to values, or a walk over the
+     * parsed result that skips keys, would accept one of these while
+     * json_decode() rejects both.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function loneSurrogatePositionProvider(): array
+    {
+        return [
+            'object key'    => ["{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"x\\uD800\": true }\n}\n"],
+            'array element' => ["{\n    \"extends\": [\"@magicsunday/coding-standard/tsconfig/base.json\", \"x\\uDC00\"]\n}\n"],
+        ];
+    }
+
+    /**
+     * Rejects a tsconfig.json whose only lone surrogate sits in a key or an array element.
+     *
+     * @param string $tsconfig The tsconfig.json source.
+     */
+    #[Test]
+    #[DataProvider('loneSurrogatePositionProvider')]
+    public function rejectsTsconfigLoneSurrogateOutsideATopLevelValue(string $tsconfig): void
+    {
+        $dir = $this->mkJsCase();
+        file_put_contents($dir . '/tsconfig.json', $tsconfig);
+
+        $this->assertBothReject($dir, 'tsconfig.json: not valid JSON(C)', 'tsconfig.json with a lone surrogate in a key or array element');
+    }
+
+    /**
      * JSON.parse() collapses a repeated key to its LAST occurrence before
      * any check on the parsed result runs, so an unpaired surrogate sitting
      * only in an EARLIER, overwritten occurrence would go unseen by a check

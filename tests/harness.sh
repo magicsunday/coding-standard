@@ -163,13 +163,16 @@ harness_rmdir_if_owned() {
 # enough times to land the whole document on the cap, for a caller whose
 # "at-the-size-cap" fixture is a README pin (<prefix> empty, <suffix> the pin) or a
 # comment-terminated config line (<prefix> the real content plus its comment opener,
-# <suffix> the newline that closes it). Shared by tests/check-gitattributes-lockstep-cases.sh —
-# a JSON-shaped sibling of this builder (padding via a trailing `"//"` key rather than
+# <suffix> the newline that closes it). No bash caller remains: its last one,
+# tests/check-gitattributes-lockstep-cases.sh, moved to PHPUnit (#71), whose
+# port calls GateTestCase::padTextToCap() instead — so this function is now dead
+# code, left for the harness's own removal under #71 rather than deleted here.
+# A JSON-shaped sibling of this builder (padding via a trailing `"//"` key rather than
 # a filler run) existed here too until #78 removed its only remaining bash caller;
 # the JSON shape now lives once, shared, as GateTestCase::padJsonToCap() (moved there
 # by #78 once CheckConsumerConfigTest became a second PHPUnit caller alongside
-# CheckVersionLockstepTest) — this bash builder stays separate because a bash
-# process cannot share a PHP static method with its PHPUnit callers.
+# CheckVersionLockstepTest), and the text shape now sits beside it as
+# GateTestCase::padTextToCap().
 harness_pad_text_to_cap() {
     local bound="$1" prefix="$2" filler="$3" suffix="$4" out_file="$5"
     php -r '
