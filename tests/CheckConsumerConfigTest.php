@@ -35,6 +35,7 @@ use function function_exists;
 use function implode;
 use function in_array;
 use function is_array;
+use function is_string;
 use function json_decode;
 use function json_encode;
 use function microtime;
@@ -3724,11 +3725,37 @@ final class CheckConsumerConfigTest extends GateTestCase
     /**
      * @return list<non-empty-string> Every compilerOptions flag tsconfig/base.json ships as `true`.
      *
-     * @throws RuntimeException If the base does not decode as JSON carrying compilerOptions, or nothing was found.
+     * @throws RuntimeException If the base does not decode as JSON carrying compilerOptions, a flag name is
+     *                          not plain letters, or nothing was found.
      */
     private static function baseFlagsFromTsconfigBase(): array
     {
-        $decoded = json_decode((string) file_get_contents(self::root() . '/tsconfig/base.json'), true);
+        return self::baseFlagsFromTsconfigJson((string) file_get_contents(self::root() . '/tsconfig/base.json'));
+    }
+
+    /**
+     * Every compilerOptions flag the given tsconfig JSON ships as `true`.
+     *
+     * Each name becomes a DataProvider row key (baseFlagProvider()), and
+     * PHPUnit prints a failed row's key at the start of a physical line of
+     * its failure header — where the runner recognises a workflow command.
+     * tsconfig/base.json is PR-editable, so a key is accepted only when it is
+     * plain letters, every real TypeScript compiler option's shape, the same
+     * posture extractQuotedList() takes for the gate-source tables. `\A`/`\z`
+     * rather than `^`/`$`: PCRE's `$` also matches before a trailing newline.
+     * The exception names no key, since echoing the rejected one would
+     * re-open the channel this closes.
+     *
+     * @param string $json The tsconfig document to read.
+     *
+     * @return list<non-empty-string>
+     *
+     * @throws RuntimeException If the JSON does not carry compilerOptions, a flag name is not plain letters,
+     *                          or nothing was found.
+     */
+    private static function baseFlagsFromTsconfigJson(string $json): array
+    {
+        $decoded = json_decode($json, true);
 
         if (!is_array($decoded) || !is_array($decoded['compilerOptions'] ?? null)) {
             throw new RuntimeException('tsconfig/base.json did not decode as JSON carrying compilerOptions');
@@ -3737,9 +3764,18 @@ final class CheckConsumerConfigTest extends GateTestCase
         $flags = [];
 
         foreach ($decoded['compilerOptions'] as $name => $value) {
-            if ($value === true) {
-                $flags[] = $name;
+            if ($value !== true) {
+                continue;
             }
+
+            if (!is_string($name) || preg_match('/\A[A-Za-z]+\z/', $name) !== 1) {
+                throw new RuntimeException(
+                    'tsconfig/base.json ships a `true` compilerOptions flag whose name is not plain letters'
+                    . ' — widen the check deliberately rather than letting it become a data-set name',
+                );
+            }
+
+            $flags[] = $name;
         }
 
         if ($flags === []) {
@@ -3748,6 +3784,52 @@ final class CheckConsumerConfigTest extends GateTestCase
 
         /** @var list<non-empty-string> $flags */
         return $flags;
+    }
+
+    /**
+     * A compilerOptions key carrying a line break must never reach
+     * baseFlagProvider() as a row key: PHPUnit would print it at the start of
+     * a line in the failure header of whichever run first fails that row,
+     * forging a workflow command there. The rejection itself must not carry
+     * the key either. Looped here rather than fed through a data provider,
+     * whose argument values PHPUnit may itself print on a failure.
+     */
+    #[Test]
+    public function rejectsTsconfigBaseFlagNameThatIsNotPlainLetters(): void
+    {
+        $unsafeNames = [
+            'embedded workflow commands' => "x\n::error::forged\n##[error]forged",
+            'trailing newline'           => "forged\n",
+            'digit'                      => 'forged2',
+            'numeric key'                => '42',
+        ];
+
+        foreach ($unsafeNames as $label => $name) {
+            $json = (string) json_encode(['compilerOptions' => ['strict' => true, $name => true]]);
+
+            $thrown = self::assertThrows(
+                static fn () => self::baseFlagsFromTsconfigJson($json),
+                RuntimeException::class,
+                "baseFlagsFromTsconfigJson() accepted a flag name that is not plain letters ({$label}).",
+            );
+
+            if (str_contains($thrown->getMessage(), 'forged') || str_contains($thrown->getMessage(), '42')) {
+                self::fail("The rejection still carries the rejected flag name in its message ({$label}).");
+            }
+        }
+    }
+
+    /**
+     * A non-letter key is only a hazard once it becomes a row: a flag the base
+     * does not ship as `true` is skipped before the name check, the same set
+     * baseFlagProvider() would never have turned into a row.
+     */
+    #[Test]
+    public function ignoresNonTrueTsconfigFlagRegardlessOfItsName(): void
+    {
+        $json = (string) json_encode(['compilerOptions' => ['strict' => true, "x\n::error::forged" => false, 'target' => 'es2022']]);
+
+        self::assertSame(['strict'], self::baseFlagsFromTsconfigJson($json));
     }
 
     /**
