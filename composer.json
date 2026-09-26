@@ -50,7 +50,8 @@
         }
     },
     "bin": [
-        "bin/check-consumer-config.php"
+        "bin/check-consumer-config.php",
+        "bin/check-phpat-subjects.php"
     ],
     "config": {
         "bin-dir": ".build/bin",

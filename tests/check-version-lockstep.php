@@ -127,7 +127,8 @@ foreach ($matches[1] as [$raw, $offset]) {
 }
 
 // A README that documents no pin at all would make this gate pass vacuously —
-// exactly the failure mode a subject-liveness check exists to prevent.
+// exactly the failure mode the phpat subject-liveness guard
+// (bin/check-phpat-subjects.php) exists to prevent.
 if (count($pins) === 0) {
     fwrite(\STDERR, "README.md documents no `github:magicsunday/coding-standard#<tag>` pin — the version lockstep cannot be checked.\n");
     exit(1);

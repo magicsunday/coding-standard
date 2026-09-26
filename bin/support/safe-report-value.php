@@ -27,10 +27,10 @@ declare(strict_types=1);
  * The `bin/` gates run in the CONSUMER's CI over pull-request branch content, and
  * tests/check-version-lockstep.php runs in this repository's own; either way every
  * value they read out of a repository file — a JSON key, an XML attribute value, a
- * pinned tag — comes from whoever opened the PR. Their findings go to
- * STDERR and their summaries to STDOUT, and the runner scans BOTH for workflow
- * commands (src/Runner.Worker/Handlers/ScriptHandler.cs wires each stream to its own
- * OutputManager; read 2026-08-19).
+ * phpat subject expression, a pinned tag — comes from whoever opened the PR. Their
+ * findings go to STDERR and their summaries to STDOUT, and the runner scans BOTH for
+ * workflow commands (src/Runner.Worker/Handlers/ScriptHandler.cs wires each stream to
+ * its own OutputManager; read 2026-08-19).
  *
  * TWO parser generations read that channel, and they need different defences. The
  * current `::cmd::` form must start the line — but the runner calls TrimStart()

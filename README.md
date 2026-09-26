@@ -706,19 +706,60 @@ Two rules for what goes into it:
 - **Every rule carries a comment naming why Deptrac does not fit** — structural
   invariant, sub-layer boundary, or a shared layer narrowed for this module. A plain layer-dependency rule written in phpat
   is the drift this split exists to prevent; it belongs in `deptrac.yaml`.
-- **Prove each new subject once against a deliberate violation.** A rule whose
-  subject matches nothing enforces nothing while PHPStan stays green — a
-  `Selector::inNamespace()` on a namespace holding only traits is the known case,
-  since phpat resolves subjects through PHPStan's `InClassNode`, which never fires
-  for a trait. The subject-liveness guard that used to catch this
-  (`bin/check-phpat-subjects.php`) was removed with phpat in 2.0.0; bringing it
-  back is tracked in #184.
+- **Every rule subject must match a class.** A rule whose subject matches nothing
+  enforces nothing while PHPStan stays green — a `Selector::inNamespace()` on a
+  namespace holding only traits is the known case, since phpat resolves subjects
+  through PHPStan's `InClassNode`, which never fires for a trait. Wire the
+  subject-liveness guard below, which reds exactly that.
 
 `composer ci:test:phpat-preset` (`tests/CheckPhpatPresetTest.php`) proves the preset
 against the installed CI fixture: a registered rule reports a non-final class under
 its rule name, stays quiet on its final sibling and reports nothing else, and the
 same rule class registered against `base.neon` alone reports nothing — phpat is
 loaded by the preset only.
+
+### phpat subject-liveness guard — `bin/check-phpat-subjects.php`
+
+A composer `bin` of this package, so it is on every consumer's bin path — but it is
+only worth wiring in a repository that **adopts the phpat preset**. Like the template
+lockstep gate, it rolls out script-first: a repository adds the script, then runs it
+in its own CI; a step in the shared `php-quality` workflow comes last, and only once
+every repository on that workflow carries the script (see AGENTS):
+
+```json
+"scripts": {
+    "ci:test:php:phpat-subjects": ["check-phpat-subjects.php ."]
+}
+```
+
+It parses the consumer's `tests/Architecture/ArchitectureTest.php` (or
+`tests/ArchitectureTest.php`), extracts each rule method's subject — the first
+`Selector::…()` inside the first `->classes(…)` — and asserts it matches a real class
+in `src/`. phpat finds a rule method two ways, a `#[TestRule]` attribute (under any
+import alias or casing) or a public method named `test*`, and the guard recognises
+both; a non-public method is a rule under neither.
+
+- `Selector::inNamespace(NS)` needs a class, interface or enum in `NS` — a trait-only
+  or empty namespace reds (the manifested bug: PHPStan visits a trait through
+  `InTraitNode`, never the `InClassNode` phpat reads);
+- `Selector::classname(FQCN)` needs that class, interface or enum to exist — a
+  renamed, moved, mistyped or trait target reds;
+- `Selector::isAbstract()` is a conditional naming guard that legitimately matches
+  nothing until an abstract class is added, so it is not liveness-checked.
+
+The argument must be a single-quoted literal or `self::NAMESPACE_ROOT` (a
+single-quoted class constant), optionally followed by one `. '\Sub'` literal, and `->classes()` takes exactly one
+selector — phpat accepts several, but the guard reads one. It is a
+**static** check — it does not run PHPStan — and it **fails closed**: any other
+selector, any other argument shape and a rule method with no recognisable subject red
+the run rather than pass unexamined. Exit 0 means every checked subject is live (or
+there is no ArchitectureTest to check); 1 is a vacuous or unparseable subject, or a
+`src/` file it could not read; 2 is a run that could not happen at all (no `src/`, an
+unreadable or oversized ArchitectureTest). Every consumer-controlled value it echoes
+passes through the same report scrubbing as the lockstep gate. Only the one
+ArchitectureTest file is read: a rule method inherited from a base class or a `use`d
+trait is invisible to it. Its fixture-driven self-test is the
+`tests/CheckPhpatSubjects*Test.php` group, run by `composer ci:test:phpunit`.
 
 ## Templates (copy-and-adapt)
 
