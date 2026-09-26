@@ -21,7 +21,7 @@ declare(strict_types=1);
  *
  * An optional path argument points it at another directory, the same shape
  * tests/check-version-lockstep.php uses for its own fixture-driven harness — what
- * lets tests/lint-json-cases.sh drive this gate over fixtures instead of over this
+ * lets tests/LintJsonTest.php drive this gate over fixtures instead of over this
  * repository alone, where every run takes the happy path and a green CI would be
  * indistinguishable from a gate that stopped checking.
  */

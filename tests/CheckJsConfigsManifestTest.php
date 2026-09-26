@@ -469,6 +469,30 @@ JS;
     }
 
     /**
+     * writePackageJson()'s two engines sentinels build the body they claim
+     * (#72): an explicit `null` leaves the key genuinely ABSENT, and an
+     * omitted key gets the passing default. The engines-absent rejection row
+     * cannot tell a deleted key from a literal `null` — the check reads
+     * `pkg.engines?.node`, which short-circuits identically on both — so the
+     * written file itself is what is asserted on here.
+     */
+    #[Test]
+    public function theEnginesSentinelsBuildTheBodyTheyClaim(): void
+    {
+        $this->writePackageJson(['name' => 'absent', 'engines' => null]);
+        $absent = json_decode((string) file_get_contents($this->fixture()->path() . '/package.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($absent);
+        self::assertArrayNotHasKey('engines', $absent, 'An explicit null engines sentinel left the key in the written body.');
+
+        $this->writePackageJson(['name' => 'defaulted']);
+        $defaulted = json_decode((string) file_get_contents($this->fixture()->path() . '/package.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($defaulted);
+        self::assertSame(['node' => '>=20'], $defaulted['engines'] ?? null, 'An omitted engines key did not receive the passing default.');
+    }
+
+    /**
      * Writes $packageJson (engines-default injected) plus a biome/base.json
      * whose $schema is DERIVED from the devDependencies Biome pin — mirrors
      * manifest_fixture()'s auto-derivation, used by every case whose own
@@ -726,13 +750,21 @@ JS;
             'engines.node floor is below what bin/check-js-config.mjs needs'        => [['node' => '>=18'], self::CONSUMER_ENGINES_SENTENCE],
             'engines.node has a leading-zero numeric component'                     => [['node' => '>=020'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
             "engines.node has a component past semver's own MAX_SAFE_INTEGER bound" => [['node' => '>=99999999999999999'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a bare version'                                        => [['node' => '20'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a caret range'                                         => [['node' => '^20.0.0'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a tilde range'                                         => [['node' => '~20.0.0'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is an x-range'                                            => [['node' => '20.x'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is the any-version wildcard'                              => [['node' => '*'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is empty'                                                 => [['node' => ''], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
         ];
     }
 
     /**
-     * The six engines.node shapes manifest_check() must reject — either
-     * before the floor comparison even runs (the shape check) or at the
-     * floor comparison itself.
+     * The engines.node shapes manifest_check() must reject — either before
+     * the floor comparison even runs (the shape check) or at the floor
+     * comparison itself. The bare-version, caret, tilde, x-range, wildcard
+     * and empty rows pin what the shape check's own comment in
+     * MANIFEST_CHECK_SCRIPT claims it rejects (#76).
      *
      * @param array<string, mixed>|null $engines          The `engines` fragment, or null for an absent key.
      * @param string                    $expectedSentence The sentence the rejection must carry.
