@@ -40,7 +40,7 @@ declare(strict_types=1);
  * Run from the package root: php tests/check-gitattributes-lockstep.php
  *
  * An optional path argument points it at another directory, which is what lets
- * tests/check-gitattributes-lockstep-cases.sh drive it over fixtures instead of
+ * tests/CheckGitattributesLockstepTest.php drive it over fixtures instead of
  * over this repository alone — where every run takes the happy path and a green CI
  * would be indistinguishable from a gate that cannot fail.
  */

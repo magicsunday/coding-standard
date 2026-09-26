@@ -251,13 +251,6 @@ jobs:
             - name: Gitattributes lockstep gate
               run: composer ci:test:gitattributes
 
-            # The gate above runs against this repository, where every
-            # applicable entry already agrees — so it only ever takes the happy
-            # path and would stay green if it lost the ability to fail. These
-            # cases put it in each failing state on purpose.
-            - name: Gitattributes lockstep gate self-test
-              run: composer ci:test:gitattributes-lockstep
-
             # GH-42: the version lockstep gate above proves package.json's
             # `version` and every README pin agree with EACH OTHER — both live
             # inside this repository, so it cannot see whether the tag they
