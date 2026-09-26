@@ -469,6 +469,30 @@ JS;
     }
 
     /**
+     * writePackageJson()'s two engines sentinels build the body they claim
+     * (#72): an explicit `null` leaves the key genuinely ABSENT, and an
+     * omitted key gets the passing default. The engines-absent rejection row
+     * cannot tell a deleted key from a literal `null` — the check reads
+     * `pkg.engines?.node`, which short-circuits identically on both — so the
+     * written file itself is what is asserted on here.
+     */
+    #[Test]
+    public function theEnginesSentinelsBuildTheBodyTheyClaim(): void
+    {
+        $this->writePackageJson(['name' => 'absent', 'engines' => null]);
+        $absent = json_decode((string) file_get_contents($this->fixture()->path() . '/package.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($absent);
+        self::assertArrayNotHasKey('engines', $absent, 'An explicit null engines sentinel left the key in the written body.');
+
+        $this->writePackageJson(['name' => 'defaulted']);
+        $defaulted = json_decode((string) file_get_contents($this->fixture()->path() . '/package.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($defaulted);
+        self::assertSame(['node' => '>=20'], $defaulted['engines'] ?? null, 'An omitted engines key did not receive the passing default.');
+    }
+
+    /**
      * Writes $packageJson (engines-default injected) plus a biome/base.json
      * whose $schema is DERIVED from the devDependencies Biome pin — mirrors
      * manifest_fixture()'s auto-derivation, used by every case whose own
