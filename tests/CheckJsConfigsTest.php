@@ -1285,7 +1285,7 @@ TS),
      * The npm-installed `check-js-config` bin entry resolves and runs.
      * Proves ONLY package.json's own "bin" mapping — everything else about
      * the gate's own logic is proven directly against the working-tree
-     * source elsewhere (CheckConsumerConfigTest's node-gate cases).
+     * source elsewhere (the CheckConsumerConfig*Test classes' node-gate cases).
      */
     #[Test]
     public function theInstalledNpmBinEntryRunsAndAccepts(): void

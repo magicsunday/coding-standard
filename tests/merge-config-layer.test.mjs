@@ -9,7 +9,7 @@
  * Tests for mergeConfigLayer() (bin/support/merge-config-layer.mjs),
  * extracted per GH-116 so the merge behaviour can be asserted directly on a
  * decoded base + overlay pair, instead of only through
- * tests/CheckConsumerConfigTest.php's assertBoth*() differential accept/reject
+ * tests/CheckConsumerConfigBiomeTsconfigExtendsChainTest.php's assertBoth*() differential accept/reject
  * interface (the suite that actually drives this gate's foldExtendsChain
  * against fixture pairs — tests/CheckJsConfigsTest.php is a broader smoke
  * harness against the real Biome/tsc binaries, not this behaviour's prior

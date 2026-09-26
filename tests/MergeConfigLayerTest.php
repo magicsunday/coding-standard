@@ -21,12 +21,12 @@ require_once __DIR__ . '/../bin/support/merge-config-layer.php';
  * Tests for the global mergeConfigLayer() function
  * (bin/support/merge-config-layer.php), extracted per GH-116 so the merge
  * behaviour can be asserted directly on a decoded base + overlay pair,
- * instead of only through CheckConsumerConfigTest's accept/reject CLI
+ * instead of only through CheckConsumerConfigBiomeTsconfigExtendsChainTest's accept/reject CLI
  * interface. The behaviour itself is not new — see that function's own
  * docblock for the Biome 2.5.5 measurements it is based on — this suite adds
  * the regression guard GH-116 was filed for: an empty overlay OBJECT must
  * leave an inherited GOOD value untouched rather than wiping it, a property
- * no CLI-level fixture in CheckConsumerConfigTest can observe because every
+ * no CLI-level fixture in the CheckConsumerConfig*Test classes can observe because every
  * violation check there fires only on an explicit bad value, never on an
  * ABSENT key.
  *
@@ -34,7 +34,7 @@ require_once __DIR__ . '/../bin/support/merge-config-layer.php';
  * test-INFRASTRUCTURE helper classes GateTestCase composes (GateResult,
  * GateProcess, FixtureDirectory), each defined there itself with its own
  * Test colocated. This suite's subject is a bin/support/ PRODUCTION script,
- * the same relationship CheckConsumerConfigTest/CheckVersionLockstepTest
+ * the same relationship the CheckConsumerConfig*Test classes/CheckVersionLockstepTest
  * have to their own bin/*.php gate scripts.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>

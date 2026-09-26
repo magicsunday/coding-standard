@@ -84,8 +84,8 @@ jobs:
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
-            # The PHPUnit step below runs node: CheckConsumerConfigTest drives
-            # bin/check-js-config.mjs next to the PHP gate, and the js-packaging
+            # The PHPUnit step below runs node: the CheckConsumerConfigBiomeTsconfig*
+            # classes drive bin/check-js-config.mjs next to the PHP gate, and the js-packaging
             # group packs and installs this package with npm and runs Biome,
             # tsc and jscpd — so this step must run before it. Pinned the same way the js
             # job pins it (see that job's comment), rather than relying on
