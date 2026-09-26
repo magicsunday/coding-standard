@@ -630,8 +630,15 @@ ruleset is deliberately permissive at this stage — it forbids only the
 uncontroversial upward edges (a leaf depending on a higher layer, anything
 depending on the composition root), and keeps the domain core (`Enum`/`Model`/
 `Contract`/`Configuration`) mutually permissive to avoid a false `Model`↔`Contract`
-cycle. Tighten individual edges per module only after a `deptrac analyse` dry-run
-proves the stricter edge is violation-free. Dependencies on classes outside every
+cycle. A consumer's `deptrac.yaml` can add layers of its own with any ruleset, and
+can WIDEN a shared layer, but it cannot NARROW one: Deptrac unites the rulesets of
+every imported file, so a rule the consumer declares for a shared layer is added to
+the shared one, never substituted for it (verified against deptrac 4.7.2: the shared
+ruleset reports a `Model`→`Module` edge, and a local `Model: [Module]` makes the
+report disappear). A per-module narrowing of a shared layer therefore goes to phpat —
+see the next section. Tighten the shared ruleset itself only after a `deptrac
+analyse` dry-run in every consumer proves the stricter edge is violation-free.
+Dependencies on classes outside every
 layer (the framework, webtrees core) are reported as "uncovered" but do not fail
 the run; `--fail-on-uncovered` is left off because every external dependency is
 uncovered.
@@ -643,7 +650,7 @@ next section.
 ### phpat — opt-in preset — `phpstan/phpat.neon`
 
 **Deptrac first, phpat only where Deptrac cannot.** Deptrac models "who may depend
-on whom" and nothing else, so two kinds of rule are out of its reach:
+on whom" and nothing else, so three kinds of rule are out of its reach:
 
 - **Structural invariants** on a class — "every class in X is `final`", "every
   abstract class is named `Abstract*`", "every DTO implements `JsonSerializable`".
@@ -657,8 +664,12 @@ on whom" and nothing else, so two kinds of rule are out of its reach:
   classes in both layers (verified against deptrac 4.7.2 and the shared ruleset:
   229 violations), and allowing the edge for all of `Support` stops rejecting e.g.
   `Support\Gedcom` touching the database.
+- **A shared layer narrowed for one module** — "in this package `Model` is a pure
+  leaf", where the shared ruleset lets `Model` reach `Contract`. Deptrac unites the
+  rulesets across `imports:`, so a consumer's `deptrac.yaml` can only widen a shared
+  layer (see the Deptrac section above).
 
-phpat covers both, as PHPStan rules. It is **not** delivered by this package's
+phpat covers all three, as PHPStan rules. It is **not** delivered by this package's
 `require` — only listed under `suggest` — so a repository with no such rule never
 installs it. A repository that has one requires phpat itself and includes the
 preset next to the base:
@@ -693,7 +704,7 @@ not a PHPUnit test.
 Two rules for what goes into it:
 
 - **Every rule carries a comment naming why Deptrac does not fit** — structural
-  invariant or sub-layer boundary. A plain layer-dependency rule written in phpat
+  invariant, sub-layer boundary, or a shared layer narrowed for this module. A plain layer-dependency rule written in phpat
   is the drift this split exists to prevent; it belongs in `deptrac.yaml`.
 - **Prove each new subject once against a deliberate violation.** A rule whose
   subject matches nothing enforces nothing while PHPStan stays green — a

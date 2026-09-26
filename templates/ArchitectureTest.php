@@ -25,7 +25,9 @@ use PHPat\Test\PHPat;
  * such as a modifier or a name, which Deptrac cannot inspect) or a sub-layer
  * boundary (an edge granted to one sub-namespace of a Deptrac layer and denied
  * to the rest of it, which Deptrac cannot express because it checks a class
- * against every layer it belongs to). Every rule says which of the two it is.
+ * against every layer it belongs to) or a shared layer narrowed for this package
+ * (Deptrac unites rulesets across imports, so deptrac.yaml can only widen a shared
+ * layer). Every rule says which of the three it is.
  *
  * Copy this file to tests/Architecture/ArchitectureTest.php, adjust the namespace
  * to the consuming package, `composer require --dev phpat/phpat`, include the
