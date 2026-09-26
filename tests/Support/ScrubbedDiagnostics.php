@@ -43,8 +43,9 @@ require_once __DIR__ . '/../../bin/support/safe-report-value.php';
  * self::fail(), never assertStringContainsString()/
  * assertStringNotContainsString(); the four message helpers are the scrub they
  * fail through. tests/ScrubbedDiagnosticGuardTest.php scans a fixed list of
- * suites for a raw report reaching an assertion and recognises the four
- * message helpers by their bare names.
+ * suites for a raw report reaching any assert*() call or fail(), and
+ * recognises the four message helpers by their bare names together with the
+ * position of the one argument each scrubs.
  *
  * @phpstan-require-extends TestCase
  *
