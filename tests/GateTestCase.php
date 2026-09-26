@@ -54,12 +54,14 @@ use function substr;
  * assertStringContainsString()/assertStringNotContainsString()/
  * assertDoesNotMatchRegularExpression(): $result->output is exactly the
  * value under test for a forged workflow command, and a concrete test class
- * extending this one — confirmed for CheckConsumerConfigTest, via genuinely
+ * extending this one — confirmed for the CheckConsumerConfig*Test classes
+ * (through tests/Support/AbstractConsumerConfigTestCase.php), via genuinely
  * poisoned fixtures such as a `##[error]forged` devDependency name; re-derive
  * the current full set with `grep -rl "extends GateTestCas[e]" tests/`
  * (the bracketed "[e]" keeps this very citation from matching its own
  * copy of the search string, since this file does not itself extend
- * GateTestCase) rather than trusting this list to stay exhaustive — can and does hand it
+ * GateTestCase), plus the subclasses of any abstract class it finds, rather
+ * than trusting this list to stay exhaustive — can and does hand it
  * deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
  * tests/CheckJsConfigsTest.php's own
@@ -398,7 +400,7 @@ abstract class GateTestCase extends TestCase
      * message-or-default choice is made once, not at every call site; the
      * containment check itself, and why it is never
      * assertStringContainsString(), is ScrubbedDiagnostics::assertOutputContains()'s
-     * own concern. CheckConsumerConfigTest reaches this (transitively, via
+     * own concern. The CheckConsumerConfig*Test classes reach this (transitively, via
      * assertGateRejects()/assertGateUsageError()/assertGateReportIsInert())
      * with genuinely poisoned $expectedSubstring values.
      *
@@ -469,7 +471,7 @@ abstract class GateTestCase extends TestCase
      * is replaced with a padding key, so the document stays valid JSON and
      * every other key in $body survives untouched for the gate under test to
      * inspect. Ported from tests/harness.sh's harness_pad_json_to_cap();
-     * shared here once a second caller (CheckConsumerConfigTest, #78) needed
+     * shared here once a second caller (the consumer-config suite, #78) needed
      * it — tests/CheckVersionLockstepTest.php's own copy (#80) predates that
      * and carried a private, non-shared reimplementation because it was the
      * only caller at the time.

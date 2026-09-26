@@ -175,7 +175,7 @@ final class LintJsonTest extends GateTestCase
 
     /**
      * Unreadable: permissions revoked. Skipped for uid 0, the same as
-     * CheckConsumerConfigTest's own unreadable-config cases: root bypasses
+     * the CheckConsumerConfig*Test classes' own unreadable-config cases: root bypasses
      * DAC, so mode 000 stays readable and this would read as a false
      * regression rather than a caught violation. CI runs non-root, so the
      * branch stays exercised there.
@@ -622,7 +622,7 @@ final class LintJsonTest extends GateTestCase
      * Skips the calling test when running as root: uid 0 bypasses DAC, so
      * mode 000 stays readable — a false regression, not a real one. CI runs
      * non-root, so the branch stays exercised there. Same helper as
-     * CheckConsumerConfigTest's own.
+     * AbstractConsumerConfigTestCase's own.
      *
      * @return void
      */

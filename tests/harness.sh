@@ -170,7 +170,7 @@ harness_rmdir_if_owned() {
 # A JSON-shaped sibling of this builder (padding via a trailing `"//"` key rather than
 # a filler run) existed here too until #78 removed its only remaining bash caller;
 # the JSON shape now lives once, shared, as GateTestCase::padJsonToCap() (moved there
-# by #78 once CheckConsumerConfigTest became a second PHPUnit caller alongside
+# by #78 once the consumer-config suite became a second PHPUnit caller alongside
 # CheckVersionLockstepTest), and the text shape now sits beside it as
 # GateTestCase::padTextToCap().
 harness_pad_text_to_cap() {
