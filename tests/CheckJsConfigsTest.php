@@ -1553,8 +1553,7 @@ TS),
      * test-authored literal — fed into a plain PHP string comparison that
      * NEVER routes through GateProcess/GateTestCase's own scrub apparatus, a
      * structurally different path from every subprocess-output assertion
-     * that RISKY_ASSERTIONS-style checks (see
-     * tests/ScrubbedDiagnosticGuardTest.php) scan for.
+     * that tests/ScrubbedDiagnosticGuardTest.php scans for.
      *
      * The capture pattern excludes a literal newline explicitly
      * (`[^`\n]*` rather than `[^`]*`) as defense in depth on top of the
@@ -1616,7 +1615,7 @@ TS),
      * which embeds the raw operand via Exporter::export() — not this class's own concern,
      * since every operand pair here is a string, but
      * tests/ScrubbedDiagnosticGuardTest.php's own class docblock polices it
-     * for RISKY_ASSERTIONS generally and points back to THIS docblock for
+     * for every guarded call and points back to THIS docblock for
      * the dated observation and re-derivation command above, so keep the
      * two consistent. self::fail() builds no ComparisonFailure at all, so
      * scrubbedForDiagnostic() on both operands here is the whole of what

@@ -16,8 +16,6 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
-use function array_diff;
-use function array_keys;
 use function array_slice;
 use function count;
 use function file_get_contents;
@@ -27,64 +25,66 @@ use function in_array;
 use function is_array;
 use function is_file;
 use function preg_match;
+use function preg_match_all;
 use function token_get_all;
 
 use const T_COMMENT;
+use const T_CURLY_OPEN;
 use const T_DOC_COMMENT;
+use const T_DOLLAR_OPEN_CURLY_BRACES;
+use const T_ELLIPSIS;
 use const T_STRING;
 use const T_WHITESPACE;
 
 /**
- * A structural, grep-shaped regression guard against a PHPUnit assertion
- * whose own call — subject/actual argument OR a hand-written custom
- * message — carries a raw
+ * A structural, grep-shaped regression guard against a PHPUnit assertion (or
+ * a self::fail()) whose own call — subject/actual argument OR a hand-written
+ * custom message — carries a raw
  * `$result->output`/`->getOutput()`/`->getErrorOutput()` access, run against
  * PR-editable content (this repository's own biome/base.json,
  * tsconfig/base.json, package.json, templates/jscpd.json, or subprocess
  * output produced against them). The string-containment, regex, assertSame()
- * and assertEquals() entries of self::RISKY_ASSERTIONS leak the
- * raw subject/actual operand on a failure, but through TWO DIFFERENT
- * PHPUnit mechanisms, and wrapping only a custom $message in
- * self::scrubbedForDiagnostic() suppresses neither: the containment and
- * regex ones embed the raw operand straight into getMessage();
- * assertSame()/assertEquals()
- * on two STRING operands instead attach a
- * SebastianBergmann\Comparator\ComparisonFailure that only PHPUnit's own
- * CLI/text printer renders, never getMessage() — EXCEPT a
+ * and assertEquals() assertions leak the raw subject/actual operand on a
+ * failure, but through TWO DIFFERENT PHPUnit mechanisms, and wrapping only a
+ * custom $message in self::scrubbedForDiagnostic() suppresses neither: the
+ * containment and regex ones embed the raw operand straight into
+ * getMessage(); assertSame()/assertEquals() on two STRING operands instead
+ * attach a SebastianBergmann\Comparator\ComparisonFailure that only
+ * PHPUnit's own CLI/text printer renders, never getMessage() — EXCEPT a
  * TYPE-MISMATCHED comparison (e.g. one operand `null`), which reaches
  * getMessage() by a third path instead. Both dated observations, their
  * re-derivation commands, and that exception live in
  * tests/CheckJsConfigsTest.php's own assertMessageDoesNotForgeWorkflowCommand()
  * and readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
- * docblocks respectively, not repeated here. Every real
- * assertSame()/assertEquals() call site self::RISKY_ASSERTIONS scans for in
- * this codebase compares same-typed operands, so this guard's own
- * scope does not currently need to police that third path — but a future
- * `assertSame($stringOrNull, $poisonedString)`-shaped call would need the
- * same manual self::fail() treatment even though it builds no
- * ComparisonFailure.
+ * docblocks respectively, not repeated here. Every other assertion leaks
+ * through its message alone, which reaches getMessage() verbatim.
  *
- * assertNotSame() and the two ScrubbedDiagnostics containment helpers are
- * listed for a different reason: their subject does not carry report content
- * in the guarded suites (an int exit code, an empty-string sentinel that fails
- * only on `''`, a GateResult), so the channel there is a custom message or
- * label that interpolates the raw output. The scan still checks a listed
- * call's whole argument list, so even `assertNotSame('', $result->output,
- * 'msg')`, which cannot leak, is flagged; keep the report out of such a call
- * or wrap it.
+ * Which calls are guarded is a PATTERN, not a list (#164,
+ * self::GUARDED_CALL_PATTERN): every `assert*()` call — PHPUnit's own
+ * (assertTrue(), assertCount(), …) and every suite-local helper alike —
+ * plus self::fail(). A hand-kept list only ever covered the names someone
+ * thought of; `assertTrue($ok, $process->getErrorOutput())` leaks as surely
+ * as assertSame() does. The whole argument list is scanned, so even
+ * `assertNotSame('', $result->output, 'msg')`, which cannot leak, is flagged;
+ * keep the report out of such a call, or hoist an integer-valued use like
+ * `substr_count($result->output, …)` into a local first.
  *
- * Labels are not followed: a raw report that reaches a label through a local
- * variable or a callable (CheckDisallowedCallsTest passes
- * `$failureMessage($function)`, where `$function` is a name its extractor
- * restricts to `[a-z0-9_]+`) is invisible, and
- * so is one inside a whole self::SAFE_WRAP_CALLS span such as
- * `diagnosticMessage()`, which is stripped as scrubbed.
+ * A sanctioned wrap (self::SAFE_WRAP_CALLS) is stripped BY ARGUMENT (#164):
+ * only the one argument it scrubs is removed, and its other arguments —
+ * diagnosticMessage()'s label, messageOrDefault()'s verbatim message,
+ * messageWithOutput()'s message and default — stay in the scan, since each
+ * is composed into the result unscrubbed.
+ *
+ * Labels are still not followed through data flow: a raw report that reaches
+ * a label through a local variable or a callable (CheckDisallowedCallsTest
+ * passes `$failureMessage($function)`, where `$function` is a name its
+ * extractor restricts to `[a-z0-9_]+`) is invisible.
  *
  * This is a BEST-EFFORT static grep-shaped guard, not a real PHP parser.
  * Detection walks the token_get_all() TOKEN ARRAY directly, by a token
  * INDEX rather than a byte offset (self::significantTokens()/
  * self::openParenIndexAfter()/self::matchingCloseParenIndex()/
- * self::stripBalancedCallsFromTokens() below), instead of flattening the
+ * self::stripSafeWraps() below), instead of flattening the
  * tokens into a reconstructed string plus a parallel byte-mask that a
  * caller has to keep manually realigned through every strip — this file's
  * earlier byte-mask-plus-strpos() approach twice produced a live-reproduced
@@ -120,10 +120,9 @@ use const T_WHITESPACE;
  *   below. Locating a candidate here instead means finding a T_STRING
  *   token, which the tokenizer never emits for text inside a string
  *   literal in the first place, so the failure mode cannot recur.
- * - IDENTIFIER-BOUNDARY-SAFE: self::openParenIndexAfter() (used both to
- *   locate a self::RISKY_ASSERTIONS candidate and inside
- *   self::stripBalancedCallsFromTokens() for a self::SAFE_WRAP_CALLS name)
- *   only matches a T_STRING token whose text EXACTLY equals the wanted
+ * - IDENTIFIER-BOUNDARY-SAFE: a guarded call (self::GUARDED_CALL_PATTERN,
+ *   anchored at both ends) and a self::SAFE_WRAP_CALLS name
+ *   (self::stripSafeWraps()) each only match a T_STRING token whose text EXACTLY equals the wanted
  *   name — never a substring — because PHP's own tokenizer already emits a
  *   whole identifier as one token; a byte-level `strpos($text,
  *   "{$name}(")` needle search has no such boundary and would match
@@ -135,14 +134,8 @@ use const T_WHITESPACE;
  *   by their bare, EXACT name, not by resolving `self::`/`GateTestCase::`/an
  *   inherited call to the same method — a differently-named future helper
  *   wrapping the identical scrub would need adding to self::SAFE_WRAP_CALLS
- *   below, or this guard would false-positive on it.
- * - self::fail() call sites (the manual `if (...) { self::fail(...) }`
- *   shape the rest of this suite uses instead of a risky assertion) are
- *   deliberately OUT OF SCOPE: self::fail() takes a single literal string
- *   with no re-export mechanism, so a raw value reaching it is a DIFFERENT,
- *   already-covered concern (the message itself must be built with the
- *   scrub wrap, which is a per-call-site fix, not a PHPUnit-mechanism leak
- *   this guard exists to catch).
+ *   below, with the position of the argument it scrubs, or this guard would
+ *   false-positive on it.
  * - self::RAW_OUTPUT_PATTERN also flags a regex-capture variable
  *   (`$matches[`) and an array-key access shaped like subprocess output
  *   (`['stdout']`/`['stderr']`, SINGLE-QUOTED only — a double-quoted
@@ -150,7 +143,8 @@ use const T_WHITESPACE;
  *   confirmed to have no live instance in any of self::guardedFiles() today),
  *   on top of the direct `->output`/`->getOutput()`/`->getErrorOutput()`
  *   accessors, applied to self::tokensToText()'s reconstruction of a call's
- *   own argument tokens (with every sanctioned wrap span already removed) —
+ *   own argument tokens (with every sanctioned wrap's scrubbed argument
+ *   already removed) —
  *   but it still matches by fixed literal shape, not real data-flow, so a
  *   raw value reaching a risky assertion through a differently-named
  *   variable or a deeper array/object path is still not detected.
@@ -178,7 +172,7 @@ use const T_WHITESPACE;
  *   self::guardedFiles() uses this syntax. If this construct is ever
  *   intentionally introduced into a guarded file, the guard would need a
  *   targeted extension at that point — not before.
- * - self::RISKY_ASSERTIONS/self::SAFE_WRAP_CALLS matching requires an exact
+ * - self::GUARDED_CALL_PATTERN/self::SAFE_WRAP_CALLS matching requires an exact
  *   T_STRING token match on the call NAME itself, not on whatever precedes
  *   it — so a namespace-qualified STATIC call
  *   (`\PHPUnit\Framework\Assert::assertSame(...)`, or any other class-name
@@ -197,21 +191,13 @@ use const T_WHITESPACE;
  *   never inspects — but no PHPUnit assertion is ever invoked that way
  *   (they are all static methods, always called via `::`), so this is a
  *   real but practically inapplicable gap for this guard's actual scope.
- *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assertSame|assertEquals|
- *   assertNotSame|assertOutputContains|assertOutputDoesNotContain|
- *   assertStringContainsString|assertStringNotContainsString|
- *   assertMatchesRegularExpression|assertDoesNotMatchRegularExpression)\('
+ *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assert[A-Z][A-Za-z0-9_]*|fail)\('
  *   tests/GateTestCase.php tests/CheckJsConfigsTest.php
  *   tests/CheckJsConfigsManifestTest.php tests/CheckCheckedExceptionsTest.php
  *   tests/CheckDisallowedCallsTest.php tests/Support/ScrubbedDiagnostics.php`:
  *   every hit is either a docblock mention or a call spelled with the bare
  *   `self::` prefix, so no call site in self::guardedFiles() uses another
  *   spelling.
- * - self::stripBalancedCallsFromTokens() strips an ENTIRE self::SAFE_WRAP_CALLS
- *   call span as safe once the wrap NAME matches, with no notion that a wrap
- *   may scrub only SOME of its own arguments — messageOrDefault() is exactly
- *   that case. See doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument()
- *   below for the mechanism, the reproduction, and why nothing is missed today.
  *
  * A determined future edit can still dodge this guard (e.g. reassigning
  * $result->output to a local variable first, then passing that variable) —
@@ -226,37 +212,29 @@ use const T_WHITESPACE;
 final class ScrubbedDiagnosticGuardTest extends GateTestCase
 {
     /**
-     * The PHPUnit assertion functions whose own subject/actual argument
-     * leaks raw on a failure — via failureDescription() into getMessage()
-     * for the containment and regex ones, via a raw ComparisonFailure
-     * PHPUnit's CLI/text printer renders (never getMessage(), for two string
-     * operands — see this class's own docblock above for the type-mismatch
-     * exception) for assertSame()/assertEquals() — plus the calls that leak
-     * only through an interpolated message or label; see this class's own
-     * docblock above for the distinction.
+     * What makes a call a guarded one: any `assert*()` call — PHPUnit's own
+     * and every suite-local helper alike — plus `fail()`. A pattern rather
+     * than a closed list of names (#164): a list only ever covers the names
+     * someone thought of, and `assertTrue($ok, $result->output)` leaks through
+     * its message exactly as `assertSame()` does. A declaration of such a
+     * helper is not a call and is skipped (self::isGuardedCallAt()).
      */
-    private const RISKY_ASSERTIONS = [
-        'assertStringContainsString',
-        'assertStringNotContainsString',
-        'assertMatchesRegularExpression',
-        'assertDoesNotMatchRegularExpression',
-        'assertSame',
-        'assertEquals',
-        'assertNotSame',
-        'assertOutputContains',
-        'assertOutputDoesNotContain',
-    ];
+    private const GUARDED_CALL_PATTERN = '/\A(?:assert[A-Z]\w*|fail)\z/';
 
     /**
-     * The call names this guard accepts as already having scrubbed whatever
-     * they wrap — see this class's own docblock for why this is a fixed,
-     * unresolved name list rather than true call-graph resolution.
+     * The sanctioned wraps, each mapped to the zero-based position of the ONE
+     * argument it scrubs. Only that argument is stripped; every other
+     * argument (diagnosticMessage()'s label, messageOrDefault()'s and
+     * messageWithOutput()'s message and default) is composed into the
+     * result verbatim and therefore stays in the scan (#164). A wrap called
+     * with named or spread arguments cannot be mapped by position, so it is
+     * not stripped at all — the fail-closed direction.
      */
     private const SAFE_WRAP_CALLS = [
-        'scrubbedForDiagnostic',
-        'diagnosticMessage',
-        'messageOrDefault',
-        'messageWithOutput',
+        'scrubbedForDiagnostic' => 0,
+        'diagnosticMessage'     => 1,
+        'messageOrDefault'      => 2,
+        'messageWithOutput'     => 2,
     ];
 
     /**
@@ -303,7 +281,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * tests/GateTestCaseTest.php's own
      * theMessageCompositionHelpersComposeAsDocumented() (several assertSame()
      * calls against a hand-authored literal carrying `::error::`) share the
-     * RISKY_ASSERTIONS shape this guard scans for, yet are deliberately left
+     * shape this guard scans for, yet are deliberately left
      * out of the list below: both fixtures are author-controlled literals a
      * PR can never influence, not PR-editable content, so routing them
      * through the scrub helpers would be unnecessary churn rather than
@@ -532,23 +510,104 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Removes every balanced `$funcName(...)` call from $tokens — the call
-     * name token through its matching closing `)` token, inclusive — leaving
-     * every other token untouched and in order. $funcName must match a
-     * T_STRING token's own text EXACTLY, never as a substring: PHP's own
-     * tokenizer already emits a whole identifier as one token, so a
-     * differently-named identifier that merely contains $funcName (e.g.
-     * `xscrubbedForDiagnostic` containing `scrubbedForDiagnostic`) can no
-     * longer be mistaken for it the way a byte-level `strpos($text,
-     * "{$funcName}(")` needle search could — see this class's own docblock
-     * for the incident this structurally forecloses.
+     * Splits a call's argument-token span at its top-level commas. A comma
+     * nested inside `(...)`, `[...]` or `{...}` (a nested call, an array
+     * literal, a match arm, an interpolation) belongs to that inner
+     * construct, so each of those opens and closes a depth level — counted
+     * only on bare punctuation tokens (plus the array-shaped `{`-openers of an
+     * interpolation, whose closing `}` is bare), for the reason
+     * self::isRawParenToken() gives. An empty trailing argument (a trailing
+     * comma) is dropped.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens   The token span to strip $funcName(...) calls from.
-     * @param string                                        $funcName The bare call name to strip (no `self::` prefix — see this class's own docblock).
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens A call's own argument-token span.
      *
-     * @return list<string|array{0: int, 1: string, 2: int}> The input $tokens with every balanced $funcName(...) call removed.
+     * @return list<list<string|array{0: int, 1: string, 2: int}>> One token list per argument, in order.
      */
-    private static function stripBalancedCallsFromTokens(array $tokens, string $funcName): array
+    private static function splitTopLevelArguments(array $tokens): array
+    {
+        $arguments = [];
+        $current   = [];
+        $depth     = 0;
+
+        foreach ($tokens as $token) {
+            if (is_array($token)) {
+                if (($token[0] === T_CURLY_OPEN) || ($token[0] === T_DOLLAR_OPEN_CURLY_BRACES)) {
+                    ++$depth;
+                }
+            } elseif (in_array($token, ['(', '[', '{'], true)) {
+                ++$depth;
+            } elseif (in_array($token, [')', ']', '}'], true)) {
+                --$depth;
+            } elseif (($token === ',') && ($depth === 0)) {
+                $arguments[] = $current;
+                $current     = [];
+
+                continue;
+            }
+
+            $current[] = $token;
+        }
+
+        if (self::nextNonWhitespaceIndex($current, 0) !== null) {
+            $arguments[] = $current;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * Whether every argument is a plain positional one — no `...` spread and
+     * no `name:` label — so self::SAFE_WRAP_CALLS' positions apply to it.
+     *
+     * @param list<list<string|array{0: int, 1: string, 2: int}>> $arguments The output of self::splitTopLevelArguments().
+     *
+     * @return bool True when every argument is positional.
+     */
+    private static function isPositionalArgumentList(array $arguments): bool
+    {
+        foreach ($arguments as $argument) {
+            $first = self::nextNonWhitespaceIndex($argument, 0);
+
+            if ($first === null) {
+                continue;
+            }
+
+            if (is_array($argument[$first]) && ($argument[$first][0] === T_ELLIPSIS)) {
+                return false;
+            }
+
+            if (is_array($argument[$first]) && ($argument[$first][0] === T_STRING)) {
+                $next = self::nextNonWhitespaceIndex($argument, $first + 1);
+
+                if (($next !== null) && ($argument[$next] === ':')) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Removes the scrubbed argument of every self::SAFE_WRAP_CALLS call from
+     * $tokens and keeps everything else, so whatever self::tokensToText()
+     * reconstructs afterwards carries only the text NOT already covered by a
+     * scrub — a wrap's unscrubbed arguments included (#164). A matched wrap
+     * call is replaced by its remaining arguments, each stripped the same way
+     * in turn (a wrap nested inside a label is still honoured) and followed by
+     * a `,`, so two of them never fuse into one token text. The wrap name
+     * must equal a T_STRING token's own text EXACTLY, never as a substring:
+     * PHP's own tokenizer already emits a whole identifier as one token, so
+     * `xscrubbedForDiagnostic` cannot be mistaken for `scrubbedForDiagnostic`
+     * the way a byte-level needle search could. A wrap whose argument list is
+     * not plainly positional (self::isPositionalArgumentList()) is left in
+     * place whole, its arguments scanned like any other text.
+     *
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens A call's own argument-list token span.
+     *
+     * @return list<string|array{0: int, 1: string, 2: int}> The input $tokens with every scrubbed wrap argument removed.
+     */
+    private static function stripSafeWraps(array $tokens): array
     {
         $result = [];
         $count  = count($tokens);
@@ -557,14 +616,22 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         while ($i < $count) {
             $token = $tokens[$i];
 
-            if (is_array($token) && ($token[0] === T_STRING) && ($token[1] === $funcName)) {
-                $openParenIndex = self::openParenIndexAfter($tokens, $i);
+            if (is_array($token) && ($token[0] === T_STRING) && isset(self::SAFE_WRAP_CALLS[$token[1]])) {
+                $callArguments = self::callArgumentTokensAt($tokens, $i);
 
-                if ($openParenIndex !== null) {
-                    $closeParenIndex = self::matchingCloseParenIndex($tokens, $openParenIndex);
+                if ($callArguments !== null) {
+                    $arguments = self::splitTopLevelArguments($callArguments[0]);
 
-                    if ($closeParenIndex !== null) {
-                        $i = $closeParenIndex + 1;
+                    if (self::isPositionalArgumentList($arguments)) {
+                        foreach ($arguments as $position => $argument) {
+                            if ($position === self::SAFE_WRAP_CALLS[$token[1]]) {
+                                continue;
+                            }
+
+                            $result = [...$result, ...self::stripSafeWraps($argument), ','];
+                        }
+
+                        $i = $callArguments[1] + 1;
 
                         continue;
                     }
@@ -579,22 +646,21 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Strips every self::SAFE_WRAP_CALLS name's balanced call out of
-     * $tokens, one wrap name at a time, so whatever self::tokensToText()
-     * reconstructs afterwards carries only the argument text NOT already
-     * covered by a sanctioned scrub wrap.
+     * Whether the token at $index is a T_STRING naming a guarded call
+     * (self::GUARDED_CALL_PATTERN). A helper's own declaration matches too,
+     * harmlessly: a parameter list never carries a self::RAW_OUTPUT_PATTERN
+     * shape, so it cannot produce a finding.
      *
-     * @param list<string|array{0: int, 1: string, 2: int}> $tokens A call's own argument-list token span.
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens The output of self::significantTokens().
+     * @param int                                           $index  The index to test.
      *
-     * @return list<string|array{0: int, 1: string, 2: int}> The input $tokens with every sanctioned wrap call removed.
+     * @return bool True when $index names a guarded call.
      */
-    private static function stripSafeWraps(array $tokens): array
+    private static function isGuardedCallAt(array $tokens, int $index): bool
     {
-        foreach (self::SAFE_WRAP_CALLS as $wrap) {
-            $tokens = self::stripBalancedCallsFromTokens($tokens, $wrap);
-        }
+        $token = $tokens[$index];
 
-        return $tokens;
+        return is_array($token) && ($token[0] === T_STRING) && (preg_match(self::GUARDED_CALL_PATTERN, $token[1]) === 1);
     }
 
     /**
@@ -634,9 +700,9 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Scans $path for every call to one of self::RISKY_ASSERTIONS and, for
-     * each one, strips every self::SAFE_WRAP_CALLS wrap from its own
-     * argument list — the message argument included, since a hand-written
+     * Scans $path for every guarded call (self::GUARDED_CALL_PATTERN) and,
+     * for each one, strips every self::SAFE_WRAP_CALLS wrap's scrubbed
+     * argument from its own argument list — the message argument included, since a hand-written
      * custom message embedding raw output unscrubbed is the SAME defect
      * class as a hand-rolled message that skips the scrub helper, not merely
      * the PHPUnit auto-export mechanism. Whatever self::tokensToText()
@@ -661,36 +727,33 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         $count    = count($tokens);
         $findings = [];
 
-        foreach (self::RISKY_ASSERTIONS as $assertionName) {
-            $i = 0;
+        $i = 0;
 
-            while ($i < $count) {
-                $token = $tokens[$i];
+        while ($i < $count) {
+            $token = $tokens[$i];
 
-                if (!is_array($token) || ($token[0] !== T_STRING) || ($token[1] !== $assertionName)) {
-                    ++$i;
+            if (!self::isGuardedCallAt($tokens, $i)) {
+                ++$i;
 
-                    continue;
-                }
-
-                $callArguments = self::callArgumentTokensAt($tokens, $i);
-
-                if ($callArguments === null) {
-                    ++$i;
-
-                    continue;
-                }
-
-                [$argumentTokens, $closeParenIndex] = $callArguments;
-                $strippedText                       = self::tokensToText(self::stripSafeWraps($argumentTokens));
-
-                if (preg_match(self::RAW_OUTPUT_PATTERN, $strippedText) === 1) {
-                    $line       = $token[2];
-                    $findings[] = "{$path}:{$line}: {$assertionName}(" . self::tokensToText($argumentTokens) . ')';
-                }
-
-                $i = $closeParenIndex + 1;
+                continue;
             }
+
+            $callArguments = self::callArgumentTokensAt($tokens, $i);
+
+            if ($callArguments === null) {
+                ++$i;
+
+                continue;
+            }
+
+            [$argumentTokens, $closeParenIndex] = $callArguments;
+            $strippedText                       = self::tokensToText(self::stripSafeWraps($argumentTokens));
+
+            if (is_array($token) && (preg_match(self::RAW_OUTPUT_PATTERN, $strippedText) === 1)) {
+                $findings[] = "{$path}:{$token[2]}: {$token[1]}(" . self::tokensToText($argumentTokens) . ')';
+            }
+
+            $i = $closeParenIndex + 1;
         }
 
         return $findings;
@@ -721,7 +784,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     /**
      * Exposes the STRIPPED argument text self::findUnscrubbedRawOutputAssertions()
      * matches self::RAW_OUTPUT_PATTERN against internally, for the FIRST
-     * self::RISKY_ASSERTIONS call found in $phpSource — the finding string
+     * guarded call found in $phpSource — the finding string
      * that method itself returns is built from the UNSTRIPPED argument
      * tokens instead, so it cannot tell a correct strip (leaving only a
      * genuinely unwrapped trailing access) apart from a mis-parse that
@@ -732,7 +795,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * see doesNotMisbalanceOnAClosingParenEmbeddedInAWrapsOwnHeredocArgument()
      * for the case this exists for.
      *
-     * @param string $phpSource PHP source containing exactly one self::RISKY_ASSERTIONS call.
+     * @param string $phpSource PHP source containing exactly one guarded call.
      *
      * @return string The stripped argument text self::RAW_OUTPUT_PATTERN is actually matched against.
      */
@@ -744,7 +807,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         for ($i = 0; $i < $count; ++$i) {
             $token = $tokens[$i];
 
-            if (!is_array($token) || ($token[0] !== T_STRING) || !in_array($token[1], self::RISKY_ASSERTIONS, true)) {
+            if (!self::isGuardedCallAt($tokens, $i)) {
                 continue;
             }
 
@@ -757,19 +820,17 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             return self::tokensToText(self::stripSafeWraps($callArguments[0]));
         }
 
-        self::fail('No self::RISKY_ASSERTIONS call was found in the given fixture source.');
+        self::fail('No guarded call was found in the given fixture source.');
     }
 
     /**
      * The regression guard itself: none of the files self::guardedFiles()
-     * lists may call one of self::RISKY_ASSERTIONS with a raw, unscrubbed
-     * subprocess-output accessor anywhere in its own argument list. A future
-     * call site that
-     * reintroduces the shape (rather than following the
-     * self::scrubbedForDiagnostic()/diagnosticMessage()/messageOrDefault()
-     * pattern, or the manual `if (...) { self::fail(...) }` shape this
-     * guard deliberately does not police — see this class's own docblock
-     * for why) fails this test instead of shipping silently.
+     * lists may make a guarded call (self::GUARDED_CALL_PATTERN) with a raw,
+     * unscrubbed subprocess-output accessor anywhere in its own argument list
+     * outside a wrap's scrubbed argument. A future call site that
+     * reintroduces the shape (rather than routing the report through
+     * self::scrubbedForDiagnostic()/diagnosticMessage()/messageWithOutput())
+     * fails this test instead of shipping silently.
      */
     #[Test]
     public function noRiskyAssertionCarriesUnscrubbedSubprocessOutput(): void
@@ -796,48 +857,31 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * One row per assertion name the guard must flag: a raw report interpolated
-     * into that call's message is found. The rows are spelled out here, not
-     * derived from self::RISKY_ASSERTIONS, because a name removed from the
-     * constant would then remove its own row and nothing would go red; the
-     * lockstep test below covers one direction and each row's own test the other.
+     * One row per call shape the guard must flag: a raw report interpolated
+     * into that call's message is found. The rows deliberately reach past the
+     * names the guard used to list by hand (#164) — assertTrue(), assertCount(),
+     * a suite-local assert*() helper and fail() — since a pattern that
+     * silently narrowed back to a closed list would turn exactly those rows
+     * red.
      *
-     * @param string $assertion A name the guard must flag.
+     * @param string $call A call name the guard must flag.
      */
     #[Test]
-    #[DataProvider('riskyAssertionProvider')]
-    public function detectsARawOutputInterpolatedIntoEveryListedAssertion(string $assertion): void
+    #[DataProvider('guardedCallProvider')]
+    public function detectsARawOutputInterpolatedIntoEveryGuardedCall(string $call): void
     {
         $findings = $this->findingsFor(
             'poisoned-per-name-fixture.php',
-            "<?php\nself::{$assertion}(0, \$x, \"boom\\n{\$result->output}\");\n",
+            "<?php\nself::{$call}(0, \$x, \"boom\\n{\$result->output}\");\n",
         );
 
-        self::assertCount(1, $findings, "The guard did not flag a raw report interpolated into an {$assertion}() call.");
+        self::assertCount(1, $findings, "The guard did not flag a raw report interpolated into a {$call}() call.");
     }
 
     /**
-     * Every name the guard lists has a row. The other direction, a row for a
-     * name the guard no longer lists, already fails in that row's own test:
-     * the scan only matches listed names, so it finds nothing to flag.
+     * @return array<string, array{0: string}> Call names the guard must flag, keyed by themselves.
      */
-    #[Test]
-    public function everyAssertionTheGuardListsHasARow(): void
-    {
-        self::assertSame(
-            [],
-            array_diff(self::RISKY_ASSERTIONS, array_keys(self::riskyAssertionProvider())),
-            'The guard lists a name no row pins.',
-        );
-    }
-
-    /**
-     * The assertion names the guard must flag, spelled out on purpose (see
-     * detectsARawOutputInterpolatedIntoEveryListedAssertion()).
-     *
-     * @return array<string, array{0: string}> Every name the guard must flag, keyed by itself.
-     */
-    public static function riskyAssertionProvider(): array
+    public static function guardedCallProvider(): array
     {
         return [
             'assertStringContainsString'          => ['assertStringContainsString'],
@@ -849,7 +893,35 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             'assertNotSame'                       => ['assertNotSame'],
             'assertOutputContains'                => ['assertOutputContains'],
             'assertOutputDoesNotContain'          => ['assertOutputDoesNotContain'],
+            'assertTrue'                          => ['assertTrue'],
+            'assertFalse'                         => ['assertFalse'],
+            'assertCount'                         => ['assertCount'],
+            'assertNotEmpty'                      => ['assertNotEmpty'],
+            'assertGateRejects'                   => ['assertGateRejects'],
+            'fail'                                => ['fail'],
         ];
+    }
+
+    /**
+     * A name that merely resembles a guarded one is not one: `assertion()`
+     * has no capital after `assert`, `failed()` is not `fail()`. Without this,
+     * a pattern widened to any identifier would pass every row above while
+     * flagging ordinary helpers.
+     */
+    #[Test]
+    public function doesNotFlagACallThatOnlyResemblesAGuardedName(): void
+    {
+        $findings = $this->findingsFor(
+            'resembling-name-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertion($result->output);
+            self::failed($result->output);
+            self::fails($result->output);
+            PHP,
+        );
+
+        self::assertSame([], $findings, 'The guard flagged a call whose name only resembles a guarded one.');
     }
 
     /**
@@ -914,32 +986,13 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * Pins a KNOWN, accepted gap in this class's own docblock (the
-     * self::SAFE_WRAP_CALLS/messageOrDefault() trust-model paragraph): once
-     * self::stripBalancedCallsFromTokens() matches the wrap NAME, it strips
-     * the WHOLE call span, with no notion that messageOrDefault()'s
-     * non-empty-$message branch never scrubs that argument. This assertion
-     * is deliberately the OPPOSITE of every sibling control above — it
-     * proves the gap exists, not that the guard is sound — so this class's
-     * own docblock's "live-reproduced" claim stays a real, re-derivable fact
-     * rather than an unfalsifiable one. If self::stripBalancedCallsFromTokens()
-     * is ever made argument-aware for messageOrDefault(), $findings below
-     * MUST start reporting this call site, and this test's own assertion
-     * needs updating in lockstep with that docblock paragraph. Why nothing
-     * is missed TODAY: `self::messageOrDefault(`'s own call sites all pass
-     * the bare parameter `$message`, so re-deriving this claim means tracing
-     * every CALLER of the wrapper methods that resolve it instead — `grep -n
-     * "assertManifestAccepts(\|assertManifestRanAndRejected(\|assertManifestReportsValue(\|assertManifestRejects(\|assertRejectedForReason("
-     * tests/CheckJsConfigsManifestTest.php tests/CheckJsConfigsTest.php` (assertManifestRejects()
-     * itself only forwards its own $message parameter into assertManifestRanAndRejected(),
-     * so its own callers are the ones that actually resolve it) and
-     * read each call site's own $message argument. Every one in
-     * self::guardedFiles() today is either omitted (the '' default), a
-     * developer-typed literal, or an already-scrubbed self::diagnosticMessage()
-     * composite — never a raw, unscrubbed $result->output embedded directly.
+     * messageOrDefault() returns its non-empty $message VERBATIM, so only its
+     * third argument is scrubbed; a raw report in the first one must be found.
+     * This was an accepted gap while a matched wrap's whole span was stripped
+     * (#164) — a wrap is now stripped by argument, per self::SAFE_WRAP_CALLS.
      */
     #[Test]
-    public function doesNotFlagMessageOrDefaultsOwnUnscrubbedMessageArgument(): void
+    public function detectsARawOutputInMessageOrDefaultsUnscrubbedMessageArgument(): void
     {
         $findings = $this->findingsFor(
             'message-or-default-first-argument-leak-fixture.php',
@@ -949,13 +1002,93 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             PHP,
         );
 
-        self::assertSame(
-            [],
-            $findings,
-            "This is the accepted gap, not a regression: messageOrDefault()'s "
-            . 'first argument is never scrubbed, and this guard cannot see that '
-            . 'a sanctioned wrap only conditionally scrubs its own arguments.',
+        self::assertCount(1, $findings, "The guard did not flag a raw report in messageOrDefault()'s unscrubbed first argument.");
+    }
+
+    /**
+     * The label half of #164: diagnosticMessage() composes its label into the
+     * message verbatim, so a raw report there leaks as surely as an unwrapped
+     * one, and messageWithOutput()'s message and default do the same. One row
+     * per unscrubbed argument position.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function unscrubbedWrapArgumentProvider(): array
+    {
+        return [
+            'diagnosticMessage label'   => ['self::diagnosticMessage("boom {$result->output}", $result->output)'],
+            'messageWithOutput message' => ['self::messageWithOutput($result->output, \'d\', $result->output)'],
+            'messageWithOutput default' => ['self::messageWithOutput(\'\', $result->output, $result->output)'],
+            'messageOrDefault default'  => ['self::messageOrDefault(\'\', $result->output, $result->output)'],
+        ];
+    }
+
+    /**
+     * Flags a raw report in an argument a sanctioned wrap does not scrub.
+     *
+     * @param string $message The message expression, a wrap carrying a raw report in an unscrubbed argument.
+     */
+    #[Test]
+    #[DataProvider('unscrubbedWrapArgumentProvider')]
+    public function detectsARawOutputInAnUnscrubbedWrapArgument(string $message): void
+    {
+        $findings = $this->findingsFor('unscrubbed-wrap-argument-fixture.php', "<?php\nself::assertTrue(\$ok, {$message});\n");
+
+        self::assertCount(1, $findings, 'The guard did not flag a raw report in an argument the wrap does not scrub.');
+    }
+
+    /**
+     * A wrap's scrubbed argument must still be found at its own position when
+     * an earlier argument carries a comma of its own — inside a nested call,
+     * an array literal, a match arm, or an interpolation — and a wrap nested
+     * inside a label is honoured in turn. A split that miscounted any of
+     * those would shift the report into a kept position and flag it.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function scrubbedWrapArgumentProvider(): array
+    {
+        return [
+            'nested call'  => ["self::diagnosticMessage(implode(', ', \$parts), \$result->output)"],
+            'array'        => ["self::diagnosticMessage(['a', 'b'][\$k], \$result->output)"],
+            'match'        => ["self::diagnosticMessage(match (\$k) { 1 => 'a', default => 'b' }, \$result->output)"],
+            'interpolated' => ['self::diagnosticMessage("{$a[$k]}, {$b}", $result->output)'],
+            'nested wrap'  => ['self::diagnosticMessage(self::scrubbedForDiagnostic($result->output), $result->output)'],
+        ];
+    }
+
+    /**
+     * Does not flag a report that sits only in a wrap's scrubbed argument.
+     *
+     * @param string $message The message expression, a wrap whose report sits in its scrubbed argument alone.
+     */
+    #[Test]
+    #[DataProvider('scrubbedWrapArgumentProvider')]
+    public function doesNotFlagAReportInAWrapsScrubbedArgument(string $message): void
+    {
+        $findings = $this->findingsFor('scrubbed-wrap-argument-fixture.php', "<?php\nself::assertTrue(\$ok, {$message});\n");
+
+        self::assertSame([], $findings, 'The guard flagged a report that only a wrap\'s scrubbed argument carries.');
+    }
+
+    /**
+     * A wrap called with named or spread arguments cannot be mapped by
+     * position, so none of it is stripped: the fail-closed direction. A
+     * position-mapped strip here would drop `label:` — the unscrubbed one.
+     */
+    #[Test]
+    public function doesNotStripAWrapCalledWithNamedOrSpreadArguments(): void
+    {
+        $findings = $this->findingsFor(
+            'named-wrap-arguments-fixture.php',
+            <<<'PHP'
+            <?php
+            self::assertTrue($ok, self::diagnosticMessage(output: 'fixed', label: $result->output));
+            self::assertTrue($ok, self::scrubbedForDiagnostic(...[$result->output]));
+            PHP,
         );
+
+        self::assertCount(2, $findings, 'The guard stripped a wrap it could not map by position.');
     }
 
     /**
@@ -1039,8 +1172,8 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * true closing `)` and swallows the rest of the containing risky
      * assertion's argument list — including the trailing, genuinely
      * unwrapped `$result->output` below — as if it were already inside the
-     * sanctioned wrap, so self::stripBalancedCallsFromTokens() strips the
-     * whole span and RAW_OUTPUT_PATTERN never sees the real leak.
+     * sanctioned wrap, so its scrubbed argument swallows the trailing report
+     * and RAW_OUTPUT_PATTERN never sees the real leak.
      * Live-reproduced against this guard before string literals became
      * atomic, opaque tokens; see this class's own docblock.
      */
@@ -1098,7 +1231,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
     }
 
     /**
-     * self::stripBalancedCallsFromTokens()'s own identifier-boundary
+     * self::stripSafeWraps()'s own identifier-boundary
      * control: a helper whose name merely ENDS WITH a sanctioned wrap name
      * (`xscrubbedForDiagnostic`, not the real `scrubbedForDiagnostic`) must
      * NOT be treated as the sanctioned wrap — proving the T_STRING match is
@@ -1162,24 +1295,16 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
         );
 
         // self::assertNotEmpty() alone is not discriminating: it passes whether the guard correctly
-        // identifies ONLY the genuinely-unwrapped trailing $result->output, or incorrectly leaves the
-        // wrap's own already-scrubbed nowdoc body in the reconstructed text too — either mis-parse still
-        // produces "some non-empty finding". Assert on the STRIPPED text itself instead, so a mis-parse
-        // that keeps the wrap's own body is caught even though it would still satisfy assertNotEmpty().
+        // strips ONLY the wrap's scrubbed third argument, or mis-balances on the nowdoc's `)` and keeps
+        // that argument too. Count the raw accesses left in the STRIPPED text instead: exactly one, the
+        // trailing unwrapped one. The nowdoc body itself is the wrap's unscrubbed default, so it stays.
         $strippedText = self::strippedArgumentTextFor($phpSource);
 
-        self::assertStringNotContainsString(
-            'Looks good',
-            $strippedText,
-            'The stripped argument text still carries the sanctioned wrap\'s own nowdoc body — '
-                . 'self::stripSafeWraps() failed to remove the whole messageWithOutput(...) call, not just '
-                . 'happened to still match self::RAW_OUTPUT_PATTERN for an unrelated reason.',
-        );
+        self::assertStringContainsString('Looks good', $strippedText, 'The wrap\'s unscrubbed nowdoc default was stripped.');
         self::assertSame(
             1,
-            preg_match(self::RAW_OUTPUT_PATTERN, $strippedText),
-            'The stripped argument text does not carry the genuinely unwrapped trailing $result->output at all — '
-                . "actual stripped text: {$strippedText}",
+            preg_match_all(self::RAW_OUTPUT_PATTERN, $strippedText),
+            "The stripped argument text does not carry exactly the one trailing unwrapped \$result->output — actual stripped text: {$strippedText}",
         );
     }
 
@@ -1290,7 +1415,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * (`$result -> output`), between a method name and its own opening paren
      * (`getOutput ()` — the same kind of gap self::openParenIndexAfter()
      * already skips over via self::nextNonWhitespaceIndex() when it locates
-     * a RISKY_ASSERTIONS/SAFE_WRAP_CALLS call's own `(`), or inside a bracket
+     * a guarded or SAFE_WRAP_CALLS call's own `(`), or inside a bracket
      * pair (`$result[ 'stdout' ]`). Valid PHP allows all three, so the regex
      * must tolerate them too for each of its six alternatives, not rely on
      * this repository's own CGL step to keep such whitespace from ever
