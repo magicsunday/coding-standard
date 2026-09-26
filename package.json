@@ -1,7 +1,7 @@
 {
     "name": "@magicsunday/coding-standard",
     "version": "2.0.0",
-    "description": "Shared Biome and TypeScript configuration for the magicsunday/* JS/TS projects.",
+    "description": "Shared Biome and TypeScript configuration for the magicsunday/* JS/TS projects, plus the check-js-config gate that keeps a consumer's biome.json/tsconfig.json extending it.",
     "license": "MIT",
     "author": "Rico Sonntag <mail@ricosonntag.de>",
     "homepage": "https://github.com/magicsunday/coding-standard",
