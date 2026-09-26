@@ -726,13 +726,21 @@ JS;
             'engines.node floor is below what bin/check-js-config.mjs needs'        => [['node' => '>=18'], self::CONSUMER_ENGINES_SENTENCE],
             'engines.node has a leading-zero numeric component'                     => [['node' => '>=020'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
             "engines.node has a component past semver's own MAX_SAFE_INTEGER bound" => [['node' => '>=99999999999999999'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a bare version'                                        => [['node' => '20'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a caret range'                                         => [['node' => '^20.0.0'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is a tilde range'                                         => [['node' => '~20.0.0'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is an x-range'                                            => [['node' => '20.x'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is the any-version wildcard'                              => [['node' => '*'], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
+            'engines.node is empty'                                                 => [['node' => ''], self::CONSUMER_ENGINES_SHAPE_SENTENCE],
         ];
     }
 
     /**
-     * The six engines.node shapes manifest_check() must reject — either
-     * before the floor comparison even runs (the shape check) or at the
-     * floor comparison itself.
+     * The engines.node shapes manifest_check() must reject — either before
+     * the floor comparison even runs (the shape check) or at the floor
+     * comparison itself. The bare-version, caret, tilde, x-range, wildcard
+     * and empty rows pin what the shape check's own comment in
+     * MANIFEST_CHECK_SCRIPT claims it rejects (#76).
      *
      * @param array<string, mixed>|null $engines          The `engines` fragment, or null for an absent key.
      * @param string                    $expectedSentence The sentence the rejection must carry.
