@@ -1,11 +1,9 @@
 # Analyses this package's own PHP gate scripts and PHPUnit harness — the PHP
 # files under bin/ and tests/ — which until now got only phplint syntax
 # checking; a non-PHP file under either path (bin/check-js-config.mjs,
-# bin/support/*.mjs, tests/*.sh) is out of scope for a PHPStan run and stays
-# covered by its own gate (tests/CheckJsConfigsTest.php and
-# tests/CheckJsConfigsManifestTest.php for bin/check-js-config.mjs; the .sh
-# harnesses have no static-analysis gate at all — a separate concern from
-# this one).
+# bin/support/*.mjs) is out of scope for a PHPStan run and stays covered by
+# its own gate (tests/CheckJsConfigsTest.php and
+# tests/CheckJsConfigsManifestTest.php for bin/check-js-config.mjs).
 # tests/consumer is a separate fixture project with its own composer.json and
 # phpstan.neon, analysed by the "Consumer smoke" CI steps instead, so it is
 # excluded here.

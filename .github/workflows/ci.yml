@@ -84,10 +84,10 @@ jobs:
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
-            # tests/harness.sh unconditionally shells out to `node -e '…'` the
-            # moment it is sourced (its degraded() bookkeeping check), not
-            # lazily — so this step must run before any step that sources it,
-            # directly or via a case-file it drives. Pinned the same way the js
+            # The PHPUnit step below runs node: CheckConsumerConfigTest drives
+            # bin/check-js-config.mjs next to the PHP gate, and the js-packaging
+            # group packs and installs this package with npm and runs Biome,
+            # tsc and jscpd — so this step must run before it. Pinned the same way the js
             # job pins it (see that job's comment), rather than relying on
             # whatever the runner image happens to preinstall.
             - name: Set up Node.js
