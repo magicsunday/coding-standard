@@ -92,9 +92,9 @@ function scrubReportControlBytes(string $value): string
     // that no report line puts a consumer value where the runner's TrimStart() leaves
     // `::` at the front.
     //
-    // That property is ASSERTED, not argued: harness_report_is_inert in
-    // tests/harness.sh greps every gate's real output for `^[[:space:]]*::` and for
-    // the legacy form, over fixtures that poison each report site. A written
+    // That property is ASSERTED, not argued: GateTestCase::assertGateReportIsInert()
+    // (tests/GateTestCase.php) checks every gate's real output for a `::` command at
+    // line start and for the legacy form, over fixtures that poison each report site. A written
     // enumeration of the call sites stood here instead and was wrong three times in
     // three rounds — it called `  - ` non-whitespace, it went stale the moment a new
     // report prefix landed, and the grep it handed the reader returned a hit it did

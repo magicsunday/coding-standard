@@ -99,11 +99,12 @@ function stripBom(string $contents): string
  *
  * The boundary that makes the column-0 list-item alternative safe: a top-level key
  * stops the scan before it, so an entry written under a LATER key is not captured.
- * Both directions are driven in tests/CheckConsumerConfigTest.php; list them
- * rather than copying their verdicts here, since a before/after table describes a
- * version of the code that no longer exists:
+ * Both directions are driven in tests/CheckConsumerConfigDeptracYamlTest.php and
+ * tests/CheckConsumerConfigPhplintYmlTest.php; list them rather than copying their
+ * verdicts here, since a before/after table describes a version of the code that no
+ * longer exists:
  *
- *     grep -n 'function.*Deptrac\|function.*Phplint' tests/CheckConsumerConfigTest.php
+ *     grep -n 'function.*Deptrac\|function.*Phplint' tests/CheckConsumerConfig*Test.php
  *
  * @param string $contents The file contents, line endings already normalised.
  * @param string $key      The top-level key whose block to isolate.

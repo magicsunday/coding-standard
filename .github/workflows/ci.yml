@@ -84,10 +84,10 @@ jobs:
             - name: Install dependencies
               run: composer install --prefer-dist --no-interaction --no-progress
 
-            # tests/harness.sh unconditionally shells out to `node -e '…'` the
-            # moment it is sourced (its degraded() bookkeeping check), not
-            # lazily — so this step must run before any step that sources it,
-            # directly or via a case-file it drives. Pinned the same way the js
+            # The PHPUnit step below runs node: the CheckConsumerConfigBiomeTsconfig*
+            # classes drive bin/check-js-config.mjs next to the PHP gate, and the js-packaging
+            # group packs and installs this package with npm and runs Biome,
+            # tsc and jscpd — so this step must run before it. Pinned the same way the js
             # job pins it (see that job's comment), rather than relying on
             # whatever the runner image happens to preinstall.
             - name: Set up Node.js
@@ -115,14 +115,6 @@ jobs:
             # (Consumer smoke, below), which never sees bin/ or tests/ itself.
             - name: Self-lint the PHP gate scripts and test infrastructure
               run: composer ci:test:php:cgl
-
-            # .php-cs-fixer.dist.php's require of php-cs-fixer/base.php and its
-            # Finder scoping (tests/consumer excluded from tests/ alone, not
-            # from bin/ or php-cs-fixer/ too) have no other proof: the step
-            # above only ever ran the real tree, which stays green even if the
-            # require silently no-ops or the Finder resolves to an empty set.
-            - name: CGL self-lint self-test
-              run: composer ci:test:php:cgl-cases
 
             - name: Validate the JSON configs
               run: composer ci:test:json

@@ -810,9 +810,11 @@ module with no `composer.json`). `bin/check-js-config.mjs` is that same
 the `files.includes` no-positive-pattern check, the recommended/preset floor at every
 scope, the `extends` link check, and the pinned strict-flag list — run against a path
 argument instead, with no PHP or Composer involved. It is a second front end for the
-SAME rule, not a second rule: every `biome.json`/`tsconfig.json` case in
-`tests/CheckConsumerConfigTest.php` also runs this gate against the identical
-fixture directory and requires the identical verdict, so the two cannot silently drift
+SAME rule, not a second rule: every `biome.json`/`tsconfig.json` case in the
+`tests/CheckConsumerConfig*Test.php` classes also runs this gate against the identical
+fixture directory and requires the identical verdict (through the `assertBoth*()`
+helpers of their shared base, `tests/Support/AbstractConsumerConfigTestCase.php`), so
+the two cannot silently drift
 apart the way two independently maintained fixture lists could.
 
 Shipped as an npm `bin` entry, so a consumer wires it as a plain npm script:

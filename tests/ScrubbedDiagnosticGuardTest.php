@@ -276,11 +276,14 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * on a subprocess report, would need adding here too; this guard only
      * reads what it is told to.
      *
-     * tests/CheckConsumerConfigTest.php is deliberately absent: what it must
-     * keep out of a failure message is the CONTENT of a repository file held
-     * in a plain local variable, a shape RAW_OUTPUT_PATTERN cannot see, so
-     * listing it would prove nothing. Its one live instance is pinned by
-     * aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage() instead.
+     * The consumer-config suite (tests/Support/AbstractConsumerConfigTestCase.php
+     * and the tests/CheckConsumerConfig*Test.php classes extending it) is
+     * deliberately absent: what it must keep out of a failure message is the
+     * CONTENT of a repository file held in a plain local variable, a shape
+     * RAW_OUTPUT_PATTERN cannot see, so listing it would prove nothing. Its
+     * one live instance is pinned by
+     * CheckConsumerConfigPhpunitXmlTest::aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage()
+     * instead.
      *
      * tests/Support/GateProcessTest.php (several plain
      * `self::assertStringContainsString('hello', $result->output)`-style
@@ -311,6 +314,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
             "{$root}/tests/CheckCheckedExceptionsTest.php",
             "{$root}/tests/CheckDisallowedCallsTest.php",
             "{$root}/tests/CheckReleaseTagLockstepTest.php",
+            "{$root}/tests/CheckPhpCsFixerTest.php",
             "{$root}/tests/Support/ScrubbedDiagnostics.php",
         ];
     }
