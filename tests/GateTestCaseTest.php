@@ -445,6 +445,44 @@ final class GateTestCaseTest extends GateTestCase
     }
 
     /**
+     * Verifies that assertGateReportIsInert passes on a clean report when the
+     * caller declares a non-default expected exit code and the gate returns it.
+     */
+    #[Test]
+    public function assertGateReportIsInertPassesOnADeclaredNonDefaultExitCode(): void
+    {
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(2);'],
+            $this->fixture()->path(),
+            'nothing wrong here',
+            '',
+            2,
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportIsInert fails when the gate does not
+     * return the declared non-default exit code — ported from
+     * tests/harness.sh's 5th-argument probe (GH-42): the stub exits 1, the
+     * drift-verdict default, while the caller declares 2, so a regression
+     * that silently dropped the comparison for a declared code would stay
+     * green without this case.
+     */
+    #[Test]
+    public function assertGateReportIsInertFailsOnADeclaredExitCodeTheGateDidNotReturn(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $this->assertGateReportIsInert(
+            ['php', '-r', 'fwrite(STDOUT, "  - x: nothing wrong here\n"); exit(1);'],
+            $this->fixture()->path(),
+            'nothing wrong here',
+            '',
+            2,
+        );
+    }
+
+    /**
      * Verifies that assertGateReportIsInert fails when a consumer value forges a legacy `##[…]` workflow command.
      */
     #[Test]

@@ -207,19 +207,28 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
-     * The report-shape decision for consumer-controlled bytes: exit 1, not
-     * degraded, no ESC byte, no `::`-command-at-line-start, no legacy
-     * `##[…]` command, no bare CR, at most 4 non-empty lines, and — when
-     * $expectedScrubbedSubstring is given — the report carries it.
-     * $expectedScrubbedSubstring distinguishes "no must-carry check" (null,
-     * the default) from "an explicitly empty must-carry check" ('', itself
-     * a bookkeeping failure) — the same distinction the bash original's
-     * `"${@:4}"` argument-count check made.
+     * The report-shape decision for consumer-controlled bytes: exit 1 (or
+     * $expectedExitCode), not degraded, no ESC byte, no
+     * `::`-command-at-line-start, no legacy `##[…]` command, no bare CR, at
+     * most 4 non-empty lines, and — when $expectedScrubbedSubstring is
+     * given — the report carries it. $expectedScrubbedSubstring
+     * distinguishes "no must-carry check" (null, the default) from "an
+     * explicitly empty must-carry check" ('', itself a bookkeeping failure)
+     * — the same distinction the bash original's `"${@:4}"` argument-count
+     * check made.
+     *
+     * $expectedExitCode is appended and defaulted, ported from
+     * tests/harness.sh's harness_report_is_inert 5th argument (GH-42): a gate
+     * whose forge-prone value is refused before its drift verdict is even
+     * reachable (tests/check-release-tag-lockstep.php's version shape check,
+     * which exits 2) still needs every scrub/forgery check below, so the
+     * exit code is a parameter rather than a second copy of those checks.
      *
      * @param list<string> $command                   The interpreter and gate script.
      * @param string       $fixtureDir                The directory to run the gate against.
      * @param string|null  $expectedScrubbedSubstring The scrubbed value the report must carry, or null to skip that check.
      * @param string       $message                   An optional assertion message.
+     * @param int          $expectedExitCode          The exit code the gate must return; the drift verdict (1) by default.
      *
      * @return void
      *
@@ -233,8 +242,15 @@ abstract class GateTestCase extends TestCase
         string $fixtureDir,
         ?string $expectedScrubbedSubstring = null,
         string $message = '',
+        int $expectedExitCode = 1,
     ): void {
-        $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
+        $result = $this->runAndAssertVerdict(
+            $command,
+            $fixtureDir,
+            $expectedExitCode,
+            $expectedExitCode === 1 ? 'the drift verdict' : "exit {$expectedExitCode}",
+            $message,
+        );
 
         if (str_contains($result->output, "\x1B")) {
             self::fail(self::diagnosticMessage('An ANSI escape from a consumer value reached the report.', $result->output));
@@ -353,10 +369,11 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
-     * The drift-verdict shape shared by assertGateRejects(),
-     * assertGateReportIsInert() and assertGateReportsOnce(): exit 1, not
-     * degraded. Names the (1, 'the drift verdict') pair once instead of
-     * repeating it at all three call sites.
+     * The drift-verdict shape shared by assertGateRejects() and
+     * assertGateReportsOnce(): exit 1, not degraded. Names the (1, 'the
+     * drift verdict') pair once instead of repeating it at each call site;
+     * assertGateReportIsInert() calls runAndAssertVerdict() directly, since
+     * its expected exit code is a parameter.
      *
      * @param list<string> $command    The interpreter and gate script.
      * @param string       $fixtureDir The directory to run the gate against.

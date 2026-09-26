@@ -84,13 +84,14 @@ declare(strict_types=1);
  * An optional path argument points it at another directory, and the
  * CHECK_RELEASE_TAG_REMOTE environment variable overrides which remote is
  * queried (`origin` unless set) — together what let
- * tests/check-release-tag-lockstep-cases.sh drive this over disposable local
+ * tests/CheckReleaseTagLockstepTest.php drive this over disposable local
  * git repositories acting as the "remote", rather than this gate ever
  * touching the real network in a test. There is no second positional
  * argument for the remote: every other gate in this directory takes exactly
- * one, the directory to check, and tests/harness.sh's shared `harness_accepts`
- * and friends call each gate with exactly that one argument — adding a second
- * positional here would need a second harness call shape for this gate alone.
+ * one, the directory to check, and GateTestCase's shared assertGateAccepts()
+ * and friends call each gate with exactly that one argument appended —
+ * adding a second positional here would need a second call shape for this
+ * gate alone.
  */
 $root = $argv[1] ?? dirname(__DIR__);
 

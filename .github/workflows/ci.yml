@@ -244,18 +244,14 @@ jobs:
             # false-failing every ordinary post-release commit). `if:
             # github.event_name == 'push'` on purpose: the release PR is the
             # one place the tag legitimately does not exist yet, so running
-            # this on `pull_request` would block every release.
+            # this on `pull_request` would block every release. The gate's own
+            # fixture-driven cases (tests/CheckReleaseTagLockstepTest.php, run
+            # against disposable local git repositories, never the network)
+            # carry no such guard: they run in the PHPUnit step above, on
+            # every pull_request too.
             - name: Release tag lockstep gate
               if: github.event_name == 'push'
               run: composer ci:test:release-tag
-
-            # No `if` guard here, unlike the step above: this is a fixture-
-            # driven self-test against disposable local git repositories, not
-            # a check of this repository's own real tags, so it neither needs
-            # nor touches the real network and stays useful on every
-            # pull_request too.
-            - name: Release tag lockstep gate self-test
-              run: composer ci:test:release-tag-lockstep
 
     prefer-lowest:
         # Exercises tests/consumer's declared composer.lock floor via

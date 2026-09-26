@@ -888,8 +888,9 @@ on every ordinary commit between two releases, `HEAD` keeps moving while the tag
 not, and a tree-equality check reports that routine, healthy gap as a violation.
 Ancestry survives exactly the case tree-equality does not: once a tag is cut, every
 ordinary commit that follows keeps it as an ancestor for the life of the branch.
-`composer ci:test:release-tag-lockstep` is its fixture-driven self-test, run against
-disposable local git repositories rather than the real network.
+`tests/CheckReleaseTagLockstepTest.php` is its fixture-driven self-test, run against
+disposable local git repositories rather than the real network — as part of
+`composer ci:test:phpunit`, so on every pull request, unlike the gate itself.
 
 ## Self-check: .gitattributes lockstep
 

@@ -835,9 +835,11 @@ harness_probe_inert_shapes() {
         'a payload this report never carries'
 
     # The 5th-argument arm (GH-42): a caller can declare an expected exit code
-    # other than the drift-verdict default (1) — check-release-tag-lockstep-cases.sh
-    # does, for the one poison case whose forge-prone value is rejected before
-    # the drift verdict is even reachable. Without this arm, `${5:-1}` silently
+    # other than the drift-verdict default (1). Its one bash caller,
+    # check-release-tag-lockstep-cases.sh, moved to PHPUnit (#71), where
+    # GateTestCase::assertGateReportIsInert() carries the same parameter for
+    # the one poison case whose forge-prone value is rejected before the drift
+    # verdict is even reachable. Kept while this function exists. Without this arm, `${5:-1}` silently
     # degrading to "any exit code is accepted" (dropping the comparison
     # entirely) would stay green: every probe above stubs `harness_fake_rc=1`
     # and passes no 5th argument, so none of them exercises this parameter at
