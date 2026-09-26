@@ -63,8 +63,8 @@ updates its tools together with this package, not independently of it. That is t
 same bargain as the PHP side, where the toolchain versions are pinned here once for
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
-The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.13`,
-`typescript 7.0.2`, `jscpd 5.2.0`) and are what Dependabot tracks — `peerDependencies` are not parsed
+The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.14`,
+`typescript 7.0.2`, `jscpd 5.2.1`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
@@ -427,6 +427,25 @@ from `LogicException`, so this inheritance clause does not reach them.
   PHP 8.3 consumer's resolver is capped at 14.10.x while PHP 8.4/8.5 get the
   newest 14.x — this repository's own CI matrix (8.3/8.4/8.5) exercises both
   lines every run, both inside the verified-working `14.7.0+` range.
+
+  From **14.16.0** on, `symplify/phpstan-rules` switches each rule file on
+  through a `%symplify.<set>%` parameter (`symplify.complexity`,
+  `symplify.naming`, …) declared only in its own
+  `config/phpstan-extensions.neon`, and every 14.16+ install of `strict.neon`
+  failed to load with `Missing parameter 'symplify.complexity'` (observed
+  2026-09-26, 14.16.0 and 14.17.0). That file cannot simply be included: it
+  does not exist before 14.16, and the PHP 8.3 line above never reaches it.
+  `strict.neon` therefore declares the parameters for the rule files it
+  includes itself, with a permissive `arrayOf(bool())` schema — symplify's own
+  fixed `structure()` would reject the keys the other one sets whenever a
+  consumer also loads symplify's file (e.g. via `phpstan/extension-installer`).
+  Verified by installing 14.7.0, 14.10.0, 14.15.0, 14.16.0 and 14.17.0 into
+  `tests/consumer` and checking that a `symplify.noDynamicName` finding is
+  reported through `strict.neon` on each. The same finding is also reported
+  with symplify's own file loaded before `strict.neon`, and on 14.17.0 with it
+  loaded after. The one combination that does not load is 14.16.0 with
+  symplify's file loaded AFTER `strict.neon`: 14.16.0 does not know the
+  `symfonyConfig` key yet, and its schema then wins.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
@@ -969,7 +988,7 @@ contradiction until the measurements are written down, so here they are:
 | File | `"//"` | Because |
 |---|---|---|
 | `tsconfig/base.json` | **yes** | `tsc` ignores unknown top-level keys — verified against 7.0.2, the config loads and compiles |
-| `templates/jscpd.json` | **yes** | jscpd reads strict JSON — `"//"` is a legal string key, not JSON5 tolerance; verified against the pinned 5.2.0, a `//` line comment or a trailing comma is rejected outright — the smoke runs the template verbatim, note key and all |
+| `templates/jscpd.json` | **yes** | jscpd reads strict JSON — `"//"` is a legal string key, not JSON5 tolerance; verified against the pinned 5.2.1, a `//` line comment or a trailing comma is rejected outright — the smoke runs the template verbatim, note key and all |
 | `biome/base.json` | **no** | Biome's deserializer rejects unknown keys and refuses the WHOLE config |
 
 The gate follows the same split: it reports a `"//"` key in a consumer's

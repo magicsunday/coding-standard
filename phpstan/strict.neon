@@ -36,3 +36,25 @@ parameters:
     reportAnyTypeWideningInVarTag: true
     reportPossiblyNonexistentConstantArrayOffset: true
     reportPossiblyNonexistentGeneralArrayOffset: true
+
+    # symplify/phpstan-rules 14.16+ switches each rule file included above on
+    # through a %symplify.<set>% parameter that only its own
+    # config/phpstan-extensions.neon declares. That file does not exist before
+    # 14.16, and a PHP 8.3 consumer is capped at 14.10.x (symplify requires
+    # PHP 8.4 from 14.11), so it cannot be included here: the parameters are
+    # declared instead, one per included rule file. Without them every 14.16+
+    # install fails to load with "Missing parameter 'symplify.complexity'".
+    symplify:
+        naming: true
+        complexity: true
+        configurable: true
+        static: true
+        symfonyConfig: true
+
+parametersSchema:
+    # A map of booleans rather than symplify's own structure(): whichever of
+    # the two schemas loads last replaces the other, and a fixed key list
+    # here would reject the keys symplify's own file sets when a consumer
+    # also loads it (phpstan/extension-installer does). Before 14.16 no
+    # schema exists at all, and an undeclared parameter is a load error.
+    symplify: arrayOf(bool())
