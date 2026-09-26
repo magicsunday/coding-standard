@@ -2,7 +2,7 @@
 # files under bin/ and tests/ — which until now got only phplint syntax
 # checking; a non-PHP file under either path (bin/check-js-config.mjs,
 # bin/support/*.mjs, tests/*.sh) is out of scope for a PHPStan run and stays
-# covered by its own gate (tests/CheckJsConfigsTest.php and
+# covered by its own gate (tests/CheckJsConfigsPackagingTest.php and
 # tests/CheckJsConfigsManifestTest.php for bin/check-js-config.mjs; the .sh
 # harnesses have no static-analysis gate at all — a separate concern from
 # this one).

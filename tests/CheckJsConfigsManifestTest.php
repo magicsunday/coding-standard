@@ -47,10 +47,11 @@ use function unlink;
  * against the same pin. It takes a plain directory and reads package.json
  * plus biome/base.json from it — no packaging pipeline involved — so every
  * case here uses an ordinary fresh per-test fixture() directory, unlike the
- * packaging-pipeline-dependent cases in CheckJsConfigsTest.
+ * packaging-pipeline-dependent cases in the CheckJsConfigs*Test suites
+ * built on AbstractJsConfigsTestCase.
  *
  * `#[Group('js-packaging')]` marks this class as PHP-version-invariant the
- * same way CheckJsConfigsTest's own docblock explains — see there for the
+ * same way AbstractJsConfigsTestCase's own docblock explains — see there for the
  * full reasoning and the matching .github/workflows/ci.yml step.
  *
  * MANIFEST_CHECK_SCRIPT is a byte-for-byte copy of the `node -e '...'` body
@@ -660,7 +661,7 @@ JS;
         // PHPUnit's own Constraint::fail()/failureDescription() mechanism
         // unconditionally re-embeds the FULL, RAW haystack of a
         // failed call into the thrown exception's own message — see
-        // tests/CheckJsConfigsTest.php's own
+        // tests/Support/AbstractJsConfigsTestCase.php's own
         // assertMessageDoesNotForgeWorkflowCommand() docblock for the dated
         // observation, not repeated here — so a real failure of either
         // constraint here would forge, in PHPUnit's own failure output, the

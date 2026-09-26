@@ -62,10 +62,10 @@ use function substr;
  * GateTestCase) rather than trusting this list to stay exhaustive — can and does hand it
  * deliberately-poisoned content. PHPUnit's own
  * Constraint::fail()/failureDescription() mechanism — dated and detailed in
- * tests/CheckJsConfigsTest.php's own
+ * tests/Support/AbstractJsConfigsTestCase.php's own
  * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here;
  * re-derive via `grep -n 'function assertMessageDoesNotForgeWorkflowCommand'
- * tests/CheckJsConfigsTest.php` — unconditionally re-embeds the FULL, RAW
+ * tests/Support/AbstractJsConfigsTestCase.php` — unconditionally re-embeds the FULL, RAW
  * haystack into a failed assertion's own exception message, so a real
  * failure of one of those PHPUnit constraints here would forge, in PHPUnit's
  * own failure output, the very annotation these two methods exist to prove

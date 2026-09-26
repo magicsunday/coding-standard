@@ -21,7 +21,7 @@ use function str_replace;
 // scrubbedForDiagnostic() below shares rather than duplicating. It is required
 // here so GateTestCase and AbstractConsumerPhpstanGateTestCase need no require
 // of their own (`grep -rn "^    use ScrubbedDiagnostics;" tests/` lists the
-// users); CheckJsConfigsTest requires it again because it calls
+// users); CheckJsConfigsHarnessTest requires it again because it calls
 // scrubReportControlBytes() directly.
 require_once __DIR__ . '/../../bin/support/safe-report-value.php';
 
@@ -34,9 +34,9 @@ require_once __DIR__ . '/../../bin/support/safe-report-value.php';
  * a failure message unscrubbed: PHPUnit's own string-containment/regex
  * constraints unconditionally re-embed the FULL, RAW haystack into the
  * exception message (dated and detailed in
- * tests/CheckJsConfigsTest.php's own assertMessageDoesNotForgeWorkflowCommand()
- * docblock, not repeated here), which would forge, in PHPUnit's own failure
- * output, the very workflow-command annotation this trait exists to keep out
+ * tests/Support/AbstractJsConfigsTestCase.php's own
+ * assertMessageDoesNotForgeWorkflowCommand() docblock, not repeated here),
+ * which would forge, in PHPUnit's own failure output, the very workflow-command annotation this trait exists to keep out
  * of a CI log.
  *
  * Both assertion helpers below are therefore a manual str_contains() +

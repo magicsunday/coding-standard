@@ -54,9 +54,11 @@ use const T_WHITESPACE;
  * TYPE-MISMATCHED comparison (e.g. one operand `null`), which reaches
  * getMessage() by a third path instead. Both dated observations, their
  * re-derivation commands, and that exception live in
- * tests/CheckJsConfigsTest.php's own assertMessageDoesNotForgeWorkflowCommand()
- * and readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand()
- * docblocks respectively, not repeated here. Every other assertion leaks
+ * tests/Support/AbstractJsConfigsTestCase.php's own
+ * assertMessageDoesNotForgeWorkflowCommand() and
+ * tests/CheckJsConfigsToolPinsTest.php's own
+ * readmeToolVersionLockstepFailsWithoutForgingAWorkflowCommand() docblocks
+ * respectively, not repeated here. Every other assertion leaks
  * through its message alone, which reaches getMessage() verbatim.
  *
  * Which calls are guarded is a PATTERN, not a list (#164,
@@ -163,7 +165,10 @@ use const T_WHITESPACE;
  *   repository's own `Symfony`/`PER-CS2x0` ruleset does NOT normalize
  *   curly-brace dynamic access away, so nothing upstream of this guard
  *   prevents the shape from being written. Confirmed via
- *   `grep -noF -- '->{' tests/GateTestCase.php tests/CheckJsConfigsTest.php
+ *   `grep -noF -- '->{' tests/GateTestCase.php
+ *   tests/Support/AbstractJsConfigsTestCase.php
+ *   tests/CheckJsConfigsConsumerSmokeTest.php tests/CheckJsConfigsPackagingTest.php
+ *   tests/CheckJsConfigsToolPinsTest.php tests/CheckJsConfigsHarnessTest.php
  *   tests/CheckJsConfigsManifestTest.php tests/CheckCheckedExceptionsTest.php
  *   tests/CheckDisallowedCallsTest.php tests/Support/ScrubbedDiagnostics.php`
  *   (the `--` is required: without it,
@@ -192,7 +197,9 @@ use const T_WHITESPACE;
  *   (they are all static methods, always called via `::`), so this is a
  *   real but practically inapplicable gap for this guard's actual scope.
  *   Confirmed via `grep -noE '[A-Za-z0-9_]+::(assert[A-Z][A-Za-z0-9_]*|fail)\('
- *   tests/GateTestCase.php tests/CheckJsConfigsTest.php
+ *   tests/GateTestCase.php tests/Support/AbstractJsConfigsTestCase.php
+ *   tests/CheckJsConfigsConsumerSmokeTest.php tests/CheckJsConfigsPackagingTest.php
+ *   tests/CheckJsConfigsToolPinsTest.php tests/CheckJsConfigsHarnessTest.php
  *   tests/CheckJsConfigsManifestTest.php tests/CheckCheckedExceptionsTest.php
  *   tests/CheckDisallowedCallsTest.php tests/Support/ScrubbedDiagnostics.php`:
  *   every hit is either a docblock mention or a call spelled with the bare
@@ -295,7 +302,11 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
 
         return [
             "{$root}/tests/GateTestCase.php",
-            "{$root}/tests/CheckJsConfigsTest.php",
+            "{$root}/tests/Support/AbstractJsConfigsTestCase.php",
+            "{$root}/tests/CheckJsConfigsConsumerSmokeTest.php",
+            "{$root}/tests/CheckJsConfigsPackagingTest.php",
+            "{$root}/tests/CheckJsConfigsToolPinsTest.php",
+            "{$root}/tests/CheckJsConfigsHarnessTest.php",
             "{$root}/tests/CheckJsConfigsManifestTest.php",
             "{$root}/tests/CheckCheckedExceptionsTest.php",
             "{$root}/tests/CheckDisallowedCallsTest.php",
@@ -1118,7 +1129,7 @@ final class ScrubbedDiagnosticGuardTest extends GateTestCase
      * self::RAW_OUTPUT_PATTERN's `['stdout']`/`['stderr']` alternative: a
      * risky assertion comparing an array-key access shaped like captured
      * subprocess output — the real shape runBuildToolsSeparated()'s own
-     * callers use in tests/CheckJsConfigsTest.php — must be flagged too.
+     * callers use in tests/CheckJsConfigsToolPinsTest.php — must be flagged too.
      */
     #[Test]
     public function detectsARiskyAssertionUsingAnArrayKeyAccess(): void
