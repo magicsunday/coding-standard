@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 /**
  * Defines safeReportValue() (and the scrubReportControlBytes() core it shares with
- * tests/CheckJsConfigsTest.php's own layered wrapper) for the PHP gates that echo a
+ * tests/Support/ScrubbedDiagnostics.php's own layered wrapper) for the PHP gates that echo a
  * value read out of a repository file. Re-derive which those are rather than
  * trusting a list here:
  * `grep -rln "^require_once .*safe-report-value" bin tests`. Anchored, and naming

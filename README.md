@@ -1008,10 +1008,10 @@ The Biome case is not hypothetical — this package shipped a `biome/base.json` 
 one, and it was dead config for every consumer that extended it while `ci:test:json`
 reported the file as perfectly valid JSON. That is what the JS smoke exists for.
 
-`tests/CheckJsConfigsTest.php` guards this — it packs the package as npm
-ships it, installs it into a throwaway consumer, and runs Biome and `tsc` against the
-shared configs, with controls proving a `==` comparison and an unchecked array index
-are actually rejected. The `build` job's PHPUnit step runs it on every pull request and
+`tests/CheckJsConfigsConsumerSmokeTest.php` guards this — it packs the package as npm
+ships it (through `tests/Support/AbstractJsConfigsTestCase.php`), installs it into a
+throwaway consumer, and runs Biome and `tsc` against the shared configs, with controls
+proving a `==` comparison and an unchecked array index are actually rejected. The `build` job's PHPUnit step runs it on every pull request and
 on every push to `main`.
 
 ## License

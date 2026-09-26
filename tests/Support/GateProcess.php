@@ -73,7 +73,8 @@ final readonly class GateProcess
      * generalised counterpart of run() above for a caller whose invocation
      * does not fit that shape (a fixture directory that is not $command's
      * last positional argument, or not an argument at all — e.g.
-     * CheckJsConfigsTest's own git/npm/tar/biome/tsc/jscpd invocations).
+     * AbstractJsConfigsTestCase::runCommand()'s own git/npm/tar/biome/tsc/jscpd
+     * invocations, on behalf of the CheckJsConfigs*Test suites).
      * Extracted once that second real caller needed the identical
      * spawn-and-capture body run() already had, per this project's own
      * "start local, promote on second real need" convention (see

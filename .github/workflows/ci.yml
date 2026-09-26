@@ -125,9 +125,10 @@ jobs:
             # evaluate, which is the enforcement this flag exists for, not a
             # human-facing report; the other legs run the bare command.
             #
-            # CheckJsConfigsTest and CheckJsConfigsManifestTest (both tagged
-            # #[Group('js-packaging')] — see CheckJsConfigsTest's own
-            # docblock) drive a real git-archive/npm-pack/npm-install/Biome/
+            # The CheckJsConfigs*Test suites (every one tagged
+            # #[Group('js-packaging')] — see
+            # tests/Support/AbstractJsConfigsTestCase.php's own docblock)
+            # drive a real git-archive/npm-pack/npm-install/Biome/
             # tsc/jscpd pipeline that exercises none of this package's own
             # PHP-version-dependent code, so running the group on all three
             # matrix legs would triple its real CI cost for zero additional
@@ -308,8 +309,8 @@ jobs:
 
             # The packing/consumer-smoke half of this (npm-ships-it packaging,
             # a throwaway consumer, real Biome/tsc runs) moved to
-            # tests/CheckJsConfigsTest.php and tests/CheckJsConfigsManifestTest.php
-            # (#79) — PHPUnit suites run by the "build" job's PHPUnit step
+            # the tests/CheckJsConfigs*Test.php suites (#79, split by #75) —
+            # PHPUnit suites run by the "build" job's PHPUnit step
             # above, which sets up Node itself for exactly that reason. This
             # step is left with the native node:test suite over
             # bin/support/merge-config-layer.mjs (tests/*.test.mjs), unrelated
