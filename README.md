@@ -428,6 +428,25 @@ from `LogicException`, so this inheritance clause does not reach them.
   newest 14.x — this repository's own CI matrix (8.3/8.4/8.5) exercises both
   lines every run, both inside the verified-working `14.7.0+` range.
 
+  From **14.16.0** on, `symplify/phpstan-rules` switches each rule file on
+  through a `%symplify.<set>%` parameter (`symplify.complexity`,
+  `symplify.naming`, …) declared only in its own
+  `config/phpstan-extensions.neon`, and every 14.16+ install of `strict.neon`
+  failed to load with `Missing parameter 'symplify.complexity'` (observed
+  2026-09-26, 14.16.0 and 14.17.0). That file cannot simply be included: it
+  does not exist before 14.16, and the PHP 8.3 line above never reaches it.
+  `strict.neon` therefore declares the parameters for the rule files it
+  includes itself, with a permissive `arrayOf(bool())` schema — symplify's own
+  fixed `structure()` would reject the keys the other one sets whenever a
+  consumer also loads symplify's file (e.g. via `phpstan/extension-installer`).
+  Verified by installing 14.7.0, 14.10.0, 14.15.0, 14.16.0 and 14.17.0 into
+  `tests/consumer` and checking that a `symplify.noDynamicName` finding is
+  reported through `strict.neon` on each. The same finding is also reported
+  with symplify's own file loaded before `strict.neon`, and on 14.17.0 with it
+  loaded after. The one combination that does not load is 14.16.0 with
+  symplify's file loaded AFTER `strict.neon`: 14.16.0 does not know the
+  `symfonyConfig` key yet, and its schema then wins.
+
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
 flagged as "too wide" — PHPStan treats a supertype `@throws` as valid. A `catch`
