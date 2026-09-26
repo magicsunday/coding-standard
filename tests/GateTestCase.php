@@ -260,9 +260,9 @@ abstract class GateTestCase extends TestCase
 
         // This regex carries no `u` modifier, so a lead byte outside ASCII
         // whitespace is not admitted here either — the same known,
-        // deliberately-left-open gap tests/harness.sh documents for its
-        // analogous `::` check (lines ~479-495). See GateResult::isDegraded()'s
-        // docblock for the re-derivation command.
+        // deliberately-left-open gap the bash original's analogous `::` check
+        // documented (tests/harness.sh, removed in #71). See
+        // GateResult::isDegraded()'s docblock for the re-derivation command.
         if (preg_match('/^[[:space:]]*::[A-Za-z0-9_-]+/m', $result->output) === 1) {
             self::fail(self::diagnosticMessage('A consumer value forged a `::` workflow command.', $result->output));
         }
