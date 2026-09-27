@@ -690,6 +690,7 @@ commands at the end of the `ci:test:php:deptrac` script:
     "ci:test:php:deptrac": [
         "deptrac analyse --no-progress",
         "deptrac debug:unassigned",
+        "@php -r \"is_dir('.build') || mkdir('.build', 0777, true);\"",
         "deptrac analyse --no-progress --formatter=graphviz-dot --output=.build/deptrac-layers.dot",
         "check-deptrac-cycles.php .build/deptrac-layers.dot"
     ]
@@ -699,10 +700,11 @@ commands at the end of the `ci:test:php:deptrac` script:
 The first `analyse` is not redundant: the `graphviz-dot` run exits 1 on a violation
 too and writes the dot file all the same, but prints nothing but `Script dumped to
 …`, so the console run is the one that says WHICH dependency is forbidden. The
-second run reuses Deptrac's cache. Write the dot file into a directory that exists
-(`.build/` exists in every repository on the house `.build/vendor` layout): given a missing directory, deptrac
-4.7.2 prints a PHP warning, writes nothing and still exits 0 — the gate then refuses
-the missing file, but a stale file from an earlier run would be read instead.
+second run reuses Deptrac's cache. The `mkdir` step makes sure the dot file's
+directory exists: given a missing directory, deptrac 4.7.2 prints a PHP warning,
+writes nothing and still exits 0 — the gate then refuses the missing file. On the
+house `.build/vendor` layout `.build/` already exists and the step is a no-op; it is
+there for a repository on another `vendor-dir`.
 
 ```
 check-deptrac-cycles: 1 layer cycle(s) in .build/deptrac-layers.dot — the layer graph must be acyclic:
