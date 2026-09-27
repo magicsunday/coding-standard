@@ -27,7 +27,7 @@ For the JS/TS configs, add a GitHub git dependency (no npm-registry account need
 the same mechanism `webtrees-chart-lib` uses):
 
 ```shell
-npm install --save-dev github:magicsunday/coding-standard#2.2.0
+npm install --save-dev github:magicsunday/coding-standard#2.3.0
 ```
 
 which records in `package.json`:
@@ -35,7 +35,7 @@ which records in `package.json`:
 ```json
 {
     "devDependencies": {
-        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#2.2.0"
+        "@magicsunday/coding-standard": "github:magicsunday/coding-standard#2.3.0"
     }
 }
 ```
@@ -624,11 +624,34 @@ deptrac:
         - src
 ```
 
-Wire it as a consumer `ci:test:php:deptrac` script
-(`["deptrac analyse --no-progress"]`), rolled out the same script-first way.
-Dependencies on classes outside every layer (the framework, webtrees core) are
-reported as "uncovered" but do not fail the run; `--fail-on-uncovered` is left off
-because every external dependency is uncovered.
+Wire it as a consumer `ci:test:php:deptrac` script, rolled out the same
+script-first way:
+
+```json
+"scripts": {
+    "ci:test:php:deptrac": [
+        "deptrac analyse --no-progress",
+        "deptrac debug:unassigned"
+    ]
+}
+```
+
+`deptrac analyse` reports a dependency the ruleset forbids — but only between two
+classes that are both IN a layer. A class in no layer is never checked at all, so a
+whole namespace that no collector matches drops out of the architecture check
+without a word. `--fail-on-uncovered` cannot close that gap: it reds on every
+dependency on a class outside every layer, and every vendor dependency is one.
+`deptrac debug:unassigned` asks the question directly — it lists every analysed
+token that belongs to no layer and exits 2 when there is one, 0 (`There are no
+unassigned tokens.`) when there is none (verified against deptrac 4.7.2). A
+repository that still has unassigned classes adds the command once they are
+assigned, the same staging as every other gate here. Once the repository's own
+layer graph is acyclic, the script grows the cycle gate described in *Layer-cycle
+gate* below.
+Dependencies on classes outside every
+layer (the framework, webtrees core) are reported as "uncovered" but do not fail
+the run; `--fail-on-uncovered` is left off because every external dependency is
+uncovered.
 
 #### The ruleset: strict and acyclic
 
@@ -708,6 +731,70 @@ allow-list (`Webtrees: [Webtrees, …]`), or Deptrac reports the edges between i
 members; and Deptrac warns "in more than one layer" for each overlapped class — a
 warning, not a failure (exit 0).
 
+### Layer-cycle gate — `bin/check-deptrac-cycles.php`
+
+The [Acyclic Dependencies Principle](https://en.wikipedia.org/wiki/Acyclic_dependencies_principle)
+says the dependency graph between layers has no cycle: two layers that depend on each
+other are one layer in practice, and neither can be changed, tested or extracted
+without the other. Deptrac does not check it. Its only cycle detection covers the
+transitive `+Layer` references inside the ruleset; the dependencies a ruleset
+ALLOWS can still form a cycle whenever a consumer's local widenings permit both
+directions (`Model: [Contract]` next to `Contract: [Model]`), and `deptrac analyse`
+stays green. This gate checks the ACTUAL layer graph Deptrac measured, not the
+allow-list: it reads the `graphviz-dot` output and reports every strongly connected
+component of more than one layer, with the edges that hold it together.
+
+A composer `bin` of this package, so it is on every consumer's bin path. Two more
+commands at the end of the `ci:test:php:deptrac` script:
+
+```json
+"scripts": {
+    "ci:test:php:deptrac": [
+        "deptrac analyse --no-progress",
+        "deptrac debug:unassigned",
+        "@php -r \"is_dir('.build') || mkdir('.build', 0777, true);\"",
+        "deptrac analyse --no-progress --formatter=graphviz-dot --output=.build/deptrac-layers.dot",
+        "check-deptrac-cycles.php .build/deptrac-layers.dot"
+    ]
+}
+```
+
+The first `analyse` is not redundant: the `graphviz-dot` run exits 1 on a violation
+too and writes the dot file all the same, but prints nothing but `Script dumped to
+…`, so the console run is the one that says WHICH dependency is forbidden. The
+second run reuses Deptrac's cache. The `mkdir` step makes sure the dot file's
+directory exists: given a missing directory, deptrac 4.7.2 prints a PHP warning,
+writes nothing and still exits 0 — the gate then refuses the missing file. On the
+house `.build/vendor` layout `.build/` already exists and the step is a no-op; it is
+there for a repository on another `vendor-dir`.
+
+```
+check-deptrac-cycles: 1 layer cycle(s) in .build/deptrac-layers.dot — the layer graph must be acyclic:
+  - Io, Mapping, Parser
+      via Io -> Parser, Mapping -> Io, Parser -> Mapping
+```
+
+Exit 0 means the layer graph is acyclic (`OK — N layer(s), M layer dependency(ies),
+no cycle.`); 1 is at least one cycle, every one reported; 2 is a run that could not
+happen — no or an extra argument, a missing, unreadable or oversized file (1 MiB), a
+document outside the DOT subset Deptrac's formatter writes, or a graph with no layer
+at all (vacuous: an empty `paths:` proves nothing). The parser **fails closed**: a
+comment, an HTML label, a port, an undirected graph or an unbalanced brace is refused
+rather than skipped, because a skipped statement could be the edge that closes a
+cycle. A violating edge (drawn red) counts like any other — it is a real dependency.
+A layer's dependency on itself is not a cycle between layers and is ignored. Groups
+(`formatters.graphviz.groups`) are fine; `formatters.graphviz.hidden_layers` is not —
+a hidden layer is dropped from the dot output together with every edge touching it,
+so a cycle through it is invisible to the gate. Layer names pass through the same
+report scrubbing as the other gates.
+
+**Rollout is script-first**, the same staging rule as the template gate: wire the two
+commands once the repository's own cycles are fixed, never before — a consumer on an
+open cycle gets a red build it cannot fix in the same change. Its fixture-driven
+self-test is `tests/CheckDeptracCyclesTest.php`, run by `composer ci:test:phpunit`,
+including two end-to-end cases that run the real `deptrac` against a tiny project
+and feed its dot output to the gate.
+
 ### phpat — opt-in preset — `phpstan/phpat.neon`
 
 **Deptrac for dependencies, phpat for structure.** Deptrac models "who may depend
@@ -783,32 +870,58 @@ every repository on that workflow carries the script (see AGENTS):
 ```
 
 It parses the consumer's `tests/Architecture/ArchitectureTest.php` (or
-`tests/ArchitectureTest.php`), extracts each rule method's subject — the first
-`Selector::…()` inside the first `->classes(…)` — and asserts it matches a real class
-in `src/`. phpat finds a rule method two ways, a `#[TestRule]` attribute (under any
-import alias or casing) or a public method named `test*`, and the guard recognises
-both; a non-public method is a rule under neither.
+`tests/ArchitectureTest.php`), reads each rule method's subject — the argument(s) of
+the first `->classes(…)` before `->should()`/`->shouldNot()` — evaluates it to the
+**set** of `src/` declarations it selects, and asserts that set is not empty. phpat
+finds a rule method two ways, a `#[TestRule]` attribute (under any import alias or
+casing) or a public method named `test*`, and the guard recognises both; a
+non-public method is a rule under neither.
 
-- `Selector::inNamespace(NS)` needs a class, interface or enum in `NS` — a trait-only
-  or empty namespace reds (the manifested bug: PHPStan visits a trait through
-  `InTraitNode`, never the `InClassNode` phpat reads);
-- `Selector::classname(FQCN)` needs that class, interface or enum to exist — a
-  renamed, moved, mistyped or trait target reds;
-- `Selector::isAbstract()` is a conditional naming guard that legitimately matches
-  nothing until an abstract class is added, so it is not liveness-checked.
+A subject is a selector **expression** (GH-190), and the guard evaluates each
+selector the way phpat's own `matches()` does — verified against phpat itself, one
+throwaway rule per selector:
 
-The argument must be a single-quoted literal or `self::NAMESPACE_ROOT` (a
-single-quoted class constant), optionally followed by one `. '\Sub'` literal, and `->classes()` takes exactly one
-selector — phpat accepts several, but the guard reads one. It is a
-**static** check — it does not run PHPStan — and it **fails closed**: any other
-selector, any other argument shape and a rule method with no recognisable subject red
-the run rather than pass unexamined. Exit 0 means every checked subject is live (or
-there is no ArchitectureTest to check); 1 is a vacuous or unparseable subject, or a
-`src/` file it could not read; 2 is a run that could not happen at all (no `src/`, an
-unreadable or oversized ArchitectureTest). Every consumer-controlled value it echoes
-passes through the same report scrubbing as the lockstep gate. Only the one
-ArchitectureTest file is read: a rule method inherited from a base class or a `use`d
-trait is invisible to it. Its fixture-driven self-test is the
+| Selector | Selects from `src/` |
+|---|---|
+| `inNamespace(NS)` | declarations whose **namespace** is `NS` or below it, compared on whole segments, case-sensitively — a class is not "in" a namespace named after itself |
+| `inNamespace('/re/', true)` | declarations whose namespace (not FQCN) matches the pattern |
+| `classname(FQCN)` | that one declaration, case-sensitively |
+| `classname('/re/', true)` | declarations whose FQCN — without a leading `\` — matches; `/^Foo$/` matches no namespaced class |
+| `implements(X)` | declarations having interface `X` **transitively**: through parent classes and interface inheritance, including an interface extending `X` (never `X` itself, never a class name). An enum also has `UnitEnum`, a backed one `BackedEnum` |
+| `extends(X)` | descendants of class `X`, transitively |
+| `isInterface()`, `isAbstract()`, `isEnum()` | that kind (`isAbstract()` never matches an interface) |
+| `isTrait()`, `all()` | nothing, and everything: phpat never visits a trait at all |
+| `AllOf(…)`, `AnyOf(…)`, `NoneOf(…)`, `Not(x)` | intersection, union, and complement against every class-like but a trait — nested freely, up to 32 levels |
+
+A trait never counts anywhere: phpat resolves a subject through PHPStan's
+`InClassNode`, which never fires for a trait, so a trait-only namespace is the
+manifested vacuous rule. `phpat`'s `->classes()` is variadic and makes every argument
+a rule of its own, so the guard checks each argument on its own and names a vacuous
+one by position. Two things are deliberately **not** checked, because an empty
+result there is a conditional guard rather than a bug: a bare top-level
+`Selector::isAbstract()` subject (empty until the first abstract class lands —
+inside a composite it is an ordinary set), and `->excluding(…)`, which is not
+evaluated at all (`inNamespace(Contract)->excluding(isInterface())` is empty until
+the first abstract contract class exists).
+
+An argument may be a single-quoted literal, `self::NAMESPACE_ROOT` (a single-quoted
+class constant), `Foo::class` — resolved through the ArchitectureTest's own `use`
+imports and namespace, as PHP binds it — any `.`-concatenation of those, and `true`/
+`false` for the regex flag. The guard is **static** — it does not run PHPStan — and
+it **fails closed**: any other selector (`OneOf`, `AtLeastCountOf`, `isFinal`,
+`withFilepath`, …), any other argument shape (a variable, another constant, a
+double-quoted string, a named argument), a regex PHP cannot compile, a malformed or
+over-nested expression, and a rule method with no recognisable subject red the run
+rather than pass unexamined. Its approximations all err towards a false red, never a
+false green: it sees `src/` only, and a supertype declared outside `src/` is known by
+name only, so `implements()`/`extends()` reaching a class solely through a vendor type
+reports "matches no class". Exit 0 means every checked subject is live (or there is
+no ArchitectureTest to check); 1 is a vacuous or unparseable subject, or a `src/` file
+it could not read; 2 is a run that could not happen at all (no `src/`, an unreadable
+or oversized ArchitectureTest). Every consumer-controlled value it echoes passes
+through the same report scrubbing as the lockstep gate. Only the one ArchitectureTest
+file is read: a rule method inherited from a base class or a `use`d trait is
+invisible to it. Its fixture-driven self-test is the
 `tests/CheckPhpatSubjects*Test.php` group, run by `composer ci:test:phpunit`.
 
 ## Templates (copy-and-adapt)

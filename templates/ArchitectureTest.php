@@ -46,11 +46,12 @@ use PHPat\Test\PHPat;
  * PHPStan stays green (e.g. a namespace holding only traits: phpat never visits a
  * trait), so wire the subject-liveness guard next to the preset — a
  * `"ci:test:php:phpat-subjects": ["check-phpat-subjects.php ."]` composer script,
- * see the README. It reads each subject statically, so keep it to
- * Selector::inNamespace(), Selector::classname() or Selector::isAbstract() with a
- * single-quoted literal argument (or a single-quoted `NAMESPACE_ROOT` class
- * constant plus one `. '\Sub'` literal), one selector per ->classes() call; any
- * other shape fails closed.
+ * see the README. It evaluates each subject statically, as the set of src/
+ * classes it selects: inNamespace(), classname(), implements(), extends() (each
+ * optionally as a regex), isInterface(), isAbstract(), isEnum(), isTrait(), all(),
+ * composed with AllOf()/AnyOf()/NoneOf()/Not(), over single-quoted literals,
+ * `self::NAMESPACE_ROOT`, `Foo::class` and `.`-concatenations of those. Any other
+ * selector or argument shape fails closed.
  *
  * @internal
  */
