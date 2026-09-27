@@ -744,6 +744,145 @@ final class CheckPhpatSubjectsTokenWalkTest extends AbstractPhpatSubjectsTestCas
     }
 
     /**
+     * A src/ supertype named through a brace-GROUPED alias import resolves
+     * to its real FQCN, so implements() sees it (GH-190).
+     */
+    #[Test]
+    public function acceptsAnImplementsSubjectThroughAGroupedAliasImportInSrc(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Contract/Provider.php', 'Vendor\Mod\Contract', 'interface', 'Provider');
+        self::writeFile("{$dir}/src/Service/Github.php", <<<'PHP'
+            <?php
+
+            declare(strict_types=1);
+
+            namespace Vendor\Mod\Service;
+
+            use Vendor\Mod\Contract\{Other, Provider as P};
+
+            final class Github implements P
+            {
+            }
+
+            PHP);
+        self::writeArchTest($dir, self::implementsRule("self::NAMESPACE_ROOT . '\\Contract\\Provider'"));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * A `namespace\`-relative and a fully qualified supertype resolve too.
+     */
+    #[Test]
+    public function acceptsAnImplementsSubjectThroughRelativeAndFullyQualifiedNames(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Contract/Provider.php', 'Vendor\Mod\Contract', 'interface', 'Provider');
+        self::writeClass($dir, 'Contract/Relative.php', 'Vendor\Mod\Contract', 'final class', 'Relative implements namespace\Provider');
+        self::writeClass($dir, 'Service/Absolute.php', 'Vendor\Mod\Service', 'final class', 'Absolute implements \Vendor\Mod\Contract\Provider');
+        self::writeArchTest($dir, self::methods(
+            self::implementsRule("self::NAMESPACE_ROOT . '\\Contract\\Provider'", "self::NAMESPACE_ROOT . '\\Contract\\Relative'"),
+            str_replace('function implementor(', 'function absoluteImplementor(', self::implementsRule(
+                "self::NAMESPACE_ROOT . '\\Contract\\Provider'",
+                "self::NAMESPACE_ROOT . '\\Service\\Absolute'",
+            )),
+        ));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * A trait `use` inside a class body is not an import: read as one, it
+     * rebound `Provider` for the NEXT class in the file, whose supertype then
+     * resolved to the trait instead of the same-namespace interface.
+     */
+    #[Test]
+    public function acceptsAnImplementsSubjectPastATraitUseInAnEarlierClassBody(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Other/Provider.php', 'Vendor\Mod\Other', 'trait', 'Provider');
+        self::writeFile("{$dir}/src/Contract/Pair.php", <<<'PHP'
+            <?php
+
+            declare(strict_types=1);
+
+            namespace Vendor\Mod\Contract;
+
+            interface Provider
+            {
+            }
+
+            final class First
+            {
+                use \Vendor\Mod\Other\Provider;
+            }
+
+            final class Second implements Provider
+            {
+            }
+
+            PHP);
+        self::writeArchTest($dir, self::implementsRule("self::NAMESPACE_ROOT . '\\Contract\\Provider'", "self::NAMESPACE_ROOT . '\\Contract\\Second'"));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * An enum carries the interfaces PHP adds implicitly, as phpat sees them
+     * (measured): UnitEnum always, BackedEnum only with a backing type.
+     */
+    #[Test]
+    public function acceptsUnitEnumOnAPureEnumButRejectsBackedEnum(): void
+    {
+        $dir = $this->fixture()->path();
+        self::writeClass($dir, 'Model/Kind.php', 'Vendor\Mod\Model', 'enum', 'Kind');
+        self::writeArchTest($dir, self::methods(
+            self::implementsRule("'UnitEnum'"),
+            str_replace('function implementor(', 'function backed(', self::implementsRule("'BackedEnum'")),
+        ));
+
+        $this->assertGateRejects(self::gate(), $dir, 'backed: subject implements(BackedEnum) matches no class');
+        self::assertOutputDoesNotContain(
+            self::runGate($dir),
+            'implementor: subject implements(UnitEnum)',
+            'A pure enum lost its implicit UnitEnum interface.',
+        );
+
+        self::writeClass($dir, 'Model/Kind.php', 'Vendor\Mod\Model', 'enum', 'Kind: string');
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * Thousands of AnyOf() operands, every one empty but the last: the
+     * argument split steps over each nested call through the bracket table
+     * instead of rescanning it. A functional check, not a timing guard — the
+     * last operand must still be reached.
+     */
+    #[Test]
+    public function acceptsAnAnyOfWithThousandsOfOperandsWhoseLastIsLive(): void
+    {
+        $dir      = $this->fixture()->path();
+        $operands = str_repeat('Selector::isTrait(), ', 3000);
+
+        self::writeClass($dir, 'Model/Node.php', 'Vendor\Mod\Model', 'final class', 'Node');
+        self::writeArchTest($dir, <<<RULE
+                #[TestRule]
+                public function wide(): Rule
+                {
+                    return PHPat::rule()
+                        ->classes(Selector::AnyOf({$operands}Selector::classname('Vendor\\Mod\\Model\\Node')))
+                        ->shouldNot()->dependOn()
+                        ->classes(Selector::classname('Vendor\\Mod\\Nowhere'))
+                        ->because('Wide.');
+                }
+            RULE);
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
      * A live rule on Model/Configuration, after a non-rule attributed helper.
      */
     private const string LIVE_RULE = <<<'RULE'
@@ -770,6 +909,34 @@ final class CheckPhpatSubjectsTokenWalkTest extends AbstractPhpatSubjectsTestCas
     private static function printfRule(string $attribute, string $method, string $subject, string $target, string $because): string
     {
         return sprintf(self::PRINTF_RULE, $attribute, $method, $subject, $target, $because);
+    }
+
+    /**
+     * A rule whose subject is implements($interface), optionally narrowed
+     * to one class with AllOf().
+     *
+     * @param string $interface The implements() argument expression.
+     * @param string $only      A classname() argument expression to intersect with, if any.
+     *
+     * @return string The rule-method body, named implementor().
+     */
+    private static function implementsRule(string $interface, string $only = ''): string
+    {
+        $subject = ($only === '')
+            ? "Selector::implements({$interface})"
+            : "Selector::AllOf(Selector::implements({$interface}), Selector::classname({$only}))";
+
+        return <<<RULE
+                #[TestRule]
+                public function implementor(): Rule
+                {
+                    return PHPat::rule()
+                        ->classes({$subject})
+                        ->shouldNot()->dependOn()
+                        ->classes(Selector::classname('Vendor\\Mod\\Nowhere'))
+                        ->because('Implementor.');
+                }
+            RULE;
     }
 
     /**

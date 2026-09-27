@@ -121,6 +121,49 @@ final class CheckPhpatSubjectsReportTest extends AbstractPhpatSubjectsTestCase
     }
 
     /**
+     * A composite's label (GH-190) is assembled from its leaves, each passed
+     * through safeReportValue() on its own — pinned with the legacy prefix
+     * inside a nested leaf.
+     */
+    #[Test]
+    public function reportIsInertForACompositeLabelCarryingTheLegacyPrefix(): void
+    {
+        $dir = $this->injectedFixture('injected', "Selector::AllOf(Selector::classname('##[error]forged clean run'))");
+
+        $this->assertGateReportIsInert(self::gate(), $dir, 'AllOf(classname(##?[error]forged clean run))');
+    }
+
+    /**
+     * The regex-does-not-compile report echoes the pattern: `##[error]…` is
+     * itself a pattern PHP refuses (`[` is no modifier), so it reaches that
+     * report verbatim.
+     */
+    #[Test]
+    public function reportIsInertForARegexThatDoesNotCompile(): void
+    {
+        $dir = $this->injectedFixture('injected', "Selector::classname('##[error]forged clean run', true)");
+
+        $this->assertGateReportIsInert(self::gate(), $dir, 'regular expression `##?[error]forged clean run` does not compile');
+    }
+
+    /**
+     * A composite operand that is not a selector call is echoed back
+     * verbatim, like an unresolvable leaf argument.
+     */
+    #[Test]
+    public function reportIsInertForAnUnresolvableCompositeOperandCarryingControlCharacters(): void
+    {
+        $dir = $this->injectedFixture(
+            'injected',
+            "Selector::AllOf(\"\e[2K\n"
+            . "::error title=Architecture::no vacuous rules found\n"
+            . 'check-phpat-subjects: OK")',
+        );
+
+        $this->assertGateReportIsInert(self::gate(), $dir, '?[2K?::error title=Architecture');
+    }
+
+    /**
      * Builds the fixture every case here shares: one live Person class, and
      * an ArchitectureTest whose one rule carries $subject.
      *
