@@ -24,9 +24,10 @@
 # `deptrac debug:unassigned` lists such classes and exits 2 while there is one.
 # The last two commands fail on a cycle in the actual layer graph, which Deptrac
 # itself never checks; add them once the repository's own cycles are fixed (see
-# the README's "Layer-cycle gate" section). Do not set
-# `formatters.graphviz.hidden_layers` here — a hidden layer's edges vanish from
-# the dot file, and a cycle through it with them.
+# the README's "Layer-cycle gate" section). `formatters.graphviz.hidden_layers`
+# is for overlay layers only — a hidden layer's edges vanish from the dot file,
+# and a cycle through it with them, which is safe only when every member of the
+# hidden layer also sits in a visible one.
 imports:
     - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
 

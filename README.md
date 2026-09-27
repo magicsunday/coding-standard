@@ -646,28 +646,108 @@ token that belongs to no layer and exits 2 when there is one, 0 (`There are no
 unassigned tokens.`) when there is none (verified against deptrac 4.7.2). A
 repository that still has unassigned classes adds the command once they are
 assigned, the same staging as every other gate here. Once the repository's own
-layer graph is acyclic, the script grows the cycle gate described in the next
-section. The
-ruleset is deliberately permissive at this stage — it forbids only the
-uncontroversial upward edges (a leaf depending on a higher layer, anything
-depending on the composition root), and keeps the domain core (`Enum`/`Model`/
-`Contract`/`Configuration`) mutually permissive to avoid a false `Model`↔`Contract`
-cycle. A consumer's `deptrac.yaml` can add layers of its own with any ruleset, and
-can WIDEN a shared layer, but it cannot NARROW one: Deptrac unites the rulesets of
-every imported file, so a rule the consumer declares for a shared layer is added to
-the shared one, never substituted for it (verified against deptrac 4.7.2: the shared
-ruleset reports a `Model`→`Module` edge, and a local `Model: [Module]` makes the
-report disappear). A per-module narrowing of a shared layer therefore goes to phpat —
-see the next section. Tighten the shared ruleset itself only after a `deptrac
-analyse` dry-run in every consumer proves the stricter edge is violation-free.
+layer graph is acyclic, the script grows the cycle gate described in *Layer-cycle
+gate* below.
 Dependencies on classes outside every
 layer (the framework, webtrees core) are reported as "uncovered" but do not fail
 the run; `--fail-on-uncovered` is left off because every external dependency is
 uncovered.
 
-This supersedes the older per-repo phpat layer rules: layer dependencies are
-Deptrac's job. phpat stays available for what Deptrac cannot express — see the
-next section.
+#### The ruleset: strict and acyclic
+
+Deptrac **unites** the rulesets of every imported file: a rule a consumer declares
+for a shared layer is added to the shared one, never substituted for it (verified
+against deptrac 4.7.2: the shared ruleset reports a `Model`→`Module` edge, and a local
+`Model: [Module]` makes the report disappear). A consumer can therefore widen a shared
+layer but never narrow one — so the shared ruleset is the **strictest common
+denominator**, and every edge a module needs beyond it is an explicit, commented
+widening in its own `deptrac.yaml`. The layers form one total order, and a layer may
+depend only on layers below it:
+
+```
+Support < Enum < Model, Configuration < Contract < Repository, Adapter, Service < Facade < Module
+```
+
+| Layer | May depend on | Principle |
+|---|---|---|
+| `Support` | — | Generic, domain-agnostic helpers (as in `Illuminate\Support`). A helper that needs a domain type is domain logic and belongs above the core. |
+| `Enum` | Support | The domain vocabulary. |
+| `Model`, `Configuration` | Support, Enum | Data in that vocabulary. A model does not implement a port: an interface a model implements belongs with the model (Stable Abstractions Principle). |
+| `Contract` | Support, Enum, Model, Configuration | Ports speak the domain types; nothing in the core depends back on them. |
+| `Repository`, `Adapter` | the core | Adapters implement the ports. |
+| `Service` | the core | Application logic depends on ports only, never on a concrete repository or adapter (Dependency Inversion, Ports & Adapters). |
+| `Facade` | everything below | A library's public entry point doubles as its composition root, so it may reach the adapters it wires. |
+| `Module` | everything below | The webtrees entry point and composition root. |
+
+The order makes the shared graph a DAG by construction (Acyclic Dependencies
+Principle). `tests/CheckDeptracLayersTest.php` runs the real Deptrac over one fixture
+class per ordered layer pair and requires exactly this table's verdict for all 90
+pairs, plus the table's acyclicity — a drift in either direction reds.
+
+Until 3.0.0 the ruleset was permissive (the domain core mutually permissive,
+`Support` above the core, `Service` allowed to reach concrete repositories). Measured
+against every adopter, the strict one reports nothing in most and a handful of real
+design findings in the rest — a model implementing a port, a model holding parser
+interfaces, domain logic filed under `Support`. A consumer moving to 3.x either fixes
+those edges or records them as a Deptrac baseline and tracks burning it down:
+
+```shell
+deptrac analyse --formatter=baseline --output=deptrac.baseline.yaml
+```
+
+```yaml
+# deptrac.yaml
+imports:
+    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
+    - deptrac.baseline.yaml
+```
+
+A baseline pins the exact class pairs that exist today, so a NEW edge of the same
+kind still fails — unlike a widened ruleset, which permits every future one too.
+Deptrac rejects a baseline entry that no longer matches, so the file only shrinks.
+
+#### Module-specific boundaries in Deptrac
+
+Every layer-dependency rule a module needs is expressible in Deptrac, including the
+two that look like they are not. Deptrac checks a class against **every** layer it
+belongs to (verified against deptrac 4.7.2), which gives two techniques:
+
+- **Narrow a subset** — an *overlay layer*. Collect the subset a second time (with a
+  `bool` collector: `must` the parent, `must_not` the exceptions) and give that layer
+  a shorter allow-list. Example: database access confined to `*Repository` classes —
+  an overlay over everything except `#Repository$#` whose allow-list omits the
+  `Database` layer. A probe `DB::` call outside a repository is reported; the
+  repositories stay green.
+- **Grant one sub-namespace an extra edge** — widen the layer, then narrow the rest
+  with an overlay. Example: only `Support\Database` may use the database manager —
+  `Support: [Database]` plus an overlay over `.*/Support/.*` minus
+  `.*/Support/Database/.*` whose allow-list omits `Database` (a probe in
+  `Support\Gedcom` is reported, `Support\Database` is not). For a package-local layer,
+  a negative lookahead in its own collector (`src/Exif/(?!Model/).*`) carves the
+  sub-namespace out directly.
+
+Prefer, in this order:
+
+1. **Restrict the target.** "Only X may use Y" is often expressible without any
+   overlap: give Y its own layer and list it only in X's allow-list. Every class stays
+   in exactly one layer. Example (webtrees-module-updater): the discovery service in a
+   layer only the composition root lists, so no provider can reach it.
+2. **Partition.** Carve the subset out of its package-local layer (a `bool` or
+   negative-lookahead collector) so it becomes a layer of its own.
+3. **Overlay** — only when the subset belongs to a SHARED layer (which a consumer
+   cannot carve), or the partition would split classes that legitimately reference
+   each other.
+
+Three details of overlay layers: each overlapping layer needs **itself** (and its
+twin) in its allow-list (`Webtrees: [Webtrees, NonRepository, …]`), or Deptrac
+reports the edges between its members, because it skips an intra-layer edge only
+when the two classes share every layer; Deptrac warns "in more than one layer" for
+each overlapped class — a warning, not a failure (exit 0); and an overlay and its
+twin always depend on each other at layer level, which the layer-cycle gate below
+would report as a cycle. List every overlay — and only overlays — under
+`formatters.graphviz.hidden_layers`: each overlay member is also a member of a
+normal layer, so every real edge still appears on that layer and a real cycle still
+shows.
 
 ### Layer-cycle gate — `bin/check-deptrac-cycles.php`
 
@@ -721,9 +801,10 @@ comment, an HTML label, a port, an undirected graph or an unbalanced brace is re
 rather than skipped, because a skipped statement could be the edge that closes a
 cycle. A violating edge (drawn red) counts like any other — it is a real dependency.
 A layer's dependency on itself is not a cycle between layers and is ignored. Groups
-(`formatters.graphviz.groups`) are fine; `formatters.graphviz.hidden_layers` is not —
-a hidden layer is dropped from the dot output together with every edge touching it,
-so a cycle through it is invisible to the gate. Layer names pass through the same
+(`formatters.graphviz.groups`) are fine. `formatters.graphviz.hidden_layers` drops a
+layer from the dot output together with every edge touching it, so a cycle through
+it is invisible to the gate: hide overlay layers only (see *Module-specific
+boundaries in Deptrac* above), never a layer whose classes belong to no other layer. Layer names pass through the same
 report scrubbing as the other gates.
 
 **Rollout is script-first**, the same staging rule as the template gate: wire the two
@@ -735,27 +816,17 @@ and feed its dot output to the gate.
 
 ### phpat — opt-in preset — `phpstan/phpat.neon`
 
-**Deptrac first, phpat only where Deptrac cannot.** Deptrac models "who may depend
-on whom" and nothing else, so three kinds of rule are out of its reach:
+**Deptrac for dependencies, phpat for structure.** Deptrac models "who may depend
+on whom" — including module-specific narrowings and sub-namespace grants (see
+*Module-specific boundaries in Deptrac* above). What it cannot see are **structural
+invariants** of a class: "every class in X is `final`", "every abstract class is
+named `Abstract*`", "every DTO implements `JsonSerializable`", "every `*Provider`
+implements the catalog contract". These are class properties, not dependencies:
+Deptrac's collectors have no notion of a modifier or a name, and a ruleset can forbid
+a dependency but never require one. phpat also never analyses a trait on its own, so
+a dependency rule written in phpat silently skips every trait — Deptrac does not.
 
-- **Structural invariants** on a class — "every class in X is `final`", "every
-  abstract class is named `Abstract*`", "every DTO implements `JsonSerializable`".
-  These are class properties, not dependencies: Deptrac's collectors model
-  `classLike`/`class`/`interface`/`trait` and have no notion of a modifier or a
-  name, and a ruleset can forbid a dependency but never require one.
-- **Sub-layer boundaries** — "only `Repository\` and `Support\Database\` may use
-  the database manager". Deptrac checks a class against **every** layer it belongs
-  to, so one sub-namespace of the shared `Support` layer cannot be granted an edge
-  the rest of `Support` is denied: a `Support\Database` layer of its own puts its
-  classes in both layers (verified against deptrac 4.7.2 and the shared ruleset:
-  229 violations), and allowing the edge for all of `Support` stops rejecting e.g.
-  `Support\Gedcom` touching the database.
-- **A shared layer narrowed for one module** — "in this package `Model` is a pure
-  leaf", where the shared ruleset lets `Model` reach `Contract`. Deptrac unites the
-  rulesets across `imports:`, so a consumer's `deptrac.yaml` can only widen a shared
-  layer (see the Deptrac section above).
-
-phpat covers all three, as PHPStan rules. It is **not** delivered by this package's
+phpat covers these, as PHPStan rules. It is **not** delivered by this package's
 `require` — only listed under `suggest` — so a repository with no such rule never
 installs it. A repository that has one requires phpat itself and includes the
 preset next to the base:
@@ -782,16 +853,15 @@ rule packs, and for the same reason: it stays valid in Rector's `phpstanConfig`
 context, which `phpstan/extension-installer` does not reach — and turns on
 `phpat.show_rule_names`, so every finding names the rule that fired.
 `templates/ArchitectureTest.php` is the starting point for the rule class: the two
-house-wide structural rules (`Abstract*` naming, final leaf classes) plus a
-commented sub-layer-boundary example. Keep it under `tests/Architecture/`, which the
+house-wide structural rules (`Abstract*` naming, final leaf classes). Keep it under `tests/Architecture/`, which the
 shipped `phpunit.xml.dist` excludes from the PHPUnit suite — a phpat rule class is
 not a PHPUnit test.
 
 Two rules for what goes into it:
 
-- **Every rule carries a comment naming why Deptrac does not fit** — structural
-  invariant, sub-layer boundary, or a shared layer narrowed for this module. A plain layer-dependency rule written in phpat
-  is the drift this split exists to prevent; it belongs in `deptrac.yaml`.
+- **Every rule is a structural invariant.** A dependency rule written in phpat —
+  "X must not depend on Y", however narrow its subject — is the drift this split
+  exists to prevent; it belongs in `deptrac.yaml`, as a layer or an overlay layer.
 - **Every rule subject must match a class.** A rule whose subject matches nothing
   enforces nothing while PHPStan stays green — a `Selector::inNamespace()` on a
   namespace holding only traits is the known case, since phpat resolves subjects
@@ -888,7 +958,7 @@ from drifting from this package.
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
-| `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: `Abstract*` naming + final leaves, and a sub-layer-boundary example; see the phpat section above |
+| `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
 
 ### Lockstep gate — `bin/check-consumer-config.php`
 

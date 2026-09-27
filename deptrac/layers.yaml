@@ -17,14 +17,18 @@
 # an uncovered class does not fail the run (do NOT enable `--fail-on-uncovered`
 # wholesale — every external dependency is uncovered).
 #
-# The ruleset is deliberately PERMISSIVE at this stage: it forbids only the
-# uncontroversial upward edges every layered design agrees are wrong (a leaf
-# depending on a higher layer, anything depending on the composition root). The
-# domain core — Enum, Model, Contract, Configuration — is left mutually permissive
-# on purpose: a Model legitimately implements a Contract marker interface whose
-# signature references a Model, which at layer granularity is a cycle that must
-# not be forbidden. Tighten individual edges later, per module, only once a
-# `deptrac analyse` dry-run proves the stricter edge is violation-free.
+# The ruleset is STRICT and ACYCLIC. Deptrac UNITES rulesets across `imports:`, so a
+# consumer can widen a shared layer but never narrow one — the shared ruleset must
+# therefore be the strictest common denominator, and every edge a module needs beyond
+# it is an explicit, commented widening in that module's own deptrac.yaml. The layers
+# form one total order, lowest first, and a layer may depend only on layers below it:
+#
+#   Support < Enum < Model, Configuration < Contract < Repository, Adapter, Service
+#           < Facade < Module
+#
+# which makes the shared graph a DAG by construction (Acyclic Dependencies Principle).
+# The principles behind the order, and the measured impact on every adopter, are in
+# the README's Deptrac section.
 #
 # CONSTRAINT — canonical segments must not NEST. Because a layer is matched by its
 # bare `/Segment/` path, a class whose path nests one canonical segment under
@@ -102,76 +106,71 @@ deptrac:
                     value: '.*/Module/.*'
 
     ruleset:
-        # Domain core — mutually permissive, depends on nothing outside itself.
-        # Enum is part of the core, not a pure leaf: a PHP enum may implement a
-        # Contract interface or expose a Model/Configuration, so it gets the same
-        # intra-core allowance as the others rather than an empty allowlist.
+        # Generic, domain-agnostic helpers (string, array, date utilities). The bottom
+        # layer: a helper that needs a domain type is domain logic and belongs above.
+        Support: ~
+
+        # Domain core. Enums are the vocabulary; models and configuration values hold
+        # data in that vocabulary; contracts (ports) speak the domain types. Nothing in
+        # the core depends back on a contract: an interface a model implements belongs
+        # with the model (Stable Abstractions Principle).
         Enum:
-            - Model
-            - Contract
-            - Configuration
+            - Support
         Model:
+            - Support
             - Enum
-            - Contract
-            - Configuration
-        Contract:
-            - Enum
-            - Model
-            - Configuration
         Configuration:
+            - Support
+            - Enum
+        Contract:
+            - Support
             - Enum
             - Model
-            - Contract
-
-        # Framework-agnostic helpers — may lean on the domain core only.
-        Support:
-            - Enum
-            - Model
-            - Contract
             - Configuration
 
-        # Infrastructure edge — data access and framework/external adapters.
+        # Infrastructure edge — data access and framework/external adapters implement
+        # the contracts.
         Repository:
+            - Support
             - Enum
             - Model
-            - Contract
             - Configuration
-            - Support
+            - Contract
         Adapter:
+            - Support
             - Enum
             - Model
-            - Contract
             - Configuration
-            - Support
+            - Contract
 
-        # Application logic — may consume infrastructure.
+        # Application logic depends on contracts only, never on a concrete repository or
+        # adapter (Dependency Inversion): the composition root wires those in.
         Service:
+            - Support
             - Enum
             - Model
-            - Contract
             - Configuration
-            - Support
-            - Repository
-            - Adapter
+            - Contract
 
-        # Public API / orchestration.
+        # Public API / orchestration — a library's entry point doubles as its
+        # composition root, so it may reach the adapters it wires.
         Facade:
+            - Support
             - Enum
             - Model
-            - Contract
             - Configuration
-            - Support
+            - Contract
             - Repository
             - Adapter
             - Service
 
         # webtrees entry point + composition root — wires everything.
         Module:
+            - Support
             - Enum
             - Model
-            - Contract
             - Configuration
-            - Support
+            - Contract
             - Repository
             - Adapter
             - Service

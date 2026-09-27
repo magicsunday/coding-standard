@@ -42,7 +42,8 @@ declare(strict_types=1);
  *
  * Blind spot: a layer listed under `formatters.graphviz.hidden_layers` is dropped
  * from the dot output together with every edge touching it, so a cycle through it
- * is invisible here. Do not hide layers in the configuration this gate reads.
+ * is invisible here. Hide only overlay layers (every member also in a visible
+ * layer), never a layer whose classes belong to no other layer.
  *
  * Usage: check-deptrac-cycles.php <dot-file>
  *
