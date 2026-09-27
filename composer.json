@@ -51,6 +51,7 @@
     },
     "bin": [
         "bin/check-consumer-config.php",
+        "bin/check-deptrac-cycles.php",
         "bin/check-phpat-subjects.php"
     ],
     "config": {
