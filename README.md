@@ -733,32 +733,58 @@ every repository on that workflow carries the script (see AGENTS):
 ```
 
 It parses the consumer's `tests/Architecture/ArchitectureTest.php` (or
-`tests/ArchitectureTest.php`), extracts each rule method's subject — the first
-`Selector::…()` inside the first `->classes(…)` — and asserts it matches a real class
-in `src/`. phpat finds a rule method two ways, a `#[TestRule]` attribute (under any
-import alias or casing) or a public method named `test*`, and the guard recognises
-both; a non-public method is a rule under neither.
+`tests/ArchitectureTest.php`), reads each rule method's subject — the argument(s) of
+the first `->classes(…)` before `->should()`/`->shouldNot()` — evaluates it to the
+**set** of `src/` declarations it selects, and asserts that set is not empty. phpat
+finds a rule method two ways, a `#[TestRule]` attribute (under any import alias or
+casing) or a public method named `test*`, and the guard recognises both; a
+non-public method is a rule under neither.
 
-- `Selector::inNamespace(NS)` needs a class, interface or enum in `NS` — a trait-only
-  or empty namespace reds (the manifested bug: PHPStan visits a trait through
-  `InTraitNode`, never the `InClassNode` phpat reads);
-- `Selector::classname(FQCN)` needs that class, interface or enum to exist — a
-  renamed, moved, mistyped or trait target reds;
-- `Selector::isAbstract()` is a conditional naming guard that legitimately matches
-  nothing until an abstract class is added, so it is not liveness-checked.
+A subject is a selector **expression** (GH-190), and the guard evaluates each
+selector the way phpat's own `matches()` does — verified against phpat itself, one
+throwaway rule per selector:
 
-The argument must be a single-quoted literal or `self::NAMESPACE_ROOT` (a
-single-quoted class constant), optionally followed by one `. '\Sub'` literal, and `->classes()` takes exactly one
-selector — phpat accepts several, but the guard reads one. It is a
-**static** check — it does not run PHPStan — and it **fails closed**: any other
-selector, any other argument shape and a rule method with no recognisable subject red
-the run rather than pass unexamined. Exit 0 means every checked subject is live (or
-there is no ArchitectureTest to check); 1 is a vacuous or unparseable subject, or a
-`src/` file it could not read; 2 is a run that could not happen at all (no `src/`, an
-unreadable or oversized ArchitectureTest). Every consumer-controlled value it echoes
-passes through the same report scrubbing as the lockstep gate. Only the one
-ArchitectureTest file is read: a rule method inherited from a base class or a `use`d
-trait is invisible to it. Its fixture-driven self-test is the
+| Selector | Selects from `src/` |
+|---|---|
+| `inNamespace(NS)` | declarations whose **namespace** is `NS` or below it, compared on whole segments, case-sensitively — a class is not "in" a namespace named after itself |
+| `inNamespace('/re/', true)` | declarations whose namespace (not FQCN) matches the pattern |
+| `classname(FQCN)` | that one declaration, case-sensitively |
+| `classname('/re/', true)` | declarations whose FQCN — without a leading `\` — matches; `/^Foo$/` matches no namespaced class |
+| `implements(X)` | declarations having interface `X` **transitively**: through parent classes and interface inheritance, including an interface extending `X` (never `X` itself, never a class name). An enum also has `UnitEnum`, a backed one `BackedEnum` |
+| `extends(X)` | descendants of class `X`, transitively |
+| `isInterface()`, `isAbstract()`, `isEnum()` | that kind (`isAbstract()` never matches an interface) |
+| `isTrait()`, `all()` | nothing, and everything: phpat never visits a trait at all |
+| `AllOf(…)`, `AnyOf(…)`, `NoneOf(…)`, `Not(x)` | intersection, union, and complement against every class-like but a trait — nested freely, up to 32 levels |
+
+A trait never counts anywhere: phpat resolves a subject through PHPStan's
+`InClassNode`, which never fires for a trait, so a trait-only namespace is the
+manifested vacuous rule. `phpat`'s `->classes()` is variadic and makes every argument
+a rule of its own, so the guard checks each argument on its own and names a vacuous
+one by position. Two things are deliberately **not** checked, because an empty
+result there is a conditional guard rather than a bug: a bare top-level
+`Selector::isAbstract()` subject (empty until the first abstract class lands —
+inside a composite it is an ordinary set), and `->excluding(…)`, which is not
+evaluated at all (`inNamespace(Contract)->excluding(isInterface())` is empty until
+the first abstract contract class exists).
+
+An argument may be a single-quoted literal, `self::NAMESPACE_ROOT` (a single-quoted
+class constant), `Foo::class` — resolved through the ArchitectureTest's own `use`
+imports and namespace, as PHP binds it — any `.`-concatenation of those, and `true`/
+`false` for the regex flag. The guard is **static** — it does not run PHPStan — and
+it **fails closed**: any other selector (`OneOf`, `AtLeastCountOf`, `isFinal`,
+`withFilepath`, …), any other argument shape (a variable, another constant, a
+double-quoted string, a named argument), a regex PHP cannot compile, a malformed or
+over-nested expression, and a rule method with no recognisable subject red the run
+rather than pass unexamined. Its approximations all err towards a false red, never a
+false green: it sees `src/` only, and a supertype declared outside `src/` is known by
+name only, so `implements()`/`extends()` reaching a class solely through a vendor type
+reports "matches no class". Exit 0 means every checked subject is live (or there is
+no ArchitectureTest to check); 1 is a vacuous or unparseable subject, or a `src/` file
+it could not read; 2 is a run that could not happen at all (no `src/`, an unreadable
+or oversized ArchitectureTest). Every consumer-controlled value it echoes passes
+through the same report scrubbing as the lockstep gate. Only the one ArchitectureTest
+file is read: a rule method inherited from a base class or a `use`d trait is
+invisible to it. Its fixture-driven self-test is the
 `tests/CheckPhpatSubjects*Test.php` group, run by `composer ci:test:phpunit`.
 
 ## Templates (copy-and-adapt)

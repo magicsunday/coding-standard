@@ -30,17 +30,30 @@ declare(strict_types=1);
  * trait — real by either discovery path, just declared somewhere else — is invisible
  * to this gate, which tokenises `ArchitectureTest.php` alone. Pre-existing for the
  * attribute path; carried over unchanged for the name-based one, not a new gap this
- * adds:
- *   - `Selector::inNamespace(NS)`  → at least one class, interface or enum exists in
- *                                     NS (a trait-only namespace, the manifested bug,
- *                                     fails here: PHPStan visits a trait through
- *                                     InTraitNode, never the InClassNode phpat reads);
- *   - `Selector::classname(FQCN)`  → that class, interface or enum exists (a renamed,
- *                                     mistyped or trait target fails here);
- *   - `Selector::isAbstract()`     → NOT liveness-checked: it is a conditional naming
- *                                     guard that legitimately matches nothing until an
- *                                     abstract class is added, so an empty match is
- *                                     correct, not a bug.
+ * adds.
+ *
+ * A subject is a selector EXPRESSION (GH-190), evaluated to the SET of `src/`
+ * declarations it selects, and a rule is live iff that set is non-empty. Each
+ * argument of a variadic `->classes(a, b)` is a rule of its own to phpat and is
+ * checked on its own. The selectors this gate evaluates, each replicating phpat's own
+ * `matches()` (measured against phpat itself — see the evaluation section below):
+ *   - `inNamespace(NS[, regex])`, `classname(FQCN[, regex])`, `implements(X[, regex])`,
+ *     `extends(X[, regex])` — `implements`/`extends` transitively, through `src/`;
+ *   - `isInterface()`, `isAbstract()`, `isEnum()`, `isTrait()`, `all()`;
+ *   - `AllOf(…)`, `AnyOf(…)`, `NoneOf(…)`, `Not(x)` — intersection, union and
+ *     complement against every class phpat can see, nested to any depth up to
+ *     MAX_SELECTOR_DEPTH.
+ * An argument is a single-quoted string, `self::NAMESPACE_ROOT`, `Foo::class`
+ * (resolved through the ArchitectureTest's own `use` imports), `.`-concatenations of
+ * those, or `true`/`false`. The liveness verdict itself:
+ *   - a trait never counts: phpat resolves a subject through PHPStan's InClassNode,
+ *     which never fires for a trait (the manifested bug — a trait-only namespace);
+ *   - a bare top-level `Selector::isAbstract()` subject is NOT liveness-checked: it is
+ *     a conditional naming guard that legitimately matches nothing until an abstract
+ *     class is added, so an empty match is correct, not a bug (inside a composite it
+ *     is an ordinary set);
+ *   - `->excluding(…)` is not evaluated, for the same conditional-guard reason.
+ * Any other selector, argument shape or malformed expression fails closed.
  *
  * It is a STATIC check — it does not run PHPStan — so it verifies the one invariant the
  * vacuous-rule trap violates (the subject is non-empty), not the full rule mechanics.
@@ -395,6 +408,212 @@ for ($index = 0; $index < $constantCount; ++$index) {
     $index = $ahead - 1;
 }
 
+/**
+ * Classifies a token's effect on brace depth: +1 for an opener, -1 for a closer, 0 for
+ * neither. A bare CHAR `{`/`}` is the usual case; the two string-interpolation openers
+ * are the exception that must also count as +1, because their CLOSING brace is an
+ * ordinary CHAR `}` — `{$a}` opens with T_CURLY_OPEN, `${a}` with
+ * T_DOLLAR_OPEN_CURLY_BRACES, and skipping them leaves that `}` decrementing against
+ * nothing (measured: cut a live rule's body short and reported it as unparseable).
+ * Shared by every depth counter in this file so this recognition rule lives in
+ * exactly one place — the src/ inventory walk's import-depth tracking,
+ * $resolveTestRuleAliases's own pre-pass depth, $topDepth, the ArchitectureTest's
+ * own import walk and the per-method body-extraction loop all call it rather than
+ * each carrying their own copy of the same four-way token check.
+ *
+ * @param array{0: int, 1: string, 2: int}|string $token A token from token_get_all().
+ *
+ * @return int Returns -1, 0 or 1.
+ */
+$braceDelta = static function (array|string $token): int {
+    if (is_array($token)) {
+        return (($token[0] === \T_CURLY_OPEN) || ($token[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) ? 1 : 0;
+    }
+
+    return match ($token) {
+        '{'     => 1,
+        '}'     => -1,
+        default => 0,
+    };
+};
+
+/**
+ * Folds a name to lower case the way PHP itself folds a class, namespace or method
+ * name: ASCII only and locale-independent (zend_str_tolower). Not strtolower(), which
+ * this repository bans (phpstan/disallowed-function-calls.neon), and not
+ * mb_strtolower(), which would also fold bytes PHP keeps distinct — two names this
+ * closure folds to the same key are exactly the two names PHP treats as one.
+ *
+ * @param string $value The name to fold.
+ *
+ * @return string The name with A-Z folded to a-z and every other byte kept.
+ */
+$asciiLower = static fn (string $value): string => strtr($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
+
+/**
+ * Reads one `use` statement's CLASS imports, starting right after its T_USE token —
+ * shared by the src/ class inventory (to resolve an `extends`/`implements` name) and
+ * the ArchitectureTest (to resolve a `Foo::class` selector argument), so both sides of
+ * a comparison resolve a short name by the same rule PHP applies.
+ *
+ * Handles a single import, a comma-separated list, a brace-grouped list
+ * (`use A\{B, C as D};` — the group prefix arrives as one name token, its own trailing
+ * T_NS_SEPARATOR, then the `{` CHAR, the same token shape $resolveTestRuleAliases
+ * below documents) and an `as` alias on any item. A declaration-level `use function`/
+ * `use const` statement, and a per-item `function`/`const` inside a group, import from
+ * a different symbol table than classes, so they contribute nothing here. A closure's
+ * `use (…)` (T_USE followed by `(`) is not an import at all and returns no entries.
+ *
+ * @param list<array{0: int, 1: string, 2: int}|string> $tokens     The token stream.
+ * @param int                                           $start      The index right after the T_USE token.
+ * @param int                                           $count      The token count (exclusive upper bound).
+ * @param Closure(string): string                       $asciiLower The name fold.
+ *
+ * @return array{0: array<string, string>, 1: int} The imports keyed by folded local name, and the index of the token the statement ended on.
+ */
+$parseUseImports = static function (array $tokens, int $start, int $count, Closure $asciiLower): array {
+    $imports     = [];
+    $groupPrefix = null;
+    $name        = null;
+    $alias       = null;
+    $expectAlias = false;
+    $skipAll     = false;
+    $skipItem    = false;
+    $first       = true;
+
+    for ($index = $start; $index < $count; ++$index) {
+        $token = $tokens[$index];
+
+        if (is_array($token)) {
+            if ($token[0] === \T_WHITESPACE) {
+                continue;
+            }
+
+            if (($token[0] === \T_FUNCTION) || ($token[0] === \T_CONST)) {
+                // First significant token: the keyword governs the whole statement.
+                // Anywhere else: it governs one group item only.
+                if ($first) {
+                    $skipAll = true;
+                }
+
+                $skipItem = true;
+                $first    = false;
+
+                continue;
+            }
+
+            $first = false;
+
+            if ($token[0] === \T_AS) {
+                $expectAlias = true;
+
+                continue;
+            }
+
+            if (($token[0] === \T_STRING) || ($token[0] === \T_NAME_QUALIFIED) || ($token[0] === \T_NAME_FULLY_QUALIFIED)) {
+                if ($expectAlias) {
+                    $alias       = $token[1];
+                    $expectAlias = false;
+                } elseif ($name === null) {
+                    $name = $token[1];
+                }
+            }
+
+            continue;
+        }
+
+        if ($first && ($token === '(')) {
+            return [[], $start];
+        }
+
+        $first = false;
+
+        if ($token === '{') {
+            $groupPrefix = $name;
+            $name        = null;
+            $alias       = null;
+            $skipItem    = false;
+
+            continue;
+        }
+
+        if (($token === ',') || ($token === '}') || ($token === ';')) {
+            if (($name !== null) && !$skipAll && !$skipItem) {
+                $full     = ltrim((($groupPrefix !== null) ? $groupPrefix . '\\' : '') . $name, '\\');
+                $segments = explode('\\', $full);
+                $local    = $alias ?? end($segments);
+
+                $imports[$asciiLower($local)] = $full;
+            }
+
+            $name        = null;
+            $alias       = null;
+            $expectAlias = false;
+            $skipItem    = false;
+
+            if ($token === '}') {
+                $groupPrefix = null;
+            }
+
+            if ($token === ';') {
+                return [$imports, $index];
+            }
+
+            continue;
+        }
+
+        // Anything else cannot continue a `use` statement: stop here.
+        return [$imports, $index];
+    }
+
+    return [$imports, $count];
+};
+
+/**
+ * Resolves a class-name token to the fully qualified name PHP binds it to, by PHP's
+ * own rules for a CLASS reference: a fully qualified name as written; a
+ * `namespace\X` relative name against the current namespace; otherwise the first
+ * segment through the file's `use` imports (case-insensitively, like PHP), falling
+ * back to the current namespace — with NO fallback to the global namespace, which
+ * PHP only applies to functions and constants, never to classes.
+ *
+ * `self`, `static` and `parent` depend on the class they are written in, which
+ * nothing that calls this needs to model, so they resolve to null and the caller
+ * fails closed.
+ *
+ * @param array{0: int, 1: string, 2: int} $token      A T_STRING or T_NAME_* token.
+ * @param string                           $namespace  The file's current namespace ('' for global).
+ * @param array<string, string>            $imports    The file's class imports, keyed by folded local name.
+ * @param Closure(string): string          $asciiLower The name fold.
+ *
+ * @return string|null The fully qualified name without a leading `\`, or null when it cannot be resolved.
+ */
+$resolveClassName = static function (array $token, string $namespace, array $imports, Closure $asciiLower): ?string {
+    if ($token[0] === \T_NAME_FULLY_QUALIFIED) {
+        return ltrim($token[1], '\\');
+    }
+
+    $prefix = ($namespace !== '') ? $namespace . '\\' : '';
+
+    if ($token[0] === \T_NAME_RELATIVE) {
+        // The token text is `namespace\Rest`; `namespace\` is 10 bytes whatever its case.
+        return $prefix . substr($token[1], 10);
+    }
+
+    $segments = explode('\\', $token[1], 2);
+    $key      = $asciiLower($segments[0]);
+
+    if (($token[0] === \T_STRING) && in_array($key, ['self', 'static', 'parent'], true)) {
+        return null;
+    }
+
+    if (isset($imports[$key])) {
+        return $imports[$key] . (isset($segments[1]) ? '\\' . $segments[1] : '');
+    }
+
+    return $prefix . $token[1];
+};
+
 // --- Build the class inventory of src/ (FQCN => kind) ---
 //
 // Declared HERE, not after the loop: the loop below appends to it, and a later
@@ -411,6 +630,21 @@ $inventoryIncomplete = false;
 
 /** @var array<string, string> $inventory */
 $inventory = [];
+
+// The declared supertypes of each inventoried declaration, resolved to fully
+// qualified names through the declaring file's own namespace and `use` imports — what
+// the implements()/extends() selectors walk. A class's single `extends` name goes to
+// $inventoryParent; its `implements` list, an interface's `extends` list (which ARE
+// its interfaces) and an enum's `implements` list go to $inventoryInterfaces. An enum
+// also carries the interfaces PHP adds implicitly — UnitEnum always, BackedEnum when
+// the enum declares a backing type — because phpat sees them: measured against
+// phpat in tests/consumer, implements('UnitEnum') matched a pure and a backed enum,
+// implements('BackedEnum') the backed one only.
+/** @var array<string, string> $inventoryParent */
+$inventoryParent = [];
+
+/** @var array<string, list<string>> $inventoryInterfaces */
+$inventoryInterfaces = [];
 
 $directory = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($srcDir, FilesystemIterator::SKIP_DOTS));
 
@@ -469,8 +703,19 @@ foreach ($directory as $file) {
     $modifiers = [];
     $count     = count($tokens);
 
+    // Brace depth, and the depth a `use` IMPORT sits at: 0 under an unbracketed
+    // `namespace X;`, 1 inside a bracketed `namespace X { … }`. A T_USE anywhere else
+    // is a trait import inside a class body (or a closure's `use (…)`, which
+    // $parseUseImports itself recognises), never a class import.
+    $depth       = 0;
+    $importDepth = 0;
+
+    /** @var array<string, string> $imports */
+    $imports = [];
+
     for ($index = 0; $index < $count; ++$index) {
         $token = $tokens[$index];
+        $depth += $braceDelta($token);
 
         if (!is_array($token)) {
             // A `;` or `{` ends whatever modifier run was open; anything else that
@@ -486,7 +731,35 @@ foreach ($directory as $file) {
 
         if ($token[0] === \T_NAMESPACE) {
             $namespace = $nextName($tokens, $index + 1, $count, [\T_WHITESPACE], [\T_STRING, \T_NAME_QUALIFIED]) ?? '';
+            $imports   = [];
 
+            // Bracketed iff the name (if any) is followed by `{`. Bounded to the
+            // whitespace and the one name token in between, so a file of bare
+            // `namespace` keywords cannot make every occurrence scan to end-of-file.
+            $ahead = $index + 1;
+
+            while (($ahead < $count) && is_array($tokens[$ahead])
+                && in_array($tokens[$ahead][0], [\T_WHITESPACE, \T_STRING, \T_NAME_QUALIFIED], true)
+            ) {
+                ++$ahead;
+            }
+
+            $importDepth = (($ahead < $count) && ($tokens[$ahead] === '{')) ? 1 : 0;
+            $modifiers   = [];
+
+            continue;
+        }
+
+        if (($token[0] === \T_USE) && ($depth === $importDepth)) {
+            [$statementImports, $end] = $parseUseImports($tokens, $index + 1, $count, $asciiLower);
+
+            $imports = array_replace($imports, $statementImports);
+
+            // Resume ON the token the statement ended at, so its `;` (or whatever
+            // stopped the scan) is still processed by this loop. A group's own
+            // `{ … }` is balanced inside the statement and correctly never reaches
+            // the depth counter.
+            $index     = max($index, $end - 1);
             $modifiers = [];
 
             continue;
@@ -540,11 +813,79 @@ foreach ($directory as $file) {
             continue;
         }
 
+        $kind            = $kinds[$token[0]];
         $fqcn            = ($namespace !== '') ? $namespace . '\\' . $name : $name;
-        $isAbstractClass = ($kinds[$token[0]] === 'class') && in_array(\T_ABSTRACT, $modifiers, true);
+        $isAbstractClass = ($kind === 'class') && in_array(\T_ABSTRACT, $modifiers, true);
 
-        $inventory[$fqcn] = $isAbstractClass ? 'abstract-class' : $kinds[$token[0]];
+        $inventory[$fqcn] = $isAbstractClass ? 'abstract-class' : $kind;
         $modifiers        = [];
+
+        // The declaration header, up to its body's `{`: `extends`/`implements` name
+        // lists and an enum's `: type`. Only the tokens a header can hold are
+        // walked — anything else ends the scan — so a run of headerless
+        // declarations cannot make each one scan on to end-of-file.
+        $section    = null;
+        $parent     = null;
+        $interfaces = ($kind === 'enum') ? ['UnitEnum'] : [];
+
+        for ($ahead = $index + 1; $ahead < $count; ++$ahead) {
+            $next = $tokens[$ahead];
+
+            if (!is_array($next)) {
+                if ($next === ':') {
+                    $section = 'type';
+
+                    if ($kind === 'enum') {
+                        $interfaces[] = 'BackedEnum';
+                    }
+
+                    continue;
+                }
+
+                if ($next === ',') {
+                    continue;
+                }
+
+                break;
+            }
+
+            if ($next[0] === \T_WHITESPACE) {
+                continue;
+            }
+
+            if (($next[0] === \T_EXTENDS) || ($next[0] === \T_IMPLEMENTS)) {
+                $section = ($next[0] === \T_EXTENDS) ? 'extends' : 'implements';
+
+                continue;
+            }
+
+            if (!in_array($next[0], [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)) {
+                break;
+            }
+
+            // The declared name itself (no section yet) and a backing type carry no supertype.
+            if (($section === null) || ($section === 'type')) {
+                continue;
+            }
+
+            $resolved = $resolveClassName($next, $namespace, $imports, $asciiLower);
+
+            if ($resolved === null) {
+                continue;
+            }
+
+            if (($section === 'extends') && ($kind === 'class')) {
+                $parent ??= $resolved;
+            } else {
+                $interfaces[] = $resolved;
+            }
+        }
+
+        if ($parent !== null) {
+            $inventoryParent[$fqcn] = $parent;
+        }
+
+        $inventoryInterfaces[$fqcn] = $interfaces;
     }
 }
 
@@ -561,30 +902,6 @@ foreach ($directory as $file) {
  * @return bool True when phpat can match a declaration of this kind.
  */
 $isLiveKind = static fn (?string $kind): bool => ($kind !== null) && ($kind !== 'trait');
-
-/**
- * Reports whether at least one live declaration (see $isLiveKind: anything but a
- * trait) lives in the given namespace or a sub-namespace of it — the condition phpat's
- * `InClassNode` needs for an `inNamespace` subject to match anything.
- *
- * @param array<string, string> $inventory FQCN to declaration kind, as built above.
- * @param string                $namespace The namespace the subject names.
- *
- * @return bool True when at least one live declaration lives there.
- */
-$namespaceHasClass = static function (array $inventory, string $namespace) use ($isLiveKind): bool {
-    foreach ($inventory as $fqcn => $kind) {
-        if (!$isLiveKind($kind)) {
-            continue;
-        }
-
-        if (($fqcn === $namespace) || str_starts_with($fqcn, $namespace . '\\')) {
-            return true;
-        }
-    }
-
-    return false;
-};
 
 // --- Extract each rule method's subject selector (both of phpat's discovery paths) ---
 
@@ -662,34 +979,6 @@ $attributeResolvedCount = 0;
 // body opened at (and that it IS `ArchitectureTest`), rather than assuming 1 for
 // whichever class comes first — a materially bigger change than tokenising one file,
 // to defend shapes this codebase has never seen written.
-/**
- * Classifies a token's effect on brace depth: +1 for an opener, -1 for a closer, 0 for
- * neither. A bare CHAR `{`/`}` is the usual case; the two string-interpolation openers
- * are the exception that must also count as +1, because their CLOSING brace is an
- * ordinary CHAR `}` — `{$a}` opens with T_CURLY_OPEN, `${a}` with
- * T_DOLLAR_OPEN_CURLY_BRACES, and skipping them leaves that `}` decrementing against
- * nothing (measured: cut a live rule's body short and reported it as unparseable).
- * Shared by every depth counter in this file so this recognition rule lives in
- * exactly one place — $resolveTestRuleAliases's own pre-pass depth, $topDepth, and
- * the per-method body-extraction loop all call it rather than each carrying their
- * own copy of the same four-way token check.
- *
- * @param array{0: int, 1: string, 2: int}|string $token A token from token_get_all().
- *
- * @return int Returns -1, 0 or 1.
- */
-$braceDelta = static function (array|string $token): int {
-    if (is_array($token)) {
-        return (($token[0] === \T_CURLY_OPEN) || ($token[0] === \T_DOLLAR_OPEN_CURLY_BRACES)) ? 1 : 0;
-    }
-
-    return match ($token) {
-        '{'     => 1,
-        '}'     => -1,
-        default => 0,
-    };
-};
-
 /**
  * Resolves every local name that resolves to the TestRule attribute — the literal
  * name plus every `as`-alias a `use` import establishes for it. A `use
@@ -1316,37 +1605,844 @@ if ($attributeSum > $attributeResolvedCount) {
     );
 }
 
+// --- Evaluate each rule's subject selector EXPRESSION to a set of src/ declarations ---
+//
+// A subject is not a single selector call but an expression: phpat composes selectors
+// with AllOf/AnyOf/NoneOf/Not and narrows them with predicates such as isInterface(),
+// so "is this subject live" means "is the SET it selects from src/ non-empty" (GH-190).
+// Each selector below evaluates to that set, over the same inventory the liveness
+// checks always used, restricted to the kinds phpat can see (see $isLiveKind), and
+// replicating phpat's own matches() for each selector — re-derive rather than trust
+// this comment: tests/consumer/.build/vendor/phpat/phpat/src/Selector/*.php. Measured
+// against phpat itself in tests/consumer (a throwaway rule per selector using
+// `shouldNot()->exist()`, which reports every class a subject matches):
+//
+//   - inNamespace(NS): the declaration's NAMESPACE (its FQCN minus the last segment)
+//     starts with NS, compared on whole segments after stripping a leading/trailing
+//     `\` from both (`trimSeparators()`), case-sensitively; a class is NOT inside a
+//     "namespace" named after itself (inNamespace('A\Plain') matched nothing for
+//     class A\Plain). With the regex flag, the pattern runs against that namespace.
+//   - classname(X): FQCN === trimSeparators(X), case-sensitive; with the regex flag the
+//     pattern runs against the FQCN without a leading `\` (`/^FooRepository$/` matched
+//     nothing for A\FooRepository, `/^A\\.*Repository$/` matched it).
+//   - implements(X): every interface the declaration has, transitively — through its
+//     parent classes and through interface inheritance; an interface extending X
+//     matches, X itself does not, and a CLASS name never does. Case-insensitive for a
+//     name without a leading `\`, case-sensitive with one (BetterReflection's adapter
+//     folds only a name it finds verbatim-lowercased in the interface list).
+//   - extends(X): every ancestor class, transitively, case-sensitive; X itself does not.
+//   - isInterface()/isAbstract()/isEnum(): the declaration kind; isAbstract() matches an
+//     abstract class only, never an interface. isTrait() and all(): phpat never visits
+//     a trait at all, so isTrait() selects nothing and all() every class-like but a trait.
+//   - AllOf/AnyOf/NoneOf/Not: intersection, union, and complement against every
+//     analysed class (Not(inNamespace(X)) matched every class, interface and enum
+//     outside X — and no trait).
+//
+// Two approximations, both erring towards a false RED (fail-closed), never a false
+// green: the inventory is src/ alone, where phpat sees every analysed path (a Not()
+// can match more there, never less than here for src/ classes); and a supertype
+// declared OUTSIDE src/ is known by name only — its own ancestors are not, so an
+// implements()/extends() reaching a src/ class only THROUGH a vendor type answers
+// "matches no class" here. Stringable, which PHP adds implicitly to a class with a
+// __toString() method, is not modelled either; UnitEnum/BackedEnum on an enum are.
+
+/**
+ * The deepest selector nesting this gate evaluates. Every level recurses once, and
+ * PHP 8.3+ turns a deep enough recursion into a fatal "Maximum call stack size
+ * reached" — exit 255, no gate diagnostic — so a pathological nesting fails closed
+ * here instead. The deepest a first-party consumer nests today is two
+ * (`AllOf(…, Not(…))`).
+ */
+const MAX_SELECTOR_DEPTH = 32;
+
+/** @var array<string, string> $inventoryByFolded */
+$inventoryByFolded = [];
+
+/** @var array<string, true> $universe */
+$universe = [];
+
+foreach ($inventory as $fqcn => $kind) {
+    $inventoryByFolded[$asciiLower((string) $fqcn)] = (string) $fqcn;
+
+    if ($isLiveKind($kind)) {
+        $universe[(string) $fqcn] = true;
+    }
+}
+
+/**
+ * Maps a resolved supertype name onto the inventory's own spelling of it: PHP binds
+ * `implements countable`-style references case-insensitively, and phpat compares the
+ * name the DECLARATION carries, not the reference.
+ *
+ * @param string $name A resolved class name.
+ *
+ * @return string The inventoried spelling, or $name itself when it is not in src/.
+ */
+$canonicalName = static fn (string $name): string => $inventoryByFolded[$asciiLower($name)] ?? $name;
+
+/**
+ * The ancestor classes of a declaration, nearest first — iteratively, with a seen-set,
+ * so an (invalid) inheritance cycle cannot loop and a long chain cannot recurse. A
+ * parent declared outside src/ ends the walk: its name is known, its own parent is not.
+ *
+ * @param string $fqcn An inventoried FQCN.
+ *
+ * @return list<string> The ancestor FQCNs.
+ */
+$parentsOf = static function (string $fqcn) use ($inventoryParent, $canonicalName): array {
+    $parents = [];
+    $seen    = [$fqcn => true];
+    $current = $fqcn;
+
+    while (isset($inventoryParent[$current])) {
+        $parent = $canonicalName($inventoryParent[$current]);
+
+        if (isset($seen[$parent])) {
+            break;
+        }
+
+        $seen[$parent] = true;
+        $parents[]     = $parent;
+        $current       = $parent;
+    }
+
+    return $parents;
+};
+
+/** @var array<string, list<string>> $interfaceCache */
+$interfaceCache = [];
+
+/**
+ * Every interface a declaration has, the way PHPStan's ClassReflection::getInterfaces()
+ * collects them: its own, its ancestors', and every interface those extend — a
+ * breadth-first walk with a seen-set, memoised per declaration.
+ *
+ * @param string $fqcn An inventoried FQCN.
+ *
+ * @return list<string> The interface names.
+ */
+$interfacesOf = static function (string $fqcn) use (&$interfaceCache, $inventory, $inventoryInterfaces, $parentsOf, $canonicalName): array {
+    if (isset($interfaceCache[$fqcn])) {
+        return $interfaceCache[$fqcn];
+    }
+
+    $queue = $inventoryInterfaces[$fqcn] ?? [];
+
+    foreach ($parentsOf($fqcn) as $parent) {
+        foreach ($inventoryInterfaces[$parent] ?? [] as $name) {
+            $queue[] = $name;
+        }
+    }
+
+    $found = [];
+
+    for ($position = 0; $position < count($queue); ++$position) {
+        $name = $canonicalName($queue[$position]);
+
+        if (isset($found[$name]) || ($name === $fqcn)) {
+            continue;
+        }
+
+        $found[$name] = true;
+
+        if (($inventory[$name] ?? null) === 'interface') {
+            foreach ($inventoryInterfaces[$name] ?? [] as $extended) {
+                $queue[] = $extended;
+            }
+        }
+    }
+
+    return $interfaceCache[$fqcn] = array_map(strval(...), array_keys($found));
+};
+
+/**
+ * Runs a CONSUMER-supplied regular expression: a pattern PHP cannot compile (or one
+ * that exhausts PCRE's backtrack limit) must not print PHP's own warning ahead of this
+ * gate's diagnostic, so the warning is swallowed by a scoped handler — the pattern
+ * reaches the report only through safeReportValue() — and the caller fails closed.
+ *
+ * @param string $pattern The pattern as the ArchitectureTest writes it.
+ * @param string $subject The string to match.
+ *
+ * @return bool|null Whether it matches, or null when the pattern could not run.
+ */
+$regexMatches = static function (string $pattern, string $subject): ?bool {
+    set_error_handler(static fn (): bool => true);
+
+    try {
+        $result = preg_match($pattern, $subject);
+    } catch (ValueError) {
+        $result = false;
+    } finally {
+        restore_error_handler();
+    }
+
+    return ($result === false) ? null : ($result === 1);
+};
+
+/**
+ * The supertype indexes the non-regex implements()/extends() leaves look a name up
+ * in, built once on first use rather than walking every declaration per leaf — so a
+ * subject with thousands of such leaves costs one pass over the inventory, not one
+ * per leaf. `implements` is keyed twice, verbatim and folded, because BetterReflection's
+ * adapter matches either way (see $leafSet); `extends` is verbatim only.
+ *
+ * @var array{implements: array<string, array<string, true>>, implementsFolded: array<string, array<string, true>>, extends: array<string, array<string, true>>}|null $supertypeIndex
+ */
+$supertypeIndex = null;
+
+/** @var array<string, array<string, true>> $leafCache */
+$leafCache = [];
+
+/**
+ * The set one leaf selector selects from $universe, per phpat's own matches() (see
+ * this section's header for each rule and how it was measured). Memoised per
+ * selector, flag and argument, and answered from $supertypeIndex or a direct lookup
+ * wherever phpat's comparison is an exact one, so only inNamespace() and a regex
+ * leaf still visit every declaration.
+ *
+ * @param string $selector The canonical selector name.
+ * @param string $argument The resolved string argument.
+ * @param bool   $regex    The selector's regex flag.
+ *
+ * @return array<string, true> The selected FQCNs.
+ *
+ * @throws UnexpectedValueException When a regex argument cannot run.
+ */
+$leafSet = static function (string $selector, string $argument, bool $regex) use (&$leafCache, &$supertypeIndex, $universe, $parentsOf, $interfacesOf, $regexMatches, $asciiLower): array {
+    $cacheKey = $selector . "\0" . ($regex ? '1' : '0') . "\0" . $argument;
+
+    if (isset($leafCache[$cacheKey])) {
+        return $leafCache[$cacheKey];
+    }
+
+    if ($regex && ($regexMatches($argument, '') === null)) {
+        throw new UnexpectedValueException(sprintf('the %s() regular expression `%s` does not compile (fail-closed).', $selector, safeReportValue($argument)));
+    }
+
+    $trimmed = rtrim(ltrim($argument, '\\'), '\\');
+
+    if (!$regex && ($selector === 'classname')) {
+        return $leafCache[$cacheKey] = isset($universe[$trimmed]) ? [$trimmed => true] : [];
+    }
+
+    if (!$regex && (($selector === 'implements') || ($selector === 'extends'))) {
+        if ($supertypeIndex === null) {
+            $supertypeIndex = ['implements' => [], 'implementsFolded' => [], 'extends' => []];
+
+            foreach (array_keys($universe) as $fqcn) {
+                $fqcn = (string) $fqcn;
+
+                foreach ($interfacesOf($fqcn) as $name) {
+                    $supertypeIndex['implements'][$name][$fqcn]                    = true;
+                    $supertypeIndex['implementsFolded'][$asciiLower($name)][$fqcn] = true;
+                }
+
+                foreach ($parentsOf($fqcn) as $name) {
+                    $supertypeIndex['extends'][$name][$fqcn] = true;
+                }
+            }
+        }
+
+        // extends(): phpat compares trimSeparators(X) verbatim with each ancestor's
+        // name. implements(): BetterReflection's adapter first looks X up FOLDED
+        // among the declaration's own interface names, then falls back to X as
+        // written with a leading `\` stripped — so a declaration matches when either
+        // lookup finds it. The folded key keeps X's leading `\`, which is why
+        // `\scr\root\i1` matched nothing in the measurement while `scr\root\i1` did.
+        $set = ($selector === 'extends')
+            ? ($supertypeIndex['extends'][$trimmed] ?? [])
+            : ($supertypeIndex['implementsFolded'][$asciiLower($argument)] ?? []) + ($supertypeIndex['implements'][ltrim($argument, '\\')] ?? []);
+
+        return $leafCache[$cacheKey] = $set;
+    }
+
+    $set = [];
+
+    foreach (array_keys($universe) as $fqcn) {
+        $fqcn = (string) $fqcn;
+
+        if ($selector === 'inNamespace') {
+            $segments = explode('\\', $fqcn);
+            array_pop($segments);
+            $namespace = implode('\\', $segments);
+
+            $matched = $regex
+                ? $regexMatches($argument, $namespace)
+                : str_starts_with(rtrim(ltrim($namespace, '\\'), '\\') . '\\', $trimmed . '\\');
+        } elseif ($selector === 'classname') {
+            $matched = $regexMatches($argument, $fqcn);
+        } else {
+            $matched = false;
+
+            foreach (($selector === 'extends') ? $parentsOf($fqcn) : $interfacesOf($fqcn) as $name) {
+                $matched = $regexMatches($argument, $name);
+
+                if ($matched !== false) {
+                    break;
+                }
+            }
+        }
+
+        if ($matched === null) {
+            throw new UnexpectedValueException(sprintf('the %s() regular expression `%s` failed to run (fail-closed).', $selector, safeReportValue($argument)));
+        }
+
+        if ($matched) {
+            $set[$fqcn] = true;
+        }
+    }
+
+    return $leafCache[$cacheKey] = $set;
+};
+
+/**
+ * The selectors this gate evaluates, keyed by their folded name (PHP resolves a method
+ * name case-insensitively), each with its canonical spelling and its argument shape:
+ * `leaf` takes a string and an optional regex flag, `predicate` nothing, `composite`
+ * one or more selectors. Anything else — OneOf, AtLeastCountOf, withFilepath,
+ * isFinal (which also honours a `@final` tag), … — fails closed as unhandled.
+ *
+ * @var array<string, array{0: string, 1: string}> $selectorTable
+ */
+$selectorTable = [
+    'innamespace' => ['inNamespace', 'leaf'],
+    'classname'   => ['classname', 'leaf'],
+    'implements'  => ['implements', 'leaf'],
+    'extends'     => ['extends', 'leaf'],
+    'isinterface' => ['isInterface', 'predicate'],
+    'isabstract'  => ['isAbstract', 'predicate'],
+    'isenum'      => ['isEnum', 'predicate'],
+    'istrait'     => ['isTrait', 'predicate'],
+    'all'         => ['all', 'predicate'],
+    'allof'       => ['AllOf', 'composite'],
+    'anyof'       => ['AnyOf', 'composite'],
+    'noneof'      => ['NoneOf', 'composite'],
+    'not'         => ['Not', 'composite'],
+];
+
+// The ArchitectureTest's own namespace and class imports, for a `Foo::class`
+// argument — the same top-level walk (depth 0, the unbracketed-namespace assumption
+// $topDepth documents) and the same $parseUseImports the src/ inventory uses.
+$testNamespace = '';
+
+/** @var array<string, string> $testImports */
+$testImports = [];
+$walkDepth   = 0;
+
+for ($index = 0; $index < $ruleCount; ++$index) {
+    $token = $ruleTokens[$index];
+    $walkDepth += $braceDelta($token);
+
+    if (!is_array($token) || ($walkDepth !== 0)) {
+        continue;
+    }
+
+    if ($token[0] === \T_NAMESPACE) {
+        $testNamespace = $nextName($ruleTokens, $index + 1, $ruleCount, [\T_WHITESPACE], [\T_STRING, \T_NAME_QUALIFIED]) ?? '';
+        $testImports   = [];
+    } elseif ($token[0] === \T_USE) {
+        [$statementImports, $end] = $parseUseImports($ruleTokens, $index + 1, $ruleCount, $asciiLower);
+
+        $testImports = array_replace($testImports, $statementImports);
+        $index       = max($index, $end - 1);
+    }
+}
+
+/**
+ * Caps an assembled selector label. Every consumer value inside one already passed
+ * safeReportValue() on its own; this bounds the length a deeply composed expression
+ * would otherwise give the report line. mb_strcut(), for the reason safeReportValue()
+ * documents.
+ *
+ * @param string $label The label.
+ *
+ * @return string The label, cut to 256 bytes with a trailing `…` marker when longer.
+ */
+$capLabel = static fn (string $label): string => (strlen($label) > 256) ? mb_strcut($label, 0, 256, 'UTF-8') . '…' : $label;
+
+/**
+ * Tokenises a rule-method body for the selector parser: the token list, the indexes of
+ * its significant (non-whitespace) tokens — which is what every position below counts
+ * in — and the matching closer of every bracket, built in ONE pass with a stack so the
+ * parser can step over a nested argument in O(1) instead of rescanning it. A closer
+ * that does not match the innermost open bracket abandons every bracket still open, so
+ * a malformed nesting leaves the enclosing call unmatched and the parser fails closed.
+ *
+ * @param string $body The rule method's body text.
+ *
+ * @return array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>}
+ */
+$selectorContext = static function (string $body): array {
+    $tokens = token_get_all('<?php ' . $body);
+    $sig    = [];
+
+    foreach ($tokens as $position => $token) {
+        if (is_array($token) && (($token[0] === \T_WHITESPACE) || ($token[0] === \T_OPEN_TAG))) {
+            continue;
+        }
+
+        $sig[] = $position;
+    }
+
+    $match = [];
+    $stack = [];
+
+    foreach ($sig as $index => $position) {
+        $token  = $tokens[$position];
+        $closer = null;
+
+        if (is_array($token)) {
+            $closer = match ($token[0]) {
+                \T_CURLY_OPEN, \T_DOLLAR_OPEN_CURLY_BRACES => '}',
+                \T_ATTRIBUTE                               => ']',
+                default                                    => null,
+            };
+        } else {
+            $closer = match ($token) {
+                '('     => ')',
+                '['     => ']',
+                '{'     => '}',
+                default => null,
+            };
+        }
+
+        if ($closer !== null) {
+            $stack[] = [$index, $closer];
+
+            continue;
+        }
+
+        if (($token === ')') || ($token === ']') || ($token === '}')) {
+            $top = array_pop($stack);
+
+            if (($top === null) || ($top[1] !== $token)) {
+                $stack = [];
+
+                continue;
+            }
+
+            $match[$top[0]] = $index;
+        }
+    }
+
+    return ['tokens' => $tokens, 'sig' => $sig, 'match' => $match];
+};
+
+/**
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $index   A significant-token index.
+ *
+ * @return array{0: int, 1: string, 2: int}|string The token.
+ */
+$tokenAt = static fn (array $context, int $index): array|string => $context['tokens'][$context['sig'][$index]];
+
+/**
+ * The source text of the significant-token range [$start, $end), whitespace included.
+ *
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $start   First significant index (inclusive).
+ * @param int                                                                                                  $end     Last significant index (exclusive).
+ *
+ * @return string The text.
+ */
+$rangeText = static function (array $context, int $start, int $end): string {
+    $text = '';
+
+    if ($start >= $end) {
+        return $text;
+    }
+
+    for ($position = $context['sig'][$start]; $position <= $context['sig'][$end - 1]; ++$position) {
+        $token = $context['tokens'][$position];
+        $text .= is_array($token) ? $token[1] : $token;
+    }
+
+    return trim($text);
+};
+
+/**
+ * Splits the argument list between the brackets at $open and $close on its top-level
+ * commas, stepping over every nested bracket through the precomputed match table. A
+ * trailing comma is legal PHP and ends no argument; an empty argument elsewhere, a
+ * named argument and a spread are not shapes this gate reads, so they fail closed.
+ *
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $open    The `(` index.
+ * @param int                                                                                                  $close   The matching `)` index.
+ * @param string                                                                                               $callee  The call's name, for the report.
+ *
+ * @return list<array{0: int, 1: int}> Each argument's [start, end) range.
+ *
+ * @throws UnexpectedValueException On an argument shape this gate does not read.
+ */
+$splitArguments = static function (array $context, int $open, int $close, string $callee) use ($tokenAt): array {
+    $arguments = [];
+    $start     = $open + 1;
+
+    for ($index = $open + 1; $index < $close; ++$index) {
+        if (isset($context['match'][$index])) {
+            $index = $context['match'][$index];
+
+            continue;
+        }
+
+        if ($tokenAt($context, $index) === ',') {
+            $arguments[] = [$start, $index];
+            $start       = $index + 1;
+        }
+    }
+
+    if ($start < $close) {
+        $arguments[] = [$start, $close];
+    }
+
+    foreach ($arguments as [$argumentStart, $argumentEnd]) {
+        $first = $tokenAt($context, $argumentStart);
+
+        if ($argumentStart === $argumentEnd) {
+            throw new UnexpectedValueException(sprintf('could not identify a subject selector — %s() has an empty argument (fail-closed).', $callee));
+        }
+
+        if (is_array($first) && ($first[0] === \T_ELLIPSIS)) {
+            throw new UnexpectedValueException(sprintf('could not identify a subject selector — %s() spreads its arguments, which this gate does not read (fail-closed).', $callee));
+        }
+
+        if (($argumentEnd - $argumentStart > 1) && ($tokenAt($context, $argumentStart + 1) === ':')) {
+            throw new UnexpectedValueException(sprintf('could not identify a subject selector — %s() takes a named argument, which this gate does not read (fail-closed).', $callee));
+        }
+    }
+
+    return $arguments;
+};
+
+/**
+ * Recognises a range that is exactly one `Selector::name(…)` call: the class spelled
+ * `Selector` (the import every fixture and consumer writes) or any name resolving to
+ * `PHPat\Selector\Selector` through the ArchitectureTest's imports, `::`, a method name
+ * (after `::` PHP's lexer still emits `implements`/`extends` as keyword tokens, hence
+ * any identifier-shaped token), and a `(` whose matching `)` ends the range.
+ *
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $start   First significant index (inclusive).
+ * @param int                                                                                                  $end     Last significant index (exclusive).
+ *
+ * @return array{0: string, 1: int}|null The method name as written and the `(` index, or null.
+ */
+$selectorCall = static function (array $context, int $start, int $end) use ($tokenAt, $resolveClassName, $testNamespace, $testImports, $asciiLower): ?array {
+    if (($end - $start) < 4) {
+        return null;
+    }
+
+    $class  = $tokenAt($context, $start);
+    $colons = $tokenAt($context, $start + 1);
+    $method = $tokenAt($context, $start + 2);
+
+    if (!is_array($class)
+        || !in_array($class[0], [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)
+        || !is_array($colons) || ($colons[0] !== \T_DOUBLE_COLON)
+        || !is_array($method) || (preg_match('/^[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*$/', $method[1]) !== 1)
+        || ($tokenAt($context, $start + 3) !== '(')
+        || (($context['match'][$start + 3] ?? null) !== ($end - 1))
+    ) {
+        return null;
+    }
+
+    if (strcasecmp($class[1], 'Selector') !== 0) {
+        $resolved = $resolveClassName($class, $testNamespace, $testImports, $asciiLower);
+
+        if (($resolved === null) || (strcasecmp($resolved, 'PHPat\Selector\Selector') !== 0)) {
+            return null;
+        }
+    }
+
+    return [$method[1], $start + 3];
+};
+
+/**
+ * Evaluates a scalar selector argument: single-quoted string literals,
+ * `self::NAMESPACE_ROOT` (or `static::`), `Name::class` resolved through the
+ * ArchitectureTest's own namespace and imports, joined by `.`; or a lone `true`/`false`
+ * for a regex flag. Anything else — a variable, a call, another constant, a
+ * double-quoted string (whose escapes PHP decodes, see the NAMESPACE_ROOT walk) —
+ * cannot be evaluated statically, so it fails closed rather than being guessed at.
+ *
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $start    First significant index (inclusive).
+ * @param int                                                                                                  $end      Last significant index (exclusive).
+ * @param string                                                                                               $selector The selector the argument belongs to, for the report.
+ *
+ * @return string|bool The value.
+ *
+ * @throws UnexpectedValueException When the argument cannot be evaluated.
+ */
+$evaluateScalar = static function (array $context, int $start, int $end, string $selector) use ($tokenAt, $rangeText, $resolveClassName, $testNamespace, $testImports, $asciiLower, $namespaceRoot): string|bool {
+    $unresolvable = static fn (): UnexpectedValueException => new UnexpectedValueException(sprintf(
+        'could not resolve the %s() argument `%s` (fail-closed).',
+        $selector,
+        safeReportValue($rangeText($context, $start, $end))
+    ));
+
+    $pieces     = [];
+    $pieceStart = $start;
+
+    for ($index = $start; $index < $end; ++$index) {
+        if (isset($context['match'][$index])) {
+            $index = $context['match'][$index];
+
+            continue;
+        }
+
+        if ($tokenAt($context, $index) === '.') {
+            $pieces[]   = [$pieceStart, $index];
+            $pieceStart = $index + 1;
+        }
+    }
+
+    $pieces[] = [$pieceStart, $end];
+    $values   = [];
+
+    foreach ($pieces as [$pieceStart, $pieceEnd]) {
+        $length = $pieceEnd - $pieceStart;
+        $first  = ($length > 0) ? $tokenAt($context, $pieceStart) : null;
+        $value  = null;
+
+        if (($length === 1) && is_array($first)) {
+            if (($first[0] === \T_CONSTANT_ENCAPSED_STRING) && ($first[1][0] === "'")) {
+                // A single-quoted literal knows two escapes only, `\\` and `\'`.
+                $value = strtr(substr($first[1], 1, -1), ['\\\\' => '\\', "\\'" => "'"]);
+            } elseif (($first[0] === \T_STRING) && in_array($asciiLower($first[1]), ['true', 'false'], true)) {
+                $value = ($asciiLower($first[1]) === 'true');
+            }
+        } elseif (($length === 3) && is_array($first)) {
+            $colons = $tokenAt($context, $pieceStart + 1);
+            $member = $tokenAt($context, $pieceStart + 2);
+
+            if (is_array($colons) && ($colons[0] === \T_DOUBLE_COLON) && is_array($member)) {
+                if (($member[0] === \T_CLASS)
+                    && in_array($first[0], [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)
+                ) {
+                    $value = $resolveClassName($first, $testNamespace, $testImports, $asciiLower);
+                } elseif (($first[0] === \T_STRING)
+                    && in_array($asciiLower($first[1]), ['self', 'static'], true)
+                    && ($member[0] === \T_STRING)
+                    && ($member[1] === 'NAMESPACE_ROOT')
+                ) {
+                    $value = $namespaceRoot;
+                }
+            }
+        }
+
+        if ($value === null) {
+            throw $unresolvable();
+        }
+
+        $values[] = $value;
+    }
+
+    if (count($values) === 1) {
+        return $values[0];
+    }
+
+    $joined = '';
+
+    foreach ($values as $value) {
+        if (!is_string($value)) {
+            throw $unresolvable();
+        }
+
+        $joined .= $value;
+    }
+
+    return $joined;
+};
+
+/**
+ * Evaluates one `Selector::…(…)` call — recursively for a composite — to the set of
+ * src/ declarations it selects, plus a report label for it.
+ *
+ * Linear in the expression: every argument list is split once, stepping over nested
+ * brackets through the match table, and every call is evaluated exactly once. Set
+ * operations cost at most the inventory size per call.
+ *
+ * @param array{tokens: list<array{0: int, 1: string, 2: int}|string>, sig: list<int>, match: array<int, int>} $context
+ * @param int                                                                                                  $start   First significant index (inclusive) of a range $selectorCall accepted.
+ * @param int                                                                                                  $end     Last significant index (exclusive).
+ * @param int                                                                                                  $depth   The nesting depth of this call, 1 for a classes() argument.
+ *
+ * @return array{set: array<string, true>, label: string, selector: string, regex: bool}
+ *
+ * @throws UnexpectedValueException When the expression cannot be evaluated.
+ */
+$evaluateSelector = static function (array $context, int $start, int $end, int $depth) use (&$evaluateSelector, $selectorCall, $splitArguments, $evaluateScalar, $leafSet, $rangeText, $selectorTable, $universe, $inventory, $asciiLower, $capLabel): array {
+    if ($depth > MAX_SELECTOR_DEPTH) {
+        throw new UnexpectedValueException(sprintf('could not identify a subject selector — the expression nests deeper than %d selector calls (fail-closed).', MAX_SELECTOR_DEPTH));
+    }
+
+    $call = $selectorCall($context, $start, $end);
+
+    if ($call === null) {
+        throw new UnexpectedValueException('could not identify a subject selector (fail-closed).');
+    }
+
+    [$written, $open] = $call;
+
+    if (!isset($selectorTable[$asciiLower($written)])) {
+        throw new UnexpectedValueException(sprintf('unhandled subject selector Selector::%s() (fail-closed).', safeReportValue($written)));
+    }
+
+    [$selector, $shape] = $selectorTable[$asciiLower($written)];
+    $arguments          = $splitArguments($context, $open, $end - 1, $selector);
+    $argumentCount      = count($arguments);
+
+    $arityError = static fn (string $expected): UnexpectedValueException => new UnexpectedValueException(sprintf(
+        'could not identify a subject selector — Selector::%s() takes %s, not %d argument(s) (fail-closed).',
+        $selector,
+        $expected,
+        $argumentCount
+    ));
+
+    if ($shape === 'predicate') {
+        if ($argumentCount !== 0) {
+            throw $arityError('no argument');
+        }
+
+        $set = match ($selector) {
+            'all'   => $universe,
+            default => [],
+        };
+
+        if ($selector !== 'all') {
+            $kind = match ($selector) {
+                'isInterface' => 'interface',
+                'isAbstract'  => 'abstract-class',
+                'isEnum'      => 'enum',
+                default       => null,
+            };
+
+            foreach (array_keys($universe) as $fqcn) {
+                if (($kind !== null) && (($inventory[$fqcn] ?? null) === $kind)) {
+                    $set[(string) $fqcn] = true;
+                }
+            }
+        }
+
+        return ['set' => $set, 'label' => $selector . '()', 'selector' => $selector, 'regex' => false];
+    }
+
+    if ($shape === 'leaf') {
+        if (($argumentCount < 1) || ($argumentCount > 2)) {
+            throw $arityError('a name and an optional regex flag');
+        }
+
+        $unresolvable = static fn (int $position): UnexpectedValueException => new UnexpectedValueException(sprintf(
+            'could not resolve the %s() argument `%s` (fail-closed).',
+            $selector,
+            safeReportValue($rangeText($context, $arguments[$position][0], $arguments[$position][1]))
+        ));
+
+        if ($selectorCall($context, $arguments[0][0], $arguments[0][1]) !== null) {
+            throw $unresolvable(0);
+        }
+
+        $argument = $evaluateScalar($context, $arguments[0][0], $arguments[0][1], $selector);
+        $regex    = ($argumentCount === 2) ? $evaluateScalar($context, $arguments[1][0], $arguments[1][1], $selector) : false;
+
+        if (!is_string($argument)) {
+            throw $unresolvable(0);
+        }
+
+        if (!is_bool($regex)) {
+            throw $unresolvable(1);
+        }
+
+        $shown = $regex ? $argument : rtrim(ltrim($argument, '\\'), '\\');
+
+        return [
+            'set'      => $leafSet($selector, $argument, $regex),
+            'label'    => sprintf('%s(%s%s)', $selector, safeReportValue($shown), $regex ? ', regex' : ''),
+            'selector' => $selector,
+            'regex'    => $regex,
+        ];
+    }
+
+    // Composite. phpat's Not() declares ONE parameter; PHP silently drops any
+    // further argument to a userland function, so `Not(a, b)` would mean `Not(a)` —
+    // a shape nobody writes on purpose, so it fails closed rather than being read.
+    if (($selector === 'Not') && ($argumentCount !== 1)) {
+        throw $arityError('exactly one selector');
+    }
+
+    $children = [];
+    $labels   = [];
+
+    foreach ($arguments as [$argumentStart, $argumentEnd]) {
+        if ($selectorCall($context, $argumentStart, $argumentEnd) === null) {
+            throw new UnexpectedValueException(sprintf(
+                'could not resolve the %s() argument `%s` (fail-closed).',
+                $selector,
+                safeReportValue($rangeText($context, $argumentStart, $argumentEnd))
+            ));
+        }
+
+        $child      = $evaluateSelector($context, $argumentStart, $argumentEnd, $depth + 1);
+        $children[] = $child['set'];
+        $labels[]   = $child['label'];
+    }
+
+    if ($selector === 'AllOf') {
+        $set = $universe;
+
+        foreach ($children as $child) {
+            $set = array_intersect_key($set, $child);
+        }
+    } else {
+        $union = [];
+
+        foreach ($children as $child) {
+            $union += $child;
+        }
+
+        $set = ($selector === 'AnyOf') ? $union : array_diff_key($universe, $union);
+    }
+
+    return [
+        'set'      => $set,
+        'label'    => $capLabel(sprintf('%s(%s)', $selector, implode(', ', $labels))),
+        'selector' => $selector,
+        'regex'    => false,
+    ];
+};
+
 foreach ($ruleMethods as [$ruleName, $methodBody]) {
-    // The subject is the FIRST Selector::…(…) inside the FIRST ->classes(…) found
-    // ANYWHERE in $methodBody's text — NOT anchored to a `PHPat::rule()` call (there is
-    // no such anchor in the code below; a prior version of this comment claimed one that
-    // was never implemented). Slice up to the first ->should/->shouldNot within the
-    // method.
+    // The subject is the FIRST `->classes(…)` call in the method body, read as TOKENS
+    // (so a `->classes(` or `->should(` inside a string literal is text, not a call),
+    // provided no `->should(…)`/`->shouldNot(…)` call comes before it — past that point
+    // a `->classes(…)` names the rule's TARGET, never its subject. It is NOT anchored to
+    // a `PHPat::rule()` call.
     //
-    // Two known, deliberately undefended gaps follow from scanning unanchored text:
+    // Two known, deliberately undefended gaps follow from scanning the unanchored body:
     //
     //   - A #[TestRule]-attributed method NESTED inside another rule's own body (via a
     //     closure or anonymous class) is correctly excluded from $ruleMethods and from
     //     $attributeResolvedCount, but its text is still part of $methodBody for the
     //     ENCLOSING rule — the body-extraction loop bounds by brace depth alone, with no
     //     awareness of a nested function's own scope. If the nested rule's own
-    //     ->classes(...)->should(Not)? call appears earlier in the text than the
-    //     enclosing rule's, this scan misattributes the nested rule's subject to the
-    //     enclosing rule's name in the printed violation. NAMING only, not fail-open:
-    //     the misattachment check above already reds the run for the nested attribute
-    //     regardless. Pinned by the nested-testrule-not-counted-as-resolved fixture's
-    //     must-carry check.
+    //     ->classes(...) call appears earlier in the text than the enclosing rule's, this
+    //     scan misattributes the nested rule's subject to the enclosing rule's name in
+    //     the printed violation. NAMING only, not fail-open: the misattachment check
+    //     above already reds the run for the nested attribute regardless. Pinned by the
+    //     nested-testrule-not-counted-as-resolved fixture's must-carry check.
     //   - The same unanchored scan can be defeated in the OTHER, fail-OPEN direction by a
     //     decoy: unattributed helper code inside the method body that happens to contain
-    //     its own, textually-earlier ->classes(Selector::live(...))->should(Not)? chain
-    //     would have ITS live subject picked up and reported in place of the enclosing
-    //     rule's actual (possibly vacuous) one. Deliberately undefended — this needs
-    //     hand-authored code shaped like a second phpat rule chain that never runs as
-    //     one, not something written by accident; no real ArchitectureTest does this
-    //     (same disposition class as $topDepth's two documented gaps above). Fixing it
-    //     would mean anchoring the scan to the actual `PHPat::rule()`/`$this->{name}()`
-    //     call the rule builder starts from, a materially bigger parse than this file
-    //     otherwise needs.
+    //     its own, earlier ->classes(Selector::live(...)) chain would have ITS live
+    //     subject picked up and reported in place of the enclosing rule's actual
+    //     (possibly vacuous) one. Deliberately undefended — this needs hand-authored code
+    //     shaped like a second phpat rule chain that never runs as one, not something
+    //     written by accident; no real ArchitectureTest does this (same disposition class
+    //     as $topDepth's two documented gaps above). Fixing it would mean anchoring the
+    //     scan to the actual `PHPat::rule()`/`$this->{name}()` call the rule builder
+    //     starts from, a materially bigger parse than this file otherwise needs.
     //
     // A decoy `"{$x}"`/`${x}` interpolation BEFORE a method's own opening brace (e.g. in
     // a parameter default, to close the brace-depth counter back to 0 before the real
@@ -1364,84 +2460,118 @@ foreach ($ruleMethods as [$ruleName, $methodBody]) {
     // by the same method is never inspected. Out of scope for GH-58 (which added the
     // test*-name discovery path, not multi-rule-per-method support); tracked as its own
     // follow-up rather than folded into this already-large change.
-    $stop = preg_match('/->should(?:Not)?\s*\(/', $methodBody, $sm, \PREG_OFFSET_CAPTURE) === 1 ? $sm[0][1] : strlen($methodBody);
-    $head = substr($methodBody, 0, $stop);
+    //
+    // `->excluding(…)` after the subject is deliberately NOT evaluated: a subject that
+    // its exclusions narrow to nothing is a conditional guard in the same sense as a
+    // top-level isAbstract() — `inNamespace(Contract)->excluding(isInterface())` is
+    // legitimately empty until the first abstract contract class lands — and phpat
+    // applies the exclusions to each subject selector alike, so ignoring them can only
+    // make a subject look larger here, never hide a vacuous one.
+    $context   = $selectorContext($methodBody);
+    $sigCount  = count($context['sig']);
+    $classesAt = null;
 
-    // Anchored on the `)` that closes `->classes(` itself: phpat's classes() is
-    // variadic, and a second selector argument would otherwise go unchecked — a live
-    // first subject would carry a trait-only second one through. A multi-selector
-    // call therefore fails closed here, like every other shape this gate cannot read.
-    if (preg_match('/->classes\s*\(\s*Selector::(\w+)\s*\(([^)]*)\)\s*\)/', $head, $subj) !== 1) {
+    for ($index = 0; $index + 2 < $sigCount; ++$index) {
+        $arrow = $tokenAt($context, $index);
+        $name  = $tokenAt($context, $index + 1);
+
+        if (!is_array($arrow) || ($arrow[0] !== \T_OBJECT_OPERATOR) || !is_array($name) || ($tokenAt($context, $index + 2) !== '(')) {
+            continue;
+        }
+
+        if ((strcasecmp($name[1], 'should') === 0) || (strcasecmp($name[1], 'shouldNot') === 0)) {
+            break;
+        }
+
+        if (strcasecmp($name[1], 'classes') === 0) {
+            $classesAt = $index + 2;
+
+            break;
+        }
+    }
+
+    if ($classesAt === null) {
         $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', safeReportValue($ruleName));
 
         continue;
     }
 
-    $selector = $subj[1];
-    $argument = trim($subj[2]);
+    $classesClose = $context['match'][$classesAt] ?? null;
 
-    if ($selector === 'isAbstract') {
-        // Conditional naming guard — legitimately empty until an abstract class exists.
-        fwrite(\STDOUT, sprintf("  %s: isAbstract() subject — conditional guard, liveness not checked.\n", safeReportValue($ruleName)));
+    if ($classesClose === null) {
+        $violations[] = sprintf('%s: could not identify a subject selector — its ->classes(…) call does not close (fail-closed).', safeReportValue($ruleName));
 
         continue;
     }
 
-    // Resolve the selector argument. The pattern is anchored to the WHOLE argument so
-    // that only two shapes resolve: `self::NAMESPACE_ROOT` optionally concatenated with
-    // a single `'\\Sub'` literal, or a bare quoted literal. A composed expression the
-    // checker does not model (another constant, a variable, a second concatenation)
-    // fails to match and falls through to the fail-closed branch below, rather than
-    // silently resolving to just the root and testing the wrong namespace.
-    $resolved = null;
-
-    if (($namespaceRoot !== null) && (preg_match('/^self::NAMESPACE_ROOT(?:\s*\.\s*\'([^\']*)\')?$/', $argument, $am) === 1)) {
-        $suffix   = isset($am[1]) ? str_replace('\\\\', '\\', $am[1]) : '';
-        $resolved = $namespaceRoot . $suffix;
-    } elseif (preg_match('/^\'([^\']+)\'$/', $argument, $lm) === 1) {
-        $resolved = str_replace('\\\\', '\\', $lm[1]);
-    }
-
-    if ($resolved === null) {
-        $violations[] = sprintf('%s: could not resolve the %s() argument `%s` (fail-closed).', safeReportValue($ruleName), safeReportValue($selector), safeReportValue($argument));
+    try {
+        $subjects = $splitArguments($context, $classesAt, $classesClose, 'classes');
+    } catch (UnexpectedValueException $exception) {
+        $violations[] = sprintf('%s: %s', safeReportValue($ruleName), $exception->getMessage());
 
         continue;
     }
 
-    // phpat's own Classname/ClassNamespace selectors strip a leading and trailing
-    // `\` before comparing (`trimSeparators()` in phpat's helpers.php, `rtrim(ltrim($name,
-    // '\\'), '\\')`) — verified live: `Selector::classname('\Vendor\Mod\Model\Node')`
-    // matches the class phpat resolves as `Vendor\Mod\Model\Node`. Without this, a
-    // fully-qualified-style argument (a common authoring convention) never matches this
-    // gate's inventory, which is keyed WITHOUT a leading `\` (built from `namespace X;`
-    // declarations, which never start with one) — a genuinely live rule reported vacuous.
-    $resolved = trim($resolved, '\\');
+    if (count($subjects) === 0) {
+        $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', safeReportValue($ruleName));
 
-    // A subject is judged against the inventory, so a short inventory can only
-    // produce "not found" — which this gate would otherwise print as "matches no
-    // class", a cause the repository does not have. Measured before this guard:
-    // one `chmod 000` on a single class made the gate report a live rule as
-    // vacuous, beside the read failure that explained it. The read failure already
-    // reds the run, so staying silent about liveness loses nothing.
-    if ($selector === 'inNamespace') {
-        if (!$inventoryIncomplete && !$namespaceHasClass($inventory, $resolved)) {
-            $violations[] = sprintf('%s: subject inNamespace(%s) matches no class — a vacuous rule (a trait-only or empty namespace enforces nothing).', safeReportValue($ruleName), safeReportValue($resolved));
+        continue;
+    }
+
+    // phpat's classes() is variadic, and its StatementBuilder turns EVERY subject
+    // selector into a statement of its own (re-derive: grep -n 'getSubjects' -A8
+    // tests/consumer/.build/vendor/phpat/phpat/src/Statement/StatementBuilder.php) —
+    // so each argument is a rule in its own right, and one that selects nothing is
+    // vacuous however live its siblings are. Each is checked, and named by position
+    // when there is more than one.
+    foreach ($subjects as $position => [$subjectStart, $subjectEnd]) {
+        $label = (count($subjects) > 1)
+            ? sprintf('%s: classes() argument %d of %d', safeReportValue($ruleName), $position + 1, count($subjects))
+            : safeReportValue($ruleName);
+
+        $call = $selectorCall($context, $subjectStart, $subjectEnd);
+
+        if ($call === null) {
+            $violations[] = sprintf('%s: could not identify a subject selector (fail-closed).', $label);
+
+            continue;
         }
 
-        continue;
-    }
+        if ((strcasecmp($call[0], 'isAbstract') === 0) && ($subjectEnd - 1 === $call[1] + 1)) {
+            // Conditional naming guard — legitimately empty until an abstract class
+            // exists. Only the BARE top-level form: inside a composite, isAbstract()
+            // is an ordinary set like any other.
+            fwrite(\STDOUT, sprintf("  %s: isAbstract() subject — conditional guard, liveness not checked.\n", $label));
 
-    if ($selector === 'classname') {
-        $kind = $inventory[$resolved] ?? null;
-
-        if (!$inventoryIncomplete && !$isLiveKind($kind)) {
-            $violations[] = sprintf('%s: subject classname(%s) matches no class — renamed, moved or mistyped, so the rule enforces nothing.', safeReportValue($ruleName), safeReportValue($resolved));
+            continue;
         }
 
-        continue;
-    }
+        try {
+            $subject = $evaluateSelector($context, $subjectStart, $subjectEnd, 1);
+        } catch (UnexpectedValueException $exception) {
+            $violations[] = sprintf('%s: %s', $label, $exception->getMessage());
 
-    $violations[] = sprintf('%s: unhandled subject selector Selector::%s() (fail-closed).', safeReportValue($ruleName), safeReportValue($selector));
+            continue;
+        }
+
+        // A subject is judged against the inventory, so a short inventory can only
+        // produce "not found" — which this gate would otherwise print as "matches no
+        // class", a cause the repository does not have. Measured before this guard:
+        // one `chmod 000` on a single class made the gate report a live rule as
+        // vacuous, beside the read failure that explained it. The read failure already
+        // reds the run, so staying silent about liveness loses nothing.
+        if ($inventoryIncomplete || (count($subject['set']) > 0)) {
+            continue;
+        }
+
+        $why = match (true) {
+            ($subject['selector'] === 'inNamespace') && !$subject['regex'] => 'a vacuous rule (a trait-only or empty namespace enforces nothing).',
+            ($subject['selector'] === 'classname') && !$subject['regex']   => 'renamed, moved or mistyped, so the rule enforces nothing.',
+            default                                                        => 'the selector expression selects nothing in src/, so the rule enforces nothing.',
+        };
+
+        $violations[] = sprintf('%s: subject %s matches no class — %s', $label, $subject['label'], $why);
+    }
 }
 
 // --- Report ---
