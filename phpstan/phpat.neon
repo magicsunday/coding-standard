@@ -1,23 +1,16 @@
 # Opt-in phpat preset for magicsunday/* projects (GH-183).
 #
-# Deptrac first, phpat only where Deptrac cannot. Layer dependencies ("who may
-# depend on whom") belong in Deptrac — `deptrac/layers.yaml` plus the consumer's
-# `deptrac.yaml`. phpat is for the three kinds of rule Deptrac cannot express:
-#
-#   - structural invariants on a class: "every class in X is final", "every DTO
-#     implements JsonSerializable" — class properties, not dependencies; Deptrac
-#     can forbid a dependency but cannot require one or inspect a modifier;
-#   - sub-layer boundaries: "only Repository\ and Support\Database\ may use the
-#     database manager" — Deptrac checks a class against EVERY layer it belongs
-#     to, so one sub-namespace of a shared layer cannot be granted an edge the
-#     rest of that layer is denied;
-#   - a shared layer narrowed for one module: "in this package Model is a pure
-#     leaf" — Deptrac unites the rulesets across `imports:`, so a consumer's
-#     `deptrac.yaml` can only widen a shared layer, never narrow it.
-#
-# Give every phpat rule a comment naming which of the three it is, i.e. why Deptrac
-# does not fit. A plain layer-dependency rule written in phpat is the drift this
-# policy exists to prevent.
+# Deptrac for dependencies, phpat for structure. Every dependency rule ("who may
+# depend on whom") belongs in Deptrac — `deptrac/layers.yaml` plus the consumer's
+# `deptrac.yaml` — including a boundary for one sub-namespace and a shared layer
+# narrowed for one module: Deptrac checks a class against EVERY layer it belongs
+# to, so an overlay layer with a shorter allow-list narrows its members (see the
+# README's Deptrac section). phpat is for what Deptrac cannot see: structural
+# invariants on a class — "every class in X is final", "every DTO implements
+# JsonSerializable" — class properties, not dependencies; Deptrac can forbid a
+# dependency but cannot require one or inspect a modifier. phpat also never
+# analyses a trait on its own, so a dependency rule written here silently skips
+# every trait.
 #
 # phpat is NOT delivered by this package's `require` — it is listed under
 # `suggest`, so a repository without such rules never installs it. Adopting the
