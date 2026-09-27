@@ -1104,6 +1104,75 @@ final class CheckPhpatSubjectsTest extends AbstractPhpatSubjectsTestCase
     }
 
     /**
+     * implements() and extends() take phpat's regex flag too; the pattern is
+     * matched against every supertype name of a class.
+     */
+    #[Test]
+    public function acceptsAnImplementsRegexMatchingASupertype(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule("Selector::implements('/Provider$/', true)"));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * An extends() regex that no parent class name matches selects nothing.
+     */
+    #[Test]
+    public function rejectsAnExtendsRegexMatchingNoParent(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule("Selector::extends('/^Nope$/', true)"));
+
+        $this->assertGateRejects(self::gate(), $dir, 'composite: subject extends(/^Nope$/, regex) matches no class');
+    }
+
+    /**
+     * A plain implements() name without a leading backslash is compared
+     * case-insensitively (measured against phpat)...
+     */
+    #[Test]
+    public function acceptsACaseFoldedImplementsName(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule("Selector::implements('vendor\\mod\\contract\\provider')"));
+
+        $this->assertGateAccepts(self::gate(), $dir);
+    }
+
+    /**
+     * ...while the same name with a leading backslash is compared exactly, so
+     * the lowercased spelling matches nothing (measured against phpat).
+     */
+    #[Test]
+    public function rejectsACaseFoldedImplementsNameWithALeadingBackslash(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule("Selector::implements('\\vendor\\mod\\contract\\provider')"));
+
+        $this->assertGateRejects(self::gate(), $dir, 'composite: subject implements(vendor\\mod\\contract\\provider) matches no class');
+    }
+
+    /**
+     * A spread inside a composite's argument list cannot be read statically.
+     */
+    #[Test]
+    public function rejectsASpreadInsideAComposite(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule('Selector::AnyOf(...$this->selectors())'));
+
+        $this->assertGateRejects(self::gate(), $dir, 'AnyOf() spreads its arguments, which this gate does not read');
+    }
+
+    /**
+     * An empty argument between two commas is not a selector.
+     */
+    #[Test]
+    public function rejectsAnEmptyCompositeArgument(): void
+    {
+        $dir = $this->compositeFixture(self::subjectRule('Selector::AllOf(Selector::all(),, Selector::all())'));
+
+        $this->assertGateRejects(self::gate(), $dir, 'AllOf() has an empty argument');
+    }
+
+    /**
      * An expression nested past MAX_SELECTOR_DEPTH fails closed instead of
      * recursing until PHP's own stack guard kills the run with exit 255.
      */

@@ -843,6 +843,11 @@ final class CheckPhpatSubjectsTokenWalkTest extends AbstractPhpatSubjectsTestCas
         ));
 
         $this->assertGateRejects(self::gate(), $dir, 'backed: subject implements(BackedEnum) matches no class');
+        self::assertOutputDoesNotContain(
+            self::runGate($dir),
+            'implementor: subject implements(UnitEnum)',
+            'A pure enum lost its implicit UnitEnum interface.',
+        );
 
         self::writeClass($dir, 'Model/Kind.php', 'Vendor\Mod\Model', 'enum', 'Kind: string');
 
