@@ -726,10 +726,28 @@ belongs to (verified against deptrac 4.7.2), which gives two techniques:
   a negative lookahead in its own collector (`src/Exif/(?!Model/).*`) carves the
   sub-namespace out directly.
 
-Two details of overlapping layers: each overlapping layer needs **itself** in its
-allow-list (`Webtrees: [Webtrees, …]`), or Deptrac reports the edges between its
-members; and Deptrac warns "in more than one layer" for each overlapped class — a
-warning, not a failure (exit 0).
+Prefer, in this order:
+
+1. **Restrict the target.** "Only X may use Y" is often expressible without any
+   overlap: give Y its own layer and list it only in X's allow-list. Every class stays
+   in exactly one layer. Example (webtrees-module-updater): the discovery service in a
+   layer only the composition root lists, so no provider can reach it.
+2. **Partition.** Carve the subset out of its package-local layer (a `bool` or
+   negative-lookahead collector) so it becomes a layer of its own.
+3. **Overlay** — only when the subset belongs to a SHARED layer (which a consumer
+   cannot carve), or the partition would split classes that legitimately reference
+   each other.
+
+Three details of overlay layers: each overlapping layer needs **itself** (and its
+twin) in its allow-list (`Webtrees: [Webtrees, NonRepository, …]`), or Deptrac
+reports the edges between its members, because it skips an intra-layer edge only
+when the two classes share every layer; Deptrac warns "in more than one layer" for
+each overlapped class — a warning, not a failure (exit 0); and an overlay and its
+twin always depend on each other at layer level, which the layer-cycle gate below
+would report as a cycle. List every overlay — and only overlays — under
+`formatters.graphviz.hidden_layers`: each overlay member is also a member of a
+normal layer, so every real edge still appears on that layer and a real cycle still
+shows.
 
 ### Layer-cycle gate — `bin/check-deptrac-cycles.php`
 
@@ -783,9 +801,10 @@ comment, an HTML label, a port, an undirected graph or an unbalanced brace is re
 rather than skipped, because a skipped statement could be the edge that closes a
 cycle. A violating edge (drawn red) counts like any other — it is a real dependency.
 A layer's dependency on itself is not a cycle between layers and is ignored. Groups
-(`formatters.graphviz.groups`) are fine; `formatters.graphviz.hidden_layers` is not —
-a hidden layer is dropped from the dot output together with every edge touching it,
-so a cycle through it is invisible to the gate. Layer names pass through the same
+(`formatters.graphviz.groups`) are fine. `formatters.graphviz.hidden_layers` drops a
+layer from the dot output together with every edge touching it, so a cycle through
+it is invisible to the gate: hide overlay layers only (see *Module-specific
+boundaries in Deptrac* above), never a layer whose classes belong to no other layer. Layer names pass through the same
 report scrubbing as the other gates.
 
 **Rollout is script-first**, the same staging rule as the template gate: wire the two
