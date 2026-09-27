@@ -513,11 +513,15 @@ function findCyclicComponents(array $successors): array
     return $components;
 }
 
-if (count($argv) !== 2) {
+// $argv is only guaranteed under the CLI SAPI; `??` keeps a missing one a
+// usage error instead of an undefined-variable notice.
+$arguments = $argv ?? [];
+
+if (count($arguments) !== 2) {
     usageError('usage: check-deptrac-cycles.php <dot-file> (the output of `deptrac analyse --formatter=graphviz-dot --output=<dot-file>`).');
 }
 
-$dotFile = $argv[1];
+$dotFile = $arguments[1];
 $label   = safeReportValue($dotFile);
 
 if (!is_file($dotFile)) {
