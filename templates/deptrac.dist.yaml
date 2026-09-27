@@ -7,13 +7,26 @@
 # the import path the same way it does for the PHPStan include.
 #
 # Wire it as the consumer `ci:test:php:deptrac` script:
-#   "ci:test:php:deptrac": ["deptrac analyse --no-progress"]
+#   "ci:test:php:deptrac": [
+#       "deptrac analyse --no-progress",
+#       "deptrac debug:unassigned",
+#       "@php -r \"is_dir('.build') || mkdir('.build', 0777, true);\"",
+#       "deptrac analyse --no-progress --formatter=graphviz-dot --output=.build/deptrac-layers.dot",
+#       "check-deptrac-cycles.php .build/deptrac-layers.dot"
+#   ]
 # `deptrac analyse` auto-discovers this `deptrac.yaml`. Only the layer ruleset is
 # enforced; dependencies on classes outside every layer (the framework, webtrees
 # core, PHP built-ins) are reported as "uncovered" but do not fail the run.
 # `--fail-on-uncovered` additionally reds any uncovered dependency — do NOT enable
 # it wholesale, since every external dependency is uncovered; it is only useful
 # once external namespaces are given their own catch-all layer.
+# A class of your OWN that no layer matches is never checked at all:
+# `deptrac debug:unassigned` lists such classes and exits 2 while there is one.
+# The last two commands fail on a cycle in the actual layer graph, which Deptrac
+# itself never checks; add them once the repository's own cycles are fixed (see
+# the README's "Layer-cycle gate" section). Do not set
+# `formatters.graphviz.hidden_layers` here — a hidden layer's edges vanish from
+# the dot file, and a cycle through it with them.
 imports:
     - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
 
