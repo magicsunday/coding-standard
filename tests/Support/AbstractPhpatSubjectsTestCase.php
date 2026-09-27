@@ -41,13 +41,14 @@ use const FILE_APPEND;
  * class each, so a new case goes into the class covering the part of the gate
  * it drives:
  *
- *   - tests/CheckPhpatSubjectsTest.php          -> the three liveness arms
- *     (inNamespace/classname/isAbstract), the fail-closed selector and
- *     argument reports, the read arms (size cap, unreadable file) and the
- *     usage errors
+ *   - tests/CheckPhpatSubjectsTest.php          -> the liveness arms — every
+ *     selector the gate evaluates, alone and composed (GH-190) — the
+ *     fail-closed selector, argument and expression reports, the read arms
+ *     (size cap, unreadable file) and the usage errors
  *   - tests/CheckPhpatSubjectsTokenWalkTest.php -> the token walk: attribute
  *     spellings, the brace counter, the attribute-group scan, the class
- *     inventory, NAMESPACE_ROOT resolution and the linear-time guarantees
+ *     inventory (its supertype resolution through a src/ file's imports
+ *     included), NAMESPACE_ROOT resolution and the linear-time guarantees
  *   - tests/CheckPhpatSubjectsReportTest.php    -> the report-is-inert cases
  *     for a consumer-controlled subject, argument and rule name
  *   - tests/CheckPhpatSubjectsDiscoveryTest.php -> phpat's second discovery
@@ -190,8 +191,9 @@ abstract class AbstractPhpatSubjectsTestCase extends GateTestCase
         RULE;
 
     /**
-     * A rule whose subject is a real but UNHANDLED selector — exercises the
-     * distinct "unhandled subject selector" fail-closed path.
+     * A rule whose subject is an UNHANDLED selector (phpat's is `implements`,
+     * which the gate does evaluate; `implement` is no selector at all) —
+     * exercises the distinct "unhandled subject selector" fail-closed path.
      */
     protected const string UNKNOWN_SELECTOR_RULE = <<<'RULE'
             #[TestRule]
