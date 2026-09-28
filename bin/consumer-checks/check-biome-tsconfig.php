@@ -941,9 +941,11 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
             // are deliberately left free, as are module/target/lib/jsx and paths.
             //
             // Two groups. The nine after `strict` are the family `strict` switches on
-            // as a group; the five after those — noUncheckedIndexedAccess through
-            // isolatedModules — are not implied by `strict` at all, they are what
-            // tsconfig/base.json sets explicitly.
+            // as a group; the eleven after those — noUncheckedIndexedAccess through
+            // noUnusedLocals — are not implied by `strict` at all, they are what
+            // tsconfig/base.json sets explicitly. The two options the base sets to
+            // `false` loosen in the opposite direction and live in
+            // $pinnedOffFlags below.
             //
             // The family matters because each member may be written back
             // individually: TypeScript treats the specific option as an override of
@@ -979,6 +981,21 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
                 'noImplicitOverride',
                 'forceConsistentCasingInFileNames',
                 'isolatedModules',
+                'verbatimModuleSyntax',
+                'erasableSyntaxOnly',
+                'noUncheckedSideEffectImports',
+                'noImplicitReturns',
+                'noFallthroughCasesInSwitch',
+                'noUnusedLocals',
+            ];
+
+            // The `allow*` options are strict when OFF: tsconfig/base.json sets
+            // them to `false`, which turns unreachable code (TS7027) and an
+            // unused label (TS7028) into errors, and a consumer writing either
+            // back to `true` silences that again — measured with tsc 7.0.2.
+            $pinnedOffFlags = [
+                'allowUnreachableCode',
+                'allowUnusedLabels',
             ];
 
             // A pinned flag switched back to false in a LATER `extends` entry
@@ -995,6 +1012,12 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
             foreach ($pinnedFlags as $flag) {
                 if (($tsconfigEffective['compilerOptions'][$flag] ?? null) === false) {
                     fail($violations, 'tsconfig.json', sprintf('`compilerOptions.%s` must not be false — it overrides the shared strict base.', $flag));
+                }
+            }
+
+            foreach ($pinnedOffFlags as $flag) {
+                if (($tsconfigEffective['compilerOptions'][$flag] ?? null) === true) {
+                    fail($violations, 'tsconfig.json', sprintf('`compilerOptions.%s` must not be true — it overrides the shared strict base.', $flag));
                 }
             }
         }

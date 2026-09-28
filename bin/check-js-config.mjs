@@ -683,7 +683,7 @@ if (adopted && tsconfigFileExists) {
         }
 
         // The nine after `strict` are the family `strict` switches on as a
-        // group; the five after those are not implied by `strict` at all —
+        // group; the eleven after those are not implied by `strict` at all —
         // see the PHP gate's comment for the derivation and the tsc 7.0.2
         // counter-example that measured it.
         const pinnedFlags = [
@@ -702,6 +702,18 @@ if (adopted && tsconfigFileExists) {
             'noImplicitOverride',
             'forceConsistentCasingInFileNames',
             'isolatedModules',
+            'verbatimModuleSyntax',
+            'erasableSyntaxOnly',
+            'noUncheckedSideEffectImports',
+            'noImplicitReturns',
+            'noFallthroughCasesInSwitch',
+            'noUnusedLocals',
+        ];
+
+        // Strict when OFF — see $pinnedOffFlags in the PHP gate.
+        const pinnedOffFlags = [
+            'allowUnreachableCode',
+            'allowUnusedLabels',
         ];
 
         // GH-36: fold every `extends` entry onto the document itself before
@@ -724,6 +736,15 @@ if (adopted && tsconfigFileExists) {
 
             if (value === false) {
                 fail('tsconfig.json', `\`compilerOptions.${flag}\` must not be false — it overrides the shared strict base.`);
+            }
+        }
+
+        for (const flag of pinnedOffFlags) {
+            const compilerOptions = tsconfigEffective.compilerOptions;
+            const value = isArrayLike(compilerOptions) ? compilerOptions[flag] : undefined;
+
+            if (value === true) {
+                fail('tsconfig.json', `\`compilerOptions.${flag}\` must not be true — it overrides the shared strict base.`);
             }
         }
     }

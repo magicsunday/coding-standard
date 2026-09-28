@@ -9,6 +9,14 @@
         "resolveJsonModule": true,
         "isolatedModules": true,
         "forceConsistentCasingInFileNames": true,
+        "verbatimModuleSyntax": true,
+        "erasableSyntaxOnly": true,
+        "noUncheckedSideEffectImports": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUnusedLocals": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
         "skipLibCheck": true
     }
 }

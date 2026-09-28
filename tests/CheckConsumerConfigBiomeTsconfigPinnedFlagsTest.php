@@ -91,6 +91,14 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
         return self::extractQuotedList('pinnedFlags', 'bin/consumer-checks/check-biome-tsconfig.php');
     }
 
+    /**
+     * @return list<non-empty-string> The gate's own $pinnedOffFlags, read from source.
+     */
+    private static function pinnedOffFlagsFromGate(): array
+    {
+        return self::extractQuotedList('pinnedOffFlags', 'bin/consumer-checks/check-biome-tsconfig.php');
+    }
+
     // -------------------------------------------------------------------
     // The pinned strict flags, derived from the shipped base — the cases
     // are DERIVED from tsconfig/base.json rather than listed by hand, so
@@ -109,7 +117,19 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
     }
 
     /**
-     * Every compilerOptions flag the given tsconfig JSON ships as `true`.
+     * @return list<non-empty-string> Every compilerOptions flag tsconfig/base.json ships as `false`.
+     *
+     * @throws RuntimeException If the base does not decode as JSON carrying compilerOptions, a flag name is
+     *                          not plain letters, or nothing was found.
+     */
+    private static function baseOffFlagsFromTsconfigBase(): array
+    {
+        return self::baseFlagsFromTsconfigJson((string) file_get_contents(self::root() . '/tsconfig/base.json'), false);
+    }
+
+    /**
+     * Every compilerOptions flag the given tsconfig JSON ships as $shipped
+     * (`true` by default).
      *
      * Each name becomes a DataProvider row key (baseFlagProvider()), and
      * PHPUnit prints a failed row's key at the start of a physical line of
@@ -121,14 +141,15 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
      * The exception names no key, since echoing the rejected one would
      * re-open the channel this closes.
      *
-     * @param string $json The tsconfig document to read.
+     * @param string $json    The tsconfig document to read.
+     * @param bool   $shipped The value a flag must carry to be returned.
      *
      * @return list<non-empty-string>
      *
      * @throws RuntimeException If the JSON does not carry compilerOptions, a flag name is not plain letters,
      *                          or nothing was found.
      */
-    private static function baseFlagsFromTsconfigJson(string $json): array
+    private static function baseFlagsFromTsconfigJson(string $json, bool $shipped = true): array
     {
         $decoded = json_decode($json, true);
 
@@ -139,13 +160,13 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
         $flags = [];
 
         foreach ($decoded['compilerOptions'] as $name => $value) {
-            if ($value !== true) {
+            if ($value !== $shipped) {
                 continue;
             }
 
             if (!is_string($name) || preg_match('/\A[A-Za-z]+\z/', $name) !== 1) {
                 throw new RuntimeException(
-                    'tsconfig/base.json ships a `true` compilerOptions flag whose name is not plain letters'
+                    'tsconfig/base.json ships a boolean compilerOptions flag whose name is not plain letters'
                     . ' — widen the check deliberately rather than letting it become a data-set name',
                 );
             }
@@ -154,7 +175,7 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
         }
 
         if ($flags === []) {
-            throw new RuntimeException('read no compilerOptions flags from tsconfig/base.json');
+            throw new RuntimeException('read no matching compilerOptions flags from tsconfig/base.json');
         }
 
         /** @var list<non-empty-string> $flags */
@@ -190,6 +211,18 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
 
             if (str_contains($thrown->getMessage(), 'forged') || str_contains($thrown->getMessage(), '42')) {
                 self::fail("The rejection still carries the rejected flag name in its message ({$label}).");
+            }
+
+            $offJson = (string) json_encode(['compilerOptions' => ['allowUnusedLabels' => false, $name => false]]);
+
+            $thrown = self::assertThrows(
+                static fn () => self::baseFlagsFromTsconfigJson($offJson, false),
+                RuntimeException::class,
+                "baseFlagsFromTsconfigJson() accepted an off-flag name that is not plain letters ({$label}).",
+            );
+
+            if (str_contains($thrown->getMessage(), 'forged') || str_contains($thrown->getMessage(), '42')) {
+                self::fail("The off-flag rejection still carries the rejected flag name in its message ({$label}).");
             }
         }
     }
@@ -236,6 +269,29 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
     }
 
     /**
+     * @return array<string, array{0: string}>
+     */
+    public static function baseOffFlagProvider(): array
+    {
+        return self::singleArgProviderRows(self::baseOffFlagsFromTsconfigBase());
+    }
+
+    /**
+     * Every compilerOptions flag tsconfig/base.json ships as `false` — the
+     * `allow*` options, strict when off — turned back on individually must
+     * be rejected.
+     */
+    #[Test]
+    #[DataProvider('baseOffFlagProvider')]
+    public function baseOffFlagDrift(string $flag): void
+    {
+        $dir = $this->mkJsCase();
+        file_put_contents($dir . '/tsconfig.json', "{\n    \"extends\": \"@magicsunday/coding-standard/tsconfig/base.json\",\n    \"compilerOptions\": { \"{$flag}\": true }\n}\n");
+
+        $this->assertBothReject($dir, "compilerOptions.{$flag}", "tsconfig.json turning the shared off-pinned flag {$flag} back on");
+    }
+
+    /**
      * Both directions of the two derived lists against the base, plus the
      * gate's own $pinnedFlags bijection — so neither list can outlive
      * tsconfig/base.json or drift from the other.
@@ -261,6 +317,11 @@ final class CheckConsumerConfigBiomeTsconfigPinnedFlagsTest extends AbstractCons
         }
 
         self::assertContains('strict', $baseFlags, 'tsconfig/base.json no longer sets `strict`, so the strict-family pins guard nothing');
+
+        // baseOffFlagDrift() covers base -> gate; this is gate -> base.
+        foreach (self::pinnedOffFlagsFromGate() as $flag) {
+            self::assertContains($flag, self::baseOffFlagsFromTsconfigBase(), "off-pinned flag {$flag} is no longer shipped as false by tsconfig/base.json");
+        }
     }
 
     /**
