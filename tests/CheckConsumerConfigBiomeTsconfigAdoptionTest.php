@@ -490,4 +490,83 @@ final class CheckConsumerConfigBiomeTsconfigAdoptionTest extends AbstractConsume
     {
         $this->assertBothAccept($this->mkCase(), 'PHP-only repo without biome.json or tsconfig.json');
     }
+
+    // -------------------------------------------------------------------
+    // jsconfig.json (GH-200) — tsc type-checks through it exactly as through
+    // tsconfig.json, so an adopted repository must not keep one.
+    // -------------------------------------------------------------------
+
+    /**
+     * The shape five adopters shipped before #30: the type check runs through
+     * a jsconfig.json with `strict: false`, no tsconfig.json and no Biome
+     * config. Without jsconfig.json counting as a JS/TS config the adoption
+     * probe would never run and the gate would print OK. The report must
+     * name `allowJs`, which the rename silently drops.
+     */
+    #[Test]
+    public function rejectsJsconfigAloneOnceNpmPackageIsDeclared(): void
+    {
+        $dir = $this->mkCase();
+        self::writeAdoptingPackageJson($dir);
+        file_put_contents($dir . '/jsconfig.json', "{\n    \"compilerOptions\": { \"checkJs\": true, \"strict\": false }\n}\n");
+
+        $this->assertBothReject($dir, 'jsconfig.json: is not checked by this gate', 'a lone jsconfig.json with strict: false once the npm package is declared');
+        $this->assertBothReject($dir, '`allowJs`', 'the jsconfig.json report names the allowJs the rename drops');
+    }
+
+    /**
+     * A jsconfig.json that does not extend the shared base is rejected the
+     * same way — the verdict does not depend on its content.
+     */
+    #[Test]
+    public function rejectsJsconfigWithoutExtendsOnceNpmPackageIsDeclared(): void
+    {
+        $dir = $this->mkCase();
+        self::writeAdoptingPackageJson($dir);
+        file_put_contents($dir . '/jsconfig.json', "{\n    \"compilerOptions\": {}\n}\n");
+
+        $this->assertBothReject($dir, 'jsconfig.json: is not checked by this gate', 'a jsconfig.json without extends once the npm package is declared');
+    }
+
+    /**
+     * Next to a compliant tsconfig.json it is still rejected: editors and
+     * `tsc -p` may pick either file, and only one of them is checked.
+     */
+    #[Test]
+    public function rejectsJsconfigAlongsideCompliantTsconfig(): void
+    {
+        $dir = $this->mkJsCase();
+        copy($dir . '/tsconfig.json', $dir . '/jsconfig.json');
+
+        $this->assertBothReject($dir, 'jsconfig.json: is not checked by this gate', 'a jsconfig.json next to a compliant tsconfig.json');
+        $this->assertBothReportsOnce($dir, 'jsconfig.json', 'the jsconfig.json violation is reported once');
+    }
+
+    /**
+     * Keyed on adoption, not on the file: a repository that never declared
+     * the npm dependency keeps its jsconfig.json, whatever it says.
+     */
+    #[Test]
+    public function acceptsJsconfigInRepoWithoutAdoption(): void
+    {
+        $dir = $this->mkUnadoptedCase();
+        file_put_contents($dir . '/jsconfig.json', "{\n    \"compilerOptions\": { \"strict\": false }\n}\n");
+
+        $this->assertBothAccept($dir, 'a jsconfig.json in a repo that has not adopted the npm package');
+    }
+
+    /**
+     * A lone jsconfig.json makes the repository a JS/TS consumer for the
+     * adoption probe, so an unparseable package.json is reported rather
+     * than read as non-adoption.
+     */
+    #[Test]
+    public function rejectsUnparseablePackageJsonWithOnlyJsconfig(): void
+    {
+        $dir = $this->mkCase();
+        self::writeTruncatedPackageJson($dir);
+        file_put_contents($dir . '/jsconfig.json', "{\n    \"compilerOptions\": {}\n}\n");
+
+        $this->assertBothReject($dir, 'package.json: is not valid JSON', 'an unparseable package.json next to a lone jsconfig.json');
+    }
 }

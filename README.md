@@ -1042,7 +1042,8 @@ plus the flags the shared base sets itself — `noUncheckedIndexedAccess`,
 `noUnusedLocals`; `$pinnedFlags` in `bin/consumer-checks/check-biome-tsconfig.php` is the
 list), and `allowUnreachableCode`/`allowUnusedLabels` are not switched back to `true`
 (the base sets both to `false`, which makes unreachable code and an unused label an
-error; `$pinnedOffFlags` is that list),
+error; `$pinnedOffFlags` is that list), no `jsconfig.json` is present (see *`jsconfig.json` is
+rejected* below),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
 config, so that one key makes a file that is valid JSON completely unloadable — and
 the recommended rule floor is still on. That last one is checked everywhere Biome
@@ -1260,6 +1261,39 @@ Biome's `noUnusedFunctionParameters`, which the Biome base already enables.
 `noPropertyAccessFromIndexSignature` demands `obj["key"]` where Biome's recommended
 `useLiteralKeys` demands `obj.key` — measured against both tools, no spelling
 satisfies the pair.
+
+### `jsconfig.json` is rejected
+
+`tsc -p jsconfig.json` type-checks exactly like `tsc -p tsconfig.json`, so a repository
+could keep `strict: false` in a `jsconfig.json` and never meet the pinned flags above —
+five adopters did, and passed the gate, until they renamed the file during the rollout
+(GH-200). Once the npm dependency is declared, the lockstep gate therefore reports any
+`jsconfig.json`, alone or next to a `tsconfig.json`. A repository that has not adopted
+keeps its `jsconfig.json` untouched.
+
+**A plain rename is not enough.** The two names share one format, but `tsc` gives
+`jsconfig.json` defaults that `tsconfig.json` does not have — measured with
+`tsc --showConfig` on 7.0.2:
+
+| Option | implied by `jsconfig.json` | implied by `tsconfig.json` |
+|---|---|---|
+| `allowJs` | `true` | off |
+| `noEmit` | `true` | off |
+| `skipLibCheck` | `true` | off |
+| `maxNodeModuleJsDepth` | `2` | `0` |
+
+Without `allowJs` a `tsconfig.json` includes no `.js` file at all. A pure-JS repository
+notices, because `tsc` stops with TS18003 (*No inputs were found*); a repository with at
+least one `.ts` file does not, because `tsc` checks that file, skips every `.js` file
+and exits 0. Set `allowJs` (and `checkJs`) explicitly when moving the settings over.
+`maxNodeModuleJsDepth` falling to `0` means types are no longer inferred from untyped
+JavaScript packages in `node_modules`; set it back to `2` if the type check relied on
+that.
+
+The gate reads configuration, not file lists: it cannot tell whether `tsc` still finds
+the `.js` files, and it does not see which file a script hands to `tsc -p`. A build-only
+config such as a `tsconfig.dts.json` that emits declarations is not a type check and is
+not inspected.
 
 `useImportExtensions` runs with an `extensionMappings` table (`ts`/`tsx` → `js`,
 `mts` → `mjs`, `cts` → `cjs`), so a local ESM import spells the extension `.js` in

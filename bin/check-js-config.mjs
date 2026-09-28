@@ -496,7 +496,7 @@ const tsconfigFile = join(repoRoot, 'tsconfig.json');
 
 // Probed only when there is a JS/TS config to hold to the contract — see
 // $hasJsConfig for why.
-const hasJsConfig = biomeFile !== null || isFile(tsconfigFile);
+const hasJsConfig = biomeFile !== null || isFile(tsconfigFile) || isFile(join(repoRoot, 'jsconfig.json'));
 const adopted = hasJsConfig && npmDependencyDeclared(repoRoot);
 
 if (biomeFile !== null) {
@@ -748,6 +748,14 @@ if (adopted && tsconfigFileExists) {
             }
         }
     }
+}
+
+// jsconfig.json (GH-200): rejected once adopted — see the PHP gate's comment.
+if (adopted && isFile(join(repoRoot, 'jsconfig.json'))) {
+    fail(
+        'jsconfig.json',
+        'is not checked by this gate — move its settings into `tsconfig.json` extending the shared base and delete it. tsc gives jsconfig.json implicit `allowJs`, `noEmit`, `skipLibCheck` and `maxNodeModuleJsDepth: 2`, tsconfig.json none of them: set `allowJs` (and `checkJs`) explicitly, or the .js files silently drop out of the type check.',
+    );
 }
 
 // --- Report ---
