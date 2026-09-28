@@ -605,6 +605,73 @@ TS);
         $this->assertRejectedForReason($result, ['unchecked\.ts', 'TS2322']);
     }
 
+    /**
+     * One snippet per flag tsconfig/base.json adds beyond `strict` and the
+     * five above (#33), each paired with the diagnostic tsc 7.0.2 reports
+     * for it under the shared base and not without the flag. The exception
+     * is `noUncheckedSideEffectImports`, which tsc 7 already enables by
+     * default: its row proves the shipped value, and the gate's pin is what
+     * stops a consumer writing it back to `false`.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function sharedStrictFlagProvider(): array
+    {
+        return [
+            'verbatimModuleSyntax' => [
+                "import { Name } from './name';\n\nexport const greeting: Name = 'hi';\n",
+                'TS1484',
+            ],
+            'erasableSyntaxOnly' => [
+                "export enum Direction {\n    Up,\n}\n",
+                'TS1294',
+            ],
+            'noUncheckedSideEffectImports' => [
+                "import './missing-side-effect';\n\nexport const one = 1;\n",
+                'TS2882',
+            ],
+            'noImplicitReturns' => [
+                "export const pick = (value: number): number | undefined => {\n    if (value > 0) {\n        return value;\n    }\n};\n",
+                'TS7030',
+            ],
+            'noFallthroughCasesInSwitch' => [
+                "export const fall = (value: number): number => {\n    let result = 0;\n\n    switch (value) {\n        case 1:\n            result = 1;\n        case 2:\n            result = 2;\n            break;\n    }\n\n    return result;\n};\n",
+                'TS7029',
+            ],
+            'noUnusedLocals' => [
+                "const unused = 1;\n\nexport const one = 1;\n",
+                'TS6133',
+            ],
+            'allowUnreachableCode' => [
+                "export const early = (): number => {\n    return 1;\n    const late = 2;\n    return late;\n};\n",
+                'TS7027',
+            ],
+            'allowUnusedLabels' => [
+                "export const loop = (): void => {\n    outer: for (;;) {\n        break;\n    }\n};\n",
+                'TS7028',
+            ],
+        ];
+    }
+
+    /**
+     * Each flag the shared base adds must actually bite through the packed
+     * tarball, asserted on its own diagnostic rather than the bare exit
+     * status — a plausible-looking flag that tsc ignored would otherwise go
+     * green, the no-op config AGENTS.md warns about.
+     */
+    #[Test]
+    #[DataProvider('sharedStrictFlagProvider')]
+    public function rejectsWhatASharedStrictFlagForbids(string $source, string $diagnostic): void
+    {
+        $consumerDir = self::packagedConsumer()['consumerDir'];
+        $this->mutateConsumerFile($consumerDir, 'src/name.ts', "export type Name = string;\n");
+        $this->mutateConsumerFile($consumerDir, 'src/flagged.ts', $source);
+
+        $result = $this->runTsc($consumerDir);
+
+        $this->assertRejectedForReason($result, ['flagged\\.ts', $diagnostic]);
+    }
+
     // -------------------------------------------------------------------
     // templates/jscpd.json — the format names, against jscpd itself.
     // -------------------------------------------------------------------

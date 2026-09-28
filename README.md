@@ -1035,9 +1035,14 @@ every `enabled` still reads `true`; the
 strict flags are not overridden back to `false` underneath the `extends` link
 (the nine options `strict` switches on as a group — TypeScript treats a specific one
 written back as an override of the umbrella, so pinning only `strict` pins nothing —
-plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`,
-`forceConsistentCasingInFileNames` and `isolatedModules`, which the shared base sets
-itself; `$pinnedFlags` in `bin/consumer-checks/check-biome-tsconfig.php` is the list),
+plus the flags the shared base sets itself — `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes`, `noImplicitOverride`, `forceConsistentCasingInFileNames`,
+`isolatedModules`, `verbatimModuleSyntax`, `erasableSyntaxOnly`,
+`noUncheckedSideEffectImports`, `noImplicitReturns`, `noFallthroughCasesInSwitch` and
+`noUnusedLocals`; `$pinnedFlags` in `bin/consumer-checks/check-biome-tsconfig.php` is the
+list), and `allowUnreachableCode`/`allowUnusedLabels` are not switched back to `true`
+(the base sets both to `false`, which makes unreachable code and an unused label an
+error; `$pinnedOffFlags` is that list),
 `biome.json` carries no `"//"` key — Biome rejects unknown keys and refuses the whole
 config, so that one key makes a file that is valid JSON completely unloadable — and
 the recommended rule floor is still on. That last one is checked everywhere Biome
@@ -1232,6 +1237,29 @@ run — it guards this repository's own dist hygiene.
 Lint with `biome ci --error-on-warnings` so every warning is CI-fatal. The TypeScript
 base carries no `module`/`target`/`lib`/`jsx` and no `paths`; those are per-repository
 and belong in the consumer's own `compilerOptions`.
+
+Beyond `strict`, the TypeScript base sets `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes`, `noImplicitOverride`, `forceConsistentCasingInFileNames`,
+`isolatedModules`, `verbatimModuleSyntax`, `erasableSyntaxOnly`,
+`noUncheckedSideEffectImports`, `noImplicitReturns`, `noFallthroughCasesInSwitch` and
+`noUnusedLocals`, and turns `allowUnreachableCode` and `allowUnusedLabels` off. Each one
+is proven to bite through the packed tarball by its own `tsc` diagnostic. What a
+consumer meets:
+
+- `verbatimModuleSyntax` requires `import type` for an import used only as a type, so
+  a bundler and `tsc` erase the same imports.
+- `erasableSyntaxOnly` rejects `enum`, constructor parameter properties and runtime
+  `namespace` — the syntax Node's native type stripping cannot run.
+- `noUncheckedSideEffectImports` is already `tsc` 7's default; the base states it so
+  the gate can pin it.
+- `noUnusedLocals` does **not** exempt a `_`-prefixed name, unlike Biome's
+  `noUnusedVariables`. Delete dead code instead of renaming it.
+
+Two strictness options are deliberately left out. `noUnusedParameters` duplicates
+Biome's `noUnusedFunctionParameters`, which the Biome base already enables.
+`noPropertyAccessFromIndexSignature` demands `obj["key"]` where Biome's recommended
+`useLiteralKeys` demands `obj.key` — measured against both tools, no spelling
+satisfies the pair.
 
 `useImportExtensions` runs with an `extensionMappings` table (`ts`/`tsx` → `js`,
 `mts` → `mjs`, `cts` → `cjs`), so a local ESM import spells the extension `.js` in
