@@ -688,8 +688,10 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
     // PHP-only consumer with a malformed package.json would be reported for a
     // contract that has nothing to check — the same "red for something you never
     // claimed" the adoption keying itself exists to avoid.
-    $hasJsConfig = ($biomeFile !== null) || is_file($repoRoot . '/tsconfig.json');
-    $adopted     = $hasJsConfig && $npmDependencyDeclared($repoRoot);
+    $hasJsConfig = ($biomeFile !== null)
+        || is_file($repoRoot . '/tsconfig.json')
+        || is_file($repoRoot . '/jsconfig.json');
+    $adopted = $hasJsConfig && $npmDependencyDeclared($repoRoot);
 
     if ($biomeFile !== null) {
         $label     = basename($biomeFile);
@@ -1021,5 +1023,17 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
                 }
             }
         }
+    }
+
+    // jsconfig.json (GH-200): tsc type-checks through it exactly as through
+    // tsconfig.json, so a consumer could keep `strict: false` there and never meet
+    // the checks above — which is how five adopters passed this gate before #30.
+    // It is rejected outright rather than checked like tsconfig.json: one config
+    // name per repository, and every adopter already uses tsconfig.json. Alongside
+    // a tsconfig.json it is rejected too, since editors and `tsc -p` may pick either.
+    // Keyed on adoption like the tsconfig.json checks; the file is never read, so
+    // there is no unreadable or oversize case to report.
+    if ($adopted && is_file($repoRoot . '/jsconfig.json')) {
+        fail($violations, 'jsconfig.json', 'is not checked by this gate — move its settings into `tsconfig.json` extending the shared base and delete it. tsc gives jsconfig.json implicit `allowJs`, `noEmit`, `skipLibCheck` and `maxNodeModuleJsDepth: 2`, tsconfig.json none of them: set `allowJs` (and `checkJs`) explicitly, or the .js files silently drop out of the type check.');
     }
 }
