@@ -951,7 +951,7 @@ from drifting from this package.
 
 | Template | Copy to | Notes |
 |---|---|---|
-| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev` |
+| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
