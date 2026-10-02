@@ -80,7 +80,7 @@ use function unlink;
  * the fixture's baseline state (a passing biome.json/tsconfig.json extending
  * the installed package, plus one clean src file) is never actually
  * order-dependent, even though PHPUnit's own
- * `executionOrder="depends,defects"` (phpunit.xml.dist) does not guarantee
+ * `executionOrder="defects"` (phpunit.xml.dist) does not guarantee
  * declaration order, within a suite or across them.
  *
  * Because the cache outlives any single suite, its directories are NOT

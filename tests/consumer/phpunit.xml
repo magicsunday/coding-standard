@@ -13,7 +13,7 @@
          failOnPhpunitDeprecation="true"
          failOnPhpunitNotice="true"
          displayDetailsOnPhpunitDeprecations="true"
-         executionOrder="depends,defects"
+         executionOrder="defects"
          columns="max">
     <testsuites>
         <testsuite name="Unit">
