@@ -105,9 +105,14 @@ directory that matches how it is consumed, never at the root for convenience.
   importable configs are `require`d / `includes:`d from `vendor/`; the templates are
   copied and adapted, with a lockstep check keeping them from drifting. The package
   `require` delivers the entire PHP toolchain transitively — php-cs-fixer, PHPStan +
-  rule packs, Rector, phplint **and PHPUnit** (`^12.0 || ^13.0`) — so a
+  rule packs, Rector, phplint **and PHPUnit** (`^12.1 || ^13.0`) — so a
   **base-tier** consumer's `require-dev` is just this one entry; the PHPUnit
   constraint is pinned here and bumped once for every repository, never per-repo.
+  The floor is the lowest release whose schema accepts every attribute the shipped
+  `phpunit.xml.dist` sets, so adding a newer attribute to the template means raising
+  this floor in the same change. Re-derive it for a release `<version>` by validating
+  the template against that release's schema:
+  `xsd=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/sebastianbergmann/phpunit/<version>/phpunit.xsd -o "$xsd" && xmllint --noout --schema "$xsd" templates/phpunit.xml.dist`.
   The opt-in strict PHPStan tier, the opt-in phpat preset and Infection are the
   exception: they pull the `suggest`ed shipmonk/symplify/spaze/phpat/infection packs,
   added directly by the adopting repository.
