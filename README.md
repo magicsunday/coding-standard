@@ -16,7 +16,7 @@ composer require --dev magicsunday/coding-standard
 
 This single dev dependency pulls in the whole PHP toolchain transitively —
 php-cs-fixer, PHPStan and its rule packs, Rector, phplint **and PHPUnit**
-(`^12.0 || ^13.0`). A consumer on the **base** tier therefore declares nothing
+(`^12.1 || ^13.0`). A consumer on the **base** tier therefore declares nothing
 else in `require-dev`; the runner and every analysis tool are version-pinned
 here, in one place, and bumped once for all repositories. The opt-in strict
 PHPStan tier (`phpstan/strict.neon`), the opt-in phpat preset (`phpstan/phpat.neon`)
