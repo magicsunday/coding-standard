@@ -64,7 +64,7 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.14`,
-`typescript 7.0.2`, `jscpd 5.3.0`) and are what Dependabot tracks — `peerDependencies` are not parsed
+`typescript 7.0.2`, `jscpd 5.3.2`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
