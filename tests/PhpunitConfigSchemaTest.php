@@ -14,6 +14,7 @@ namespace MagicSunday\CodingStandard\Test;
 use Composer\InstalledVersions;
 use DOMDocument;
 use LibXMLError;
+use MagicSunday\CodingStandard\Test\Support\FixtureDirectory;
 use MagicSunday\CodingStandard\Test\Support\ScrubbedDiagnostics;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -22,11 +23,13 @@ use PHPUnit\Framework\TestCase;
 
 use function array_map;
 use function dirname;
+use function file_put_contents;
 use function implode;
 use function libxml_clear_errors;
 use function libxml_get_errors;
 use function libxml_use_internal_errors;
 use function sprintf;
+use function str_contains;
 use function trim;
 
 /**
@@ -82,39 +85,123 @@ final class PhpunitConfigSchemaTest extends TestCase
 
         self::assertFileExists($config);
 
+        $errors = self::schemaErrors($config, $schema);
+
+        if ($errors !== []) {
+            self::fail(
+                self::diagnosticMessage(
+                    sprintf('%s does not validate against %s:', $relativePath, $schema),
+                    implode(' | ', $errors),
+                ),
+            );
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * Configurations the schema check must reject, each with a fragment its
+     * report has to name.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function rejectedConfigProvider(): array
+    {
+        return [
+            'value outside the schema' => [
+                '<?xml version="1.0" encoding="UTF-8"?><phpunit executionOrder="not-an-order"/>',
+                'executionOrder',
+            ],
+            'unknown root attribute' => [
+                '<?xml version="1.0" encoding="UTF-8"?><phpunit notAPhpunitAttribute="true"/>',
+                'notAPhpunitAttribute',
+            ],
+            'malformed XML' => [
+                '<?xml version="1.0" encoding="UTF-8"?><phpunit',
+                'line',
+            ],
+        ];
+    }
+
+    /**
+     * Verifies that the schema check reports a configuration the installed
+     * PHPUnit schema does not accept, so the check cannot pass vacuously.
+     *
+     * @param string $xml              The configuration content to check.
+     * @param string $expectedFragment A fragment the report must contain.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('rejectedConfigProvider')]
+    public function schemaCheckRejectsAConfigTheInstalledSchemaDoesNotAccept(
+        string $xml,
+        string $expectedFragment,
+    ): void {
+        $fixture = new FixtureDirectory();
+
+        try {
+            $config = $fixture->path() . '/phpunit.xml';
+            file_put_contents($config, $xml);
+
+            $errors = self::schemaErrors($config, self::installedPhpunitSchema());
+        } finally {
+            $fixture->cleanup();
+        }
+
+        if ($errors === []) {
+            self::fail('The schema check accepted a configuration the installed PHPUnit schema rejects.');
+        }
+
+        $report = implode(' | ', $errors);
+
+        if (!str_contains($report, $expectedFragment)) {
+            self::fail(
+                self::diagnosticMessage(
+                    sprintf('The schema report does not name "%s":', $expectedFragment),
+                    $report,
+                ),
+            );
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * Loads the configuration and validates it against the schema, returning
+     * one message per libxml error, or an empty list when it validates.
+     *
+     * @param string $config The configuration file to check.
+     * @param string $schema The schema to validate against.
+     *
+     * @return list<string>
+     */
+    private static function schemaErrors(string $config, string $schema): array
+    {
         $previous = libxml_use_internal_errors(true);
         libxml_clear_errors();
 
         try {
             $document = new DOMDocument();
-            $loaded   = $document->load($config);
-            $valid    = $loaded && $document->schemaValidate($schema);
+            $valid    = $document->load($config) && $document->schemaValidate($schema);
             $errors   = libxml_get_errors();
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
         }
 
-        if (!$valid) {
-            self::fail(
-                self::diagnosticMessage(
-                    sprintf('%s does not validate against %s:', $relativePath, $schema),
-                    implode(
-                        ' | ',
-                        array_map(
-                            static fn (LibXMLError $error): string => sprintf(
-                                'line %d: %s',
-                                $error->line,
-                                trim($error->message),
-                            ),
-                            $errors,
-                        ),
-                    ),
-                ),
-            );
+        if ($valid) {
+            return [];
         }
 
-        $this->addToAssertionCount(1);
+        return array_map(
+            static fn (LibXMLError $error): string => sprintf(
+                'line %d: %s',
+                $error->line,
+                trim($error->message),
+            ),
+            $errors,
+        );
     }
 
     /**
