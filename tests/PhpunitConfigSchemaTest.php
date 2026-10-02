@@ -118,7 +118,7 @@ final class PhpunitConfigSchemaTest extends TestCase
             ],
             'malformed XML' => [
                 '<?xml version="1.0" encoding="UTF-8"?><phpunit',
-                'line',
+                'Start Tag',
             ],
         ];
     }
@@ -142,7 +142,8 @@ final class PhpunitConfigSchemaTest extends TestCase
 
         try {
             $config = $fixture->path() . '/phpunit.xml';
-            file_put_contents($config, $xml);
+
+            self::assertNotFalse(file_put_contents($config, $xml));
 
             $errors = self::schemaErrors($config, self::installedPhpunitSchema());
         } finally {
