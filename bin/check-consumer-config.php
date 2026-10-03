@@ -14,7 +14,8 @@ declare(strict_types=1);
  *
  * The importable configs (phpstan/base.neon, rector/base.php, php-cs-fixer/base.php)
  * are consumed by reference, so their rule content cannot drift. The copy-and-adapt
- * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig, deptrac.yaml) have no
+ * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig, deptrac.yaml,
+ * .github/dependabot.yml) have no
  * include-from-vendor mechanism, so every consumer keeps a physical copy — and that
  * copy is where the house standard silently drifts loose (a phpunit.xml that quietly
  * drops `requireCoverageMetadata`, a jscpd config on a stale reporter name).
@@ -42,7 +43,8 @@ declare(strict_types=1);
  *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
- * .jscpd.json, biome.json or tsconfig.json); the strict phpunit.xml is REQUIRED.
+ * .jscpd.json, biome.json or tsconfig.json, one without Dependabot has no
+ * .github/dependabot.yml); the strict phpunit.xml is REQUIRED.
  *
  * Split per contract under bin/consumer-checks/ (GH-48) once this file crossed
  * 1000 lines — each check-*.php there declares one checkXxx() function and is a
