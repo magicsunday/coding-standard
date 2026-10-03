@@ -283,7 +283,10 @@ function dependabotScalarIsSet(string $value): bool
 {
     $value = trim($value);
 
-    if (($value === '') || str_starts_with($value, '#')) {
+    if (
+        ($value === '')
+        || str_starts_with($value, '#')
+    ) {
         return false;
     }
 
