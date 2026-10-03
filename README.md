@@ -957,6 +957,7 @@ from drifting from this package.
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
+| `templates/dependabot.yml` | `.github/dependabot.yml` | a `commit-message.prefix` on every `updates` entry, so Dependabot never adopts a `chore(deps): …` style the commit-convention gate rejects. The file is not a community health file, so no repository inherits it. Keep the ecosystems the repository uses, and give a new entry its own prefix. The lockstep gate reports an entry without one |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
 
@@ -985,7 +986,7 @@ The package `require` places it on the consumer's bin path, so wire it as a
 
 Add that step to the reusable `php-quality` workflow so it gates in CI (see AGENTS —
 every consumer needs the script before the shared step is added, or the step reds the
-repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`) is
+repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`, a repo without Dependabot no `.github/dependabot.yml`) is
 skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
 

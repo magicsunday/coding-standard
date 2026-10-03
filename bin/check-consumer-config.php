@@ -114,6 +114,7 @@ require_once __DIR__ . '/consumer-checks/check-jscpd-json.php';
 require_once __DIR__ . '/consumer-checks/check-phplint-yml.php';
 require_once __DIR__ . '/consumer-checks/check-editorconfig.php';
 require_once __DIR__ . '/consumer-checks/check-deptrac-yaml.php';
+require_once __DIR__ . '/consumer-checks/check-dependabot-yml.php';
 require_once __DIR__ . '/consumer-checks/check-biome-tsconfig.php';
 
 checkPhpunitXml($violations, $repoRoot);
@@ -121,6 +122,7 @@ checkJscpdJson($violations, $repoRoot);
 checkPhplintYml($violations, $repoRoot);
 checkEditorconfig($violations, $repoRoot);
 checkDeptracYaml($violations, $repoRoot);
+checkDependabotYml($violations, $repoRoot);
 checkBiomeTsconfig($violations, $repoRoot, $packageRoot);
 
 // --- Report ---
