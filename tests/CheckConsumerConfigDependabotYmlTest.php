@@ -26,7 +26,7 @@ use function str_repeat;
  * Fixture-driven cases for bin/consumer-checks/check-dependabot-yml.php, the
  * optional .github/dependabot.yml contract. Every `updates` entry carries a
  * non-empty `commit-message.prefix`, as a direct key of the entry and as a direct
- * key of `commit-message`. PHP gate only, since bin/check-js-config.mjs has no
+ * key of `commit-message`, in block style. PHP gate only, since bin/check-js-config.mjs has no
  * dependabot.yml counterpart. See AbstractConsumerConfigTestCase for the shared
  * scaffolding.
  *
@@ -163,24 +163,31 @@ final class CheckConsumerConfigDependabotYmlTest extends AbstractConsumerConfigT
     public static function rejectedEntryProvider(): array
     {
         return [
-            'commit-message without prefix'       => [self::singleEntryFile("        commit-message:\n            include: scope\n")],
-            'bare empty prefix'                   => [self::singleEntryFile("        commit-message:\n            prefix:\n")],
-            'double-quoted empty prefix'          => [self::singleEntryFile("        commit-message:\n            prefix: \"\"\n")],
-            'single-quoted empty prefix'          => [self::singleEntryFile("        commit-message:\n            prefix: ''\n")],
-            'whitespace-only quoted prefix'       => [self::singleEntryFile("        commit-message:\n            prefix: \"  \"\n")],
-            'comment-only prefix'                 => [self::singleEntryFile("        commit-message:\n            prefix: # nothing\n")],
-            'literal block scalar prefix'         => [self::singleEntryFile("        commit-message:\n            prefix: |\n")],
-            'folded block scalar prefix'          => [self::singleEntryFile("        commit-message:\n            prefix: >\n")],
-            'alias prefix'                        => [self::singleEntryFile("        commit-message:\n            prefix: *shared\n")],
-            'prefix under a different key'        => [self::singleEntryFile("        commit-message:\n            include: scope\n        labels:\n            prefix: x\n")],
-            'prefix deeper than the first child'  => [self::singleEntryFile("        commit-message:\n            include:\n                prefix: x\n")],
-            'commit-message nested under groups'  => [self::singleEntryFile("        groups:\n            deps:\n                commit-message:\n                    prefix: x\n")],
-            'commit-message with comment only'    => [self::singleEntryFile("        commit-message: # note\n        directory: /\n")],
-            'inline map without prefix'           => [self::singleEntryFile("        commit-message: { include: scope }\n")],
-            'inline map with empty prefix'        => [self::singleEntryFile("        commit-message: { prefix: \"\" }\n")],
-            'inline map prefix in a quoted value' => [self::singleEntryFile("        commit-message: { include: \"prefix: fake\" }\n")],
-            'inline map comma in a quoted value'  => [self::singleEntryFile("        commit-message: { include: \"a, prefix: fake\" }\n")],
-            'inline map key that ends in prefix'  => [self::singleEntryFile("        commit-message: { no-prefix: fake }\n")],
+            'commit-message without prefix'      => [self::singleEntryFile("        commit-message:\n            include: scope\n")],
+            'bare empty prefix'                  => [self::singleEntryFile("        commit-message:\n            prefix:\n")],
+            'double-quoted empty prefix'         => [self::singleEntryFile("        commit-message:\n            prefix: \"\"\n")],
+            'single-quoted empty prefix'         => [self::singleEntryFile("        commit-message:\n            prefix: ''\n")],
+            'whitespace-only quoted prefix'      => [self::singleEntryFile("        commit-message:\n            prefix: \"  \"\n")],
+            'comment-only prefix'                => [self::singleEntryFile("        commit-message:\n            prefix: # nothing\n")],
+            'literal block scalar prefix'        => [self::singleEntryFile("        commit-message:\n            prefix: |\n")],
+            'folded block scalar prefix'         => [self::singleEntryFile("        commit-message:\n            prefix: >\n")],
+            'alias prefix'                       => [self::singleEntryFile("        commit-message:\n            prefix: *shared\n")],
+            'prefix under a different key'       => [self::singleEntryFile("        commit-message:\n            include: scope\n        labels:\n            prefix: x\n")],
+            'prefix deeper than the first child' => [self::singleEntryFile("        commit-message:\n            include:\n                prefix: x\n")],
+            'commit-message nested under groups' => [self::singleEntryFile("        groups:\n            deps:\n                commit-message:\n                    prefix: x\n")],
+            'commit-message with comment only'   => [self::singleEntryFile("        commit-message: # note\n        directory: /\n")],
+            'flow-style commit-message'          => [self::singleEntryFile("        commit-message: { prefix: x }\n")],
+            'flow-style without prefix'          => [self::singleEntryFile("        commit-message: { include: scope }\n")],
+            'commit-message with a plain value'  => [self::singleEntryFile("        commit-message: x\n")],
+            'null prefix'                        => [self::singleEntryFile("        commit-message:\n            prefix: null\n")],
+            'tilde prefix'                       => [self::singleEntryFile("        commit-message:\n            prefix: ~\n")],
+            'null prefix in capitals'            => [self::singleEntryFile("        commit-message:\n            prefix: NULL # none\n")],
+            'unterminated double quote'          => [self::singleEntryFile("        commit-message:\n            prefix: \"\n")],
+            'unterminated single quote'          => [self::singleEntryFile("        commit-message:\n            prefix: 'x\n")],
+            'anchor prefix'                      => [self::singleEntryFile("        commit-message:\n            prefix: &shared x\n")],
+            'tagged prefix'                      => [self::singleEntryFile("        commit-message:\n            prefix: !!str x\n")],
+            'flow sequence prefix'               => [self::singleEntryFile("        commit-message:\n            prefix: [x]\n")],
+            'flow map prefix'                    => [self::singleEntryFile("        commit-message:\n            prefix: { a: b }\n")],
         ];
     }
 
@@ -209,11 +216,17 @@ final class CheckConsumerConfigDependabotYmlTest extends AbstractConsumerConfigT
     public static function acceptedFileProvider(): array
     {
         return [
-            'column-0 items, CRLF, inline map, quoted and bare prefix, BOM' => [
+            'column-0 items, CRLF, quoted and bare prefix, BOM' => [
                 "\xEF\xBB\xBFversion: 2\r\nupdates:\r\n"
                 . "- package-ecosystem: composer\r\n  commit-message:\r\n    prefix: \"Update dependencies\" # why\r\n"
                 . "- package-ecosystem: npm\r\n  commit-message:\r\n    prefix: Update\r\n"
-                . "- package-ecosystem: github-actions\r\n  commit-message: { prefix: 'Update' }\r\n",
+                . "- package-ecosystem: github-actions\r\n  commit-message:\r\n    prefix: 'Update'\r\n",
+            ],
+            'nested list inside a column-0 sequence' => [
+                "updates:\n- package-ecosystem: npm\n  groups:\n    npm:\n      patterns:\n      - \"*\"\n  commit-message:\n    prefix: x\n",
+            ],
+            'quoted value that reads like null' => [
+                self::singleEntryFile("        commit-message:\n            prefix: \"null\"\n"),
             ],
             'comment after commit-message' => [
                 self::singleEntryFile("        commit-message: # note\n            prefix: x\n"),
@@ -229,9 +242,6 @@ final class CheckConsumerConfigDependabotYmlTest extends AbstractConsumerConfigT
             ],
             'dash on a line of its own' => [
                 "updates:\n    -\n        package-ecosystem: npm\n        commit-message:\n            prefix: x\n",
-            ],
-            'inline map with another key first' => [
-                self::singleEntryFile("        commit-message: { include: scope, prefix: x }\n"),
             ],
         ];
     }

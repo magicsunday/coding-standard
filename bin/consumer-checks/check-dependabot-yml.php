@@ -30,9 +30,10 @@ declare(strict_types=1);
  *
  * The file is matched line by line rather than parsed, to keep the gate
  * dependency-free like its siblings. `commit-message` must be a direct key of the
- * entry and `prefix` a direct key of `commit-message`, in block style or as an inline
- * map. Anything else, a nested decoy, a block scalar, an alias, is reported as
- * lacking the setting, which fails closed.
+ * entry and `prefix` a direct key of `commit-message`, both in block style. Anything
+ * else is reported as lacking the setting, which fails closed: a nested decoy, a null
+ * or block-scalar value, and a flow-style `commit-message: { prefix: x }`, which is a
+ * valid spelling the gate deliberately does not read.
  *
  * @param list<string> $violations The accumulated report, appended to in place.
  * @param string       $repoRoot   The consumer repository root to inspect.
@@ -204,16 +205,10 @@ function dependabotEntryHasPrefix(array $entry): bool
         $line = $entry[$index];
 
         if (
-            (preg_match('/^([ \t]*(?:-[ \t]+)?)commit-message:[ \t]*(.*)$/', $line, $matches) !== 1)
+            (preg_match('/^([ \t]*(?:-[ \t]+)?)commit-message:/', $line, $matches) !== 1)
             || (strlen($matches[1]) !== $keyColumn)
         ) {
             continue;
-        }
-
-        $inline = trim($matches[2]);
-
-        if (($inline !== '') && !str_starts_with($inline, '#')) {
-            return dependabotInlineMapHasPrefix($inline);
         }
 
         return dependabotBlockHasPrefix($entry, $index + 1, $keyColumn);
@@ -264,39 +259,11 @@ function dependabotBlockHasPrefix(array $entry, int $start, int $keyColumn): boo
 }
 
 /**
- * Whether an inline map such as `{ prefix: "x" }` has a `prefix` key with a usable
- * value.
- *
- * Quoted strings are masked before the key is searched for, so a `prefix:` or a comma
- * inside a quoted value is not mistaken for a key.
- *
- * @param string $inline The inline map as written after `commit-message:`.
- *
- * @return bool True when the map has a direct `prefix` key with a usable value.
- */
-function dependabotInlineMapHasPrefix(string $inline): bool
-{
-    $masked = preg_replace_callback(
-        '/"[^"]*"|\'[^\']*\'/',
-        static fn (array $match): string => str_repeat("\x01", strlen($match[0])),
-        $inline
-    );
-
-    if (
-        ($masked === null)
-        || (preg_match('/(?:^\{|,)[ \t]*prefix[ \t]*:[ \t]*([^,}]*)/', $masked, $matches, \PREG_OFFSET_CAPTURE) !== 1)
-    ) {
-        return false;
-    }
-
-    return dependabotScalarIsSet(substr($inline, $matches[1][1], strlen($matches[1][0])));
-}
-
-/**
  * Whether the text after `prefix:` is a non-empty string scalar.
  *
- * A block scalar, an alias, an anchor, a tag and a flow collection are not accepted:
- * a prefix is a plain or quoted string, and anything else is not worth guessing at.
+ * A null, a block scalar, an alias, an anchor, a tag, a flow collection and an
+ * unterminated quote are not accepted: a prefix is a plain or quoted string, and
+ * anything else is not worth guessing at.
  *
  * @param string $value The text after `prefix:`.
  *
@@ -317,5 +284,9 @@ function dependabotScalarIsSet(string $value): bool
         return trim($matches[1]) !== '';
     }
 
-    return preg_match('/^[^\s|>*&!{\[%@`]/', $value) === 1;
+    if (preg_match('/^(?:~|null)(?:[ \t]+#.*)?$/i', $value) === 1) {
+        return false;
+    }
+
+    return preg_match('/^[^\s"\'|>*&!{\[%@`]/', $value) === 1;
 }

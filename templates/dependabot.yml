@@ -1,10 +1,8 @@
 version: 2
 
-# Every ecosystem sets an explicit commit-message prefix. Without one,
-# Dependabot copies the patterns it detects in the history, which can produce
-# `chore(deps): …` subjects and PR titles the commit-convention gate rejects.
-# A prefix ending in a letter gets a colon appended:
-# "Update dependencies: bump …".
+# Every ecosystem sets an explicit commit-message prefix, so that Dependabot
+# never adopts a `chore(deps): …` style from the history, which the
+# commit-convention gate rejects.
 #
 # Keep one entry per ecosystem the repository uses and drop the others. A new
 # entry needs its own `commit-message.prefix`, which `check-consumer-config.php`
