@@ -44,7 +44,7 @@ declare(strict_types=1);
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
  * .jscpd.json, biome.json or tsconfig.json, one without Dependabot has no
- * .github/dependabot.yml); the strict phpunit.xml is REQUIRED.
+ * .github/dependabot.yml). The strict phpunit.xml is REQUIRED.
  *
  * Split per contract under bin/consumer-checks/ (GH-48) once this file crossed
  * 1000 lines — each check-*.php there declares one checkXxx() function and is a
