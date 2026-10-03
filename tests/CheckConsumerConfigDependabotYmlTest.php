@@ -178,6 +178,8 @@ final class CheckConsumerConfigDependabotYmlTest extends AbstractConsumerConfigT
             'commit-message with comment only'   => [self::singleEntryFile("        commit-message: # note\n        directory: /\n")],
             'flow-style commit-message'          => [self::singleEntryFile("        commit-message: { prefix: x }\n")],
             'flow-style without prefix'          => [self::singleEntryFile("        commit-message: { include: scope }\n")],
+            'prefix key without a space'         => [self::singleEntryFile("        commit-message:\n            prefix:x\n")],
+            'commit-message key without a space' => [self::singleEntryFile("        commit-message:x\n            prefix: x\n")],
             'commit-message with a plain value'  => [self::singleEntryFile("        commit-message: x\n")],
             'null prefix'                        => [self::singleEntryFile("        commit-message:\n            prefix: null\n")],
             'tilde prefix'                       => [self::singleEntryFile("        commit-message:\n            prefix: ~\n")],

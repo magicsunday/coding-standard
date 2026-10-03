@@ -64,6 +64,8 @@ function checkDependabotYml(array &$violations, string $repoRoot): void
     $contents = str_replace(["\r\n", "\r"], "\n", stripBom($contents));
     $block    = yamlBlock($contents, 'updates');
 
+    // Reachable only through a PCRE failure on a block far past the size cap, so no
+    // fixture reaches this branch.
     if ($block === null) {
         fail(
             $violations,
@@ -80,7 +82,11 @@ function checkDependabotYml(array &$violations, string $repoRoot): void
     $entries = dependabotUpdateEntries($block);
 
     if ($entries === []) {
-        fail($violations, $label, 'lists no `updates` entry, so there is no `commit-message.prefix` to check.');
+        fail(
+            $violations,
+            $label,
+            'lists no `updates` entry, so there is no `commit-message.prefix` to check.'
+        );
 
         return;
     }
@@ -98,7 +104,11 @@ function checkDependabotYml(array &$violations, string $repoRoot): void
 
         $ecosystem = ($matched === 1) ? trim($matches[1]) : '?';
 
-        fail($violations, $label, sprintf('the `%s` entry has no `commit-message.prefix`.', safeReportValue($ecosystem)));
+        fail(
+            $violations,
+            $label,
+            sprintf('the `%s` entry has no `commit-message.prefix`.', safeReportValue($ecosystem))
+        );
     }
 }
 
@@ -205,7 +215,7 @@ function dependabotEntryHasPrefix(array $entry): bool
         $line = $entry[$index];
 
         if (
-            (preg_match('/^([ \t]*(?:-[ \t]+)?)commit-message:/', $line, $matches) !== 1)
+            (preg_match('/^([ \t]*(?:-[ \t]+)?)commit-message:(?:[ \t]|$)/', $line, $matches) !== 1)
             || (strlen($matches[1]) !== $keyColumn)
         ) {
             continue;
@@ -249,9 +259,9 @@ function dependabotBlockHasPrefix(array $entry, int $start, int $keyColumn): boo
 
         if (
             ($column === $childColumn)
-            && (preg_match('/^[ \t]+prefix:(.*)$/', $line, $matches) === 1)
+            && (preg_match('/^[ \t]+prefix:(?:[ \t]+(.*))?$/', $line, $matches) === 1)
         ) {
-            return dependabotScalarIsSet($matches[1]);
+            return dependabotScalarIsSet($matches[1] ?? '');
         }
     }
 
@@ -262,7 +272,7 @@ function dependabotBlockHasPrefix(array $entry, int $start, int $keyColumn): boo
  * Whether the text after `prefix:` is a non-empty string scalar.
  *
  * A null, a block scalar, an alias, an anchor, a tag, a flow collection and an
- * unterminated quote are not accepted: a prefix is a plain or quoted string, and
+ * unterminated quote are not accepted. A prefix is a plain or quoted string, and
  * anything else is not worth guessing at.
  *
  * @param string $value The text after `prefix:`.
