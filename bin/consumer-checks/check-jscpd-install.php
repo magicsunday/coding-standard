@@ -235,9 +235,13 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // options before either), so every word of its arguments that names a
     // script is followed instead of parsing Composer's command line. Whatever
     // follows the `@name` word reaches a shell as arguments, so it is checked
-    // like any other command string. Returns the reference chain and the
-    // offending command, or null.
-    $findNpm = static function (string $name, array $chain, array &$visited) use (&$findNpm, $scripts, $commandsOf, $runsNpm): ?array {
+    // like any other command string. A chain deeper than the limit is not
+    // followed any further and is reported once, so the walk stays small and
+    // shallow however long a manifest within the size cap makes a chain.
+    // Returns the reference chain and the offending command, or null.
+    $maxReferenceDepth = 64;
+    $chainTooDeep      = false;
+    $findNpm           = static function (string $name, array &$chain, array &$visited) use (&$findNpm, &$chainTooDeep, $maxReferenceDepth, $scripts, $commandsOf, $runsNpm): ?array {
         $visited[$name] = true;
 
         foreach ($commandsOf($scripts[$name] ?? null) as $command) {
@@ -265,11 +269,20 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                     continue;
                 }
 
-                $found = $findNpm($target, [...$chain, $target], $visited);
+                if (count($chain) >= $maxReferenceDepth) {
+                    $chainTooDeep = true;
+
+                    continue;
+                }
+
+                $chain[] = $target;
+                $found   = $findNpm($target, $chain, $visited);
 
                 if ($found !== null) {
                     return $found;
                 }
+
+                array_pop($chain);
             }
 
             if ($runsNpm($arguments)) {
@@ -286,7 +299,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         }
 
         $visited = [];
-        $found   = $findNpm($event, [], $visited);
+        $chain   = [];
+        $found   = $findNpm($event, $chain, $visited);
 
         if ($found === null) {
             continue;
@@ -312,6 +326,14 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 $through,
                 safeReportValue($command)
             )
+        );
+    }
+
+    if ($chainTooDeep) {
+        fail(
+            $violations,
+            'composer.json',
+            sprintf('a chain of script references is deeper than %d, so the gate does not follow it and cannot tell whether a Composer event reaches npm.', $maxReferenceDepth)
         );
     }
 
