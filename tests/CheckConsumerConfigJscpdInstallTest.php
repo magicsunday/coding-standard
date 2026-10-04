@@ -131,12 +131,12 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     /**
      * Writes a package.json whose `devDependencies.jscpd` is the given value.
      *
-     * @param string $dir     The directory to write package.json into.
-     * @param mixed  $version The value of `devDependencies.jscpd`.
+     * @param string                                                  $dir     The directory to write package.json into.
+     * @param string|int|float|bool|array<array-key, string|int>|null $version The value of `devDependencies.jscpd`.
      *
      * @return void
      */
-    private static function writeJscpdPin(string $dir, mixed $version): void
+    private static function writeJscpdPin(string $dir, string|int|float|bool|array|null $version): void
     {
         $manifest = [
             'name'            => 'fixture',
@@ -283,24 +283,25 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * jscpd under `dependencies` rather than `devDependencies`: a CI tool is
-     * not a runtime dependency, and the report names where it was found.
-     */
-    #[Test]
-    public function rejectsJscpdDeclaredUnderDependencies(): void
-    {
-        $dir = $this->installFixture();
-        file_put_contents($dir . '/package.json', "{\n    \"name\": \"fixture\",\n    \"dependencies\": {\n        \"jscpd\": \"5.3.2\"\n    }\n}\n");
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'it is declared under `dependencies`', 'jscpd under dependencies');
-    }
-
-    /**
      * @return array<string, array{0: string}>
      */
     public static function otherDependencySectionProvider(): array
     {
         return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
+    }
+
+    /**
+     * jscpd under another section rather than `devDependencies`: a CI tool is
+     * not a runtime dependency, and the report names where it was found.
+     */
+    #[Test]
+    #[DataProvider('otherDependencySectionProvider')]
+    public function rejectsJscpdDeclaredUnderAnotherSection(string $section): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"name\": \"fixture\",\n    \"{$section}\": {\n        \"jscpd\": \"5.3.2\"\n    }\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, "it is declared under `{$section}`", "jscpd under {$section}");
     }
 
     /**
@@ -680,6 +681,36 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
+     * @return array<string, array{0: string}>
+     */
+    public static function pinnedJscpdRunProvider(): array
+    {
+        return self::singleArgProviderRows([
+            'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips',
+            'npx biome check',
+            'npx some-tool --report jscpd-report',
+            'echo jscpd-config@x',
+        ]);
+    }
+
+    /**
+     * The binary package.json pins, and commands that only resemble an
+     * unpinned run, stay accepted: a detector widened to any `npx` or any
+     * `@` goes red here.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('pinnedJscpdRunProvider')]
+    public function acceptsAScriptThatDoesNotRunJscpdAroundThePin(string $command): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => $command]);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "cpd script: {$command}");
+    }
+
+    /**
      * jscpd run through npx, or with a version in the command, runs a
      * version the package.json pin does not control.
      *
@@ -717,6 +748,48 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
         file_put_contents($dir . '/composer.json', '{ not json');
 
         $this->assertGateRejects(self::phpGate(), $dir, 'composer.json: is not valid JSON, so the jscpd install contract cannot be checked', 'malformed composer.json');
+    }
+
+    /**
+     * A composer.json without a `scripts` block has nothing to check.
+     */
+    #[Test]
+    public function acceptsComposerJsonWithoutScripts(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', "{\n    \"name\": \"fixture/fixture\"\n}\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'composer.json without scripts');
+    }
+
+    /**
+     * An unreadable composer.json is reported once, as itself.
+     */
+    #[Test]
+    public function reportsUnreadableComposerJsonOnce(): void
+    {
+        $this->skipIfRunningAsRoot();
+
+        $dir = $this->installFixture();
+        chmod($dir . '/composer.json', 0o000);
+
+        try {
+            $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'an unreadable composer.json is reported once, as itself');
+        } finally {
+            chmod($dir . '/composer.json', 0o644);
+        }
+    }
+
+    /**
+     * An oversize composer.json is reported once, as itself.
+     */
+    #[Test]
+    public function reportsOnceWhenComposerJsonExceedsTheTextSizeCap(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', str_repeat('x', self::MAX_TEXT_BYTES + 1));
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'an oversized composer.json is reported once, as itself');
     }
 
     /**
