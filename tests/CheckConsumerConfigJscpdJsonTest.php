@@ -67,8 +67,9 @@ final class CheckConsumerConfigJscpdJsonTest extends AbstractConsumerConfigTestC
     // -------------------------------------------------------------------
 
     /**
-     * mkCase() plus a clean .jscpd.json, so each jscpd case below can
-     * corrupt exactly one threshold and be rejected for that reason alone.
+     * mkCase() plus a clean .jscpd.json and the jscpd install it requires,
+     * so each jscpd case below can corrupt exactly one threshold and be
+     * rejected for that reason alone.
      *
      * @return string This test's fixture directory.
      */
@@ -85,6 +86,7 @@ final class CheckConsumerConfigJscpdJsonTest extends AbstractConsumerConfigTestC
             }
 
             JSON);
+        self::writeJscpdInstall($dir);
 
         return $dir;
     }

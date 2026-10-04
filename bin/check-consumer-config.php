@@ -41,6 +41,10 @@ declare(strict_types=1);
  * a fixed list here it would be the third copy to drift out of step with the code,
  * after this file's own history of that.
  *
+ * A present .jscpd.json also brings the jscpd install contract with it (GH-219,
+ * bin/consumer-checks/check-jscpd-install.php): jscpd pinned to one exact version
+ * in package.json, a committed lockfile, and no npm run from a Composer event.
+ *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
  * .jscpd.json, biome.json or tsconfig.json, one without Dependabot has no
@@ -113,6 +117,7 @@ require_once __DIR__ . '/support/merge-config-layer.php';
 require_once __DIR__ . '/consumer-checks/helpers.php';
 require_once __DIR__ . '/consumer-checks/check-phpunit-xml.php';
 require_once __DIR__ . '/consumer-checks/check-jscpd-json.php';
+require_once __DIR__ . '/consumer-checks/check-jscpd-install.php';
 require_once __DIR__ . '/consumer-checks/check-phplint-yml.php';
 require_once __DIR__ . '/consumer-checks/check-editorconfig.php';
 require_once __DIR__ . '/consumer-checks/check-deptrac-yaml.php';
@@ -121,6 +126,7 @@ require_once __DIR__ . '/consumer-checks/check-biome-tsconfig.php';
 
 checkPhpunitXml($violations, $repoRoot);
 checkJscpdJson($violations, $repoRoot);
+checkJscpdInstall($violations, $repoRoot);
 checkPhplintYml($violations, $repoRoot);
 checkEditorconfig($violations, $repoRoot);
 checkDeptracYaml($violations, $repoRoot);

@@ -956,7 +956,7 @@ from drifting from this package.
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
-| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason |
+| `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason. The copy brings the jscpd install contract with it, see *jscpd install contract* below |
 | `templates/dependabot.yml` | `.github/dependabot.yml` | a `commit-message.prefix` on every `updates` entry, so Dependabot never adopts a `chore(deps): …` style the commit-convention gate rejects. The file is not a community health file, so no repository inherits it. Keep the ecosystems the repository uses, and give a new entry its own prefix. The lockstep gate reports an entry without one |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
@@ -1104,6 +1104,52 @@ reaching outside the repository (a `../` chain) or naming a package this reposit
 never installed is not followed at all, the same answer this gate already gives an
 unmet contract elsewhere: not in the repository, nothing to read. A repository
 willing to point `extends` at such a target can equally drop the gate from its CI.
+
+### jscpd install contract
+
+jscpd is a Node tool, so the Composer package cannot deliver it the way it delivers the
+PHP toolchain. Every repository that carries a `.jscpd.json` installs and runs it the
+same way (GH-219):
+
+1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
+   `devDependencies` with one exact version (`"jscpd": "5.3.2"`, not `^5.3.2`), and the
+   lockfile (`package-lock.json`, or `npm-shrinkwrap.json`) is committed. The version
+   lives nowhere else — not in `composer.json`, not in a workflow — so Dependabot's npm
+   ecosystem is the one thing that moves it.
+2. **Installed explicitly, never from a Composer event.** CI runs `npm ci` in its own
+   step after `setup-node`; locally the install target (`make install` or the
+   repository's equivalent) runs `npm ci` next to `composer install`. A `post-install-cmd`
+   or `post-update-cmd` that runs npm makes every `composer install` reach the network,
+   and the guards repositories wrapped around it to skip a reinstall went stale with
+   the first version bump.
+3. **Run offline from `node_modules`.** The cpd script runs the installed binary, with
+   the scan paths in `.jscpd.json` rather than on the command line:
+
+   ```json
+   "scripts": {
+       "ci:test:php:cpd": "node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips"
+   }
+   ```
+
+   `npx jscpd` resolves a copy of its own, and `jscpd@<range>` names a version in the
+   script itself; neither is the release the pin controls.
+
+The lockstep gate enforces all three wherever a `.jscpd.json` is present, from
+`bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
+version in `devDependencies` (a range, a tag, a `v` or `=` prefix, a git or alias spec
+are reported, and so is jscpd declared under another section), a lockfile exists, no
+Composer event runs `npm` or `npx` — directly or through the `@script` references it
+follows — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
+command. `$composerEvents` in that file is every event Composer's scripts documentation
+names, so a hook under any of them counts. npm in a script no event runs (a
+`tools:install` a contributor calls by hand) is left alone. A repository without
+`composer.json` owes the package.json half only, and one without `.jscpd.json` owes
+nothing.
+
+Unlike the `extends` link above, this check is **keyed on the file, not on an adoption
+marker**, because every part of it can be put in place before the release that ships
+the check: align the consumers first, then cut that release, so its update reds no
+repository that has not migrated.
 
 ### Node-only front end — `bin/check-js-config.mjs`
 

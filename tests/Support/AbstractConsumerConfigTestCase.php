@@ -45,6 +45,7 @@ use function str_repeat;
  *
  *   - check-phpunit-xml.php    -> tests/CheckConsumerConfigPhpunitXmlTest.php
  *   - check-jscpd-json.php     -> tests/CheckConsumerConfigJscpdJsonTest.php
+ *   - check-jscpd-install.php  -> tests/CheckConsumerConfigJscpdInstallTest.php
  *   - check-phplint-yml.php    -> tests/CheckConsumerConfigPhplintYmlTest.php
  *   - check-editorconfig.php   -> tests/CheckConsumerConfigEditorconfigTest.php
  *   - check-deptrac-yaml.php   -> tests/CheckConsumerConfigDeptracYamlTest.php
@@ -302,6 +303,40 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
                 "devDependencies": {
                     "@magicsunday/coding-standard": "github:magicsunday/coding-standard#1.7.0"
                 }
+            }
+
+            JSON);
+    }
+
+    /**
+     * Writes the jscpd install a `.jscpd.json` requires (GH-219): a
+     * package.json pinning jscpd to an exact version in `devDependencies`
+     * plus the committed lockfile `npm ci` installs from — the shape every
+     * fixture carrying a clean `.jscpd.json` needs, so a case can corrupt the
+     * config without also tripping the install contract.
+     *
+     * @param string $dir The directory to write package.json and package-lock.json into.
+     *
+     * @return void
+     */
+    protected static function writeJscpdInstall(string $dir): void
+    {
+        file_put_contents($dir . '/package.json', <<<'JSON'
+            {
+                "name": "fixture",
+                "private": true,
+                "devDependencies": {
+                    "jscpd": "5.3.2"
+                }
+            }
+
+            JSON);
+        file_put_contents($dir . '/package-lock.json', <<<'JSON'
+            {
+                "name": "fixture",
+                "lockfileVersion": 3,
+                "requires": true,
+                "packages": {}
             }
 
             JSON);

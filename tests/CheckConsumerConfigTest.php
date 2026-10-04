@@ -59,7 +59,8 @@ final class CheckConsumerConfigTest extends AbstractConsumerConfigTestCase
      * it. The phpunit copy comes from templates/, not the fixture — it is
      * the file a consumer actually copies, and it carries the largest
      * table (required root flags) no gate run had otherwise exercised via
-     * the shipped template.
+     * the shipped template. The `.jscpd.json` copy brings the jscpd install
+     * it requires along (GH-219).
      *
      * @return void
      */
@@ -71,6 +72,7 @@ final class CheckConsumerConfigTest extends AbstractConsumerConfigTestCase
         copy(self::root() . '/templates/editorconfig', $dir . '/.editorconfig');
         copy(self::root() . '/templates/jscpd.json', $dir . '/.jscpd.json');
         copy(self::root() . '/templates/phplint.yml', $dir . '/.phplint.yml');
+        self::writeJscpdInstall($dir);
 
         $this->assertGateAccepts(self::phpGate(), $dir, 'full canonical template set, phpunit included, as templates/ ships it');
     }
