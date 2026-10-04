@@ -168,9 +168,9 @@ function readBounded(array &$violations, string $path, string $label): string|fa
 }
 
 /**
- * Reads a strict-JSON manifest (package.json, composer.json) into an array.
- * Both tools read a BOM-prefixed file, so the BOM is stripped first, and
- * neither accepts comments, so no JSONC pass.
+ * Reads a strict-JSON manifest (package.json, composer.json) into an array:
+ * a UTF-8 BOM is stripped first, then the contents are decoded as strict JSON,
+ * so comments are not accepted.
  *
  * @param list<string> $violations The accumulated report, appended to in place.
  * @param string       $path       Absolute path of the manifest.
