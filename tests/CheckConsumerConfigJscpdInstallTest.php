@@ -51,8 +51,8 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
 {
     /**
      * The Composer event names this suite drives a hook case for — mirrors
-     * the gate's own $composerEvents, which lists every event Composer's
-     * scripts documentation names (doc/articles/scripts.md, "Event names").
+     * the gate's own $composerEvents, the list of Composer events a script
+     * can hook.
      *
      * @var list<non-empty-string>
      */
@@ -948,29 +948,42 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * A chain of script references up to the depth limit is followed and the
-     * npm at its end is reported with the chain that leads there.
+     * The longest chain of script references the gate follows ends in npm,
+     * and the npm is reported with the chain that leads there.
      */
     #[Test]
     public function followsAChainUpToTheDepthLimit(): void
     {
         $dir = $this->installFixture();
-        self::writeComposerScripts($dir, self::referenceChain(60));
+        self::writeComposerScripts($dir, self::referenceChain(63));
 
         $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx through', 'npm at the end of a chain within the limit');
     }
 
     /**
-     * A chain deeper than the limit is not followed and is reported as such,
-     * so a very long chain can neither hide npm nor exhaust the walk.
+     * One reference more than the limit is not followed and is reported as
+     * such, so a chain beyond the limit cannot hide npm.
      */
     #[Test]
     public function reportsAChainDeeperThanTheLimit(): void
     {
         $dir = $this->installFixture();
-        self::writeComposerScripts($dir, self::referenceChain(20_000));
+        self::writeComposerScripts($dir, self::referenceChain(64));
 
         $this->assertGateRejects(self::phpGate(), $dir, 'a chain of script references is deeper than', 'a chain beyond the limit');
+    }
+
+    /**
+     * A chain far beyond the limit is cut off at the limit and reported once,
+     * however long a manifest within the size cap makes it.
+     */
+    #[Test]
+    public function reportsAVeryLongChainWithoutWalkingItAll(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, self::referenceChain(20_000));
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'a chain of 20000 references');
     }
 
     /**
