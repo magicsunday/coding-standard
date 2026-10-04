@@ -170,7 +170,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
     // A script is a command string or a list of them; anything else (a
     // callback map, a number, null) is Composer's own error to report.
-    $commandsOf = static function (mixed $script): array {
+    $commandsOf = static function (string|int|float|bool|array|null $script): array {
         if (is_string($script)) {
             return [$script];
         }
