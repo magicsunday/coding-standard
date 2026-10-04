@@ -1138,7 +1138,7 @@ same way (GH-219):
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
    binary the pin installs is the one that runs.
 
-The lockstep gate enforces all three wherever a `.jscpd.json` is present, from
+The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
 version in `devDependencies` (a range, a tag, a `v` or `=` prefix, a git or alias spec
 are reported, and so is jscpd declared under another section), a lockfile exists, no
@@ -1152,7 +1152,8 @@ so a script reached through a plain `composer run-script`, a `scripts-aliases` e
 `composer exec` is not followed: it detects drift and does not guarantee that no Composer
 event can reach npm. A repository without
 `composer.json` owes the package.json pin and the lockfile only, and one without
-`.jscpd.json` owes nothing.
+`.jscpd.json` owes nothing. The gate does not require the cpd script itself, its flags
+or `--fail-on-empty`.
 
 Unlike the `extends` link above, this check is **keyed on the file, not on an adoption
 marker**, because every part of it can be put in place before the release that ships
