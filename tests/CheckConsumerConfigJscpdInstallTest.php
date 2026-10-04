@@ -461,16 +461,19 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * npm-shrinkwrap.json is the other lockfile `npm ci` installs from.
+     * npm-shrinkwrap.json does not stand in for package-lock.json: `npm ci`
+     * would install from it, but the shared cpd workflow
+     * (magicsunday/.github, `.github/workflows/cpd.yml`) requires
+     * package-lock.json by name and keys its npm cache on it.
      */
     #[Test]
-    public function acceptsShrinkwrapInsteadOfPackageLock(): void
+    public function rejectsShrinkwrapInsteadOfPackageLock(): void
     {
         $dir = $this->installFixture();
         copy($dir . '/package-lock.json', $dir . '/npm-shrinkwrap.json');
         unlink($dir . '/package-lock.json');
 
-        $this->assertGateAccepts(self::phpGate(), $dir, 'npm-shrinkwrap.json instead of package-lock.json');
+        $this->assertGateRejects(self::phpGate(), $dir, 'package-lock.json: is missing', 'npm-shrinkwrap.json instead of package-lock.json');
     }
 
     // -------------------------------------------------------------------
