@@ -555,29 +555,15 @@ function checkBiomeTsconfig(array &$violations, string $repoRoot, string $packag
             return false;
         }
 
-        $contents = readBounded($violations, $packageJsonFile, 'package.json');
+        $json = readJsonManifest($violations, $packageJsonFile, 'package.json', 'JS/TS contract');
 
-        if ($contents === null) {
-            // Oversize, and already reported by readBounded() — which is what makes
-            // answering "not adopted" safe here. The gate cannot know whether a manifest
-            // it could not read declares the dependency, and reporting the adoption-gated
-            // contract on a guess is the false positive that gate exists to prevent. What
-            // would be a fail-open is answering false SILENTLY; the run is already red.
-            return false;
-        }
-
-        if ($contents === false) {
-            fail($violations, 'package.json', 'exists but cannot be read, so the JS/TS contract cannot be checked.');
-
-            return false;
-        }
-
-        // package.json is strict JSON by npm's own rules, so no JSONC pass here.
-        $json = json_decode(stripBom($contents), true);
-
-        if (!is_array($json)) {
-            fail($violations, 'package.json', 'is not valid JSON, so the JS/TS contract cannot be checked.');
-
+        if ($json === null) {
+            // Missing, oversize, unreadable or malformed, and already reported by
+            // readJsonManifest(), which is what makes answering "not adopted" safe
+            // here. The gate cannot know whether a manifest it could not read declares
+            // the dependency, and reporting the adoption-gated contract on a guess is
+            // the false positive that gate exists to prevent. What would be a fail-open
+            // is answering false SILENTLY, and the run is already red.
             return false;
         }
 

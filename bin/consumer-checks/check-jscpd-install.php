@@ -43,32 +43,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         return;
     }
 
-    // Both manifests are strict JSON by their tools' own rules; npm and
-    // Composer each read a BOM-prefixed file, so the BOM is stripped first.
-    // Null means the file was missing, unreadable, oversize or malformed —
-    // each already reported, so the caller just stops.
+    // Null means the file was missing, unreadable, oversize or malformed, each
+    // already reported, so the caller just stops.
     $readManifest = static function (string $file) use (&$violations, $repoRoot): ?array {
-        $contents = readBounded($violations, $repoRoot . '/' . $file, $file);
-
-        if ($contents === null) {
-            return null;
-        }
-
-        if ($contents === false) {
-            fail($violations, $file, 'exists but cannot be read, so the jscpd install contract cannot be checked.');
-
-            return null;
-        }
-
-        $json = json_decode(stripBom($contents), true);
-
-        if (!is_array($json)) {
-            fail($violations, $file, 'is not valid JSON, so the jscpd install contract cannot be checked.');
-
-            return null;
-        }
-
-        return $json;
+        return readJsonManifest($violations, $repoRoot . '/' . $file, $file, 'jscpd install contract');
     };
 
     // --- package.json: one exact pin, where Dependabot reads it ---

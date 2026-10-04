@@ -16,7 +16,7 @@ declare(strict_types=1);
  *
  * Scoped to this gate rather than bin/support/, which holds primitives shared
  * with OTHER scripts (tests/check-version-lockstep.php, tests/lint-json.php):
- * fail()/tooLargeDetail()/stripBom()/yamlBlock()/readBounded() are all
+ * fail()/tooLargeDetail()/stripBom()/yamlBlock()/readBounded()/readJsonManifest() are all
  * specific to the copy-and-adapt-template contract these checks enforce, with
  * no consumer outside them.
  *
@@ -165,4 +165,43 @@ function readBounded(array &$violations, string $path, string $label): string|fa
     }
 
     return $contents;
+}
+
+/**
+ * Reads a strict-JSON manifest (package.json, composer.json) into an array.
+ * Both tools read a BOM-prefixed file, so the BOM is stripped first, and
+ * neither accepts comments, so no JSONC pass.
+ *
+ * @param list<string> $violations The accumulated report, appended to in place.
+ * @param string       $path       Absolute path of the manifest.
+ * @param string       $label      The file name the report uses.
+ * @param string       $contract   The contract the manifest is read for, named in the report.
+ *
+ * @return array<array-key, mixed>|null The decoded document, or null when the
+ *                                      file was missing, unreadable, oversize or malformed
+ *                                      and the report already says so.
+ */
+function readJsonManifest(array &$violations, string $path, string $label, string $contract): ?array
+{
+    $contents = readBounded($violations, $path, $label);
+
+    if ($contents === null) {
+        return null;
+    }
+
+    if ($contents === false) {
+        fail($violations, $label, sprintf('exists but cannot be read, so the %s cannot be checked.', $contract));
+
+        return null;
+    }
+
+    $json = json_decode(stripBom($contents), true);
+
+    if (!is_array($json)) {
+        fail($violations, $label, sprintf('is not valid JSON, so the %s cannot be checked.', $contract));
+
+        return null;
+    }
+
+    return $json;
 }
