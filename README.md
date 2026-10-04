@@ -1113,11 +1113,13 @@ same way (GH-219):
 
 1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
    `devDependencies` with one exact version (`"jscpd": "5.3.2"`, not `^5.3.2`), and the
-   lockfile (`package-lock.json`, or `npm-shrinkwrap.json`) is committed. The version
+   lockfile `package-lock.json` is committed (by that name: the shared cpd workflow
+   requires it, so an `npm-shrinkwrap.json` alone does not count). The version
    lives nowhere else — not in `composer.json`, not in a workflow — so Dependabot's npm
    ecosystem is the one thing that moves it.
 2. **Installed explicitly, never from a Composer event.** CI runs `npm ci` in its own
-   step after `setup-node`; locally the install target (`make install` or the
+   step after `setup-node` (the reusable
+   `magicsunday/.github/.github/workflows/cpd.yml` does exactly that, then runs the scan); locally the install target (`make install` or the
    repository's equivalent) runs `npm ci` next to `composer install`. A `post-install-cmd`
    or `post-update-cmd` that runs npm makes every `composer install` reach the network,
    and the guards repositories wrapped around it to skip a reinstall went stale with

@@ -124,8 +124,12 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
     // --- lockfile: what `npm ci` installs from ---
 
-    if (!is_file($repoRoot . '/package-lock.json') && !is_file($repoRoot . '/npm-shrinkwrap.json')) {
-        fail($violations, 'package-lock.json', 'is missing. `npm ci` installs only from a committed lockfile (package-lock.json or npm-shrinkwrap.json) and refuses to run without one.');
+    // package-lock.json by name: `npm ci` would also install from an
+    // npm-shrinkwrap.json, but the shared cpd workflow (magicsunday/.github,
+    // .github/workflows/cpd.yml) requires package-lock.json and keys its npm
+    // cache on it, so a shrinkwrap alone passes here and fails there.
+    if (!is_file($repoRoot . '/package-lock.json')) {
+        fail($violations, 'package-lock.json', 'is missing. `npm ci` installs only from a committed lockfile, and the shared cpd workflow requires package-lock.json by name.');
     }
 
     // --- composer.json: no npm from a Composer event, no jscpd around the pin ---
