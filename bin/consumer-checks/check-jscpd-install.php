@@ -208,9 +208,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     $programStart = '(?:^|[\s;&|(`\'"\/])';
 
     // npm or npx as a program. The word after it must not continue the name,
-    // so `npm>/dev/null` and `npm${IFS}ci` still count while `pnpm`, `npmish`,
-    // `npm-free` and `npm.cmd` stay other words.
-    $runsNpm = static fn (string $command): bool => $matches('/' . $programStart . 'np[mx](?![\w.@\/-])/', $command);
+    // so `npm>/dev/null` and `npm${IFS}ci` still count while `pnpm`, `npmish`
+    // and `npm-free` stay other words. The Windows launchers `npm.cmd`, `npm.exe` and
+    // `npm.bat` are npm, and so are the npx ones.
+    $runsNpm = static fn (string $command): bool => $matches('/' . $programStart . 'np[mx](?:\.(?:cmd|exe|bat))?(?![\w.@\/-])/', $command);
 
     // Follows `@name` references to other scripts depth-first, so a hook that
     // reaches npm two scripts away is still found. `@php` and `@putenv` are
@@ -303,7 +304,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // through npx, or with a version in the command, is reported.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
-            $viaNpx       = $matches('/' . $programStart . 'npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command);
+            $viaNpx       = $matches('/' . $programStart . 'npx(?:\.(?:cmd|exe|bat))?\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command);
             $namesVersion = $matches('/(?<![\w-])jscpd@/', $command);
 
             if (

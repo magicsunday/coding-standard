@@ -571,6 +571,8 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npm closed by a tick' => ['echo `npm`'],
             'npm with a redirect'  => ['npm>/dev/null'],
             'npm via IFS'          => ['npm${IFS}ci'],
+            'npm.cmd launcher'     => ['npm.cmd ci'],
+            'npx.exe launcher'     => ['npx.exe --yes jscpd --version'],
         ];
     }
 
@@ -604,7 +606,8 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'pnpm-lock-check',
             'echo snpm',
             '.build/bin/npmish --check',
-            'npm.cmd --version',
+            'npm.cmdx --version',
+            'npm.json',
             'npm@latest-check',
             'echo docs/npm/readme.md',
             'echo npm-free',
@@ -699,6 +702,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx jscpd@5.0.11 src tests --config .jscpd.json',
             'node_modules/.bin/jscpd@5.3.2 --config .jscpd.json',
             '/usr/bin/npx jscpd --config .jscpd.json',
+            'npx.cmd jscpd --config .jscpd.json',
         ]);
     }
 
