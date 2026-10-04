@@ -28,7 +28,7 @@ declare(strict_types=1);
 
 /**
  * Asserts the jscpd install a `.jscpd.json` requires: jscpd pinned to one exact
- * version in package.json's `devDependencies`, a committed lockfile for
+ * version in package.json's `devDependencies`, a lockfile for
  * `npm ci`, no npm or npx run from a Composer event, and no jscpd run through
  * npx or with a version in a Composer script.
  *
@@ -126,7 +126,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
     //     --jq .content | base64 -d | grep -n package-lock
     if (!is_file($repoRoot . '/package-lock.json')) {
-        fail($violations, 'package-lock.json', 'is missing. `npm ci` installs only from a committed lockfile, and the shared cpd workflow requires package-lock.json by name.');
+        fail($violations, 'package-lock.json', 'is missing. `npm ci` installs only from a lockfile, and the shared cpd workflow requires package-lock.json by name.');
     }
 
     // --- composer.json: no npm from a Composer event, no jscpd around the pin ---
@@ -233,7 +233,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
                 if ($reference[1] === 'composer') {
                     $targets = preg_split('/\s+/', $arguments, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                } elseif ($reference[1] !== 'php' && $reference[1] !== 'putenv') {
+                } elseif (
+                    ($reference[1] !== 'php')
+                    && ($reference[1] !== 'putenv')
+                ) {
                     $targets = [$reference[1]];
                 }
             }
