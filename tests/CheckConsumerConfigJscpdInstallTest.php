@@ -22,6 +22,7 @@ use function copy;
 use function count;
 use function file_put_contents;
 use function json_encode;
+use function microtime;
 use function preg_match;
 use function preg_match_all;
 use function sort;
@@ -929,16 +930,19 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * A command PCRE cannot scan (backtrack limit) is reported, not read as
-     * a clean miss: a gate that passed what it could not scan would pass the
-     * very input built to defeat it.
+     * A command made of very many npx words is scanned in linear time: the
+     * pattern for jscpd behind an npx must not restart at every npx.
      */
     #[Test]
-    public function rejectsACommandPcreCannotScan(): void
+    public function scansACommandOfManyNpxWordsInLinearTime(): void
     {
         $dir = $this->installFixture();
-        self::writeComposerScripts($dir, ['ci:test:php:cpd' => 'npx ' . str_repeat('a', 1_000_000) . 'jscpd']);
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => str_repeat('npx ', 60_000) . 'jscpd-']);
 
-        $this->assertGateRejects(self::phpGate(), $dir, 'the script `ci:test:php:cpd` runs jscpd through npx or names a version', 'a command the regex engine gives up on');
+        $started = microtime(true);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'a command of many npx words');
+
+        self::assertLessThan(10.0, microtime(true) - $started, 'The npx scan took quadratic time.');
     }
 }
