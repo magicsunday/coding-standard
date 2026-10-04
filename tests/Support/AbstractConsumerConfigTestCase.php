@@ -311,7 +311,7 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
     /**
      * Writes the jscpd install a `.jscpd.json` requires (GH-219): a
      * package.json pinning jscpd to an exact version in `devDependencies`
-     * plus the committed lockfile `npm ci` installs from — the shape every
+     * plus the lockfile `npm ci` installs from — the shape every
      * fixture carrying a clean `.jscpd.json` needs, so a case can corrupt the
      * config without also tripping the install contract.
      *
