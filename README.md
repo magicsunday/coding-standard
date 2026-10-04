@@ -1115,15 +1115,14 @@ same way (GH-219):
    `devDependencies` with one exact version (`"jscpd": "5.3.2"`, not `^5.3.2`), and the
    lockfile `package-lock.json` is committed (by that name: the shared cpd workflow
    requires it, so an `npm-shrinkwrap.json` alone does not count). The version
-   lives nowhere else — not in `composer.json`, not in a workflow — so Dependabot's npm
-   ecosystem is the one thing that moves it.
+   lives nowhere else, not in another dependency section and not in a Composer script, so
+   Dependabot's npm ecosystem is the one thing that moves it. The gate reads
+   `package.json` and `composer.json`, not workflow files.
 2. **Installed explicitly, never from a Composer event.** CI runs `npm ci` in its own
    step after `setup-node` (the reusable
    `magicsunday/.github/.github/workflows/cpd.yml` does exactly that, then runs the scan); locally the install target (`make install` or the
    repository's equivalent) runs `npm ci` next to `composer install`. A `post-install-cmd`
-   or `post-update-cmd` that runs npm makes every `composer install` reach the network,
-   and the guards repositories wrapped around it to skip a reinstall went stale with
-   the first version bump.
+   or `post-update-cmd` that runs npm makes every `composer install` reach the network.
 3. **Run offline from `node_modules`.** The cpd script runs the installed binary, with
    the scan paths in `.jscpd.json` rather than on the command line:
 
@@ -1141,12 +1140,12 @@ The lockstep gate enforces all three wherever a `.jscpd.json` is present, from
 version in `devDependencies` (a range, a tag, a `v` or `=` prefix, a git or alias spec
 are reported, and so is jscpd declared under another section), a lockfile exists, no
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
-follows — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
-command. `$composerEvents` in that file is every event Composer's scripts documentation
-names, so a hook under any of them counts. npm in a script no event runs (a
+follows, including `@composer run-script` and arguments appended to a reference — and no
+Composer script runs jscpd through `npx` or with `jscpd@` in the command. `$composerEvents`
+in that file lists the events, so a hook under any of them counts. npm in a script no event runs (a
 `tools:install` a contributor calls by hand) is left alone. A repository without
-`composer.json` owes the package.json half only, and one without `.jscpd.json` owes
-nothing.
+`composer.json` owes the package.json pin and the lockfile only, and one without
+`.jscpd.json` owes nothing.
 
 Unlike the `extends` link above, this check is **keyed on the file, not on an adoption
 marker**, because every part of it can be put in place before the release that ships

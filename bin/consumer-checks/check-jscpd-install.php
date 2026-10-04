@@ -122,7 +122,9 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // package-lock.json by name: `npm ci` would also install from an
     // npm-shrinkwrap.json, but the shared cpd workflow (magicsunday/.github,
     // .github/workflows/cpd.yml) requires package-lock.json and keys its npm
-    // cache on it, so a shrinkwrap alone passes here and fails there.
+    // cache on it, so a shrinkwrap alone passes here and fails there. Re-check:
+    // gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
+    //     --jq .content | base64 -d | grep -n package-lock
     if (!is_file($repoRoot . '/package-lock.json')) {
         fail($violations, 'package-lock.json', 'is missing. `npm ci` installs only from a committed lockfile, and the shared cpd workflow requires package-lock.json by name.');
     }
@@ -140,8 +142,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         return;
     }
 
-    // Every event Composer's scripts documentation names
-    // (doc/articles/scripts.md, "Event names": command, installer, package and
+    // The Composer events a script can hook (command, installer, package and
     // plugin events). A script under one of these names runs on its own during
     // `composer install`/`update` and friends, which is what the contract
     // keeps npm out of. tests/CheckConsumerConfigJscpdInstallTest.php proves
@@ -198,42 +199,57 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
     // npm or npx as a program: at the start of the command or after a shell
     // separator, an opening parenthesis, a quote or a path separator (so an
-    // absolute path to the binary counts), and ended by a separator. `pnpm`,
-    // `npmish` and `npm-free` are other words, not npm.
-    $runsNpm = static fn (string $command): bool => preg_match('/(?:^|[\s;&|(`\'"\/])np[mx](?=$|[\s;&|)`\'"])/', $command) === 1;
+    // absolute path to the binary counts).
+    // Matches count anything but a clean miss: preg_match() returns false when
+    // PCRE gives up (backtrack limit on a huge command), and a gate that read
+    // that as "no npm here" would pass the very input it could not scan.
+    $matches = static fn (string $pattern, string $subject): bool => preg_match($pattern, $subject) !== 0;
+
+    // The word after npm or npx must not continue it, so `npm>/dev/null` and
+    // `npm${IFS}ci` still count while `pnpm`, `npmish`, `npm-free` and
+    // `npm.cmd` stay other words.
+    $runsNpm = static fn (string $command): bool => $matches('/(?:^|[\s;&|(`\'"\/])np[mx](?![\w.@\/-])/', $command);
 
     // Follows `@name` references to other scripts depth-first, so a hook that
-    // reaches npm two scripts away is still found. `@php`, `@composer` and
-    // `@putenv` are Composer's own commands, not script references, and their
-    // arguments reach a shell, so they are checked like any other command
-    // string. Returns the reference chain and the offending command, or null.
+    // reaches npm two scripts away is still found, and so does
+    // `@composer run-script name`, which re-enters a script the same way.
+    // `@php`, `@composer` and `@putenv` are otherwise Composer's own commands,
+    // not script references. Whatever follows the `@name` word reaches a shell
+    // as arguments, so it is checked like any other command string. Returns
+    // the reference chain and the offending command, or null.
     $findNpm = static function (string $name, array $chain, array &$visited) use (&$findNpm, $scripts, $commandsOf, $runsNpm): ?array {
         $visited[$name] = true;
 
         foreach ($commandsOf($scripts[$name] ?? null) as $command) {
-            $isReference = (preg_match('/^@([^\s]+)/', $command, $reference) === 1)
-                && !in_array($reference[1], ['php', 'composer', 'putenv'], true);
+            $target    = null;
+            $arguments = $command;
 
-            if ($isReference) {
-                $target = $reference[1];
+            if (preg_match('/^@(\S+)\s*(.*)$/s', $command, $reference) === 1) {
+                $arguments = $reference[2];
 
-                if (
-                    !array_key_exists($target, $scripts)
-                    || isset($visited[$target])
+                if (!in_array($reference[1], ['php', 'composer', 'putenv'], true)) {
+                    $target = $reference[1];
+                } elseif (
+                    ($reference[1] === 'composer')
+                    && (preg_match('/^run(?:-script)?\s+(?:-\S+\s+)*(\S+)/', $arguments, $run) === 1)
                 ) {
-                    continue;
+                    $target = $run[1];
                 }
+            }
 
+            if (
+                ($target !== null)
+                && array_key_exists($target, $scripts)
+                && !isset($visited[$target])
+            ) {
                 $found = $findNpm($target, [...$chain, $target], $visited);
 
                 if ($found !== null) {
                     return $found;
                 }
-
-                continue;
             }
 
-            if ($runsNpm($command)) {
+            if ($runsNpm($arguments)) {
                 return [$chain, $command];
             }
         }
@@ -281,8 +297,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // `jscpd@<range>` names one in the script itself.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
-            $viaNpx       = preg_match('/(?:^|[\s;&|(`\'"\/])npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command) === 1;
-            $namesVersion = preg_match('/(?<![\w-])jscpd@/', $command) === 1;
+            $viaNpx       = $matches('/(?:^|[\s;&|(`\'"\/])npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command);
+            $namesVersion = $matches('/(?<![\w-])jscpd@/', $command);
 
             if (
                 !$viaNpx

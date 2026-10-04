@@ -243,7 +243,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * A repository without composer.json still owes the package.json half.
+     * A repository without composer.json still owes the package.json pin and the lockfile.
      */
     #[Test]
     public function acceptsTheCleanInstallWithoutComposerJson(): void
@@ -251,7 +251,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
         $dir = $this->installFixture();
         unlink($dir . '/composer.json');
 
-        $this->assertGateAccepts(self::phpGate(), $dir, 'no composer.json: only the package.json half applies');
+        $this->assertGateAccepts(self::phpGate(), $dir, 'no composer.json: only the pin and the lockfile apply');
     }
 
     // -------------------------------------------------------------------
@@ -336,6 +336,10 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'v5.3.2',
             '=5.3.2',
             '05.3.2',
+            '5.4.0-01',
+            '5.4.0-',
+            '5.4.0+',
+            '5.4.0-rc..1',
             'github:kucherenko/jscpd#v5.3.2',
             'npm:jscpd@5.3.2',
         ]);
@@ -552,6 +556,15 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npm by absolute path' => ['/usr/bin/npm ci'],
             'npx by absolute path' => ['/usr/local/bin/npx --yes jscpd --version'],
             'npm after a variable' => ['CI=1 /usr/bin/npm ci'],
+            'npm in single quotes' => ["sh -c 'npm ci'"],
+            'npm in backticks'     => ['`npm ci`'],
+            'npm after a lone &'   => ['true & npm ci'],
+            'npm closed by )'      => ['(npm)'],
+            'npm closed by ;'      => ['npm;true'],
+            'npm closed by "'      => ['echo "npm"'],
+            'npm closed by a tick' => ['echo `npm`'],
+            'npm with a redirect'  => ['npm>/dev/null'],
+            'npm via IFS'          => ['npm${IFS}ci'],
         ];
     }
 
@@ -803,5 +816,105 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
         file_put_contents($dir . '/composer.json', "{\n    \"scripts\": {\n        \"post-install-cmd\": [5, {\"a\": 1}],\n        \"odd\": null\n    }\n}\n");
 
         $this->assertGateAccepts(self::phpGate(), $dir, 'non-string script entries');
+    }
+
+    /**
+     * Arguments appended to a script reference reach a shell, so npm passed
+     * that way is found although the referenced script itself is clean.
+     */
+    #[Test]
+    public function rejectsNpmPassedAsArgumentsToAReference(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'post-install-cmd' => '@runner npm ci',
+            'runner'           => 'env',
+        ]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', 'npm as arguments of @runner');
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function composerRunScriptProvider(): array
+    {
+        return self::singleArgProviderRows([
+            '@composer run-script fetch-tools',
+            '@composer run fetch-tools',
+            '@composer run-script --no-interaction fetch-tools',
+        ]);
+    }
+
+    /**
+     * `@composer run-script <name>` re-enters a script like a reference, so
+     * npm inside the named script is reached from the event.
+     */
+    #[Test]
+    #[DataProvider('composerRunScriptProvider')]
+    public function rejectsNpmReEnteredThroughComposerRunScript(string $command): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'post-install-cmd' => $command,
+            'fetch-tools'      => 'npm ci',
+        ]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', "re-entry: {$command}");
+    }
+
+    /**
+     * A package.json section that is not an object (a string, null) is
+     * skipped, not fatal, while a `devDependencies` that is not an object
+     * declares nothing.
+     */
+    #[Test]
+    public function toleratesANonArraySectionBesideTheDevPin(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\"jscpd\": \"5.3.2\"},\n    \"dependencies\": \"x\",\n    \"peerDependencies\": null\n}\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'non-object dependency sections');
+    }
+
+    /**
+     * `devDependencies` that is not an object declares no jscpd.
+     */
+    #[Test]
+    public function rejectsANonArrayDevDependencies(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": \"x\"\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, '`devDependencies` must declare jscpd', 'devDependencies as a string');
+    }
+
+    /**
+     * One script is reported once however many of its commands run jscpd
+     * around the pin.
+     */
+    #[Test]
+    public function reportsAScriptWithSeveralUnpinnedCommandsOnce(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => ['npx jscpd', 'npx jscpd --version']]);
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'two unpinned commands in one script');
+    }
+
+    /**
+     * A command PCRE cannot scan (backtrack limit) is reported, not read as
+     * a clean miss: a gate that passed what it could not scan would pass the
+     * very input built to defeat it.
+     */
+    #[Test]
+    public function rejectsACommandPcreCannotScan(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => 'npx ' . str_repeat('a', 1_000_000) . 'jscpd']);
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `ci:test:php:cpd` runs jscpd through npx or names a version', 'a command the regex engine gives up on');
     }
 }
