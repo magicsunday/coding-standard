@@ -81,15 +81,18 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         if ($package !== null) {
             $devDependencies = $package['devDependencies'] ?? null;
 
-            if (!is_array($devDependencies) || !array_key_exists('jscpd', $devDependencies)) {
-                $elsewhere = [];
+            $elsewhere = [];
 
-                foreach (['dependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
-                    if (is_array($package[$section] ?? null) && array_key_exists('jscpd', $package[$section])) {
-                        $elsewhere[] = $section;
-                    }
+            foreach (['dependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
+                if (is_array($package[$section] ?? null) && array_key_exists('jscpd', $package[$section])) {
+                    $elsewhere[] = $section;
                 }
+            }
 
+            if (
+                !is_array($devDependencies)
+                || !array_key_exists('jscpd', $devDependencies)
+            ) {
                 fail(
                     $violations,
                     'package.json',
@@ -97,6 +100,14 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                     . ($elsewhere === [] ? '.' : sprintf('; it is declared under `%s`, where a CI tool does not belong.', implode('`, `', $elsewhere)))
                 );
             } else {
+                if ($elsewhere !== []) {
+                    fail(
+                        $violations,
+                        'package.json',
+                        sprintf('jscpd is also declared under `%s`, so its version lives in more than one place. Keep the one exact pin in `devDependencies`.', implode('`, `', $elsewhere))
+                    );
+                }
+
                 $version = $devDependencies['jscpd'];
 
                 // One exact SemVer 2.0.0 version, pre-release and build metadata
@@ -202,25 +213,27 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     };
 
     // npm or npx as a program: at the start of the command or after a shell
-    // separator, an opening parenthesis or a quote, and ended the same way.
-    // `pnpm`, `npmish` and `npm-free` are other words, not npm.
-    $runsNpm = static fn (string $command): bool => preg_match('/(?:^|[\s;&|(`\'"])np[mx](?=$|[\s;&|)`\'"])/', $command) === 1;
+    // separator, an opening parenthesis, a quote or a path separator (so an
+    // absolute path to the binary counts), and ended by a separator. `pnpm`,
+    // `npmish` and `npm-free` are other words, not npm.
+    $runsNpm = static fn (string $command): bool => preg_match('/(?:^|[\s;&|(`\'"\/])np[mx](?=$|[\s;&|)`\'"])/', $command) === 1;
 
     // Follows `@name` references to other scripts depth-first, so a hook that
     // reaches npm two scripts away is still found. `@php`, `@composer` and
-    // `@putenv` are Composer's own commands, not script references. Returns
-    // the reference chain and the offending command, or null.
+    // `@putenv` are Composer's own commands, not script references, and their
+    // arguments reach a shell, so they are checked like any other command
+    // string. Returns the reference chain and the offending command, or null.
     $findNpm = static function (string $name, array $chain, array &$visited) use (&$findNpm, $scripts, $commandsOf, $runsNpm): ?array {
         $visited[$name] = true;
 
         foreach ($commandsOf($scripts[$name] ?? null) as $command) {
-            if (preg_match('/^@([^\s]+)/', $command, $reference) === 1) {
+            $isReference = (preg_match('/^@([^\s]+)/', $command, $reference) === 1)
+                && !in_array($reference[1], ['php', 'composer', 'putenv'], true);
+
+            if ($isReference) {
                 $target = $reference[1];
 
-                if (in_array($target, ['php', 'composer', 'putenv'], true)
-                    || !array_key_exists($target, $scripts)
-                    || isset($visited[$target])
-                ) {
+                if (!array_key_exists($target, $scripts) || isset($visited[$target])) {
                     continue;
                 }
 
@@ -281,7 +294,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // `jscpd@<range>` names one in the script itself.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
-            $viaNpx       = preg_match('/(?:^|[\s;&|(`\'"])npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command) === 1;
+            $viaNpx       = preg_match('/(?:^|[\s;&|(`\'"\/])npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command) === 1;
             $namesVersion = preg_match('/(?<![\w-])jscpd@/', $command) === 1;
 
             if (!$viaNpx && !$namesVersion) {

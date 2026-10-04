@@ -298,6 +298,28 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     /**
      * @return array<string, array{0: string}>
      */
+    public static function otherDependencySectionProvider(): array
+    {
+        return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
+    }
+
+    /**
+     * The exact dev pin does not excuse a second declaration: the version
+     * then lives in two places and the other one can name any release.
+     */
+    #[Test]
+    #[DataProvider('otherDependencySectionProvider')]
+    public function rejectsASecondDeclarationBesideTheDevPin(string $section): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"name\": \"fixture\",\n    \"devDependencies\": {\n        \"jscpd\": \"5.3.2\"\n    },\n    \"{$section}\": {\n        \"jscpd\": \"^4.0.0\"\n    }\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, "also declared under `{$section}`", "second jscpd declaration under {$section}");
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
     public static function nonExactVersionProvider(): array
     {
         return ['empty string' => ['']] + self::singleArgProviderRows([
@@ -524,6 +546,11 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx'                  => ['npx --yes jscpd --version'],
             'npm alone'            => ['npm'],
             'npm in double quotes' => ['sh -c "npm ci"'],
+            'npm behind @php'      => ['@php -r "exit(0);" && npm ci'],
+            'npm behind @composer' => ['@composer dump-autoload && npm ci'],
+            'npm by absolute path' => ['/usr/bin/npm ci'],
+            'npx by absolute path' => ['/usr/local/bin/npx --yes jscpd --version'],
+            'npm after a variable' => ['CI=1 /usr/bin/npm ci'],
         ];
     }
 
@@ -648,6 +675,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx --prefix .build jscpd --config .jscpd.json',
             'npx jscpd@5.0.11 src tests --config .jscpd.json',
             'node_modules/.bin/jscpd@5.3.2 --config .jscpd.json',
+            '/usr/bin/npx jscpd --config .jscpd.json',
         ]);
     }
 
