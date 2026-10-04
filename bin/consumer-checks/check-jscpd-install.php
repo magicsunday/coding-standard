@@ -197,11 +197,6 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         return $commands;
     };
 
-    // Matches count anything but a clean miss: preg_match() returns false when
-    // PCRE gives up (backtrack limit on a huge command), and a gate that read
-    // that as "no npm here" would pass the very input it could not scan.
-    $matches = static fn (string $pattern, string $subject): bool => preg_match($pattern, $subject) !== 0;
-
     // Where a program name can start: at the start of the command or after a
     // shell separator, an opening parenthesis, a quote, a slash or a backslash
     // (so an absolute path to the binary counts).
@@ -211,7 +206,27 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // so `npm>/dev/null` and `npm${IFS}ci` still count while `pnpm`, `npmish`
     // and `npm-free` stay other words. The Windows launchers `npm.cmd`, `npm.exe`
     // and `npm.bat` are npm, in any letter case, and so are the npx ones.
-    $runsNpm = static fn (string $command): bool => $matches('/' . $programStart . '(?i:np[mx](?:\.(?:cmd|exe|bat))?)(?![\w.@\/-])/', $command);
+    $runsNpm = static fn (string $command): bool => preg_match('/' . $programStart . '(?i:np[mx](?:\.(?:cmd|exe|bat))?)(?![\w.@\/-])/', $command) === 1;
+
+    // jscpd run through npx: an npx starts a command segment and a jscpd word
+    // follows in the same segment. Each segment is scanned once, from its first
+    // npx, so a command made of many npx words costs one linear scan and not one
+    // scan per npx.
+    $runsJscpdViaNpx = static function (string $command) use ($programStart): bool {
+        foreach (preg_split('/[;&|]/', $command) ?: [] as $segment) {
+            if (preg_match('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s/', $segment, $found, PREG_OFFSET_CAPTURE) !== 1) {
+                continue;
+            }
+
+            $rest = substr($segment, $found[0][1] + strlen($found[0][0]));
+
+            if (preg_match('/(?<![\w.\/-])jscpd(?![\w-])/', $rest) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    };
 
     // Follows `@name` references to other scripts depth-first, so a hook that
     // reaches npm two scripts away is still found. `@php` and `@putenv` are
@@ -304,8 +319,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // through npx, or with a version in the command, is reported.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
-            $viaNpx       = $matches('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command);
-            $namesVersion = $matches('/(?<![\w-])jscpd@/', $command);
+            $viaNpx       = $runsJscpdViaNpx($command);
+            $namesVersion = preg_match('/(?<![\w-])jscpd@/', $command) === 1;
 
             if (
                 !$viaNpx
