@@ -377,6 +377,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             '5.4.0-rc.1',
             '5.4.0-beta.2+build.7',
             '5.4.0-0',
+            '5.4.0-1a',
             '5.4.0-alpha-1',
             '5.3.2+a-b',
         ]);
@@ -561,6 +562,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx by absolute path' => ['/usr/local/bin/npx --yes jscpd --version'],
             'npm after a variable' => ['CI=1 /usr/bin/npm ci'],
             'npm in single quotes' => ["sh -c 'npm ci'"],
+            'npm after & alone'    => ['true&npm ci'],
             'npm in backticks'     => ['`npm ci`'],
             'npm after a lone &'   => ['true & npm ci'],
             'npm closed by )'      => ['(npm)'],
@@ -602,6 +604,9 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'pnpm-lock-check',
             'echo snpm',
             '.build/bin/npmish --check',
+            'npm.cmd --version',
+            'npm@latest-check',
+            'echo docs/npm/readme.md',
             'echo npm-free',
             '@composer dump-autoload',
         ]);

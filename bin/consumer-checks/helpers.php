@@ -178,8 +178,8 @@ function readBounded(array &$violations, string $path, string $label): string|fa
  * @param string       $contract   The contract the manifest is read for, named in the report.
  *
  * @return array<array-key, mixed>|null The decoded document, or null when the
- *                                      file was missing, unreadable, oversize or malformed
- *                                      and the report already says so.
+ *                                      file was unreadable (a missing one included), oversize
+ *                                      or malformed and the report already says so.
  */
 function readJsonManifest(array &$violations, string $path, string $label, string $contract): ?array
 {
