@@ -1128,9 +1128,12 @@ same way (GH-219):
 
    ```json
    "scripts": {
-       "ci:test:php:cpd": "node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips"
+       "ci:test:php:cpd": "node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"
    }
    ```
+
+   This is the command line the shared cpd workflow runs. `--fail-on-empty` makes a scan
+   over no files fail instead of passing as a clean run, and needs jscpd 5.2.1 or newer.
 
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
    binary the pin installs is the one that runs.
