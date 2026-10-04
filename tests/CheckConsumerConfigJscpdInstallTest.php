@@ -336,6 +336,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'v5.3.2',
             '=5.3.2',
             '05.3.2',
+            "5.3.2\n",
             '5.4.0-01',
             '5.4.0-',
             '5.4.0+',
@@ -375,6 +376,9 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             '10.0.0',
             '5.4.0-rc.1',
             '5.4.0-beta.2+build.7',
+            '5.4.0-0',
+            '5.4.0-alpha-1',
+            '5.3.2+a-b',
         ]);
     }
 
@@ -703,6 +707,11 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx biome check',
             'npx some-tool --report jscpd-report',
             'echo jscpd-config@x',
+            'echo xjscpd@1',
+            'echo my-jscpd@1',
+            'npx biome check && node_modules/.bin/jscpd --config .jscpd.json',
+            'npx foo node_modules/.bin/jscpd',
+            'npx foo ./jscpd',
         ]);
     }
 
