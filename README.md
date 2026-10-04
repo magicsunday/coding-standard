@@ -1150,7 +1150,8 @@ counts. npm in a script no event runs (a `tools:install` a contributor calls by 
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,
 so a script reached through a plain `composer run-script`, a `scripts-aliases` entry or
 `composer exec` is not followed: it detects drift and does not guarantee that no Composer
-event can reach npm. A repository without
+event can reach npm. A chain of references deeper than a fixed limit is not followed
+and is reported as such. A repository without
 `composer.json` owes the package.json pin and the lockfile only, and one without
 `.jscpd.json` owes nothing. The gate does not require the cpd script itself, its flags
 or `--fail-on-empty`.
