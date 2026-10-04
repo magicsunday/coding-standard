@@ -1113,7 +1113,7 @@ same way (GH-219):
 
 1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
    `devDependencies` with one exact version (`"jscpd": "5.3.2"`, not `^5.3.2`), and the
-   lockfile `package-lock.json` is committed (by that name: the shared cpd workflow
+   lockfile `package-lock.json` is present (by that name: the shared cpd workflow
    requires it, so an `npm-shrinkwrap.json` alone does not count). The version
    lives nowhere else, not in another dependency section and not in a Composer script, so
    Dependabot's npm ecosystem is the one thing that moves it. The gate reads
@@ -1132,15 +1132,16 @@ same way (GH-219):
    }
    ```
 
-   `npx jscpd` resolves a copy of its own, and `jscpd@<range>` names a version in the
-   script itself; neither is the release the pin controls.
+   The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
+   binary the pin installs is the one that runs.
 
 The lockstep gate enforces all three wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
 version in `devDependencies` (a range, a tag, a `v` or `=` prefix, a git or alias spec
 are reported, and so is jscpd declared under another section), a lockfile exists, no
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
-follows, including `@composer run-script` and arguments appended to a reference — and no
+follows, including `@composer` commands that name a script and arguments appended to a
+reference — and no
 Composer script runs jscpd through `npx` or with `jscpd@` in the command. `$composerEvents`
 in that file lists the events, so a hook under any of them counts. npm in a script no event runs (a
 `tools:install` a contributor calls by hand) is left alone. A repository without

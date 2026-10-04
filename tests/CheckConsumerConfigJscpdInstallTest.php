@@ -844,6 +844,9 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             '@composer run-script fetch-tools',
             '@composer run fetch-tools',
             '@composer run-script --no-interaction fetch-tools',
+            '@composer fetch-tools',
+            '@composer --no-interaction run-script fetch-tools',
+            '@composer run-script --timeout 0 fetch-tools',
         ]);
     }
 
