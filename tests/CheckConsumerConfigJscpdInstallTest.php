@@ -573,6 +573,8 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npm via IFS'          => ['npm${IFS}ci'],
             'npm.cmd launcher'     => ['npm.cmd ci'],
             'npx.exe launcher'     => ['npx.exe --yes jscpd --version'],
+            'npm launcher, upper'  => ['NPM.CMD ci'],
+            'npm by windows path'  => ['C:\\nodejs\\npm.cmd ci'],
         ];
     }
 
@@ -703,6 +705,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'node_modules/.bin/jscpd@5.3.2 --config .jscpd.json',
             '/usr/bin/npx jscpd --config .jscpd.json',
             'npx.cmd jscpd --config .jscpd.json',
+            'C:\\nodejs\\NPX.CMD jscpd --config .jscpd.json',
         ]);
     }
 
