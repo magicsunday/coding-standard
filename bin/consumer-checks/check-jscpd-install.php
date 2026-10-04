@@ -62,7 +62,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
             $elsewhere = [];
 
             foreach (['dependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
-                if (is_array($package[$section] ?? null) && array_key_exists('jscpd', $package[$section])) {
+                if (
+                    is_array($package[$section] ?? null)
+                    && array_key_exists('jscpd', $package[$section])
+                ) {
                     $elsewhere[] = $section;
                 }
             }
@@ -97,7 +100,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                     . '(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?'
                     . '(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z/';
 
-                if (!is_string($version) || (preg_match($exactVersion, $version) !== 1)) {
+                if (
+                    !is_string($version)
+                    || (preg_match($exactVersion, $version) !== 1)
+                ) {
                     fail(
                         $violations,
                         'package.json',
@@ -211,7 +217,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
             if ($isReference) {
                 $target = $reference[1];
 
-                if (!array_key_exists($target, $scripts) || isset($visited[$target])) {
+                if (
+                    !array_key_exists($target, $scripts)
+                    || isset($visited[$target])
+                ) {
                     continue;
                 }
 
@@ -275,7 +284,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
             $viaNpx       = preg_match('/(?:^|[\s;&|(`\'"\/])npx\s[^;&|]*(?<![\w.\/-])jscpd(?![\w-])/', $command) === 1;
             $namesVersion = preg_match('/(?<![\w-])jscpd@/', $command) === 1;
 
-            if (!$viaNpx && !$namesVersion) {
+            if (
+                !$viaNpx
+                && !$namesVersion
+            ) {
                 continue;
             }
 
