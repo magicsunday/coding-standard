@@ -36,8 +36,8 @@ use const JSON_UNESCAPED_SLASHES;
 /**
  * Fixture-driven cases for bin/consumer-checks/check-jscpd-install.php — the
  * jscpd install contract a `.jscpd.json` brings with it (GH-219): jscpd pinned
- * to one exact version in package.json's `devDependencies`, a committed
- * lockfile for `npm ci`, no npm or npx run from a Composer event, and no
+ * to one exact version in package.json's `devDependencies`, a lockfile for
+ * `npm ci`, no npm or npx run from a Composer event, and no
  * jscpd run through npx or with a version in the command. PHP gate only;
  * bin/check-js-config.mjs has no `.jscpd.json` counterpart. See
  * AbstractConsumerConfigTestCase for the shared scaffolding.
@@ -723,6 +723,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'echo xjscpd@1',
             'echo my-jscpd@1',
             'npx biome check && node_modules/.bin/jscpd --config .jscpd.json',
+            'npx biome check && jscpd --config .jscpd.json',
             'npx foo node_modules/.bin/jscpd',
             'npx foo ./jscpd',
         ]);
