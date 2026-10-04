@@ -945,4 +945,54 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
 
         self::assertLessThan(10.0, microtime(true) - $started, 'The npx scan took quadratic time.');
     }
+
+    /**
+     * A chain of script references up to the depth limit is followed and the
+     * npm at its end is reported with the chain that leads there.
+     */
+    #[Test]
+    public function followsAChainUpToTheDepthLimit(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, self::referenceChain(60));
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx through', 'npm at the end of a chain within the limit');
+    }
+
+    /**
+     * A chain deeper than the limit is not followed and is reported as such,
+     * so a very long chain can neither hide npm nor exhaust the walk.
+     */
+    #[Test]
+    public function reportsAChainDeeperThanTheLimit(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, self::referenceChain(20_000));
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'a chain of script references is deeper than', 'a chain beyond the limit');
+    }
+
+    /**
+     * A Composer event hooking a chain of the given number of references that
+     * ends in npm.
+     *
+     * @param int $length The number of scripts in the chain.
+     *
+     * @return array<string, string>
+     */
+    private static function referenceChain(int $length): array
+    {
+        $scripts = [
+            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'post-install-cmd' => '@s0',
+        ];
+
+        for ($step = 0; $step < $length; ++$step) {
+            $scripts['s' . $step] = '@s' . ($step + 1);
+        }
+
+        $scripts['s' . $length] = 'npm ci';
+
+        return $scripts;
+    }
 }
