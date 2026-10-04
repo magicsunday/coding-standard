@@ -101,7 +101,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
         copy(self::root() . '/templates/jscpd.json', $dir . '/.jscpd.json');
         self::writeJscpdInstall($dir);
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips',
+            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
         ]);
 
         return $dir;
@@ -708,7 +708,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     public static function pinnedJscpdRunProvider(): array
     {
         return self::singleArgProviderRows([
-            'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips',
+            'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
             'npx biome check',
             'npx some-tool --report jscpd-report',
             'echo jscpd-config@x',
