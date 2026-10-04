@@ -1141,10 +1141,13 @@ version in `devDependencies` (a range, a tag, a `v` or `=` prefix, a git or alia
 are reported, and so is jscpd declared under another section), a lockfile exists, no
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
 follows, including `@composer` commands that name a script and arguments appended to a
-reference — and no
-Composer script runs jscpd through `npx` or with `jscpd@` in the command. `$composerEvents`
-in that file lists the events, so a hook under any of them counts. npm in a script no event runs (a
-`tools:install` a contributor calls by hand) is left alone. A repository without
+reference — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
+command. `$composerEvents` in that file lists the events, so a hook under any of them
+counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
+left alone. The gate follows `@name` references and `@composer` commands and nothing else,
+so a script reached through a plain `composer run-script`, a `scripts-aliases` entry or
+`composer exec` is not followed: it detects drift and does not guarantee that no Composer
+event can reach npm. A repository without
 `composer.json` owes the package.json pin and the lockfile only, and one without
 `.jscpd.json` owes nothing.
 
