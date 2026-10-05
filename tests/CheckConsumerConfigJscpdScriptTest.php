@@ -29,7 +29,7 @@ use const JSON_THROW_ON_ERROR;
  * Fixture-driven cases for the command text part of
  * bin/consumer-checks/check-jscpd-install.php (GH-223): a Composer script
  * that runs jscpd carries exactly the command line the shared cpd workflow
- * runs, so the local scan is the scan CI runs. The install part of that
+ * runs, so the command text of a recognised run is the one CI uses. The install part of that
  * check (the pin, the lockfile, npm and npx) is proven in
  * CheckConsumerConfigJscpdInstallTest. PHP gate only. See
  * AbstractConsumerConfigTestCase for the shared scaffolding.
@@ -356,6 +356,24 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'the script `ci:test:php:cpd` runs jscpd with a command line that differs from the documented one: `src` is not part of the documented command (`node_modules/.bin/jscpd src`). The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
             'the report names the offending command and the documented command line',
         );
+    }
+
+    /**
+     * Every script that drifts is reported, not only the first one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsEveryDriftingScriptNotOnlyTheFirst(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'cpd:first'  => 'node_modules/.bin/jscpd src',
+            'cpd:second' => 'node_modules/.bin/jscpd --config .jscpd.json',
+        ]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `cpd:first` runs jscpd', 'the first drifting script');
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `cpd:second` runs jscpd', 'the second drifting script');
     }
 
     /**

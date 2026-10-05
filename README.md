@@ -1138,7 +1138,7 @@ same way (GH-219):
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
    binary the pin installs is the one that runs, and it holds a Composer command
    whose first word is the program to exactly this command line wherever the scan below
-   recognises the run, so a recognised run is the scan CI runs.
+   recognises the run, so a recognised run uses the command text CI uses.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
@@ -1164,7 +1164,7 @@ every consumer runs the documented line as it stands. A program word under an en
 a quote, a Windows spelling of the program (`jscpd.cmd`, backslash paths), a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
 `then`, a group or a command substitution before a bare `jscpd` is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
-`${...}` containing a `#`, quotes in a command substitution, an escaped letter in the program word, or a heredoc body, whose lines are
+`${...}` containing a `#` after whitespace, quotes in a command substitution, an escaped letter in the program word, or a heredoc body, whose lines are
 read as commands and so reported when one starts with the program). Nothing checks that the exit status survives, so `|| true` or
 `| tee` after the documented command passes. This detects drift and does not guarantee the text. The `npx` check
 above splits at the same separators and joins continuations, but ignores quotes and comments on purpose, so an `npx` inside a quoted
