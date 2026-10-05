@@ -38,7 +38,8 @@ use const JSON_UNESCAPED_SLASHES;
  * jscpd install contract a `.jscpd.json` brings with it (GH-219): jscpd pinned
  * to one exact version in package.json's `devDependencies`, a lockfile for
  * `npm ci`, no npm or npx run from a Composer event, and no
- * jscpd run through npx or with a version in the command. PHP gate only;
+ * jscpd run through npx or with a version in the command. The command text of
+ * the cpd script is CheckConsumerConfigJscpdScriptTest. PHP gate only;
  * bin/check-js-config.mjs has no `.jscpd.json` counterpart. See
  * AbstractConsumerConfigTestCase for the shared scaffolding.
  *
@@ -667,6 +668,10 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             '/usr/bin/npx jscpd --config .jscpd.json',
             'npx.cmd jscpd --config .jscpd.json',
             'C:\\nodejs\\NPX.CMD jscpd --config .jscpd.json',
+            'npx.exe jscpd --config .jscpd.json',
+            'npx.bat jscpd --config .jscpd.json',
+            'NPX.EXE jscpd --config .jscpd.json',
+            'NPX.BAT jscpd --config .jscpd.json',
             "npx \\\n jscpd --config .jscpd.json",
         ]);
     }
@@ -686,6 +691,15 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx biome check && ' . self::JSCPD_COMMAND,
             'npx foo node_modules/.bin/jscpd',
             'npx foo ./jscpd',
+            'npx a; ' . self::JSCPD_COMMAND,
+            'npx a && ' . self::JSCPD_COMMAND,
+            'npx a | ' . self::JSCPD_COMMAND,
+            'npx-wrapper jscpd',
+            'echo jscpd npx foo',
+            'npx x.jscpd',
+            'npx x-jscpd',
+            'npx xjscpd',
+            'npx jscpdx',
             "npx biome check\necho jscpd",
         ]);
     }

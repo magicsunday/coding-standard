@@ -1147,7 +1147,7 @@ are reported, and so is jscpd declared under another section), a lockfile exists
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
 follows, including `@composer` commands that name a script and arguments appended to a
 reference — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
-command. A Composer command whose first word is jscpd must be `node_modules/.bin/jscpd`
+command. A Composer command whose first word is `jscpd` or a path ending in `/jscpd` must be `node_modules/.bin/jscpd`
 with `--config .jscpd.json`, `--skip-comments`, `--no-tips` and `--fail-on-empty`, in any
 order and nothing else: a scan path, another flag, the `--config=` spelling or another
 program path, or a flag given twice is reported with the part that differs. Each unquoted
@@ -1157,11 +1157,13 @@ newline is a line continuation and joins the lines) and comments, so a path that
 jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
 or a comment. A redirection is one more word, so `2>&1` after the command is reported, and
 one before or attached to the program word hides the run. A program word under an environment prefix,
-a quote, a wrapper, a shell keyword such as `then`, a group or a command substitution is
+a quote, a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
+`then`, a group or a command substitution is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
 `${...}` containing a `#`, quotes in a command substitution, a heredoc body, whose lines are read as commands, or an escaped
-letter in the program word), so this detects drift and does not guarantee the text. The `npx` check
-above splits at the same separators and joins continuations, but ignores quotes on purpose, so an `npx` inside a quoted
+letter in the program word). Nothing checks that the exit status survives, so `|| true` or
+`| tee` after the documented command passes. This detects drift and does not guarantee the text. The `npx` check
+above splits at the same separators and joins continuations, but ignores quotes and comments on purpose, so an `npx` inside a quoted
 string still counts. `$composerEvents` in that file lists the events, so a hook under any of them
 counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,
