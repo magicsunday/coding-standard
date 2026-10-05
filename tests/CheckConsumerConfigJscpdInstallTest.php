@@ -90,46 +90,6 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     // -------------------------------------------------------------------
 
     /**
-     * mkCase() plus the shipped .jscpd.json, the install it requires and a
-     * composer.json whose cpd script runs the pinned binary — the clean shape
-     * each case below corrupts exactly one part of.
-     *
-     * @return string This test's fixture directory.
-     */
-    private function installFixture(): string
-    {
-        $dir = $this->mkCase();
-        copy(self::root() . '/templates/jscpd.json', $dir . '/.jscpd.json');
-        self::writeJscpdInstall($dir);
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
-        ]);
-
-        return $dir;
-    }
-
-    /**
-     * Writes a composer.json carrying the given `scripts` block.
-     *
-     * @param string                             $dir     The directory to write composer.json into.
-     * @param array<string, string|list<string>> $scripts The `scripts` block.
-     *
-     * @return void
-     */
-    private static function writeComposerScripts(string $dir, array $scripts): void
-    {
-        $manifest = [
-            'name'    => 'fixture/fixture',
-            'scripts' => $scripts,
-        ];
-
-        file_put_contents(
-            $dir . '/composer.json',
-            json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
-        );
-    }
-
-    /**
      * Writes a package.json whose `devDependencies.jscpd` is the given value.
      *
      * @param string                                                  $dir     The directory to write package.json into.
