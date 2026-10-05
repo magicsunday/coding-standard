@@ -51,6 +51,8 @@ use const JSON_UNESCAPED_SLASHES;
  *   - check-phpunit-xml.php    -> tests/CheckConsumerConfigPhpunitXmlTest.php
  *   - check-jscpd-json.php     -> tests/CheckConsumerConfigJscpdJsonTest.php
  *   - check-jscpd-install.php  -> tests/CheckConsumerConfigJscpdInstallTest.php
+ *     (the install side) and tests/CheckConsumerConfigJscpdScriptTest.php (the
+ *     command text of the cpd script)
  *   - check-phplint-yml.php    -> tests/CheckConsumerConfigPhplintYmlTest.php
  *   - check-editorconfig.php   -> tests/CheckConsumerConfigEditorconfigTest.php
  *   - check-deptrac-yaml.php   -> tests/CheckConsumerConfigDeptracYamlTest.php

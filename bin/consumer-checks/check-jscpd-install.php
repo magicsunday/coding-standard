@@ -214,7 +214,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // jscpd run through npx: an npx starts a command segment and a jscpd word
     // follows in the same segment. Each segment is scanned once, from its first
     // npx, so a command made of many npx words costs one linear scan and not one
-    // scan per npx.
+    // scan per npx. The split ignores quotes on purpose: an npx inside a quoted
+    // `bash -c` string still installs, so over-detecting here is the safe side.
     $runsJscpdViaNpx = static function (string $command) use ($programStart): bool {
         foreach (preg_split('/[;&|\n]/', $command) ?: [] as $segment) {
             if (preg_match('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s/', $segment, $found, PREG_OFFSET_CAPTURE) !== 1) {
@@ -353,14 +354,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // Where a command segment runs jscpd, its first word is the program, so a
     // path argument that merely ends in jscpd (`npx foo node_modules/.bin/jscpd`)
     // is not a run. Returns what differs from the documented command, or null.
-    // A segment is what an unquoted shell separator (`;`, `&`, `|` or a
-    // newline) leaves, so the command after a `&&` or on the next line is
-    // checked on its own. One pass tracks quotes, backslash escapes and
-    // comments, so a separator inside a quote does not split and a quote inside
-    // the other kind of quote or a comment does not open one. A program word
-    // under an environment prefix, a quote or a wrapper is not seen, and a
-    // redirection is one more word: the check detects drift and does not
-    // guarantee the text.
+    // A segment is what an unquoted shell separator (`;`, `&`, `|` or a newline)
+    // leaves. One pass tracks quotes, backslash escapes and comments, so a quote
+    // inside the other kind of quote or a comment does not open one. The README
+    // lists what the check does not see.
     $commandLineDrift = static function (string $command) use ($documentedProgram, $documentedFlags): ?string {
         $segments = [];
         $current  = '';
@@ -373,7 +370,11 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
             if ($quote === "'") {
                 $quote = ($character === "'") ? '' : $quote;
             } elseif (($character === '\\') && ($position + 1 < $length)) {
-                $current .= $character . $command[++$position];
+                $escaped = $command[++$position];
+
+                // A backslash before a newline is a line continuation, which the
+                // shell removes together with the newline.
+                $current .= ($escaped === "\n") ? '' : $character . $escaped;
 
                 continue;
             } elseif ($quote === '"') {
@@ -382,7 +383,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 $quote = $character;
             } elseif (
                 ($character === '#')
-                && (($current === '') || (trim(substr($current, -1)) === ''))
+                && (trim(substr($current, -1)) === '')
             ) {
                 $newline  = strpos($command, "\n", $position);
                 $position = ($newline === false) ? $length : ($newline - 1);
