@@ -102,6 +102,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a continuation joining a word'             => ["node_modules/.bin/js\\\ncpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"],
             'two documented commands chained'           => [self::JSCPD_COMMAND . ' && ' . self::JSCPD_COMMAND],
             'a tab before a trailing comment'           => [self::JSCPD_COMMAND . "\t# note"],
+            'a redirection word before the program'     => ['>x node_modules/.bin/jscpd src'],
             'a command inside a comment'                => ["# node_modules/.bin/jscpd src\n" . self::JSCPD_COMMAND],
         ];
     }
@@ -205,6 +206,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'an assignment of a substitution glued to the program'   => ['x=$(node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `x=$(node_modules/.bin/jscpd`'],
             'a backtick glued to the program'                        => ['`node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is ``node_modules/.bin/jscpd`'],
             'a redirection glued before the program'                 => ['>node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `>node_modules/.bin/jscpd`'],
+            'a heredoc body starting with the program'               => ["cat <<EOF\nnode_modules/.bin/jscpd src\nEOF", '`src` is not part of the documented command'],
             'an apostrophe in a comment'                             => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'a repeated --fail-on-empty'                             => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
             'a repeated --skip-comments'                             => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],
@@ -309,7 +311,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
         $this->assertGateRejects(
             self::phpGate(),
             $dir,
-            '(`node_modules/.bin/jscpd src`). The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
+            'the script `ci:test:php:cpd` runs jscpd with a command line that differs from the documented one: `src` is not part of the documented command (`node_modules/.bin/jscpd src`). The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
             'the report names the offending command and the documented command line',
         );
     }

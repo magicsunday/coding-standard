@@ -1168,8 +1168,8 @@ not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'
 read as commands and so reported when one starts with the program). Nothing checks that the exit status survives, so `|| true` or
 `| tee` after the documented command passes. This detects drift and does not guarantee the text. The `npx` check
 above splits at the same separators and joins continuations, but ignores quotes and comments on purpose, so an `npx` inside a quoted
-string still counts. `$composerEvents` in that file lists the events, so a hook under any of them
-counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
+string still counts. `$composerEvents` in that file lists the Composer events that count for the
+npm and npx rule above, so a hook under any of them counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,
 so a script reached through a plain `composer run-script`, a `scripts-aliases` entry or
 `composer exec` is not followed: it detects drift and does not guarantee that no Composer
