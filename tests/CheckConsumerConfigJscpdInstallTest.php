@@ -669,6 +669,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx.cmd jscpd --config .jscpd.json',
             'C:\\nodejs\\NPX.CMD jscpd --config .jscpd.json',
             'npx.exe jscpd --config .jscpd.json',
+            "npx x js\\\ncpd",
             'npx.bat jscpd --config .jscpd.json',
             'NPX.EXE jscpd --config .jscpd.json',
             'NPX.BAT jscpd --config .jscpd.json',

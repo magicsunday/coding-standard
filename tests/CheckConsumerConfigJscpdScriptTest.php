@@ -19,8 +19,10 @@ use RuntimeException;
 
 use function file_get_contents;
 use function json_encode;
-use function preg_match;
+use function preg_match_all;
 use function unlink;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Fixture-driven cases for the command text part of
@@ -55,10 +57,10 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
 
         self::assertSame(
             1,
-            preg_match('/"ci:test:php:cpd": "([^"]+)"/', $readme, $matches),
+            preg_match_all('/"ci:test:php:cpd": "([^"]+)"/', $readme, $matches),
             'the README states the cpd script exactly once, in the jscpd install contract section',
         );
-        self::assertSame(self::JSCPD_COMMAND, $matches[1]);
+        self::assertSame(self::JSCPD_COMMAND, $matches[1][0]);
     }
 
     /**
@@ -118,7 +120,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, ['ci:test:php:cpd' => $script]);
 
-        $this->assertGateAccepts(self::phpGate(), $dir, 'cpd script: ' . json_encode($script));
+        $this->assertGateAccepts(self::phpGate(), $dir, 'cpd script: ' . json_encode($script, JSON_THROW_ON_ERROR));
     }
 
     /**
