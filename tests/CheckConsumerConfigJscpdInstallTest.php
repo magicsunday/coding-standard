@@ -686,6 +686,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx biome check && ' . self::JSCPD_COMMAND,
             'npx foo node_modules/.bin/jscpd',
             'npx foo ./jscpd',
+            "npx biome check\necho jscpd",
         ]);
     }
 

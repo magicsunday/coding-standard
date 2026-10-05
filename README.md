@@ -1159,7 +1159,8 @@ or a comment. A redirection is one more word, so `2>&1` after the command is rep
 one before or attached to the program word hides the run. A program word under an environment prefix,
 a quote, a wrapper, a shell keyword such as `then`, a group or a command substitution is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
-`${...}` containing a `#`, quotes in a command substitution or a heredoc body), so this detects drift and does not guarantee the text. The `npx` check
+`${...}` containing a `#`, quotes in a command substitution, a heredoc body, whose lines are read as commands, or an escaped
+letter in the program word), so this detects drift and does not guarantee the text. The `npx` check
 above splits at the same separators and joins continuations, but ignores quotes on purpose, so an `npx` inside a quoted
 string still counts. `$composerEvents` in that file lists the events, so a hook under any of them
 counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
