@@ -70,22 +70,24 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     public static function acceptedScriptProvider(): array
     {
         return [
-            'the documented command'           => [self::JSCPD_COMMAND],
-            'the flags in another order'       => ['node_modules/.bin/jscpd --fail-on-empty --no-tips --skip-comments --config .jscpd.json'],
-            'the config pair first'            => ['node_modules/.bin/jscpd --config .jscpd.json --fail-on-empty --no-tips --skip-comments'],
-            'tabs and repeated spaces'         => ["node_modules/.bin/jscpd\t--config  .jscpd.json  --skip-comments --no-tips   --fail-on-empty"],
-            'after another command'            => ['composer ci:test:php:lint && ' . self::JSCPD_COMMAND],
-            'before another command'           => [self::JSCPD_COMMAND . ' ; echo done'],
-            'piped to another command'         => [self::JSCPD_COMMAND . ' | tee cpd.log'],
-            'one command of a script list'     => [['@php -r "echo 1;"', self::JSCPD_COMMAND]],
-            'a tool that only mentions jscpd'  => ['echo jscpd'],
-            'a path argument ending in jscpd'  => ['npx foo node_modules/.bin/jscpd'],
-            'another tool run through npx'     => ['npx biome check'],
-            'the program as an echo argument'  => ['echo node_modules/.bin/jscpd --version'],
-            'a program name ending in jscpd'   => ['xjscpd --foo'],
-            'a hyphenated program name'        => ['my-jscpd --foo'],
-            'a separator inside a quote'       => ['echo "hint; node_modules/.bin/jscpd --config .jscpd.json"'],
-            'a separator inside single quotes' => ["echo 'a && node_modules/.bin/jscpd --config .jscpd.json'"],
+            'the documented command'              => [self::JSCPD_COMMAND],
+            'the flags in another order'          => ['node_modules/.bin/jscpd --fail-on-empty --no-tips --skip-comments --config .jscpd.json'],
+            'the config pair first'               => ['node_modules/.bin/jscpd --config .jscpd.json --fail-on-empty --no-tips --skip-comments'],
+            'tabs and repeated spaces'            => ["node_modules/.bin/jscpd\t--config  .jscpd.json  --skip-comments --no-tips   --fail-on-empty"],
+            'after another command'               => ['composer ci:test:php:lint && ' . self::JSCPD_COMMAND],
+            'before another command'              => [self::JSCPD_COMMAND . ' ; echo done'],
+            'piped to another command'            => [self::JSCPD_COMMAND . ' | tee cpd.log'],
+            'one command of a script list'        => [['@php -r "echo 1;"', self::JSCPD_COMMAND]],
+            'a tool that only mentions jscpd'     => ['echo jscpd'],
+            'a path argument ending in jscpd'     => ['npx foo node_modules/.bin/jscpd'],
+            'another tool run through npx'        => ['npx biome check'],
+            'the program as an echo argument'     => ['echo node_modules/.bin/jscpd --version'],
+            'a program name ending in jscpd'      => ['xjscpd --foo'],
+            'a hyphenated program name'           => ['my-jscpd --foo'],
+            'a separator inside a quote'          => ['echo "hint; node_modules/.bin/jscpd --config .jscpd.json"'],
+            'a separator inside single quotes'    => ["echo 'a && node_modules/.bin/jscpd --config .jscpd.json'"],
+            'a quoted semicolon before a comment' => ['echo "a;b" # node_modules/.bin/jscpd src'],
+            'a command inside a comment'          => ["# node_modules/.bin/jscpd src\n" . self::JSCPD_COMMAND],
         ];
     }
 
@@ -135,32 +137,37 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     public static function driftingCommandProvider(): array
     {
         return [
-            'no --fail-on-empty'                 => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips', '`--fail-on-empty` is missing'],
-            'no --config'                        => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty', '`--config .jscpd.json` is missing'],
-            'no --skip-comments'                 => ['node_modules/.bin/jscpd --config .jscpd.json --no-tips --fail-on-empty', '`--skip-comments` is missing'],
-            'no --no-tips'                       => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --fail-on-empty', '`--no-tips` is missing'],
-            'nothing but the program'            => ['node_modules/.bin/jscpd', '`--config .jscpd.json` is missing'],
-            'another config file'                => ['node_modules/.bin/jscpd --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
-            'a config flag without a value'      => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty --config', '`--config` must be followed by `.jscpd.json`'],
-            'a config flag with another flag'    => ['node_modules/.bin/jscpd --config --fail-on-empty --skip-comments --no-tips', '`--config` must be followed by `.jscpd.json`'],
-            'the config as one --config= word'   => ['node_modules/.bin/jscpd --config=.jscpd.json --skip-comments --no-tips --fail-on-empty', '`--config=.jscpd.json` is not part of the documented command'],
-            'a scan path'                        => [self::JSCPD_COMMAND . ' src', '`src` is not part of the documented command'],
-            'a scan path before the flags'       => ['node_modules/.bin/jscpd src tests --config .jscpd.json --skip-comments --no-tips --fail-on-empty', '`src` is not part of the documented command'],
-            'another flag'                       => [self::JSCPD_COMMAND . ' --reporters console', '`--reporters` is not part of the documented command'],
-            'a threshold flag'                   => [self::JSCPD_COMMAND . ' --threshold 5', '`--threshold` is not part of the documented command'],
-            'the bare program'                   => ['jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`'],
-            'a relative dot path'                => ['./node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `./node_modules/.bin/jscpd`'],
-            'an absolute path'                   => ['/app/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `/app/node_modules/.bin/jscpd`'],
-            'the second command of a chain'      => ['composer ci:test:php:lint && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
-            'a drifting command before a pipe'   => ['node_modules/.bin/jscpd --config .jscpd.json | tee cpd.log', '`--skip-comments` is missing'],
-            'a drifting command after a ;'       => ['true;node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
-            'the flags on the next line'         => ["node_modules/.bin/jscpd --config .jscpd.json\n--skip-comments --no-tips --fail-on-empty", '`--skip-comments` is missing'],
-            'a drifting command on a later line' => ["echo start\nnode_modules/.bin/jscpd --config .jscpd.json", '`--skip-comments` is missing'],
-            'after a closed quote'               => ['echo "done" && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
-            'a repeated --fail-on-empty'         => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
-            'a repeated --skip-comments'         => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],
-            'a repeated --no-tips'               => [self::JSCPD_COMMAND . ' --no-tips', '`--no-tips` is given twice'],
-            'a repeated config pair'             => [self::JSCPD_COMMAND . ' --config .jscpd.json', '`--config .jscpd.json` is given twice'],
+            'no --fail-on-empty'                          => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips', '`--fail-on-empty` is missing'],
+            'no --config'                                 => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty', '`--config .jscpd.json` is missing'],
+            'no --skip-comments'                          => ['node_modules/.bin/jscpd --config .jscpd.json --no-tips --fail-on-empty', '`--skip-comments` is missing'],
+            'no --no-tips'                                => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --fail-on-empty', '`--no-tips` is missing'],
+            'nothing but the program'                     => ['node_modules/.bin/jscpd', '`--config .jscpd.json` is missing'],
+            'another config file'                         => ['node_modules/.bin/jscpd --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
+            'a config flag without a value'               => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty --config', '`--config` must be followed by `.jscpd.json`'],
+            'a config flag with another flag'             => ['node_modules/.bin/jscpd --config --fail-on-empty --skip-comments --no-tips', '`--config` must be followed by `.jscpd.json`'],
+            'the config as one --config= word'            => ['node_modules/.bin/jscpd --config=.jscpd.json --skip-comments --no-tips --fail-on-empty', '`--config=.jscpd.json` is not part of the documented command'],
+            'a scan path'                                 => [self::JSCPD_COMMAND . ' src', '`src` is not part of the documented command'],
+            'a scan path before the flags'                => ['node_modules/.bin/jscpd src tests --config .jscpd.json --skip-comments --no-tips --fail-on-empty', '`src` is not part of the documented command'],
+            'another flag'                                => [self::JSCPD_COMMAND . ' --reporters console', '`--reporters` is not part of the documented command'],
+            'a threshold flag'                            => [self::JSCPD_COMMAND . ' --threshold 5', '`--threshold` is not part of the documented command'],
+            'the bare program'                            => ['jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`'],
+            'a relative dot path'                         => ['./node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `./node_modules/.bin/jscpd`'],
+            'an absolute path'                            => ['/app/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `/app/node_modules/.bin/jscpd`'],
+            'the second command of a chain'               => ['composer ci:test:php:lint && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'a drifting command before a pipe'            => ['node_modules/.bin/jscpd --config .jscpd.json | tee cpd.log', '`--skip-comments` is missing'],
+            'a drifting command after a ;'                => ['true;node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'the flags on the next line'                  => ["node_modules/.bin/jscpd --config .jscpd.json\n--skip-comments --no-tips --fail-on-empty", '`--skip-comments` is missing'],
+            'a drifting command on a later line'          => ["echo start\nnode_modules/.bin/jscpd --config .jscpd.json", '`--skip-comments` is missing'],
+            'after a closed quote'                        => ['echo "done" && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'a quote ending a segment before a separator' => ['echo "a";echo "b";node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'an apostrophe inside double quotes'          => ['echo "it\'s"; node_modules/.bin/jscpd src', '`src` is not part of the documented command'],
+            'a double quote inside single quotes'         => ["true '\"'; node_modules/.bin/jscpd src", '`src` is not part of the documented command'],
+            'an escaped apostrophe'                       => ["echo it\\'s; node_modules/.bin/jscpd src", '`src` is not part of the documented command'],
+            'an apostrophe in a comment'                  => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
+            'a repeated --fail-on-empty'                  => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
+            'a repeated --skip-comments'                  => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],
+            'a repeated --no-tips'                        => [self::JSCPD_COMMAND . ' --no-tips', '`--no-tips` is given twice'],
+            'a repeated config pair'                      => [self::JSCPD_COMMAND . ' --config .jscpd.json', '`--config .jscpd.json` is given twice'],
         ];
     }
 
@@ -257,7 +264,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => self::JSCPD_COMMAND . " ##[error]forged\x1b[31m",
+            'ci:test:php:cpd' => self::JSCPD_COMMAND . " x##[error]forged\x1b[31m",
         ]);
 
         $this->assertGateReportIsInert(
@@ -265,6 +272,27 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             $dir,
             '##?[error]forged',
             'a forged argument is scrubbed before it is reported',
+        );
+    }
+
+    /**
+     * The script name is repository content too, and the drift report names it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scrubsAForgedScriptNameBeforeItIsReported(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            "cpd\n##[error]forged" => 'node_modules/.bin/jscpd --config .jscpd.json',
+        ]);
+
+        $this->assertGateReportIsInert(
+            self::phpGate(),
+            $dir,
+            '##?[error]forged',
+            'a forged script name is scrubbed before the drift is reported',
         );
     }
 
@@ -279,7 +307,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => '##[error]forged/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
+            'ci:test:php:cpd' => 'x##[error]forged/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
         ]);
 
         $this->assertGateReportIsInert(

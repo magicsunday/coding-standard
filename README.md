@@ -1150,10 +1150,11 @@ reference — and no Composer script runs jscpd through `npx` or with `jscpd@` i
 command. A Composer command whose first word is jscpd must be `node_modules/.bin/jscpd`
 with `--config .jscpd.json`, `--skip-comments`, `--no-tips` and `--fail-on-empty`, in any
 order and nothing else: a scan path, another flag, the `--config=` spelling or another
-program path, or a flag given twice is reported with the part that differs. Each `;`, `&`, `|`
-or newline starts a new command segment, so a `jscpd` after a `&&` or on the next line is held
+program path, or a flag given twice is reported with the part that differs. Each unquoted `;`, `&`,
+`|` or newline starts a new command segment (one pass tracks quotes, backslash escapes and
+comments), so a `jscpd` after a `&&` or on the next line is held
 to it too, while a path that only ends in jscpd (`npx foo node_modules/.bin/jscpd`) is not a
-run, and neither is text inside an open quote. A redirection is one more word, so `2>&1` after
+run, and neither is text inside quotes or a comment. A redirection is one more word, so `2>&1` after
 the command is reported, and one attached to the program word hides the run. A program word
 under an environment prefix, a quote or a wrapper is not seen either, so this detects drift
 and does not guarantee the text. `$composerEvents` in that file lists the events, so a hook under any of them

@@ -216,7 +216,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // npx, so a command made of many npx words costs one linear scan and not one
     // scan per npx.
     $runsJscpdViaNpx = static function (string $command) use ($programStart): bool {
-        foreach (preg_split('/[;&|]/', $command) ?: [] as $segment) {
+        foreach (preg_split('/[;&|\n]/', $command) ?: [] as $segment) {
             if (preg_match('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s/', $segment, $found, PREG_OFFSET_CAPTURE) !== 1) {
                 continue;
             }
@@ -353,27 +353,54 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // Where a command segment runs jscpd, its first word is the program, so a
     // path argument that merely ends in jscpd (`npx foo node_modules/.bin/jscpd`)
     // is not a run. Returns what differs from the documented command, or null.
-    // A segment is what a shell separator (`;`, `&`, `|` or a newline) leaves,
-    // so the command after a `&&` or on the next line is checked on its own. A
-    // segment that starts inside an open quote is text, not a command, and is
-    // skipped, which a count of the quotes before it decides. A program word
+    // A segment is what an unquoted shell separator (`;`, `&`, `|` or a
+    // newline) leaves, so the command after a `&&` or on the next line is
+    // checked on its own. One pass tracks quotes, backslash escapes and
+    // comments, so a separator inside a quote does not split and a quote inside
+    // the other kind of quote or a comment does not open one. A program word
     // under an environment prefix, a quote or a wrapper is not seen, and a
     // redirection is one more word: the check detects drift and does not
     // guarantee the text.
     $commandLineDrift = static function (string $command) use ($documentedProgram, $documentedFlags): ?string {
-        $offset = 0;
+        $segments = [];
+        $current  = '';
+        $quote    = '';
+        $length   = strlen($command);
 
-        foreach (preg_split('/[;&|\n]/', $command) ?: [] as $segment) {
-            $before = substr($command, 0, $offset);
-            $offset += strlen($segment) + 1;
+        for ($position = 0; $position < $length; ++$position) {
+            $character = $command[$position];
 
-            if (
-                (substr_count($before, '"') % 2 === 1)
-                || (substr_count($before, "'") % 2 === 1)
+            if ($quote === "'") {
+                $quote = ($character === "'") ? '' : $quote;
+            } elseif (($character === '\\') && ($position + 1 < $length)) {
+                $current .= $character . $command[++$position];
+
+                continue;
+            } elseif ($quote === '"') {
+                $quote = ($character === '"') ? '' : $quote;
+            } elseif (($character === '"') || ($character === "'")) {
+                $quote = $character;
+            } elseif (
+                ($character === '#')
+                && (($current === '') || (trim(substr($current, -1)) === ''))
             ) {
+                $newline  = strpos($command, "\n", $position);
+                $position = ($newline === false) ? $length : ($newline - 1);
+
+                continue;
+            } elseif (strpbrk($character, ";&|\n") !== false) {
+                $segments[] = $current;
+                $current    = '';
+
                 continue;
             }
 
+            $current .= $character;
+        }
+
+        $segments[] = $current;
+
+        foreach ($segments as $segment) {
             $words = preg_split('/\s+/', trim($segment), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
             if (
