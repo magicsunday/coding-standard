@@ -198,6 +198,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a quoted config value'                                  => ['node_modules/.bin/jscpd --config ".jscpd.json" --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
             'a second documented segment missing a flag'             => [self::JSCPD_COMMAND . ' && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
             'a repeated config with a wrong second value'            => ['node_modules/.bin/jscpd --config .jscpd.json --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
+            'a continuation inside the program word'                 => ["node_modules/.bin/js\\\ncpd src", '`src` is not part of the documented command'],
             'an apostrophe in a comment'                             => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'a repeated --fail-on-empty'                             => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
             'a repeated --skip-comments'                             => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],
