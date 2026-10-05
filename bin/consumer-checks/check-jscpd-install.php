@@ -353,12 +353,27 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // Where a command segment runs jscpd, its first word is the program, so a
     // path argument that merely ends in jscpd (`npx foo node_modules/.bin/jscpd`)
     // is not a run. Returns what differs from the documented command, or null.
-    // A segment is what a shell separator leaves, so the command after a `&&`
-    // or `|` is checked on its own. A program word under an environment prefix,
-    // a quote or a wrapper is not seen: the check detects drift and does not
+    // A segment is what a shell separator (`;`, `&`, `|` or a newline) leaves,
+    // so the command after a `&&` or on the next line is checked on its own. A
+    // segment that starts inside an open quote is text, not a command, and is
+    // skipped, which a count of the quotes before it decides. A program word
+    // under an environment prefix, a quote or a wrapper is not seen, and a
+    // redirection is one more word: the check detects drift and does not
     // guarantee the text.
     $commandLineDrift = static function (string $command) use ($documentedProgram, $documentedFlags): ?string {
-        foreach (preg_split('/[;&|]/', $command) ?: [] as $segment) {
+        $offset = 0;
+
+        foreach (preg_split('/[;&|\n]/', $command) ?: [] as $segment) {
+            $before = substr($command, 0, $offset);
+            $offset += strlen($segment) + 1;
+
+            if (
+                (substr_count($before, '"') % 2 === 1)
+                || (substr_count($before, "'") % 2 === 1)
+            ) {
+                continue;
+            }
+
             $words = preg_split('/\s+/', trim($segment), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
             if (
@@ -369,7 +384,11 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
             }
 
             if ($words[0] !== $documentedProgram) {
-                return sprintf('the program is `%s`, not `%s`', safeReportValue($words[0]), $documentedProgram);
+                return sprintf(
+                    'the program is `%s`, not `%s`',
+                    safeReportValue($words[0]),
+                    $documentedProgram
+                );
             }
 
             $seen  = [];
@@ -383,6 +402,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                         return '`--config` must be followed by `.jscpd.json`';
                     }
 
+                    if (isset($seen[$word])) {
+                        return '`--config .jscpd.json` is given twice';
+                    }
+
                     $seen[$word] = true;
                     ++$index;
 
@@ -393,12 +416,19 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                     return sprintf('`%s` is not part of the documented command', safeReportValue($word));
                 }
 
+                if (isset($seen[$word])) {
+                    return sprintf('`%s` is given twice', $word);
+                }
+
                 $seen[$word] = true;
             }
 
             foreach (['--config', ...$documentedFlags] as $required) {
                 if (!isset($seen[$required])) {
-                    return sprintf('`%s` is missing', $required === '--config' ? '--config .jscpd.json' : $required);
+                    return sprintf(
+                        '`%s` is missing',
+                        $required === '--config' ? '--config .jscpd.json' : $required
+                    );
                 }
             }
         }

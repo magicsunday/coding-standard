@@ -112,6 +112,12 @@ use const JSON_UNESCAPED_SLASHES;
 abstract class AbstractConsumerConfigTestCase extends GateTestCase
 {
     /**
+     * The cpd script command line the jscpd install contract documents and
+     * the shared cpd workflow runs, which installFixture() writes.
+     */
+    protected const string JSCPD_COMMAND = 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty';
+
+    /**
      * Mirrors MAX_JSONC_BYTES in bin/check-consumer-config.php and
      * bin/check-js-config.mjs.
      */
@@ -256,12 +262,6 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
         $this->assertGateReportsOnce(self::nodeGate(), $dir, $filePrefix, $message !== '' ? "{$message} (node)" : '');
     }
 
-    /**
-     * The cpd script command line the jscpd install contract documents and
-     * the shared cpd workflow runs, which installFixture() writes.
-     */
-    protected const string JSCPD_COMMAND = 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty';
-
     // -------------------------------------------------------------------
     // Fixture builders — mirror the bash original's mk_case()/mk_js_case()/
     // mk_unadopted_case()/jscpd_fixture(), minus the per-case directory
@@ -356,7 +356,7 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
     /**
      * mkCase() plus the shipped .jscpd.json, the install it requires and a
      * composer.json whose cpd script runs the pinned binary — the clean shape
-     * each case below corrupts exactly one part of.
+     * each case of the consuming suites corrupts exactly one part of.
      *
      * @return string This test's fixture directory.
      */
