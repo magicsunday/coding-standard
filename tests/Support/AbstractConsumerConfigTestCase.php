@@ -91,8 +91,8 @@ use const JSON_UNESCAPED_SLASHES;
  * from GateTestCase::fixture() — unlike the bash original, which manually
  * named a subdirectory per case under one shared $work root via mk_case()'s
  * first argument. That argument therefore has no counterpart here; every
- * fixture helper, of this base or of one contract's class, returns the
- * current test's own fixture directory.
+ * fixture builder that returns a directory, of this base or of one
+ * contract's class, returns the current test's own one.
  *
  * The gate-vs-harness lockstep tables (required phpunit.xml root flags,
  * pinned tsconfig flags, the jscpd extension deny-list, and biome's per-

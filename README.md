@@ -1138,7 +1138,7 @@ same way (GH-219):
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
    binary the pin installs is the one that runs, and it holds a Composer command
    whose first word is the program to exactly this command line wherever the scan below
-   recognises the run, so the local scan matches the scan CI runs.
+   recognises the run, so a recognised run is the scan CI runs.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer

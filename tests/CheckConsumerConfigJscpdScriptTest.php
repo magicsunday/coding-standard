@@ -20,6 +20,7 @@ use RuntimeException;
 use function file_get_contents;
 use function json_encode;
 use function preg_match_all;
+use function substr;
 use function unlink;
 
 use const JSON_THROW_ON_ERROR;
