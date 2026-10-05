@@ -1156,7 +1156,7 @@ next line is held to it too. One pass tracks quotes, backslash escapes (a backsl
 newline is a line continuation and joins the lines) and comments, so a path that only ends in
 jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
 or a comment. A redirection is one more word, so `2>&1` after the command is reported (as `2>`), and
-a redirection word before the program, or one glued after it, hides the run. A spelling that differs from the
+a redirection word before the program, or one glued to the program word, hides the run. A spelling that differs from the
 documented one is reported on purpose, whatever its effect on the scan: a quoted flag or value,
 `"$@"`, a `./` before the program and a group or substitution opener glued to a program word ending in
 `/jscpd` (`(`, `$(`, `x=$(`, a backtick or a redirection glued before it, while a bare `(jscpd` is not seen), since

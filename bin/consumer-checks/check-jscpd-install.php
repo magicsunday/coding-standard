@@ -211,8 +211,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // and `npm.bat` are npm, in any letter case, and so are the npx ones.
     $runsNpm = static fn (string $command): bool => preg_match('/' . $programStart . '(?i:np[mx](?:\.(?:cmd|exe|bat))?)(?![\w.@\/-])/', $command) === 1;
 
-    // jscpd run through npx: an npx starts a command segment and a jscpd word
-    // follows in the same segment. Each segment is scanned once, from its first
+    // jscpd run through npx: an npx word appears in a segment and a jscpd word
+    // follows it in the same segment. Each segment is scanned once, from its first
     // npx, so a command made of many npx words costs one linear scan and not one
     // scan per npx. The split ignores quotes on purpose: an npx inside a quoted
     // `bash -c` string still installs, so over-detecting here is the safe side.
