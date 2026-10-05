@@ -298,6 +298,47 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     }
 
     /**
+     * Drift fragments paired with the whole text the report carries for them,
+     * the offending command following in backticks. A command past the report's
+     * length cap is cut, so every row uses a short one except the last, which
+     * builds the cut text from the command.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function wholeDriftFragmentProvider(): array
+    {
+        $longCommand = 'node_modules/.bin/jscpd --config .jscpd.json --config .jscpd.json';
+
+        return [
+            'a wrong program'        => ['jscpd src', 'the program is `jscpd`, not `node_modules/.bin/jscpd` (`jscpd src`)'],
+            'a config without value' => ['node_modules/.bin/jscpd --config', '`--config` must be followed by `.jscpd.json` (`node_modules/.bin/jscpd --config`)'],
+            'a missing config'       => ['node_modules/.bin/jscpd', '`--config .jscpd.json` is missing (`node_modules/.bin/jscpd`)'],
+            'a missing flag'         => ['node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing (`node_modules/.bin/jscpd --config .jscpd.json`)'],
+            'a repeated flag'        => ['node_modules/.bin/jscpd --no-tips --no-tips', '`--no-tips` is given twice (`node_modules/.bin/jscpd --no-tips --no-tips`)'],
+            'a repeated config pair' => [$longCommand, '`--config .jscpd.json` is given twice (`' . substr($longCommand, 0, 64) . '…`)'],
+        ];
+    }
+
+    /**
+     * Each drift fragment is reported whole, so text after the part a case
+     * names, such as a stray full stop, turns a row red.
+     *
+     * @param string $script   The script command.
+     * @param string $expected The whole fragment with the echoed command.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('wholeDriftFragmentProvider')]
+    public function reportsEachDriftFragmentWhole(string $script, string $expected): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => $script]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, $expected, 'the drift fragment is reported whole');
+    }
+
+    /**
      * The report tells the author which command line the shared workflow runs.
      *
      * @return void
