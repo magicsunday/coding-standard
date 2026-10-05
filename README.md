@@ -1136,9 +1136,9 @@ same way (GH-219):
    over no files fail instead of passing as a clean run, and needs jscpd 5.2.1 or newer.
 
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
-   binary the pin installs is the one that runs, and it holds every Composer command
-   that runs the installed binary to exactly this command line, so the local scan is
-   the scan CI runs.
+   binary the pin installs is the one that runs, and it holds a Composer command that
+   runs the installed binary to exactly this command line wherever the scan below
+   recognises the run, so the local scan matches the scan CI runs.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
@@ -1156,10 +1156,11 @@ next line is held to it too. One pass tracks quotes, backslash escapes (a backsl
 newline is a line continuation and joins the lines) and comments, so a path that only ends in
 jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
 or a comment. A redirection is one more word, so `2>&1` after the command is reported, and
-one attached to the program word hides the run. A program word under an environment prefix,
+one before or attached to the program word hides the run. A program word under an environment prefix,
 a quote, a wrapper, a shell keyword such as `then`, a group or a command substitution is
-not seen either, so this detects drift and does not guarantee the text. The `npx` check
-above splits the same way but ignores quotes on purpose, so an `npx` inside a quoted
+not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
+`${...}` containing a `#`, quotes in a command substitution or a heredoc body), so this detects drift and does not guarantee the text. The `npx` check
+above splits at the same separators and joins continuations, but ignores quotes on purpose, so an `npx` inside a quoted
 string still counts. `$composerEvents` in that file lists the events, so a hook under any of them
 counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,

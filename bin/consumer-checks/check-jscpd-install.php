@@ -217,7 +217,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // scan per npx. The split ignores quotes on purpose: an npx inside a quoted
     // `bash -c` string still installs, so over-detecting here is the safe side.
     $runsJscpdViaNpx = static function (string $command) use ($programStart): bool {
-        foreach (preg_split('/[;&|\n]/', $command) ?: [] as $segment) {
+        // A line continuation joins the lines before the shell splits them.
+        foreach (preg_split('/[;&|\n]/', str_replace("\\\n", '', $command)) ?: [] as $segment) {
             if (preg_match('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s/', $segment, $found, PREG_OFFSET_CAPTURE) !== 1) {
                 continue;
             }
