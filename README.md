@@ -1136,8 +1136,8 @@ same way (GH-219):
    over no files fail instead of passing as a clean run, and needs jscpd 5.2.1 or newer.
 
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
-   binary the pin installs is the one that runs, and it holds a Composer command that
-   runs the installed binary to exactly this command line wherever the scan below
+   binary the pin installs is the one that runs, and it holds a Composer command
+   whose first word is the program to exactly this command line wherever the scan below
    recognises the run, so the local scan matches the scan CI runs.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
@@ -1158,10 +1158,11 @@ jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text insi
 or a comment. A redirection is one more word, so `2>&1` after the command is reported (as `2>`), and
 one before or attached to the program word hides the run. A spelling that differs from the
 documented one is reported on purpose, whatever its effect on the scan: a quoted flag or value,
-`"$@"`, a `./` before the program and a group parenthesis glued to a program word ending in `/jscpd` (a bare `(jscpd` is not seen), since
+`"$@"`, a `./` before the program and a group or substitution opener glued to a program word ending in
+`/jscpd` (`(`, `$(`, `x=$(`, while a bare `(jscpd` is not seen), since
 every consumer runs the documented line as it stands. A program word under an environment prefix,
 a quote, a Windows spelling of the program (`jscpd.cmd`, backslash paths), a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
-`then`, a group or a command substitution is
+`then`, a group or a command substitution before a bare `jscpd` is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
 `${...}` containing a `#`, quotes in a command substitution, a heredoc body, whose lines are read as commands, or an escaped
 letter in the program word). Nothing checks that the exit status survives, so `|| true` or

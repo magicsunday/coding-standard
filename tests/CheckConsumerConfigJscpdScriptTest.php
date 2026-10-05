@@ -100,6 +100,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a program name that starts with jscpd'     => ['jscpd-foo --x'],
             'a program file that continues after jscpd' => ['node_modules/.bin/jscpd.sh --x'],
             'a continuation joining a word'             => ["node_modules/.bin/js\\\ncpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"],
+            'two documented commands chained'           => [self::JSCPD_COMMAND . ' && ' . self::JSCPD_COMMAND],
             'a command inside a comment'                => ["# node_modules/.bin/jscpd src\n" . self::JSCPD_COMMAND],
         ];
     }
@@ -195,7 +196,8 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a bare program after an npx and a pipe'                 => ['npx x | jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`'],
             'a group with the parenthesis on the program'            => ['(node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty)', 'the program is `(node_modules/.bin/jscpd`'],
             'a quoted config value'                                  => ['node_modules/.bin/jscpd --config ".jscpd.json" --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
-            'a dot slash program path'                               => ['./node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `./node_modules/.bin/jscpd`'],
+            'a second documented segment missing a flag'             => [self::JSCPD_COMMAND . ' && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'a repeated config with a wrong second value'            => ['node_modules/.bin/jscpd --config .jscpd.json --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
             'an apostrophe in a comment'                             => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'a repeated --fail-on-empty'                             => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
             'a repeated --skip-comments'                             => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],

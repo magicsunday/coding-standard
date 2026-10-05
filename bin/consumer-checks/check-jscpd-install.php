@@ -344,7 +344,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
     // The command line the shared cpd workflow runs (magicsunday/.github,
     // .github/workflows/cpd.yml): the installed binary, the config pair and
-    // three flags, in any order, and nothing else. No scan path, because
+    // the flags listed below, in any order, and nothing else. No scan path, because
     // `.jscpd.json` carries the paths, and no other flag, because a flag the
     // workflow does not pass makes the local scan a different scan than CI.
     // Re-check: gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
