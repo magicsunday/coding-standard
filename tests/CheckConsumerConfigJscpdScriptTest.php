@@ -101,6 +101,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a program file that continues after jscpd' => ['node_modules/.bin/jscpd.sh --x'],
             'a continuation joining a word'             => ["node_modules/.bin/js\\\ncpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"],
             'two documented commands chained'           => [self::JSCPD_COMMAND . ' && ' . self::JSCPD_COMMAND],
+            'a tab before a trailing comment'           => [self::JSCPD_COMMAND . "\t# note"],
             'a command inside a comment'                => ["# node_modules/.bin/jscpd src\n" . self::JSCPD_COMMAND],
         ];
     }
@@ -199,6 +200,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a second documented segment missing a flag'             => [self::JSCPD_COMMAND . ' && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
             'a repeated config with a wrong second value'            => ['node_modules/.bin/jscpd --config .jscpd.json --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
             'a continuation inside the program word'                 => ["node_modules/.bin/js\\\ncpd src", '`src` is not part of the documented command'],
+            'a tab before a comment hiding a separator'              => ["true\t# say ; x\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'an apostrophe in a comment'                             => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'a repeated --fail-on-empty'                             => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
             'a repeated --skip-comments'                             => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],

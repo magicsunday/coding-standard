@@ -669,6 +669,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx.cmd jscpd --config .jscpd.json',
             'C:\\nodejs\\NPX.CMD jscpd --config .jscpd.json',
             'npx.exe jscpd --config .jscpd.json',
+            "npx\tjscpd --config .jscpd.json",
             "npx x js\\\ncpd",
             'npx.bat jscpd --config .jscpd.json',
             'NPX.EXE jscpd --config .jscpd.json',
@@ -701,6 +702,9 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             'npx x-jscpd',
             'npx xjscpd',
             'npx jscpdx',
+            'xnpx jscpd',
+            'my-npx jscpd',
+            'pnpx jscpd',
             "npx biome check\necho jscpd",
         ]);
     }
