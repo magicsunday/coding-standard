@@ -1156,8 +1156,11 @@ next line is held to it too. One pass tracks quotes, backslash escapes (a backsl
 newline is a line continuation and joins the lines) and comments, so a path that only ends in
 jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
 or a comment. A redirection is one more word, so `2>&1` after the command is reported, and
-one before or attached to the program word hides the run. A program word under an environment prefix,
-a quote, a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
+one before or attached to the program word hides the run. A spelling that differs from the
+documented one is reported on purpose, whatever its effect on the scan: a quoted flag or value,
+`"$@"`, a `./` before the program and a group parenthesis attached to the program word, since
+every consumer runs the documented line as it stands. A program word under an environment prefix,
+a quote, a Windows spelling of the program (`jscpd.cmd`, backslash paths), a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
 `then`, a group or a command substitution is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
 `${...}` containing a `#`, quotes in a command substitution, a heredoc body, whose lines are read as commands, or an escaped

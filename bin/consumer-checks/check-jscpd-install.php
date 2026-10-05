@@ -348,7 +348,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // `.jscpd.json` carries the paths, and no other flag, because a flag the
     // workflow does not pass makes the local scan a different scan than CI.
     // Re-check: gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
-    //     --jq .content | base64 -d | grep -n 'node_modules/.bin/jscpd'
+    //     --jq .content | base64 -d | grep -n 'jscpd'
+    // and compare the whole line, not only the program path.
     $documentedProgram = 'node_modules/.bin/jscpd';
     $documentedFlags   = ['--skip-comments', '--no-tips', '--fail-on-empty'];
 
@@ -370,7 +371,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
 
             if ($quote === "'") {
                 $quote = ($character === "'") ? '' : $quote;
-            } elseif (($character === '\\') && ($position + 1 < $length)) {
+            } elseif (
+                ($character === '\\')
+                && ($position + 1 < $length)
+            ) {
                 $escaped = $command[++$position];
 
                 // A backslash before a newline is a line continuation, which the
@@ -380,7 +384,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 continue;
             } elseif ($quote === '"') {
                 $quote = ($character === '"') ? '' : $quote;
-            } elseif (($character === '"') || ($character === "'")) {
+            } elseif (
+                ($character === '"')
+                || ($character === "'")
+            ) {
                 $quote = $character;
             } elseif (
                 ($character === '#')

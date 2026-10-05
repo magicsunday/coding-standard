@@ -297,7 +297,7 @@ directory that matches how it is consumed, never at the root for convenience.
   release that ships the check. The staging rule still applies, one step earlier:
   migrate the consumers that carry a `.jscpd.json` first, then cut the release. The
   command text of the cpd script (GH-223) is staged the same way, and its release
-  notes name the tightening as the install contract's did.
+  notes must name the tightening.
 - **A stricter template is a change to every consumer, same as a stricter base.** The
   canonical `templates/*` are the house standard, not a starting point to loosen: a
   consumer copy must not drop a strict flag. When tightening a template, verify the
