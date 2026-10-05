@@ -201,6 +201,10 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a repeated config with a wrong second value'            => ['node_modules/.bin/jscpd --config .jscpd.json --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
             'a continuation inside the program word'                 => ["node_modules/.bin/js\\\ncpd src", '`src` is not part of the documented command'],
             'a tab before a comment hiding a separator'              => ["true\t# say ; x\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
+            'a command substitution opener glued to the program'     => ['$(node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `$(node_modules/.bin/jscpd`'],
+            'an assignment of a substitution glued to the program'   => ['x=$(node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `x=$(node_modules/.bin/jscpd`'],
+            'a backtick glued to the program'                        => ['`node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is ``node_modules/.bin/jscpd`'],
+            'a redirection glued before the program'                 => ['>node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `>node_modules/.bin/jscpd`'],
             'an apostrophe in a comment'                             => ["# it's\nnode_modules/.bin/jscpd src", '`src` is not part of the documented command'],
             'a repeated --fail-on-empty'                             => [self::JSCPD_COMMAND . ' --fail-on-empty', '`--fail-on-empty` is given twice'],
             'a repeated --skip-comments'                             => [self::JSCPD_COMMAND . ' --skip-comments', '`--skip-comments` is given twice'],
@@ -289,6 +293,25 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
         ]);
 
         $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'two drifting commands of one script');
+    }
+
+    /**
+     * The report tells the author which command line the shared workflow runs.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsTheDocumentedCommandLineAsGuidance(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => self::JSCPD_COMMAND . ' src']);
+
+        $this->assertGateRejects(
+            self::phpGate(),
+            $dir,
+            'The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`',
+            'the report names the documented command line',
+        );
     }
 
     /**
