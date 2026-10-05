@@ -1,0 +1,263 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/coding-standard.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\CodingStandard\Test;
+
+use MagicSunday\CodingStandard\Test\Support\AbstractConsumerConfigTestCase;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
+
+use function file_get_contents;
+use function json_encode;
+use function preg_match;
+use function unlink;
+
+/**
+ * Fixture-driven cases for the command text part of
+ * bin/consumer-checks/check-jscpd-install.php (GH-223): a Composer script
+ * that runs jscpd carries exactly the command line the shared cpd workflow
+ * runs, so the local scan is the scan CI runs. The install part of that
+ * check (the pin, the lockfile, npm and npx) is proven in
+ * CheckConsumerConfigJscpdInstallTest. PHP gate only. See
+ * AbstractConsumerConfigTestCase for the shared scaffolding.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
+ */
+#[CoversNothing]
+final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTestCase
+{
+    /**
+     * The README example of the cpd script is the command line this suite
+     * and the gate hold as the documented one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theReadmeExampleStatesTheDocumentedCommand(): void
+    {
+        $readme = file_get_contents(self::root() . '/README.md');
+
+        if ($readme === false) {
+            throw new RuntimeException('could not read README.md');
+        }
+
+        self::assertSame(
+            1,
+            preg_match('/"ci:test:php:cpd": "([^"]+)"/', $readme, $matches),
+            'the README states the cpd script exactly once, in the jscpd install contract section',
+        );
+        self::assertSame(self::JSCPD_COMMAND, $matches[1]);
+    }
+
+    /**
+     * @return array<string, array{0: string|list<string>}>
+     */
+    public static function acceptedScriptProvider(): array
+    {
+        return [
+            'the documented command'          => [self::JSCPD_COMMAND],
+            'the flags in another order'      => ['node_modules/.bin/jscpd --fail-on-empty --no-tips --skip-comments --config .jscpd.json'],
+            'the config pair first'           => ['node_modules/.bin/jscpd --config .jscpd.json --fail-on-empty --no-tips --skip-comments'],
+            'tabs and repeated spaces'        => ["node_modules/.bin/jscpd\t--config  .jscpd.json  --skip-comments --no-tips   --fail-on-empty"],
+            'after another command'           => ['composer ci:test:php:lint && ' . self::JSCPD_COMMAND],
+            'before another command'          => [self::JSCPD_COMMAND . ' ; echo done'],
+            'piped to another command'        => [self::JSCPD_COMMAND . ' | tee cpd.log'],
+            'one command of a script list'    => [['@php -r "echo 1;"', self::JSCPD_COMMAND]],
+            'a tool that only mentions jscpd' => ['echo jscpd'],
+            'a path argument ending in jscpd' => ['npx foo node_modules/.bin/jscpd'],
+            'another tool run through npx'    => ['npx biome check'],
+            'the program as an echo argument' => ['echo node_modules/.bin/jscpd --version'],
+        ];
+    }
+
+    /**
+     * A command that is the documented one, or does not run jscpd at all,
+     * stays accepted: a check widened to any word that mentions jscpd goes
+     * red here.
+     *
+     * @param string|list<string> $script The Composer script under test.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('acceptedScriptProvider')]
+    public function acceptsTheDocumentedCommandAndCommandsThatDoNotRunJscpd(string|array $script): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => $script]);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'cpd script: ' . json_encode($script));
+    }
+
+    /**
+     * A repository without any script that runs jscpd owes no command text,
+     * and neither does one without a composer.json.
+     *
+     * @return void
+     */
+    #[Test]
+    public function acceptsARepositoryWithoutAJscpdScript(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:lint' => 'phplint']);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'a composer.json whose scripts never run jscpd');
+
+        unlink($dir . '/composer.json');
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'no composer.json at all');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function driftingCommandProvider(): array
+    {
+        return [
+            'no --fail-on-empty'               => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips', '`--fail-on-empty` is missing'],
+            'no --config'                      => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty', '`--config .jscpd.json` is missing'],
+            'no --skip-comments'               => ['node_modules/.bin/jscpd --config .jscpd.json --no-tips --fail-on-empty', '`--skip-comments` is missing'],
+            'no --no-tips'                     => ['node_modules/.bin/jscpd --config .jscpd.json --skip-comments --fail-on-empty', '`--no-tips` is missing'],
+            'nothing but the program'          => ['node_modules/.bin/jscpd', '`--config .jscpd.json` is missing'],
+            'another config file'              => ['node_modules/.bin/jscpd --config other.json --skip-comments --no-tips --fail-on-empty', '`--config` must be followed by `.jscpd.json`'],
+            'a config flag without a value'    => ['node_modules/.bin/jscpd --skip-comments --no-tips --fail-on-empty --config', '`--config` must be followed by `.jscpd.json`'],
+            'a config flag with another flag'  => ['node_modules/.bin/jscpd --config --fail-on-empty --skip-comments --no-tips', '`--config` must be followed by `.jscpd.json`'],
+            'the config as one --config= word' => ['node_modules/.bin/jscpd --config=.jscpd.json --skip-comments --no-tips --fail-on-empty', '`--config=.jscpd.json` is not part of the documented command'],
+            'a scan path'                      => [self::JSCPD_COMMAND . ' src', '`src` is not part of the documented command'],
+            'a scan path before the flags'     => ['node_modules/.bin/jscpd src tests --config .jscpd.json --skip-comments --no-tips --fail-on-empty', '`src` is not part of the documented command'],
+            'another flag'                     => [self::JSCPD_COMMAND . ' --reporters console', '`--reporters` is not part of the documented command'],
+            'a threshold flag'                 => [self::JSCPD_COMMAND . ' --threshold 5', '`--threshold` is not part of the documented command'],
+            'the bare program'                 => ['jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`'],
+            'a relative dot path'              => ['./node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `./node_modules/.bin/jscpd`'],
+            'an absolute path'                 => ['/app/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `/app/node_modules/.bin/jscpd`'],
+            'the second command of a chain'    => ['composer ci:test:php:lint && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+            'a drifting command before a pipe' => ['node_modules/.bin/jscpd --config .jscpd.json | tee cpd.log', '`--skip-comments` is missing'],
+            'a drifting command after a ;'     => ['true;node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
+        ];
+    }
+
+    /**
+     * Every way the command can differ from the documented one is reported,
+     * with the part that differs.
+     *
+     * @param string $command  The Composer script under test.
+     * @param string $expected The substring the report must carry.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('driftingCommandProvider')]
+    public function rejectsACommandThatDiffersFromTheDocumentedOne(string $command, string $expected): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => $command]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, $expected, "cpd script: {$command}");
+    }
+
+    /**
+     * The script name does not matter, a script that runs jscpd is checked
+     * under whatever name it carries.
+     *
+     * @return void
+     */
+    #[Test]
+    public function checksAScriptUnderAnyName(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => self::JSCPD_COMMAND,
+            'ci:test:cpd'     => 'node_modules/.bin/jscpd --config .jscpd.json',
+        ]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `ci:test:cpd`', 'a second script that runs jscpd with a drifting command');
+    }
+
+    /**
+     * One command of a script list that drifts is enough, the others being
+     * correct.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsADriftingCommandInsideAScriptList(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => [
+                self::JSCPD_COMMAND,
+                'node_modules/.bin/jscpd --config .jscpd.json',
+            ],
+        ]);
+
+        $this->assertGateRejects(self::phpGate(), $dir, '`--skip-comments` is missing', 'the second command of a list');
+    }
+
+    /**
+     * A script with several drifting commands is one finding, not one per
+     * command.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsAScriptWithSeveralDriftingCommandsOnce(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => [
+                'node_modules/.bin/jscpd --config .jscpd.json',
+                'node_modules/.bin/jscpd src',
+            ],
+        ]);
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'two drifting commands of one script');
+    }
+
+    /**
+     * The command is repository content, so a control character or a forged
+     * workflow command in it reaches the report scrubbed.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scrubsAForgedArgumentBeforeItIsReported(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => self::JSCPD_COMMAND . " ##[error]forged\x1b[31m",
+        ]);
+
+        $this->assertGateReportIsInert(self::phpGate(), $dir, '##?[error]forged', 'a forged argument is scrubbed before it is reported');
+    }
+
+    /**
+     * A command that runs jscpd through npx, or with a version in it, is
+     * the install part's finding and stays one finding, the command text is
+     * not reported on top of it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsJscpdThroughNpxOnceAsAnInstallFinding(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => 'npx jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
+        ]);
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'jscpd through npx');
+        $this->assertGateRejects(self::phpGate(), $dir, 'runs jscpd through npx or names a version', 'jscpd through npx');
+    }
+}

@@ -1136,7 +1136,9 @@ same way (GH-219):
    over no files fail instead of passing as a clean run, and needs jscpd 5.2.1 or newer.
 
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
-   binary the pin installs is the one that runs.
+   binary the pin installs is the one that runs, and it holds every Composer command
+   that runs the installed binary to exactly this command line, so the local scan is
+   the scan CI runs.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
@@ -1145,7 +1147,14 @@ are reported, and so is jscpd declared under another section), a lockfile exists
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
 follows, including `@composer` commands that name a script and arguments appended to a
 reference — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
-command. `$composerEvents` in that file lists the events, so a hook under any of them
+command. A Composer command whose first word is jscpd must be `node_modules/.bin/jscpd`
+with `--config .jscpd.json`, `--skip-comments`, `--no-tips` and `--fail-on-empty`, in any
+order and nothing else: a scan path, another flag, the `--config=` spelling or another
+program path is reported with the part that differs. Each `;`, `&` or `|` starts a new
+command segment, so a `jscpd` after a `&&` is held to it too, while a path that only ends in
+jscpd (`npx foo node_modules/.bin/jscpd`) is not a run. A program word under an
+environment prefix, a quote or a wrapper is not seen, so this detects drift and does not
+guarantee the text. `$composerEvents` in that file lists the events, so a hook under any of them
 counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,
 so a script reached through a plain `composer run-script`, a `scripts-aliases` entry or
@@ -1154,8 +1163,9 @@ event can reach npm. A chain of references deeper than a fixed limit is not foll
 and is reported as such, and only the repository's own `composer.json` is read, so a
 script in another manifest reached through `@composer --working-dir` is not seen. A repository without
 `composer.json` owes the package.json pin and the lockfile only, and one without
-`.jscpd.json` owes nothing. The gate does not require the cpd script itself, its flags
-or `--fail-on-empty`.
+`.jscpd.json` owes nothing. The gate does not require a cpd script to exist, it holds a
+script that runs jscpd to the command above. `package.json` scripts are not read, so a
+repository without a `composer.json` is not held to the command.
 
 Unlike the `extends` link above, this check is **keyed on the file, not on an adoption
 marker**, because every part of it can be put in place before the release that ships

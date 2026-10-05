@@ -19,7 +19,9 @@ declare(strict_types=1);
  * npm link to this package, every part of this contract is something a
  * consumer can put in place BEFORE the release that ships the check — an exact
  * pin, a lockfile, hooks without npm — so "align first, enforce second" holds
- * without a marker to wait for.
+ * without a marker to wait for. The command text of the cpd script (GH-223)
+ * follows the same rule: a consumer carries it before the release that ships
+ * the check.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -29,8 +31,9 @@ declare(strict_types=1);
 /**
  * Asserts the jscpd install a `.jscpd.json` requires: jscpd pinned to one exact
  * version in package.json's `devDependencies`, a lockfile for
- * `npm ci`, no npm or npx run from a Composer event, and no jscpd run through
- * npx or with a version in a Composer script.
+ * `npm ci`, no npm or npx run from a Composer event, no jscpd run through
+ * npx or with a version in a Composer script, and a Composer command that runs
+ * jscpd carries exactly the documented command line.
  *
  * @param list<string> $violations The accumulated report, appended to in place.
  * @param string       $repoRoot   The consumer repository root to inspect.
@@ -337,8 +340,75 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         );
     }
 
+    // The command line the shared cpd workflow runs (magicsunday/.github,
+    // .github/workflows/cpd.yml): the installed binary, the config pair and
+    // three flags, in any order, and nothing else. No scan path, because
+    // `.jscpd.json` carries the paths, and no other flag, because a flag the
+    // workflow does not pass makes the local scan a different scan than CI.
+    // Re-check: gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
+    //     --jq .content | base64 -d | grep -n 'node_modules/.bin/jscpd'
+    $documentedProgram = 'node_modules/.bin/jscpd';
+    $documentedFlags   = ['--skip-comments', '--no-tips', '--fail-on-empty'];
+
+    // Where a command segment runs jscpd, its first word is the program, so a
+    // path argument that merely ends in jscpd (`npx foo node_modules/.bin/jscpd`)
+    // is not a run. Returns what differs from the documented command, or null.
+    // A segment is what a shell separator leaves, so the command after a `&&`
+    // or `|` is checked on its own. A program word under an environment prefix,
+    // a quote or a wrapper is not seen: the check detects drift and does not
+    // guarantee the text.
+    $commandLineDrift = static function (string $command) use ($documentedProgram, $documentedFlags): ?string {
+        foreach (preg_split('/[;&|]/', $command) ?: [] as $segment) {
+            $words = preg_split('/\s+/', trim($segment), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if (
+                ($words === [])
+                || (preg_match('#(?:^|/)jscpd$#', $words[0]) !== 1)
+            ) {
+                continue;
+            }
+
+            if ($words[0] !== $documentedProgram) {
+                return sprintf('the program is `%s`, not `%s`', safeReportValue($words[0]), $documentedProgram);
+            }
+
+            $seen  = [];
+            $count = count($words);
+
+            for ($index = 1; $index < $count; ++$index) {
+                $word = $words[$index];
+
+                if ($word === '--config') {
+                    if (($words[$index + 1] ?? null) !== '.jscpd.json') {
+                        return '`--config` must be followed by `.jscpd.json`';
+                    }
+
+                    $seen[$word] = true;
+                    ++$index;
+
+                    continue;
+                }
+
+                if (!in_array($word, $documentedFlags, true)) {
+                    return sprintf('`%s` is not part of the documented command', safeReportValue($word));
+                }
+
+                $seen[$word] = true;
+            }
+
+            foreach (['--config', ...$documentedFlags] as $required) {
+                if (!isset($seen[$required])) {
+                    return sprintf('`%s` is missing', $required === '--config' ? '--config .jscpd.json' : $required);
+                }
+            }
+        }
+
+        return null;
+    };
+
     // The contract runs the binary the package.json pin installs, so jscpd
-    // through npx, or with a version in the command, is reported.
+    // through npx, or with a version in the command, is reported. A command
+    // that runs the installed binary is held to the documented command line.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
             $viaNpx       = $runsJscpdViaNpx($command);
@@ -348,7 +418,27 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 !$viaNpx
                 && !$namesVersion
             ) {
-                continue;
+                $drift = $commandLineDrift($command);
+
+                if ($drift === null) {
+                    continue;
+                }
+
+                fail(
+                    $violations,
+                    'composer.json',
+                    sprintf(
+                        'the script `%s` runs jscpd with a command line that differs from the documented one: %s (`%s`). The shared cpd workflow runs `%s %s %s`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
+                        safeReportValue((string) $name),
+                        $drift,
+                        safeReportValue($command),
+                        $documentedProgram,
+                        '--config .jscpd.json',
+                        implode(' ', $documentedFlags)
+                    )
+                );
+
+                break;
             }
 
             fail(

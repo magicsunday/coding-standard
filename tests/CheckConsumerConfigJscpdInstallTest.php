@@ -493,7 +493,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd' => self::JSCPD_COMMAND,
             $event            => 'npm ci --no-audit --no-fund',
         ]);
 
@@ -552,7 +552,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
             'post-install-cmd' => $command,
         ]);
 
@@ -590,7 +590,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'    => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'    => self::JSCPD_COMMAND,
             'post-autoload-dump' => $command,
         ]);
 
@@ -606,7 +606,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd' => self::JSCPD_COMMAND,
             'post-update-cmd' => ['@tools'],
             'tools'           => ['@php -r "echo 1;"', '@tools:node'],
             'tools:node'      => 'npm ci',
@@ -624,7 +624,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
             'post-install-cmd' => '@a',
             'a'                => '@b',
             'b'                => ['@a', 'npm ci'],
@@ -642,7 +642,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd' => self::JSCPD_COMMAND,
             'tools:install'   => 'npm ci',
         ]);
 
@@ -676,14 +676,13 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     public static function pinnedJscpdRunProvider(): array
     {
         return self::singleArgProviderRows([
-            'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty',
+            self::JSCPD_COMMAND,
             'npx biome check',
             'npx some-tool --report jscpd-report',
             'echo jscpd-config@x',
             'echo xjscpd@1',
             'echo my-jscpd@1',
-            'npx biome check && node_modules/.bin/jscpd --config .jscpd.json',
-            'npx biome check && jscpd --config .jscpd.json',
+            'npx biome check && ' . self::JSCPD_COMMAND,
             'npx foo node_modules/.bin/jscpd',
             'npx foo ./jscpd',
         ]);
@@ -810,7 +809,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
             'post-install-cmd' => '@runner npm ci',
             'runner'           => 'env',
         ]);
@@ -843,7 +842,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     {
         $dir = $this->installFixture();
         self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
             'post-install-cmd' => $command,
             'fetch-tools'      => 'npm ci',
         ]);
@@ -957,7 +956,7 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     private static function referenceChain(int $length): array
     {
         $scripts = [
-            'ci:test:php:cpd'  => 'node_modules/.bin/jscpd --config .jscpd.json',
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
             'post-install-cmd' => '@s0',
         ];
 
