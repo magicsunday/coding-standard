@@ -1156,7 +1156,7 @@ next line is held to it too. One pass tracks quotes, backslash escapes (a backsl
 newline is a line continuation and joins the lines) and comments, so a path that only ends in
 jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
 or a comment. A redirection is one more word, so `2>&1` after the command is reported (as `2>`), and
-a redirection word before the program, or one glued after the program word, hides the run. A spelling that differs from the
+a redirection word before the program (`>x node_modules/.bin/jscpd`), or one glued after the program word, hides the run, while one glued before it (`>node_modules/.bin/jscpd`) is reported. A spelling that differs from the
 documented one is reported on purpose, whatever its effect on the scan: a quoted flag or value,
 `"$@"`, a `./` before the program and a group or substitution opener glued to a program word ending in
 `/jscpd` (`(`, `$(`, `x=$(`, a backtick or a redirection glued before it, while a bare `(jscpd` is not seen), since
@@ -1164,8 +1164,8 @@ every consumer runs the documented line as it stands. A program word under an en
 a quote, a Windows spelling of the program (`jscpd.cmd`, backslash paths), a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
 `then`, a group or a command substitution before a bare `jscpd` is
 not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
-`${...}` containing a `#`, quotes in a command substitution, a heredoc body, whose lines are read as commands, or an escaped
-letter in the program word). Nothing checks that the exit status survives, so `|| true` or
+`${...}` containing a `#`, quotes in a command substitution, an escaped letter in the program word, or a heredoc body, whose lines are
+read as commands and so reported when one starts with the program). Nothing checks that the exit status survives, so `|| true` or
 `| tee` after the documented command passes. This detects drift and does not guarantee the text. The `npx` check
 above splits at the same separators and joins continuations, but ignores quotes and comments on purpose, so an `npx` inside a quoted
 string still counts. `$composerEvents` in that file lists the events, so a hook under any of them

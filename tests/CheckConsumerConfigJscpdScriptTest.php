@@ -165,7 +165,7 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
             'a scan path before the flags'                           => ['node_modules/.bin/jscpd src tests --config .jscpd.json --skip-comments --no-tips --fail-on-empty', '`src` is not part of the documented command'],
             'another flag'                                           => [self::JSCPD_COMMAND . ' --reporters console', '`--reporters` is not part of the documented command'],
             'a threshold flag'                                       => [self::JSCPD_COMMAND . ' --threshold 5', '`--threshold` is not part of the documented command'],
-            'the bare program'                                       => ['jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`'],
+            'the bare program'                                       => ['jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `jscpd`, not `node_modules/.bin/jscpd`'],
             'a relative dot path'                                    => ['./node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `./node_modules/.bin/jscpd`'],
             'an absolute path'                                       => ['/app/node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty', 'the program is `/app/node_modules/.bin/jscpd`'],
             'the second command of a chain'                          => ['composer ci:test:php:lint && node_modules/.bin/jscpd --config .jscpd.json', '`--skip-comments` is missing'],
@@ -304,13 +304,13 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
     public function reportsTheDocumentedCommandLineAsGuidance(): void
     {
         $dir = $this->installFixture();
-        self::writeComposerScripts($dir, ['ci:test:php:cpd' => self::JSCPD_COMMAND . ' src']);
+        self::writeComposerScripts($dir, ['ci:test:php:cpd' => 'node_modules/.bin/jscpd src']);
 
         $this->assertGateRejects(
             self::phpGate(),
             $dir,
-            'The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`',
-            'the report names the documented command line',
+            '(`node_modules/.bin/jscpd src`). The shared cpd workflow runs `' . self::JSCPD_COMMAND . '`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
+            'the report names the offending command and the documented command line',
         );
     }
 
