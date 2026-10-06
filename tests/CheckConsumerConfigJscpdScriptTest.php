@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
 use function file_get_contents;
+use function file_put_contents;
 use function json_encode;
 use function preg_match_all;
 use function substr;
@@ -31,8 +32,11 @@ use const JSON_THROW_ON_ERROR;
  * that runs jscpd carries exactly the command line the shared cpd workflow
  * runs, so the command text of a recognised run is the one CI uses. The install part of that
  * check (the pin, the lockfile, npm and npx) is proven in
- * CheckConsumerConfigJscpdInstallTest. PHP gate only. See
- * AbstractConsumerConfigTestCase for the shared scaffolding.
+ * CheckConsumerConfigJscpdInstallTest. Because both parts echo values of
+ * the repository under check, the scrubbing of what the install part reports
+ * and the reporting of a script of a list by its index are proven here too.
+ * PHP gate only. See AbstractConsumerConfigTestCase for the shared
+ * scaffolding.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -458,5 +462,104 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
 
         $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'jscpd through npx');
         $this->assertGateRejects(self::phpGate(), $dir, 'runs jscpd through npx or names a version', 'jscpd through npx');
+    }
+
+    /**
+     * The command of an event that runs npm is repository content, and the
+     * report quotes it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scrubsAForgedEventCommandBeforeItIsReported(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
+            'post-install-cmd' => "npm ci\n##[error]forged",
+        ]);
+
+        $this->assertGateReportIsInert(
+            self::phpGate(),
+            $dir,
+            '##?[error]forged',
+            'a forged event command is scrubbed before it is reported',
+        );
+    }
+
+    /**
+     * The name of a script in the chain from an event to npm is repository
+     * content, and the report quotes it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scrubsAForgedChainTargetBeforeItIsReported(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
+            'post-install-cmd' => '@##[error]forged',
+            '##[error]forged'  => 'npm ci',
+        ]);
+
+        $this->assertGateReportIsInert(
+            self::phpGate(),
+            $dir,
+            '##?[error]forged',
+            'a forged chain target is scrubbed before it is reported',
+        );
+    }
+
+    /**
+     * The command of a script that runs jscpd through npx is repository
+     * content, and the report quotes it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scrubsAForgedNpxCommandBeforeItIsReported(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => "npx jscpd\n##[error]forged",
+        ]);
+
+        $this->assertGateReportIsInert(
+            self::phpGate(),
+            $dir,
+            '##?[error]forged',
+            'a forged npx command is scrubbed before it is reported',
+        );
+    }
+
+    /**
+     * A `scripts` list instead of a map gives the scripts numeric keys, and
+     * a script that runs jscpd through npx is reported by its index.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsAnNpxScriptOfAListByItsIndex(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', "{\n    \"name\": \"fixture/fixture\",\n    \"scripts\": [\"npx jscpd --config .jscpd.json\"]\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `0` runs jscpd through npx', 'an npx script reached by a numeric key');
+    }
+
+    /**
+     * The same holds for a script of a list whose command line drifts from
+     * the documented one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsADriftingScriptOfAListByItsIndex(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', "{\n    \"name\": \"fixture/fixture\",\n    \"scripts\": [\"node_modules/.bin/jscpd --config .jscpd.json\"]\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `0` runs jscpd with a command line that differs', 'a drifting script reached by a numeric key');
     }
 }
