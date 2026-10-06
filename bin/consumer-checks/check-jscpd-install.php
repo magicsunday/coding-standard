@@ -19,7 +19,9 @@ declare(strict_types=1);
  * npm link to this package, every part of this contract is something a
  * consumer can put in place BEFORE the release that ships the check — an exact
  * pin, a lockfile, hooks without npm — so "align first, enforce second" holds
- * without a marker to wait for.
+ * without a marker to wait for. The command text of the cpd script (GH-223)
+ * follows the same rule: a consumer carries it before the release that ships
+ * the check.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -29,8 +31,9 @@ declare(strict_types=1);
 /**
  * Asserts the jscpd install a `.jscpd.json` requires: jscpd pinned to one exact
  * version in package.json's `devDependencies`, a lockfile for
- * `npm ci`, no npm or npx run from a Composer event, and no jscpd run through
- * npx or with a version in a Composer script.
+ * `npm ci`, no npm or npx run from a Composer event, no jscpd run through
+ * npx or with a version in a Composer script, and a Composer command that runs
+ * jscpd carries exactly the documented command line.
  *
  * @param list<string> $violations The accumulated report, appended to in place.
  * @param string       $repoRoot   The consumer repository root to inspect.
@@ -208,12 +211,14 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // and `npm.bat` are npm, in any letter case, and so are the npx ones.
     $runsNpm = static fn (string $command): bool => preg_match('/' . $programStart . '(?i:np[mx](?:\.(?:cmd|exe|bat))?)(?![\w.@\/-])/', $command) === 1;
 
-    // jscpd run through npx: an npx starts a command segment and a jscpd word
-    // follows in the same segment. Each segment is scanned once, from its first
+    // jscpd run through npx: an npx word appears in a segment and a jscpd word
+    // follows it in the same segment. Each segment is scanned once, from its first
     // npx, so a command made of many npx words costs one linear scan and not one
-    // scan per npx.
+    // scan per npx. The split ignores quotes on purpose: an npx inside a quoted
+    // `bash -c` string still installs, so over-detecting here is the safe side.
     $runsJscpdViaNpx = static function (string $command) use ($programStart): bool {
-        foreach (preg_split('/[;&|]/', $command) ?: [] as $segment) {
+        // A line continuation joins the lines before the shell splits them.
+        foreach (preg_split('/[;&|\n]/', str_replace("\\\n", '', $command)) ?: [] as $segment) {
             if (preg_match('/' . $programStart . '(?i:npx(?:\.(?:cmd|exe|bat))?)\s/', $segment, $found, PREG_OFFSET_CAPTURE) !== 1) {
                 continue;
             }
@@ -337,8 +342,139 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         );
     }
 
+    // The command line the shared cpd workflow runs (magicsunday/.github,
+    // .github/workflows/cpd.yml): the installed binary, the config pair and
+    // the flags listed below, in any order, and nothing else. No scan path, because
+    // `.jscpd.json` carries the paths, and no other flag, because a flag the
+    // workflow does not pass makes the local scan a different scan than CI.
+    // Re-check: gh api repos/magicsunday/.github/contents/.github/workflows/cpd.yml
+    //     --jq .content | base64 -d | grep -n 'jscpd'
+    // and compare the whole line, not only the program path.
+    $documentedProgram = 'node_modules/.bin/jscpd';
+    $documentedFlags   = ['--skip-comments', '--no-tips', '--fail-on-empty'];
+
+    // Where a command segment runs jscpd, its first word is the program, so a
+    // path argument that merely ends in jscpd (`npx foo node_modules/.bin/jscpd`)
+    // is not a run. Returns what differs from the documented command, or null.
+    // A segment is what an unquoted shell separator (`;`, `&`, `|` or a newline)
+    // leaves. One pass tracks quotes, backslash escapes and comments, so a quote
+    // inside the other kind of quote or a comment does not open one. The README
+    // lists what the check does not see.
+    $commandLineDrift = static function (string $command) use ($documentedProgram, $documentedFlags): ?string {
+        $segments = [];
+        $current  = '';
+        $quote    = '';
+        $length   = strlen($command);
+
+        for ($position = 0; $position < $length; ++$position) {
+            $character = $command[$position];
+
+            if ($quote === "'") {
+                $quote = ($character === "'") ? '' : $quote;
+            } elseif (
+                ($character === '\\')
+                && ($position + 1 < $length)
+            ) {
+                $escaped = $command[++$position];
+
+                // A backslash before a newline is a line continuation, which the
+                // shell removes together with the newline.
+                $current .= ($escaped === "\n") ? '' : $character . $escaped;
+
+                continue;
+            } elseif ($quote === '"') {
+                $quote = ($character === '"') ? '' : $quote;
+            } elseif (
+                ($character === '"')
+                || ($character === "'")
+            ) {
+                $quote = $character;
+            } elseif (
+                ($character === '#')
+                && (trim(substr($current, -1)) === '')
+            ) {
+                $newline  = strpos($command, "\n", $position);
+                $position = ($newline === false) ? $length : ($newline - 1);
+
+                continue;
+            } elseif (strpbrk($character, ";&|\n") !== false) {
+                $segments[] = $current;
+                $current    = '';
+
+                continue;
+            }
+
+            $current .= $character;
+        }
+
+        $segments[] = $current;
+
+        foreach ($segments as $segment) {
+            $words = preg_split('/\s+/', trim($segment), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if (
+                ($words === [])
+                || (preg_match('#(?:^|/)jscpd$#', $words[0]) !== 1)
+            ) {
+                continue;
+            }
+
+            if ($words[0] !== $documentedProgram) {
+                return sprintf(
+                    'the program is `%s`, not `%s`',
+                    safeReportValue($words[0]),
+                    $documentedProgram
+                );
+            }
+
+            $seen  = [];
+            $count = count($words);
+
+            for ($index = 1; $index < $count; ++$index) {
+                $word = $words[$index];
+
+                if ($word === '--config') {
+                    if (($words[$index + 1] ?? null) !== '.jscpd.json') {
+                        return '`--config` must be followed by `.jscpd.json`';
+                    }
+
+                    if (isset($seen[$word])) {
+                        return '`--config .jscpd.json` is given twice';
+                    }
+
+                    $seen[$word] = true;
+                    ++$index;
+
+                    continue;
+                }
+
+                if (!in_array($word, $documentedFlags, true)) {
+                    return sprintf('`%s` is not part of the documented command', safeReportValue($word));
+                }
+
+                if (isset($seen[$word])) {
+                    return sprintf('`%s` is given twice', $word);
+                }
+
+                $seen[$word] = true;
+            }
+
+            foreach (['--config', ...$documentedFlags] as $required) {
+                if (!isset($seen[$required])) {
+                    return sprintf(
+                        '`%s` is missing',
+                        $required === '--config' ? '--config .jscpd.json' : $required
+                    );
+                }
+            }
+        }
+
+        return null;
+    };
+
     // The contract runs the binary the package.json pin installs, so jscpd
-    // through npx, or with a version in the command, is reported.
+    // through npx, or with a version in the command, is reported. A command
+    // that runs the installed binary is held to the documented command line.
     foreach ($scripts as $name => $script) {
         foreach ($commandsOf($script) as $command) {
             $viaNpx       = $runsJscpdViaNpx($command);
@@ -348,7 +484,27 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 !$viaNpx
                 && !$namesVersion
             ) {
-                continue;
+                $drift = $commandLineDrift($command);
+
+                if ($drift === null) {
+                    continue;
+                }
+
+                fail(
+                    $violations,
+                    'composer.json',
+                    sprintf(
+                        'the script `%s` runs jscpd with a command line that differs from the documented one: %s (`%s`). The shared cpd workflow runs `%s %s %s`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
+                        safeReportValue((string) $name),
+                        $drift,
+                        safeReportValue($command),
+                        $documentedProgram,
+                        '--config .jscpd.json',
+                        implode(' ', $documentedFlags)
+                    )
+                );
+
+                break;
             }
 
             fail(

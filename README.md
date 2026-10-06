@@ -1136,7 +1136,9 @@ same way (GH-219):
    over no files fail instead of passing as a clean run, and needs jscpd 5.2.1 or newer.
 
    The gate reports `npx jscpd` and `jscpd@<version>` in a Composer script, so the
-   binary the pin installs is the one that runs.
+   binary the pin installs is the one that runs, and it holds a Composer command
+   whose first word is the program to exactly this command line wherever the scan below
+   recognises the run, so a recognised run uses the command text CI uses.
 
 The lockstep gate enforces what follows wherever a `.jscpd.json` is present, from
 `bin/consumer-checks/check-jscpd-install.php`: package.json pins jscpd to one exact SemVer
@@ -1145,8 +1147,29 @@ are reported, and so is jscpd declared under another section), a lockfile exists
 Composer event runs `npm` or `npx` — directly or through the `@script` references it
 follows, including `@composer` commands that name a script and arguments appended to a
 reference — and no Composer script runs jscpd through `npx` or with `jscpd@` in the
-command. `$composerEvents` in that file lists the events, so a hook under any of them
-counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
+command. A Composer command whose first word is `jscpd` or a path ending in `/jscpd` must be `node_modules/.bin/jscpd`
+with `--config .jscpd.json`, `--skip-comments`, `--no-tips` and `--fail-on-empty`, in any
+order and nothing else: a scan path, another flag, the `--config=` spelling or another
+program path, or a flag given twice is reported with the part that differs. Each unquoted
+`;`, `&`, `|` or newline starts a new command segment, so a `jscpd` after a `&&` or on the
+next line is held to it too. One pass tracks quotes, backslash escapes (a backslash before a
+newline is a line continuation and joins the lines) and comments, so a path that only ends in
+jscpd (`npx foo node_modules/.bin/jscpd`) is not a run, and neither is text inside quotes
+or a comment. A redirection is one more word, so `2>&1` after the command is reported (as `2>`), and
+a redirection word before the program (`>x node_modules/.bin/jscpd`), or one glued after the program word, hides the run, while one glued before it (`>node_modules/.bin/jscpd`) is reported. A spelling that differs from the
+documented one is reported on purpose, whatever its effect on the scan: a quoted flag or value,
+`"$@"`, a `./` before the program and a group or substitution opener glued to a program word ending in
+`/jscpd` (`(`, `$(`, `x=$(`, a backtick or a redirection glued before it, while a bare `(jscpd` is not seen), since
+every consumer runs the documented line as it stands. A program word under an environment prefix,
+a quote, a Windows spelling of the program (`jscpd.cmd`, backslash paths), a wrapper (`@php`, `node`, `sh -c`, `pnpm dlx`, `bunx`, `yarn`), a shell keyword such as
+`then`, a group or a command substitution before a bare `jscpd` is
+not seen either, and neither is shell grammar a one-pass scan cannot follow (`$'...'` quoting,
+`${...}` containing a `#` after whitespace, quotes in a command substitution, an escaped letter in the program word, or a heredoc body, whose lines are
+read as commands and so reported when one starts with the program). Nothing checks that the exit status survives, so `|| true` or
+`| tee` after the documented command passes. This detects drift and does not guarantee the text. The `npx` check
+above splits at the same separators and joins continuations, but ignores quotes and comments on purpose, so an `npx` inside a quoted
+string still counts. `$composerEvents` in that file lists the Composer events that count for the
+npm and npx rule above, so a hook under any of them counts. npm in a script no event runs (a `tools:install` a contributor calls by hand) is
 left alone. The gate follows `@name` references and `@composer` commands and nothing else,
 so a script reached through a plain `composer run-script`, a `scripts-aliases` entry or
 `composer exec` is not followed: it detects drift and does not guarantee that no Composer
@@ -1154,8 +1177,9 @@ event can reach npm. A chain of references deeper than a fixed limit is not foll
 and is reported as such, and only the repository's own `composer.json` is read, so a
 script in another manifest reached through `@composer --working-dir` is not seen. A repository without
 `composer.json` owes the package.json pin and the lockfile only, and one without
-`.jscpd.json` owes nothing. The gate does not require the cpd script itself, its flags
-or `--fail-on-empty`.
+`.jscpd.json` owes nothing. The gate does not require a cpd script to exist, it holds a
+script that runs jscpd to the command above. `package.json` scripts are not read, so a
+repository without a `composer.json` is not held to the command.
 
 Unlike the `extends` link above, this check is **keyed on the file, not on an adoption
 marker**, because every part of it can be put in place before the release that ships

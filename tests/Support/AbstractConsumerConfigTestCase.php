@@ -23,11 +23,16 @@ use function count;
 use function file_get_contents;
 use function file_put_contents;
 use function function_exists;
+use function json_encode;
 use function posix_getuid;
 use function preg_match;
 use function preg_match_all;
 use function preg_quote;
 use function str_repeat;
+
+use const JSON_PRETTY_PRINT;
+use const JSON_THROW_ON_ERROR;
+use const JSON_UNESCAPED_SLASHES;
 
 /**
  * Shared base for the fixture-driven suites of bin/check-consumer-config.php
@@ -46,6 +51,8 @@ use function str_repeat;
  *   - check-phpunit-xml.php    -> tests/CheckConsumerConfigPhpunitXmlTest.php
  *   - check-jscpd-json.php     -> tests/CheckConsumerConfigJscpdJsonTest.php
  *   - check-jscpd-install.php  -> tests/CheckConsumerConfigJscpdInstallTest.php
+ *     (the install side) and tests/CheckConsumerConfigJscpdScriptTest.php (the
+ *     command text of the cpd script)
  *   - check-phplint-yml.php    -> tests/CheckConsumerConfigPhplintYmlTest.php
  *   - check-editorconfig.php   -> tests/CheckConsumerConfigEditorconfigTest.php
  *   - check-deptrac-yaml.php   -> tests/CheckConsumerConfigDeptracYamlTest.php
@@ -84,8 +91,8 @@ use function str_repeat;
  * from GateTestCase::fixture() — unlike the bash original, which manually
  * named a subdirectory per case under one shared $work root via mk_case()'s
  * first argument. That argument therefore has no counterpart here; every
- * mkCase()/mkJsCase()/mkUnadoptedCase()/jscpdFixture() call returns the
- * current test's own fixture directory.
+ * fixture builder that returns a directory, of this base or of one
+ * contract's class, returns the current test's own one.
  *
  * The gate-vs-harness lockstep tables (required phpunit.xml root flags,
  * pinned tsconfig flags, the jscpd extension deny-list, and biome's per-
@@ -106,6 +113,12 @@ use function str_repeat;
  */
 abstract class AbstractConsumerConfigTestCase extends GateTestCase
 {
+    /**
+     * The cpd script command line the jscpd install contract documents and
+     * the shared cpd workflow runs, which installFixture() writes.
+     */
+    protected const string JSCPD_COMMAND = 'node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty';
+
     /**
      * Mirrors MAX_JSONC_BYTES in bin/check-consumer-config.php and
      * bin/check-js-config.mjs.
@@ -340,6 +353,46 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
             }
 
             JSON);
+    }
+
+    /**
+     * mkCase() plus the shipped .jscpd.json, the install it requires and a
+     * composer.json whose cpd script runs the pinned binary — the clean shape
+     * each case of the consuming suites corrupts exactly one part of.
+     *
+     * @return string This test's fixture directory.
+     */
+    protected function installFixture(): string
+    {
+        $dir = $this->mkCase();
+        copy(self::root() . '/templates/jscpd.json', $dir . '/.jscpd.json');
+        self::writeJscpdInstall($dir);
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => self::JSCPD_COMMAND,
+        ]);
+
+        return $dir;
+    }
+
+    /**
+     * Writes a composer.json carrying the given `scripts` block.
+     *
+     * @param string                             $dir     The directory to write composer.json into.
+     * @param array<string, string|list<string>> $scripts The `scripts` block.
+     *
+     * @return void
+     */
+    protected static function writeComposerScripts(string $dir, array $scripts): void
+    {
+        $manifest = [
+            'name'    => 'fixture/fixture',
+            'scripts' => $scripts,
+        ];
+
+        file_put_contents(
+            $dir . '/composer.json',
+            json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
+        );
     }
 
     /**

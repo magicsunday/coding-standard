@@ -43,7 +43,8 @@ declare(strict_types=1);
  *
  * A present .jscpd.json also brings the jscpd install contract with it (GH-219,
  * bin/consumer-checks/check-jscpd-install.php): jscpd pinned to one exact version
- * in package.json, a lockfile, and no npm run from a Composer event.
+ * in package.json, a lockfile, no npm run from a Composer event, and a Composer
+ * command that runs jscpd with exactly the documented command line (GH-223).
  *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
