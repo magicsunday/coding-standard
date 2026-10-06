@@ -495,7 +495,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                     'composer.json',
                     sprintf(
                         'the script `%s` runs jscpd with a command line that differs from the documented one: %s (`%s`). The shared cpd workflow runs `%s %s %s`, so the script runs exactly that, with the scan paths in `.jscpd.json`.',
-                        safeReportValue((string) $name),
+                        safeReportValue($name),
                         $drift,
                         safeReportValue($command),
                         $documentedProgram,
@@ -512,7 +512,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 'composer.json',
                 sprintf(
                     'the script `%s` runs jscpd through npx or names a version (`%s`). Run the binary package.json pins: `node_modules/.bin/jscpd`.',
-                    safeReportValue((string) $name),
+                    safeReportValue($name),
                     safeReportValue($command)
                 )
             );
