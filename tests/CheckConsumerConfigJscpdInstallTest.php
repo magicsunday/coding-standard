@@ -15,18 +15,15 @@ use MagicSunday\CodingStandard\Test\Support\AbstractConsumerConfigTestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use RuntimeException;
 
 use function chmod;
 use function copy;
-use function count;
 use function file_put_contents;
+use function implode;
 use function json_encode;
 use function microtime;
-use function preg_match;
-use function preg_match_all;
-use function sort;
 use function str_repeat;
+use function str_split;
 use function unlink;
 
 use const JSON_PRETTY_PRINT;
@@ -37,9 +34,13 @@ use const JSON_UNESCAPED_SLASHES;
  * Fixture-driven cases for bin/consumer-checks/check-jscpd-install.php — the
  * jscpd install contract a `.jscpd.json` brings with it (GH-219): jscpd pinned
  * to one exact version in package.json's `devDependencies`, a lockfile for
- * `npm ci`, no npm or npx run from a Composer event, and no
- * jscpd run through npx or with a version in the command. The command text of
- * the cpd script is CheckConsumerConfigJscpdScriptTest. PHP gate only;
+ * `npm ci`, and no jscpd run through npx or with a version in the command,
+ * with the scrubbing of what those reports echo, plus a composer.json that
+ * cannot be read or parsed and a scripts block of odd shapes (a list, entries
+ * that are not strings).
+ * npm or npx run from a Composer event is
+ * CheckConsumerConfigJscpdInstallHooksTest and the command text of the cpd
+ * script is CheckConsumerConfigJscpdScriptTest. PHP gate only;
  * bin/check-js-config.mjs has no `.jscpd.json` counterpart. See
  * AbstractConsumerConfigTestCase for the shared scaffolding.
  *
@@ -50,41 +51,6 @@ use const JSON_UNESCAPED_SLASHES;
 #[CoversNothing]
 final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTestCase
 {
-    /**
-     * The Composer event names this suite drives a hook case for — mirrors
-     * the gate's own $composerEvents, the list of Composer events a script
-     * can hook.
-     *
-     * @var list<non-empty-string>
-     */
-    private const array PROVEN_EVENTS = [
-        'command',
-        'init',
-        'post-archive-cmd',
-        'post-autoload-dump',
-        'post-create-project-cmd',
-        'post-file-download',
-        'post-install-cmd',
-        'post-package-install',
-        'post-package-uninstall',
-        'post-package-update',
-        'post-root-package-install',
-        'post-status-cmd',
-        'post-update-cmd',
-        'pre-archive-cmd',
-        'pre-autoload-dump',
-        'pre-command-run',
-        'pre-file-download',
-        'pre-install-cmd',
-        'pre-operations-exec',
-        'pre-package-install',
-        'pre-package-uninstall',
-        'pre-package-update',
-        'pre-pool-create',
-        'pre-status-cmd',
-        'pre-update-cmd',
-    ];
-
     // -------------------------------------------------------------------
     // Fixture builders only this contract's cases use — the shared ones
     // (mkCase()/writeJscpdInstall()/...) live in AbstractConsumerConfigTestCase.
@@ -110,72 +76,6 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             $dir . '/package.json',
             json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
         );
-    }
-
-    // -------------------------------------------------------------------
-    // Gate-source extraction — this contract's lockstep table, read at
-    // runtime from the check-*.php split that declares it.
-    // -------------------------------------------------------------------
-
-    /**
-     * Extracts the gate's `$composerEvents = ['post-install-cmd', ...]`
-     * table, cross-checked against the block's plain quoted-string count.
-     * Its own reader rather than the shared extractQuotedList(), whose
-     * `[A-Za-z]+` entries cannot hold the hyphen every event name carries.
-     *
-     * @return list<non-empty-string>
-     *
-     * @throws RuntimeException If the block cannot be found, the counts disagree, or nothing parsed.
-     */
-    private static function composerEventsFromGate(): array
-    {
-        $relativePath = 'bin/consumer-checks/check-jscpd-install.php';
-        $source       = self::gateSource($relativePath);
-
-        if (preg_match('/\$composerEvents = \[(.*?)\];/s', $source, $matches) !== 1) {
-            throw new RuntimeException("could not find \$composerEvents in {$relativePath}");
-        }
-
-        preg_match_all("/'([a-z]+(?:-[a-z]+)*)'/", $matches[1], $named);
-        preg_match_all("/'[^']*'/", $matches[1], $any);
-
-        if (count($any[0]) !== count($named[1])) {
-            throw new RuntimeException(
-                'the $composerEvents block declares ' . count($any[0]) . ' entries but this test parsed '
-                . count($named[1]) . ' — widen the extractor rather than leaving one unexercised',
-            );
-        }
-
-        if ($named[1] === []) {
-            throw new RuntimeException('no entries parsed out of $composerEvents — the extraction broke');
-        }
-
-        /** @var list<non-empty-string> $events */
-        $events = $named[1];
-
-        return $events;
-    }
-
-    /**
-     * The gate's $composerEvents and this suite's PROVEN_EVENTS name the
-     * same set, in both directions: an event the gate loses is caught here,
-     * and so is one it gains without a case driving it.
-     *
-     * @return void
-     *
-     * @throws RuntimeException If the gate's list cannot be extracted.
-     */
-    #[Test]
-    public function composerEventListMatchesTheEventsThisSuiteDrives(): void
-    {
-        $fromGate = self::composerEventsFromGate();
-        $proven   = self::PROVEN_EVENTS;
-
-        sort($fromGate);
-        sort($proven);
-
-        self::assertGreaterThan(0, count($fromGate));
-        self::assertSame($proven, $fromGate, 'the gate\'s $composerEvents and PROVEN_EVENTS must name the same events');
     }
 
     // -------------------------------------------------------------------
@@ -245,14 +145,6 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * @return array<string, array{0: string}>
-     */
-    public static function otherDependencySectionProvider(): array
-    {
-        return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
-    }
-
-    /**
      * jscpd under another section rather than `devDependencies`: a CI tool is
      * not a runtime dependency, and the report names where it was found.
      */
@@ -281,6 +173,52 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
+     * Another package in a section jscpd does not belong in is nobody's
+     * business: the report is about jscpd's own declarations, so the exact dev
+     * pin beside an unrelated runtime dependency stays accepted.
+     *
+     * @param string $section The package.json section holding the unrelated package.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('otherDependencySectionProvider')]
+    public function acceptsAnotherPackageInASectionBesideTheDevPin(string $section): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {\"jscpd\": \"5.3.2\"},\n    \"{$section}\": {\"left-pad\": \"1.3.0\"}\n}\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "an unrelated package under {$section} beside the dev pin");
+    }
+
+    /**
+     * Without a jscpd declaration the report says only that one is missing:
+     * an unrelated package in another section is not where jscpd was found.
+     *
+     * @param string $section The package.json section holding the unrelated package.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('otherDependencySectionProvider')]
+    public function doesNotClaimAnUnrelatedPackageIsWhereJscpdWasDeclared(string $section): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/package.json', "{\n    \"devDependencies\": {},\n    \"{$section}\": {\"left-pad\": \"1.3.0\"}\n}\n");
+
+        $this->assertGateRejects(
+            self::phpGate(),
+            $dir,
+            'pinned to one exact version, because `.jscpd.json` is present.',
+            "no jscpd, only an unrelated package under {$section}",
+        );
+    }
+
+    /**
+     * Spellings that are no exact version: ranges, tags, aliases and sources,
+     * a prefix or a trailing newline, leading zeros, empty identifiers, a
+     * fourth numeric part and characters outside the identifier alphabet.
+     *
      * @return array<string, array{0: string}>
      */
     public static function nonExactVersionProvider(): array
@@ -305,6 +243,60 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
             '5.4.0-rc..1',
             'github:kucherenko/jscpd#v5.3.2',
             'npm:jscpd@5.3.2',
+            '5.03.2',
+            '5.3.02',
+            '1.0.0-alpha.01',
+            '1.0.0-alpha.',
+            '1.0.0+a.',
+            '1.0.0+.a',
+            '1.0.0+a..b',
+            '1.0.0-a_b',
+            '1.0.0+a_b',
+            '5.3.2.1',
+            '1x1.0.0',
+            '1.1x1.0',
+            '1.1.1x',
+            '1.0.0-1_',
+            '1.0.0-a.1_',
+            '1.0.0-a.0_a',
+            '1.0.0+a+b',
+            '1.0.0-a.a+',
+            '1.0.0-a.a.',
+            'a.0.0',
+            '0.a.0',
+            '0.0.a',
+            '-.0.0',
+            '_.0.0',
+            '0.1.1-_',
+            '0.1.1-a._',
+            '0.0.:',
+            '0.:.0',
+            '.1.1',
+            '1.1.',
+            '+.1.1',
+            '1.+.1',
+            '1.1.+',
+            '1..0.0',
+            '1.00.0',
+            '1.0.00',
+            '00.0.0',
+            '00.0',
+            '0.00',
+            '0..0',
+            '0.0..0',
+            '123',
+            '1.0.0++a',
+            '0.1.1-a.+',
+            '0.1.1-00',
+            '0.1.1-a.00',
+            '1x1.1',
+            '1.1x1',
+            '1.0.0+a.b+c',
+            '0.1.1-0.+a',
+            '0.1.1-+',
+            '0.1.1-a+',
+            '0.1.1+a.a_',
+            '0.1.1-a.a_',
         ]);
     }
 
@@ -329,20 +321,68 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
+     * Spellings of one exact version: the plain core, a zero major, components
+     * of several digits, pre-release and build metadata with several
+     * identifiers, and every character each identifier position accepts.
+     *
      * @return array<string, array{0: string}>
      */
     public static function exactVersionProvider(): array
     {
-        return self::singleArgProviderRows([
+        $digits   = '0123456789';
+        $letters  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        $alphabet = $digits . $letters . '-';
+
+        $versions = [
             '5.3.2',
             '10.0.0',
+            '0.0.0',
+            '0.1.0',
+            '5.10.0',
+            '5.3.12',
+            '100.200.300-123.12alpha',
             '5.4.0-rc.1',
             '5.4.0-beta.2+build.7',
             '5.4.0-0',
             '5.4.0-1a',
             '5.4.0-alpha-1',
             '5.3.2+a-b',
-        ]);
+            '1.0.0-a.b.c',
+            '1.0.0-a-b.c-d',
+            '1.0.0-1-1',
+            '1.0.0-a.1-1',
+            '1.0.0-a.-',
+            '1.0.0-10',
+            '1.0.0-100',
+            '1.0.0-a.101',
+            '1.0.0-12a',
+            '1.0.0-a.12a',
+            '1.0.0-rc.10',
+            '1.0.0-RC.1',
+            '1.0.0-a.bC',
+            '1.0.0-rc.1+build.5.7',
+            '1.0.0-rc.1+Build.A',
+            '1.0.0+a.b.c',
+            // Every character of each identifier position, in one row where
+            // the position repeats and one row per character where it does not.
+            '1.0.0-a' . $alphabet,
+            '1.0.0-a.a' . $alphabet,
+            '1.0.0-a.' . implode('.', str_split($letters . '-')),
+            '1.0.0-a.' . implode('.', str_split($digits)),
+            '1.0.0+' . $alphabet,
+            '1.0.0+x.' . $alphabet,
+        ];
+
+        foreach (str_split('123456789') as $digit) {
+            $versions[] = $digit . '.' . $digit . '.' . $digit;
+            $versions[] = '1.0.0-' . $digit;
+        }
+
+        foreach (str_split($letters . '-') as $leadingCharacter) {
+            $versions[] = '1.0.0-' . $leadingCharacter;
+        }
+
+        return self::singleArgProviderRows($versions);
     }
 
     /**
@@ -361,15 +401,39 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * A non-string pin is reported, not treated as absent or coerced.
+     * Values of `devDependencies.jscpd` that are not a string: a number, a
+     * list, a float, true, false and null.
+     *
+     * @return array<string, array{0: int|float|bool|list<string>|null}>
+     */
+    public static function nonStringVersionProvider(): array
+    {
+        return [
+            'integer' => [5],
+            'list'    => [['5.3.2']],
+            'float'   => [5.3],
+            'true'    => [true],
+            'false'   => [false],
+            'null'    => [null],
+        ];
+    }
+
+    /**
+     * A non-string pin is reported as such, not treated as absent or coerced
+     * into a version it might have been spelled as.
+     *
+     * @param int|float|bool|list<string>|null $version The value of `devDependencies.jscpd`.
+     *
+     * @return void
      */
     #[Test]
-    public function rejectsANonStringVersion(): void
+    #[DataProvider('nonStringVersionProvider')]
+    public function rejectsANonStringVersion(int|float|bool|array|null $version): void
     {
         $dir = $this->installFixture();
-        self::writeJscpdPin($dir, 5);
+        self::writeJscpdPin($dir, $version);
 
-        $this->assertGateRejects(self::phpGate(), $dir, '`devDependencies.jscpd` must be one exact version', 'jscpd pinned as a number');
+        $this->assertGateRejects(self::phpGate(), $dir, 'is not a string', 'jscpd pinned as a non-string');
     }
 
     /**
@@ -471,190 +535,12 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     // -------------------------------------------------------------------
-    // composer.json — Composer events
-    // -------------------------------------------------------------------
-
-    /**
-     * @return array<string, array{0: string}>
-     */
-    public static function composerEventProvider(): array
-    {
-        return self::singleArgProviderRows(self::PROVEN_EVENTS);
-    }
-
-    /**
-     * npm run from any Composer event: every `composer install` then
-     * reaches the network, outside the step that installs Node tooling.
-     *
-     * @return void
-     */
-    #[Test]
-    #[DataProvider('composerEventProvider')]
-    public function rejectsNpmFromAComposerEvent(string $event): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => self::JSCPD_COMMAND,
-            $event            => 'npm ci --no-audit --no-fund',
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, "the Composer event `{$event}` runs npm or npx", "npm ci from {$event}");
-    }
-
-    /**
-     * @return array<string, array{0: string|list<string>}>
-     */
-    public static function hookCommandProvider(): array
-    {
-        return [
-            'npm install, string'  => ['npm install jscpd@^5.0.11'],
-            'npm ci in a list'     => [['@php -r "echo 1;"', 'npm ci']],
-            'npm behind sh -c'     => ["sh -c '[ -d node_modules ] || npm ci --ignore-scripts'"],
-            'npm after ;'          => ['true;npm ci'],
-            'npm after &&'         => ['true && npm ci'],
-            'npm after ||'         => ['false||npm ci'],
-            'npm in a subshell'    => ['(npm ci)'],
-            'npm with --prefix'    => ['npm install --prefix .build jscpd@^5.0.11'],
-            'npx'                  => ['npx --yes jscpd --version'],
-            'npm alone'            => ['npm'],
-            'npm in double quotes' => ['sh -c "npm ci"'],
-            'npm behind @php'      => ['@php -r "exit(0);" && npm ci'],
-            'npm behind @composer' => ['@composer dump-autoload && npm ci'],
-            'npm by absolute path' => ['/usr/bin/npm ci'],
-            'npx by absolute path' => ['/usr/local/bin/npx --yes jscpd --version'],
-            'npm after a variable' => ['CI=1 /usr/bin/npm ci'],
-            'npm in single quotes' => ["sh -c 'npm ci'"],
-            'npm after & alone'    => ['true&npm ci'],
-            'npm in backticks'     => ['`npm ci`'],
-            'npm after a lone &'   => ['true & npm ci'],
-            'npm closed by )'      => ['(npm)'],
-            'npm closed by ;'      => ['npm;true'],
-            'npm closed by "'      => ['echo "npm"'],
-            'npm closed by a tick' => ['echo `npm`'],
-            'npm with a redirect'  => ['npm>/dev/null'],
-            'npm via IFS'          => ['npm${IFS}ci'],
-            'npm.cmd launcher'     => ['npm.cmd ci'],
-            'npx.exe launcher'     => ['npx.exe --yes jscpd --version'],
-            'npm launcher, upper'  => ['NPM.CMD ci'],
-            'npm by windows path'  => ['C:\\nodejs\\npm.cmd ci'],
-        ];
-    }
-
-    /**
-     * The spellings real consumers use to reach npm from a hook.
-     *
-     * @param string|list<string> $command The hook's value.
-     *
-     * @return void
-     */
-    #[Test]
-    #[DataProvider('hookCommandProvider')]
-    public function rejectsEachSpellingOfNpmInAHook(string|array $command): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
-            'post-install-cmd' => $command,
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', 'npm from post-install-cmd');
-    }
-
-    /**
-     * @return array<string, array{0: string}>
-     */
-    public static function hookLookalikeProvider(): array
-    {
-        return self::singleArgProviderRows([
-            '@php -r "echo 1;"',
-            'pnpm-lock-check',
-            'echo snpm',
-            '.build/bin/npmish --check',
-            'npm.cmdx --version',
-            'npm.json',
-            'npm@latest-check',
-            'echo docs/npm/readme.md',
-            'echo npm-free',
-            '@composer dump-autoload',
-        ]);
-    }
-
-    /**
-     * A command merely containing the letters, or naming a different
-     * program, is not npm.
-     *
-     * @return void
-     */
-    #[Test]
-    #[DataProvider('hookLookalikeProvider')]
-    public function acceptsAHookThatOnlyLooksLikeNpm(string $command): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'    => self::JSCPD_COMMAND,
-            'post-autoload-dump' => $command,
-        ]);
-
-        $this->assertGateAccepts(self::phpGate(), $dir, "post-autoload-dump: {$command}");
-    }
-
-    /**
-     * A hook that reaches npm through a referenced script, two levels deep,
-     * is reported with the chain that leads there.
-     */
-    #[Test]
-    public function rejectsNpmReachedThroughAReferencedScript(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => self::JSCPD_COMMAND,
-            'post-update-cmd' => ['@tools'],
-            'tools'           => ['@php -r "echo 1;"', '@tools:node'],
-            'tools:node'      => 'npm ci',
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-update-cmd` runs npm or npx through `@tools` -> `@tools:node`', 'npm via @tools -> @tools:node');
-    }
-
-    /**
-     * Scripts that reference each other in a cycle do not hang the gate,
-     * and npm inside the cycle is still found.
-     */
-    #[Test]
-    public function survivesAReferenceCycle(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
-            'post-install-cmd' => '@a',
-            'a'                => '@b',
-            'b'                => ['@a', 'npm ci'],
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', 'cycle a -> b -> a with npm in b');
-    }
-
-    /**
-     * npm in a script no Composer event runs is the contributor's own
-     * choice — the contract is about what `composer install` does on its own.
-     */
-    #[Test]
-    public function acceptsNpmInAScriptNoEventRuns(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd' => self::JSCPD_COMMAND,
-            'tools:install'   => 'npm ci',
-        ]);
-
-        $this->assertGateAccepts(self::phpGate(), $dir, 'npm ci in a script no event runs');
-    }
-
-    // -------------------------------------------------------------------
     // composer.json — how jscpd is run
     // -------------------------------------------------------------------
 
     /**
+     * Commands that run jscpd through npx or name a version: launcher spellings, paths, separators, line breaks and continuations, and versioned binaries.
+     *
      * @return array<string, array{0: string}>
      */
     public static function unpinnedJscpdRunProvider(): array
@@ -682,6 +568,8 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
+     * Commands that only resemble an unpinned run and must stay accepted: lookalike words, paths that end in jscpd and npx runs of other tools.
+     *
      * @return array<string, array{0: string}>
      */
     public static function pinnedJscpdRunProvider(): array
@@ -825,56 +713,6 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * Arguments appended to a script reference reach a shell, so npm passed
-     * that way is found although the referenced script itself is clean.
-     */
-    #[Test]
-    public function rejectsNpmPassedAsArgumentsToAReference(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
-            'post-install-cmd' => '@runner npm ci',
-            'runner'           => 'env',
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', 'npm as arguments of @runner');
-    }
-
-    /**
-     * @return array<string, array{0: string}>
-     */
-    public static function composerRunScriptProvider(): array
-    {
-        return self::singleArgProviderRows([
-            '@composer run-script fetch-tools',
-            '@composer run fetch-tools',
-            '@composer run-script --no-interaction fetch-tools',
-            '@composer fetch-tools',
-            '@composer --no-interaction run-script fetch-tools',
-            '@composer run-script --timeout 0 fetch-tools',
-        ]);
-    }
-
-    /**
-     * `@composer run-script <name>` re-enters a script like a reference, so
-     * npm inside the named script is reached from the event.
-     */
-    #[Test]
-    #[DataProvider('composerRunScriptProvider')]
-    public function rejectsNpmReEnteredThroughComposerRunScript(string $command): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, [
-            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
-            'post-install-cmd' => $command,
-            'fetch-tools'      => 'npm ci',
-        ]);
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx', "re-entry: {$command}");
-    }
-
-    /**
      * A package.json section that is not an object (a string, null) is
      * skipped, not fatal, while a `devDependencies` that is not an object
      * declares nothing.
@@ -931,65 +769,34 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     }
 
     /**
-     * The longest chain of script references the gate follows ends in npm,
-     * and the npm is reported with the chain that leads there.
-     */
-    #[Test]
-    public function followsAChainUpToTheDepthLimit(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, self::referenceChain(63));
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'the Composer event `post-install-cmd` runs npm or npx through', 'npm at the end of a chain within the limit');
-    }
-
-    /**
-     * One reference more than the limit is not followed and is reported as
-     * such, so a chain beyond the limit cannot hide npm.
-     */
-    #[Test]
-    public function reportsAChainDeeperThanTheLimit(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, self::referenceChain(64));
-
-        $this->assertGateRejects(self::phpGate(), $dir, 'a chain of script references is deeper than', 'a chain beyond the limit');
-    }
-
-    /**
-     * A chain far beyond the limit is cut off at the limit and reported once,
-     * however long a manifest within the size cap makes it.
-     */
-    #[Test]
-    public function reportsAVeryLongChainWithoutWalkingItAll(): void
-    {
-        $dir = $this->installFixture();
-        self::writeComposerScripts($dir, self::referenceChain(20_000));
-
-        $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'a chain of 20000 references');
-    }
-
-    /**
-     * A Composer event hooking a chain of the given number of references that
-     * ends in npm.
+     * A `scripts` list instead of a map gives the scripts numeric keys, which
+     * are reported by their index.
      *
-     * @param int $length The number of scripts in the chain.
-     *
-     * @return array<string, string>
+     * @return void
      */
-    private static function referenceChain(int $length): array
+    #[Test]
+    public function reportsAScriptOfAListByItsIndex(): void
     {
-        $scripts = [
-            'ci:test:php:cpd'  => self::JSCPD_COMMAND,
-            'post-install-cmd' => '@s0',
-        ];
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', "{\n    \"name\": \"fixture/fixture\",\n    \"scripts\": [\"npx jscpd --config .jscpd.json\"]\n}\n");
 
-        for ($step = 0; $step < $length; ++$step) {
-            $scripts['s' . $step] = '@s' . ($step + 1);
-        }
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `0` runs jscpd through npx', 'a script reached by a numeric key');
+    }
 
-        $scripts['s' . $length] = 'npm ci';
+    /**
+     * The command of a script that runs jscpd through npx, carrying a forged
+     * workflow command, is reported inertly.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsAForgedNpxCommandInertly(): void
+    {
+        $dir = $this->installFixture();
+        self::writeComposerScripts($dir, [
+            'ci:test:php:cpd' => "npx jscpd\n##[error]forged",
+        ]);
 
-        return $scripts;
+        $this->assertGateReportIsInert(self::phpGate(), $dir, '##?[error]forged', 'a forged npx command is scrubbed before it is reported');
     }
 }

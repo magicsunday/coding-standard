@@ -148,8 +148,8 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
     // The Composer events a script can hook (command, installer, package and
     // plugin events). A script under one of these names runs on its own during
     // `composer install`/`update` and friends, which is what the contract
-    // keeps npm out of. tests/CheckConsumerConfigJscpdInstallTest.php proves
-    // this list against the cases it drives, in both directions.
+    // keeps npm out of. tests/CheckConsumerConfigJscpdInstallHooksTest.php
+    // proves this list against the cases it drives, in both directions.
     $composerEvents = [
         'pre-install-cmd',
         'post-install-cmd',

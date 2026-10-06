@@ -50,9 +50,15 @@ use const JSON_UNESCAPED_SLASHES;
  *
  *   - check-phpunit-xml.php    -> tests/CheckConsumerConfigPhpunitXmlTest.php
  *   - check-jscpd-json.php     -> tests/CheckConsumerConfigJscpdJsonTest.php
- *   - check-jscpd-install.php  -> tests/CheckConsumerConfigJscpdInstallTest.php
- *     (the install side) and tests/CheckConsumerConfigJscpdScriptTest.php (the
- *     command text of the cpd script)
+ *   - check-jscpd-install.php  -> one class per seam of that file:
+ *     CheckConsumerConfigJscpdInstallTest (the pin, the lockfile and jscpd
+ *     run through npx, with the scrubbing of what that report echoes, and a
+ *     composer.json that cannot be read or parsed or whose scripts block has
+ *     odd shapes),
+ *     ...InstallHooksTest (npm or npx run from a Composer event, the script
+ *     reference walk and the scrubbing of the chain target and the event
+ *     command those reports echo) and CheckConsumerConfigJscpdScriptTest
+ *     (the command text of the cpd script)
  *   - check-phplint-yml.php    -> tests/CheckConsumerConfigPhplintYmlTest.php
  *   - check-editorconfig.php   -> tests/CheckConsumerConfigEditorconfigTest.php
  *   - check-deptrac-yaml.php   -> tests/CheckConsumerConfigDeptracYamlTest.php
@@ -558,6 +564,17 @@ abstract class AbstractConsumerConfigTestCase extends GateTestCase
     // -------------------------------------------------------------------
     // Data-provider rows
     // -------------------------------------------------------------------
+
+    /**
+     * The package.json sections other than `devDependencies` that a package
+     * can be declared under.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function otherDependencySectionProvider(): array
+    {
+        return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
+    }
 
     /**
      * Builds a DataProvider row set of the shape `[value => [value]]`, shared

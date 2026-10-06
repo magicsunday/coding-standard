@@ -326,14 +326,6 @@ final class CheckConsumerConfigBiomeTsconfigAdoptionTest extends AbstractConsume
     // -------------------------------------------------------------------
 
     /**
-     * @return array<string, array{0: string}>
-     */
-    public static function dependencySectionProvider(): array
-    {
-        return self::singleArgProviderRows(['dependencies', 'optionalDependencies', 'peerDependencies']);
-    }
-
-    /**
      * The adoption probe reads four dependency sections; only
      * devDependencies (used throughout the rest of this suite) was
      * exercised elsewhere. peerDependencies included: as observed on
@@ -346,7 +338,7 @@ final class CheckConsumerConfigBiomeTsconfigAdoptionTest extends AbstractConsume
      * @return void
      */
     #[Test]
-    #[DataProvider('dependencySectionProvider')]
+    #[DataProvider('otherDependencySectionProvider')]
     public function countsDependencyDeclaredUnderAlternateSectionAsAdoption(string $section): void
     {
         $dir = $this->mkCase();

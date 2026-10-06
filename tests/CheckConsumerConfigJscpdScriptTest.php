@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
 use function file_get_contents;
+use function file_put_contents;
 use function json_encode;
 use function preg_match_all;
 use function substr;
@@ -29,10 +30,13 @@ use const JSON_THROW_ON_ERROR;
  * Fixture-driven cases for the command text part of
  * bin/consumer-checks/check-jscpd-install.php (GH-223): a Composer script
  * that runs jscpd carries exactly the command line the shared cpd workflow
- * runs, so the command text of a recognised run is the one CI uses. The install part of that
- * check (the pin, the lockfile, npm and npx) is proven in
- * CheckConsumerConfigJscpdInstallTest. PHP gate only. See
- * AbstractConsumerConfigTestCase for the shared scaffolding.
+ * runs, so the command text of a recognised run is the one CI uses. The
+ * install part of that check is CheckConsumerConfigJscpdInstallTest (the pin,
+ * the lockfile and jscpd run through npx) and
+ * CheckConsumerConfigJscpdInstallHooksTest (npm or npx from a Composer event).
+ * The case where an npx finding suppresses the command text finding stays
+ * here. PHP gate only. See AbstractConsumerConfigTestCase for the shared
+ * scaffolding.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -458,5 +462,21 @@ final class CheckConsumerConfigJscpdScriptTest extends AbstractConsumerConfigTes
 
         $this->assertGateReportsOnce(self::phpGate(), $dir, 'composer.json', 'jscpd through npx');
         $this->assertGateRejects(self::phpGate(), $dir, 'runs jscpd through npx or names a version', 'jscpd through npx');
+    }
+
+    /**
+     * A script of a `scripts` list instead of a map has a numeric key, and a
+     * command line that drifts from the documented one is reported by that
+     * index.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reportsADriftingScriptOfAListByItsIndex(): void
+    {
+        $dir = $this->installFixture();
+        file_put_contents($dir . '/composer.json', "{\n    \"name\": \"fixture/fixture\",\n    \"scripts\": [\"node_modules/.bin/jscpd --config .jscpd.json\"]\n}\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the script `0` runs jscpd with a command line that differs', 'a drifting script reached by a numeric key');
     }
 }
