@@ -44,7 +44,7 @@ jobs:
 
         steps:
             - name: Set up PHP version ${{ matrix.php }}
-              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
               with:
                   php-version: ${{ matrix.php }}
                   tools: composer:v2
@@ -91,7 +91,7 @@ jobs:
             # job pins it (see that job's comment), rather than relying on
             # whatever the runner image happens to preinstall.
             - name: Set up Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
               with:
                   node-version: 24
 
@@ -266,7 +266,7 @@ jobs:
 
         steps:
             - name: Set up PHP
-              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
               with:
                   php-version: '8.3'
                   tools: composer:v2
@@ -315,7 +315,7 @@ jobs:
             # alias silently moves to the next major every October, which is the
             # same drift the tool version pins exist to prevent.
             - name: Set up Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
               with:
                   node-version: 24
 
