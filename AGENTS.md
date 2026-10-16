@@ -198,6 +198,20 @@ directory that matches how it is consumed, never at the root for convenience.
   not only the main PHPStan run: the rule extensions are pulled in by explicit
   relative `includes` in `base.neon` (not `phpstan/extension-installer`, which does
   not reach Rector's bundled PHPStan). Do not reintroduce extension-installer here.
+- **`rector/base.php` selects the PHP level through `LevelSetList`, not through Rector's
+  builder API (decision of GH-239).** Rector marks the `SetList::PHP_*` constants
+  deprecated in favour of `withPhpSets()` and `withPhpLevel()`, but the
+  `LevelSetList::UP_TO_PHP_8x` sets the factory maps to are not marked, and Rector's own
+  level files still build on the deprecated constants. The builder methods belong to
+  `RectorConfigBuilder`, not to the `RectorConfig` the factory receives, and they take a
+  flag per version of which only one may be set (`withPhpSets()`, callable once per
+  builder, and reading the PHP version from the consumer's `composer.json` when called
+  without a flag) or a rule index (`withPhpLevel()`) instead of a `PHP_VERSION_ID`. A move
+  would change the factory contract and the explicit failure for an unsupported version,
+  and an explicitly picked version acts as a ceiling there. Revisit when Rector marks
+  `LevelSetList` deprecated or a consumer reports a deprecation notice that comes from
+  the base. While this decision holds, the following command prints 0:
+  `grep -c '@deprecated' .build/vendor/rector/rector/src/Set/ValueObject/LevelSetList.php`
 - **A multi-version consumer sets `phpVersion` as a `min`/`max` range**, not a
   single value: `min` = floor, `max` = ceiling. The range narrows only the
   version-conditioned surface (`PHP_VERSION_ID`-style constants,
