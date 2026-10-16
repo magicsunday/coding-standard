@@ -478,6 +478,15 @@ the config and applies the matching version level set (`80300` → `UP_TO_PHP_83
 modernizations rather than being pinned to 8.3. State the floor once — the
 consumer no longer calls `phpVersion()` itself.
 
+The base does not list `SetList::EARLY_RETURN` and `SetList::INSTANCEOF`. Rector
+deprecates both, and from the `rector/rector` floor this package requires, the rules
+they once held live in the code-quality, type-declaration and dead-code sets the base
+already applies. The early-return rules that Rector deprecated outright
+(`ChangeNestedIfsToEarlyReturnRector`, `ChangeNestedForeachIfsToEarlyContinueRector`,
+`ChangeOrIfContinueToMultiContinueRector`, `ReturnBinaryOrToEarlyReturnRector`) are in
+none of those sets, so the base does not apply them. A repository that copied those
+two sets into its own config carries the same deprecation and can drop them.
+
 ```php
 // rector.php
 use Rector\Config\RectorConfig;
