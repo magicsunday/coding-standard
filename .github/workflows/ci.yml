@@ -213,6 +213,13 @@ jobs:
             - name: phpat preset self-test
               run: composer ci:test:phpat-preset
 
+            # Same shape and reason: CheckSymplifyModernRulesTest self-skipped under
+            # the plain "PHPUnit" step. Proves the strict tier enables symplify's
+            # `modern` rule group (GH-243), so a trait and a by-reference parameter
+            # are still reported.
+            - name: symplify modern rules self-test
+              run: composer ci:test:symplify-modern
+
             # This step sits AFTER the consumer smoke steps on purpose. A failing
             # step skips every later one, and what it catches is a documentation
             # mismatch — a release that
@@ -300,6 +307,9 @@ jobs:
 
             - name: phpat preset self-test
               run: composer ci:test:phpat-preset
+
+            - name: symplify modern rules self-test
+              run: composer ci:test:symplify-modern
 
     js:
         name: JS/TS configs

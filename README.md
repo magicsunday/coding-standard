@@ -447,6 +447,19 @@ from `LogicException`, so this inheritance clause does not reach them.
   symplify's file loaded AFTER `strict.neon`: 14.16.0 does not know the
   `symfonyConfig` key yet, and its schema then wins.
 
+  From **14.19.0** on, the trait and reference rules (`symplify.forbiddenTrait`,
+  `symplify.noReference`) and three further rules moved out of the other rule
+  files into a `modern` group with its own
+  `config/modern-rules.neon`, switched on by `symplify.modern`. A strict tier that
+  knows nothing of the group still loads, but stops reporting those rules without a
+  message, and a consumer that ignores them on purpose then fails on the unmatched
+  ignore (GH-243). `strict.neon` therefore includes the file and declares the switch,
+  and the `suggest` floor for `symplify/phpstan-rules` is `^14.19`, because the
+  include does not resolve below it. 14.19.1 no longer requires PHP 8.4, so the PHP 8.3
+  line above is not capped at 14.10 for it. `CheckSymplifyModernRulesTest` proves the
+  group is on by requiring a trait use and a by-reference parameter to be reported
+  through the strict tier.
+
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
 flagged as "too wide" — PHPStan treats a supertype `@throws` as valid. A `catch`

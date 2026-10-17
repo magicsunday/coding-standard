@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/coding-standard.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\CodingStandard\Fixture\SymplifyModern;
+
+/**
+ * The trait `ModernRulesFixture` uses.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/MIT
+ * @link    https://github.com/magicsunday/coding-standard/
+ */
+trait ModernRulesTrait
+{
+    /**
+     * @return string
+     */
+    public function label(): string
+    {
+        return 'label';
+    }
+}
