@@ -170,10 +170,10 @@ The three `require`d rule packages `base.neon` includes (`phpstan/phpstan-strict
 fresh with Composer's normal (not `--prefer-lowest`) resolver, which lands well above
 the floor. The "Prefer-lowest floor check" job in `.github/workflows/ci.yml` is the
 one job that exercises the actual `^2.0` constraint: `phpstan/phpstan` itself cannot
-resolve below `2.2.0` there — this package's own `^2.2` floor (see the "Checked
+resolve below `2.3.0` there — this package's own `^2.3` floor (see the "Checked
 exceptions" section below) makes any lower `phpstan/phpstan` unsatisfiable for a
 consumer of this package — so the three rule packages' floors are only ever exercised
-paired with `phpstan/phpstan` 2.2.0+.
+paired with `phpstan/phpstan` 2.3.0+.
 
 ```neon
 # phpstan.neon
@@ -402,12 +402,12 @@ from `LogicException`, so this inheritance clause does not reach them.
   release's own changelog: `curl -s
   https://api.github.com/repos/phpstan/phpstan/releases/tags/2.1.31` lists it
   under "New config parameter") — this package's own `composer.json` pins
-  `^2.2` for exactly that reason, and that floor is exercised on every push/PR
-  by the "Prefer-lowest floor check" job in `.github/workflows/ci.yml`: its
-  `composer update --with-all-dependencies --prefer-lowest` in `tests/consumer`
-  resolves `phpstan/phpstan` to 2.2.0/2.2.6 depending on the rest of the
-  dependency graph, and the same job's checked-exceptions self-test passes
-  against it. A consumer that separately pins an older `phpstan/phpstan` gets a
+  `^2.3` (2.1.31 is the first release with the parameter, 2.3 the first that
+  the strict tier's `symplify/phpstan-rules` 14.19 accepts), and that floor is
+  exercised on every push/PR by the "Prefer-lowest floor check" job in
+  `.github/workflows/ci.yml`: its `composer update --with-all-dependencies
+  --prefer-lowest` in `tests/consumer` resolves `phpstan/phpstan` to its `2.3`
+  floor, and the same job's checked-exceptions self-test passes against it. A consumer that separately pins an older `phpstan/phpstan` gets a
   hard "Unexpected item" config-load error on this key.
 
   The same failure shape separately hit `symplify/phpstan-rules` during GH-139's
