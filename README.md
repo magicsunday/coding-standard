@@ -424,24 +424,24 @@ from `LogicException`, so this inheritance clause does not reach them.
   minor per PHP version, not one uniform release: `symplify/phpstan-rules`
   raised its own floor to `php: ^8.4` at 14.11.0 (observed 2026-09-03 via
   `curl -s https://repo.packagist.org/p2/symplify/phpstan-rules.json`), so a
-  PHP 8.3 consumer's resolver is capped at 14.10.x while PHP 8.4/8.5 get the
-  newest 14.x for a `^14.7` constraint — this repository's own CI matrix
-  (8.3/8.4/8.5) exercised both lines. That cap no longer applies to the `^14.19`
-  floor, see the 14.19.0 paragraph below.
+  PHP 8.3 consumer's resolver was capped at 14.10.x while PHP 8.4/8.5 got the
+  newest 14.x for a `^14.7` constraint. This repository's own CI matrix
+  (8.3/8.4/8.5) exercised both lines. That was the situation until 14.18.0 and
+  is history for the `^14.19` floor, see the 14.19.0 paragraph below.
 
   From **14.16.0** on, `symplify/phpstan-rules` switches each rule file on
   through a `%symplify.<set>%` parameter (`symplify.complexity`,
   `symplify.naming`, …) declared only in its own
   `config/phpstan-extensions.neon`, and every 14.16+ install of `strict.neon`
   failed to load with `Missing parameter 'symplify.complexity'` (observed
-  2026-09-26, 14.16.0 and 14.17.0). That file cannot simply be included: it
-  does not exist before 14.16, and the PHP 8.3 line above never reaches it.
-  `strict.neon` therefore declares the parameters for the rule files it
+  2026-09-26, 14.16.0 and 14.17.0). At that time the file could not simply be
+  included: it does not exist before 14.16, and the PHP 8.3 line above never
+  reached it. `strict.neon` therefore declares the parameters for the rule files it
   includes itself, with a permissive `arrayOf(bool())` schema — symplify's own
   fixed `structure()` would reject the keys the other one sets whenever a
   consumer also loads symplify's file (e.g. via `phpstan/extension-installer`).
-  Verified by installing 14.7.0, 14.10.0, 14.15.0, 14.16.0 and 14.17.0 into
-  `tests/consumer` and checking that a `symplify.noDynamicName` finding is
+  Verified, before the floor moved to 14.19, by installing 14.7.0, 14.10.0,
+  14.15.0, 14.16.0 and 14.17.0 into `tests/consumer` and checking that a `symplify.noDynamicName` finding is
   reported through `strict.neon` on each. The same finding is also reported
   with symplify's own file loaded before `strict.neon`, and on 14.17.0 with it
   loaded after. The one combination that does not load is 14.16.0 with
