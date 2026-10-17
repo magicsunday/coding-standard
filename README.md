@@ -170,10 +170,10 @@ The three `require`d rule packages `base.neon` includes (`phpstan/phpstan-strict
 fresh with Composer's normal (not `--prefer-lowest`) resolver, which lands well above
 the floor. The "Prefer-lowest floor check" job in `.github/workflows/ci.yml` is the
 one job that exercises the actual `^2.0` constraint: `phpstan/phpstan` itself cannot
-resolve below `2.2.0` there — this package's own `^2.2` floor (see the "Checked
+resolve below `2.3.0` there — this package's own `^2.3` floor (see the "Checked
 exceptions" section below) makes any lower `phpstan/phpstan` unsatisfiable for a
 consumer of this package — so the three rule packages' floors are only ever exercised
-paired with `phpstan/phpstan` 2.2.0+.
+paired with `phpstan/phpstan` 2.3.0+.
 
 ```neon
 # phpstan.neon
@@ -402,12 +402,12 @@ from `LogicException`, so this inheritance clause does not reach them.
   release's own changelog: `curl -s
   https://api.github.com/repos/phpstan/phpstan/releases/tags/2.1.31` lists it
   under "New config parameter") — this package's own `composer.json` pins
-  `^2.2` for exactly that reason, and that floor is exercised on every push/PR
-  by the "Prefer-lowest floor check" job in `.github/workflows/ci.yml`: its
-  `composer update --with-all-dependencies --prefer-lowest` in `tests/consumer`
-  resolves `phpstan/phpstan` to 2.2.0/2.2.6 depending on the rest of the
-  dependency graph, and the same job's checked-exceptions self-test passes
-  against it. A consumer that separately pins an older `phpstan/phpstan` gets a
+  `^2.3` (2.1.31 is the first release with the parameter, 2.3 the first that
+  the strict tier's `symplify/phpstan-rules` 14.19 accepts), and that floor is
+  exercised on every push/PR by the "Prefer-lowest floor check" job in
+  `.github/workflows/ci.yml`: its `composer update --with-all-dependencies
+  --prefer-lowest` in `tests/consumer` resolves `phpstan/phpstan` to its `2.3`
+  floor, and the same job's checked-exceptions self-test passes against it. A consumer that separately pins an older `phpstan/phpstan` gets a
   hard "Unexpected item" config-load error on this key.
 
   The same failure shape separately hit `symplify/phpstan-rules` during GH-139's
@@ -424,28 +424,43 @@ from `LogicException`, so this inheritance clause does not reach them.
   minor per PHP version, not one uniform release: `symplify/phpstan-rules`
   raised its own floor to `php: ^8.4` at 14.11.0 (observed 2026-09-03 via
   `curl -s https://repo.packagist.org/p2/symplify/phpstan-rules.json`), so a
-  PHP 8.3 consumer's resolver is capped at 14.10.x while PHP 8.4/8.5 get the
-  newest 14.x — this repository's own CI matrix (8.3/8.4/8.5) exercises both
-  lines every run, both inside the verified-working `14.7.0+` range.
+  PHP 8.3 consumer's resolver was capped at 14.10.x while PHP 8.4/8.5 got the
+  newest 14.x for a `^14.7` constraint. This repository's own CI matrix
+  (8.3/8.4/8.5) exercised both lines. That was the situation until 14.18.0 and
+  is history for the `^14.19` floor, see the 14.19.0 paragraph below.
 
   From **14.16.0** on, `symplify/phpstan-rules` switches each rule file on
   through a `%symplify.<set>%` parameter (`symplify.complexity`,
   `symplify.naming`, …) declared only in its own
   `config/phpstan-extensions.neon`, and every 14.16+ install of `strict.neon`
   failed to load with `Missing parameter 'symplify.complexity'` (observed
-  2026-09-26, 14.16.0 and 14.17.0). That file cannot simply be included: it
-  does not exist before 14.16, and the PHP 8.3 line above never reaches it.
-  `strict.neon` therefore declares the parameters for the rule files it
+  2026-09-26, 14.16.0 and 14.17.0). At that time the file could not simply be
+  included: it does not exist before 14.16, and the PHP 8.3 line above never
+  reached it. `strict.neon` therefore declares the parameters for the rule files it
   includes itself, with a permissive `arrayOf(bool())` schema — symplify's own
   fixed `structure()` would reject the keys the other one sets whenever a
   consumer also loads symplify's file (e.g. via `phpstan/extension-installer`).
-  Verified by installing 14.7.0, 14.10.0, 14.15.0, 14.16.0 and 14.17.0 into
-  `tests/consumer` and checking that a `symplify.noDynamicName` finding is
+  Verified, before the floor moved to 14.19, by installing 14.7.0, 14.10.0,
+  14.15.0, 14.16.0 and 14.17.0 into `tests/consumer` and checking that a `symplify.noDynamicName` finding is
   reported through `strict.neon` on each. The same finding is also reported
   with symplify's own file loaded before `strict.neon`, and on 14.17.0 with it
   loaded after. The one combination that does not load is 14.16.0 with
   symplify's file loaded AFTER `strict.neon`: 14.16.0 does not know the
   `symfonyConfig` key yet, and its schema then wins.
+
+  From **14.19.0** on, the trait and reference rules (`symplify.forbiddenTrait`,
+  `symplify.noReference`) and further rules moved out of the other rule
+  files into a `modern` group with its own
+  `config/modern-rules.neon`, switched on by `symplify.modern`. A strict tier that
+  knows nothing of the group still loads, but stops reporting those rules without a
+  message, and a consumer that ignores them on purpose then fails on the unmatched
+  ignore (GH-243). `strict.neon` therefore includes the file and declares the switch,
+  and the `suggest` floor for `symplify/phpstan-rules` is `^14.19`, because the
+  include does not resolve below it. Since 14.18.0 the package no longer requires
+  PHP 8.4 (re-derive with the Packagist query above), so a PHP 8.3 consumer is not
+  capped at 14.10 for `^14.19`. `CheckSymplifyModernRulesTest` proves the
+  group is on by requiring a trait use and a by-reference parameter to be reported
+  through the strict tier.
 
 A `@throws` naming an ANCESTOR of what's actually thrown (e.g. `@throws
 \RuntimeException` where the body throws a subclass) is accepted as correct, not
