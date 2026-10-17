@@ -331,9 +331,11 @@ directory that matches how it is consumed, never at the root for convenience.
   `tests/consumer/.build/vendor/magicsunday/coding-standard` is a copy. A change to
   `phpstan/*.neon` or another shared config reaches a fixture run only after that copy
   is installed again, and a "red before the change" run against a stale copy looks
-  exactly like a config that does nothing. Reinstall with `composer update` in
-  `tests/consumer` after such a change, and run a multi-version matrix in an isolated
-  copy of the repository, never in the checkout that other tools share.
+  exactly like a config that does nothing. Refresh the copy with
+  Composer's `reinstall` command for `magicsunday/coding-standard`, run inside
+  `tests/consumer`, after such a change (a plain `update` leaves it as it was) and
+  check that the edit shows up in the installed file. Run a multi-version matrix in an isolated copy of the
+  repository, never in the checkout that other tools share.
 - **Raising a floor in the fixture or in `suggest` can move other floors.** A newer
   rule pack can require a newer `phpstan/phpstan`, and then the prefer-lowest job no
   longer resolves the floor this package declares. After such a change read the versions
