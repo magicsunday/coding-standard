@@ -12,13 +12,13 @@ declare(strict_types=1);
 namespace MagicSunday\CodingStandard\Fixture\SymplifyModern;
 
 /**
- * A deliberately non-conformant class: it uses a trait and takes a parameter by
+ * A deliberately non-conformant class. It uses a trait and takes a parameter by
  * reference, the two constructs `symplify.forbiddenTrait` and `symplify.noReference`
  * report. From symplify/phpstan-rules 14.19 on both rules sit in the `modern`
  * group, so the self-test asserting that they fire proves `strict.neon` switches
  * that group on.
  *
- * It lives outside `src/` on purpose: the php-cs-fixer and Rector consumer smoke
+ * It lives outside `src/` on purpose. The php-cs-fixer and Rector consumer smoke
  * runs are scoped to `src/`, so this fixture cannot disturb them.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -30,7 +30,9 @@ final class ModernRulesFixture
     use ModernRulesTrait;
 
     /**
-     * @param int $counter
+     * Increments the counter in place.
+     *
+     * @param int $counter The counter incremented through the reference under test.
      *
      * @return void
      */

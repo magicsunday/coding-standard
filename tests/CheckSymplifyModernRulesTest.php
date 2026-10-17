@@ -21,12 +21,12 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 /**
  * Proves that the strict tier switches on the `modern` rule group of
- * symplify/phpstan-rules (GH-243): from 14.19 on, `symplify.forbiddenTrait` and
+ * symplify/phpstan-rules (GH-243). From 14.19 on, `symplify.forbiddenTrait` and
  * `symplify.noReference` live in that group's own rule file, which the strict tier
  * has to include and enable itself. A tier that forgets it loads cleanly and
  * enforces neither rule, so the only proof is a run that must report both.
  *
- * Same shape as CheckPhpatPresetTest; see AbstractConsumerPhpstanGateTestCase for
+ * Same shape as CheckPhpatPresetTest. See AbstractConsumerPhpstanGateTestCase for
  * why every test self-skips via setUp() until tests/consumer is installed.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -37,11 +37,15 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 final class CheckSymplifyModernRulesTest extends AbstractConsumerPhpstanGateTestCase
 {
     /**
-     * Memoized across every test in this class; see strictResult().
+     * Memoized across every test in this class. See strictResult().
      */
     private static ?GateResult $strictResult = null;
 
     /**
+     * The strict tier must report the fixture's trait use (symplify.forbiddenTrait).
+     * That rule lives in the modern group, so this proves the group is switched on
+     * and not merely loaded.
+     *
      * @return void
      */
     #[Test]
@@ -58,6 +62,9 @@ final class CheckSymplifyModernRulesTest extends AbstractConsumerPhpstanGateTest
     }
 
     /**
+     * The strict tier must report the fixture's by-reference parameter
+     * (symplify.noReference), the second rule of the modern group.
+     *
      * @return void
      */
     #[Test]
@@ -74,6 +81,8 @@ final class CheckSymplifyModernRulesTest extends AbstractConsumerPhpstanGateTest
     }
 
     /**
+     * One phpstan run is shared by both tests.
+     *
      * @return GateResult The strict-tier run against the symplify-modern fixture, memoized.
      *
      * @throws ProcessStartFailedException If the phpstan process could not be started.

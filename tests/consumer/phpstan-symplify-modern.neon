@@ -1,6 +1,6 @@
 # CI fixture: includes the shared STRICT tier exactly as a consumer does, scoped to
 # the `symplify-modern/` fixture directory (a trait and a by-reference parameter).
-# This run is EXPECTED TO FAIL — `tests/CheckSymplifyModernRulesTest.php` asserts that
+# This run is EXPECTED TO FAIL. `tests/CheckSymplifyModernRulesTest.php` asserts that
 # the strict tier reports both, which proves it switches on symplify's `modern` rule
 # group (`symplify.forbiddenTrait`, `symplify.noReference`).
 includes:

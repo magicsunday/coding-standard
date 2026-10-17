@@ -425,8 +425,9 @@ from `LogicException`, so this inheritance clause does not reach them.
   raised its own floor to `php: ^8.4` at 14.11.0 (observed 2026-09-03 via
   `curl -s https://repo.packagist.org/p2/symplify/phpstan-rules.json`), so a
   PHP 8.3 consumer's resolver is capped at 14.10.x while PHP 8.4/8.5 get the
-  newest 14.x — this repository's own CI matrix (8.3/8.4/8.5) exercises both
-  lines every run, both inside the verified-working `14.7.0+` range.
+  newest 14.x for a `^14.7` constraint — this repository's own CI matrix
+  (8.3/8.4/8.5) exercised both lines. That cap no longer applies to the `^14.19`
+  floor, see the 14.19.0 paragraph below.
 
   From **14.16.0** on, `symplify/phpstan-rules` switches each rule file on
   through a `%symplify.<set>%` parameter (`symplify.complexity`,
@@ -448,15 +449,16 @@ from `LogicException`, so this inheritance clause does not reach them.
   `symfonyConfig` key yet, and its schema then wins.
 
   From **14.19.0** on, the trait and reference rules (`symplify.forbiddenTrait`,
-  `symplify.noReference`) and three further rules moved out of the other rule
+  `symplify.noReference`) and further rules moved out of the other rule
   files into a `modern` group with its own
   `config/modern-rules.neon`, switched on by `symplify.modern`. A strict tier that
   knows nothing of the group still loads, but stops reporting those rules without a
   message, and a consumer that ignores them on purpose then fails on the unmatched
   ignore (GH-243). `strict.neon` therefore includes the file and declares the switch,
   and the `suggest` floor for `symplify/phpstan-rules` is `^14.19`, because the
-  include does not resolve below it. 14.19.1 no longer requires PHP 8.4, so the PHP 8.3
-  line above is not capped at 14.10 for it. `CheckSymplifyModernRulesTest` proves the
+  include does not resolve below it. Since 14.18.0 the package no longer requires
+  PHP 8.4 (re-derive with the Packagist query above), so a PHP 8.3 consumer is not
+  capped at 14.10 for `^14.19`. `CheckSymplifyModernRulesTest` proves the
   group is on by requiring a trait use and a by-reference parameter to be reported
   through the strict tier.
 

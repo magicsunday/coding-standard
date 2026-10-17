@@ -21,6 +21,8 @@ namespace MagicSunday\CodingStandard\Fixture\SymplifyModern;
 trait ModernRulesTrait
 {
     /**
+     * Returns a constant label.
+     *
      * @return string
      */
     public function label(): string
