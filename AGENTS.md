@@ -326,6 +326,22 @@ directory that matches how it is consumed, never at the root for convenience.
   config may depend on the choice: `base.neon` reaches its sibling rule packs with
   `../../../`, resolved from the package's own position, so both layouts work and the
   fixture proves it.
+- **The consumer fixture runs against an installed copy of this package.**
+  `tests/consumer` takes the package from a path repository with `symlink: false`, so
+  `tests/consumer/.build/vendor/magicsunday/coding-standard` is a copy. A change to
+  `phpstan/*.neon` or another shared config reaches a fixture run only after that copy
+  is installed again, and a "red before the change" run against a stale copy looks
+  exactly like a config that does nothing. Refresh the copy with
+  Composer's `reinstall` command for `magicsunday/coding-standard`, run inside
+  `tests/consumer`, after such a change (a plain `update` leaves it as it was) and
+  check that the edit shows up in the installed file. Run a multi-version matrix in an isolated copy of the
+  repository, never in the checkout that other tools share.
+- **Raising a floor in the fixture or in `suggest` can move other floors.** A newer
+  rule pack can require a newer `phpstan/phpstan`, and then the prefer-lowest job no
+  longer resolves the floor this package declares. After such a change read the versions
+  the prefer-lowest run resolves, adjust the declared floor to what that job exercises,
+  and rework in the same commit every README paragraph that names the same floor or the
+  same version history, so that no older paragraph contradicts the new one.
 - **Every gate invoked as a single command has exactly one definition, and CI invokes
   that one.** The manifest declaring the gate is the definition — `composer.json` for
   the PHP gates, `package.json` for the JS one, since the `js` job runs without PHP. A
