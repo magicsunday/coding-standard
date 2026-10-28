@@ -41,7 +41,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.15",
-        "jscpd": "5.4.0",
+        "jscpd": "5.4.1",
         "typescript": "7.0.2"
     },
     "peerDependencies": {

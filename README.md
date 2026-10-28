@@ -64,7 +64,7 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.5.15`,
-`typescript 7.0.2`, `jscpd 5.4.0`) and are what Dependabot tracks — `peerDependencies` are not parsed
+`typescript 7.0.2`, `jscpd 5.4.1`) and are what Dependabot tracks — `peerDependencies` are not parsed
 by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
 widened by hand once a bump is green.
 
@@ -1136,7 +1136,7 @@ PHP toolchain. Every repository that carries a `.jscpd.json` installs and runs i
 same way (GH-219):
 
 1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
-   `devDependencies` with one exact version (`"jscpd": "5.4.0"`, not `^5.4.0`), and the
+   `devDependencies` with one exact version (`"jscpd": "5.4.1"`, not `^5.4.1`), and the
    lockfile `package-lock.json` is present (by that name: the shared cpd workflow
    requires it, so an `npm-shrinkwrap.json` alone does not count). The version
    lives nowhere else, not in another dependency section and not in a Composer script, so
