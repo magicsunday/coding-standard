@@ -33,8 +33,8 @@ use function str_replace;
 use function str_starts_with;
 
 /**
- * Meta-tests proving GateTestCase's own decisions are wired correctly —
- * the PHPUnit-native replacement for tests/harness.sh's
+ * Meta-tests proving GateTestCase's own decisions are wired correctly. They
+ * are the PHPUnit-native replacement for tests/harness.sh's
  * harness_probe_assert_shapes/harness_probe_inert_shapes, which existed only
  * because bash's manually-incremented counter needed proving; here a failed
  * assertion is a real thrown AssertionFailedError, which IS the proof.
@@ -1279,6 +1279,24 @@ final class GateTestCaseTest extends GateTestCase
             ['php', '-r', 'fwrite(STDOUT, "  - biome.json: carries forged text\n"); exit(1);'],
             $this->fixture()->path(),
             'forged',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportOmits shows the caller message when the
+     * forbidden text is found, so the failing case is named in the output.
+     */
+    #[Test]
+    public function assertGateReportOmitsFailsWithTheCallerMessage(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('the padded marker case', '/') . '/');
+
+        $this->assertGateReportOmits(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: carries forged text\n"); exit(1);'],
+            $this->fixture()->path(),
+            'forged',
+            'the padded marker case',
         );
     }
 }

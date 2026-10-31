@@ -37,7 +37,7 @@ use function substr;
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
  * per-test fixture directory and the accept/reject/usage-error/
- * report-is-inert/reports-once/report-omits decisions as real PHPUnit assertions —
+ * report-is-inert/reports-once/report-omits decisions as real PHPUnit assertions,
  * ported from tests/harness.sh's harness_decide_* functions. A failed
  * decision throws a real AssertionFailedError; there is no counter to wire
  * up and no bookkeeping self-probe to write, unlike the bash original.
@@ -352,7 +352,11 @@ abstract class GateTestCase extends TestCase
     ): void {
         $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
 
-        self::assertOutputDoesNotContain($result, $forbiddenSubstring, 'A consumer value reached the report.');
+        self::assertOutputDoesNotContain(
+            $result,
+            $forbiddenSubstring,
+            $message !== '' ? $message : 'A consumer value reached the report.',
+        );
     }
 
     /**
@@ -399,11 +403,12 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
-     * The drift-verdict shape shared by assertGateRejects() and
-     * assertGateReportsOnce(): exit 1, not degraded. Names the (1, 'the
-     * drift verdict') pair once instead of repeating it at each call site;
-     * assertGateReportIsInert() calls runAndAssertVerdict() directly, since
-     * its expected exit code is a parameter.
+     * The drift-verdict shape shared by assertGateRejects(),
+     * assertGateReportsOnce() and assertGateReportOmits(): exit 1, not
+     * degraded. Names the (1, 'the drift verdict') pair once instead of
+     * repeating it at each call site. assertGateReportIsInert() calls
+     * runAndAssertVerdict() directly, since its expected exit code is a
+     * parameter.
      *
      * @param list<string> $command    The interpreter and gate script.
      * @param string       $fixtureDir The directory to run the gate against.
