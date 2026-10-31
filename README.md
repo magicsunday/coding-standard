@@ -976,7 +976,7 @@ from drifting from this package.
 | Template | Copy to | Notes |
 |---|---|---|
 | `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set (the `failOn*` set and `beStrictAboutOutputDuringTests`); `requireCoverageMetadata` and `beStrictAboutCoverageMetadata` are optional and not in the template, a repository with a hard coverage percentage may add them; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
-| `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
+| `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true` and no minimum score. The gate runs on the changed lines, see the next section |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
@@ -985,6 +985,26 @@ from drifting from this package.
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 | `templates/testing-policy.vN.md` | the block inside `AGENTS.md` | the testing policy text, copied between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. The lockstep gate compares the text between the markers with the template of the version named in the begin marker. Text outside the markers is the repository's own. Every released version stays in `templates/`, so a repository moves to a new version when it chooses to |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
+
+### Mutation testing gate on the changed lines
+
+The Infection template sets no `minMsi` and no `minCoveredMsi`. A fixed minimum over the whole tree rewards tests that only kill a mutant in a getter, a literal, a default or a call order, so the full-tree run only reports its score. The gate runs on the lines a pull request changes. The consumer wires it as a composer script that leaves the base to the caller:
+
+```json
+"scripts": {
+    "ci:test:php:infection:changed": [
+        "XDEBUG_MODE=coverage GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false infection --threads=max --no-progress --no-interaction --git-diff-lines --min-covered-msi=80 --ignore-msi-with-no-mutations"
+    ]
+}
+```
+
+On a pull request the consumer's own CI workflow checks out the full history and calls the script with `--git-diff-base="origin/${BASE_REF}"`, where `BASE_REF` comes from the base branch through an `env` variable and not through an expression inside `run`. Every other event runs the full-tree script `ci:test:php:infection` and only reports.
+
+Things to know before relying on it:
+
+- By default Infection mutates only code that a test executes, and the covered score that the gate uses leaves untested mutants out in any case. New code that no test reaches therefore passes the gate, so reaching it stays a matter of test coverage. Only the plain score of `--min-msi` counts untested mutants, and together with `--with-uncovered` it would block legitimate seams, for example a wrapper around a global helper whose body no test reaches.
+- `--git-diff-lines` applies Infection's own filter for added and modified files and cannot be combined with `--git-diff-filter`. With Git's rename detection a renamed and changed file is listed as renamed and would be skipped, hence the `GIT_CONFIG_*` variables. A renamed file then counts as added and is checked in full, a pure move included.
+- The floor in the example is a starting point and not a rule for other repositories. Measure the covered score of the changed lines on recent merges before picking a value.
 
 ### Lockstep gate — `bin/check-consumer-config.php`
 
