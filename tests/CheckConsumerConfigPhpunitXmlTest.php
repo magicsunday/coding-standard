@@ -177,7 +177,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         $dir = $this->mkCase();
         $xml = (string) file_get_contents($dir . '/phpunit.xml');
 
-        self::assertStringContainsString("{$flag}=\"true\"", $xml, "the canon phpunit.xml does not carry {$flag}, so this case modifies nothing");
+        self::assertCanonSetsEveryFlag($xml, [$flag]);
 
         file_put_contents($dir . '/phpunit.xml', str_replace("{$flag}=\"true\"", "{$flag}=\"false\"", $xml));
 
@@ -195,9 +195,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         $dir = $this->mkCase();
         $xml = (string) file_get_contents($dir . '/phpunit.xml');
 
-        foreach (self::OPTIONAL_COVERAGE_FLAGS as $flag) {
-            self::assertStringContainsString("{$flag}=\"true\"", $xml, "the canon phpunit.xml does not carry {$flag}");
-        }
+        self::assertCanonSetsEveryFlag($xml, self::OPTIONAL_COVERAGE_FLAGS);
 
         $this->assertGateAccepts(self::phpGate(), $dir, 'phpunit.xml that keeps both optional coverage flags');
     }
@@ -219,7 +217,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         self::assertSame([], array_diff(self::REQUIRED_ROOT_FLAGS, $gateFlags), 'the gate no longer requires a phpunit.xml attribute this suite proves');
         self::assertSame([], array_diff($gateFlags, self::REQUIRED_ROOT_FLAGS), 'the gate requires a phpunit.xml attribute this suite does not drive');
 
-        self::assertCanonSetsEveryRequiredFlag((string) file_get_contents(self::canon() . '/phpunit.xml'));
+        self::assertCanonSetsEveryFlag((string) file_get_contents(self::canon() . '/phpunit.xml'));
     }
 
     /**
@@ -228,14 +226,15 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
      * $canonXml: assertStringContainsString() would re-embed the whole
      * PR-editable haystack, see the regression test below.
      *
-     * @param string $canonXml The canon phpunit.xml's content.
+     * @param string       $canonXml The canon phpunit.xml's content.
+     * @param list<string> $flags    The flags that must all be set to "true", the required set by default.
      *
      * @return void
      */
-    private static function assertCanonSetsEveryRequiredFlag(string $canonXml): void
+    private static function assertCanonSetsEveryFlag(string $canonXml, array $flags = self::REQUIRED_ROOT_FLAGS): void
     {
         $unset = array_values(array_filter(
-            self::REQUIRED_ROOT_FLAGS,
+            $flags,
             static fn (string $flag): bool => !str_contains($canonXml, "{$flag}=\"true\""),
         ));
 
@@ -258,9 +257,9 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
     public function aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage(): void
     {
         $thrown = self::assertThrows(
-            static fn () => self::assertCanonSetsEveryRequiredFlag("<!--\n::error::forged\n##[error]forged\n-->"),
+            static fn () => self::assertCanonSetsEveryFlag("<!--\n::error::forged\n##[error]forged\n-->"),
             AssertionFailedError::class,
-            'assertCanonSetsEveryRequiredFlag() accepted XML that sets no required flag.',
+            'assertCanonSetsEveryFlag() accepted XML that sets no required flag.',
         );
 
         if (str_contains($thrown->getMessage(), 'forged')) {
@@ -283,13 +282,41 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         ));
 
         $thrown = self::assertThrows(
-            static fn () => self::assertCanonSetsEveryRequiredFlag($xml),
+            static fn () => self::assertCanonSetsEveryFlag($xml),
             AssertionFailedError::class,
-            'assertCanonSetsEveryRequiredFlag() accepted a canon that sets a required flag to false.',
+            'assertCanonSetsEveryFlag() accepted a canon that sets a required flag to false.',
         );
 
         if (!str_contains($thrown->getMessage(), $wrong)) {
             self::fail("The rejection did not name the flag {$wrong}.");
+        }
+    }
+
+    /**
+     * The flag list the helper is given decides what it checks: a canon that
+     * sets every required flag but neither optional one is rejected when the
+     * optional flags are asked for, and the rejection names them. Without
+     * this, a helper that ignored its list would pass every optional-flag
+     * guard above whatever the canon carries.
+     */
+    #[Test]
+    public function aCanonCheckHonoursTheFlagListItIsGiven(): void
+    {
+        $xml = implode(' ', array_map(
+            static fn (string $flag): string => $flag . '="true"',
+            self::REQUIRED_ROOT_FLAGS,
+        ));
+
+        $thrown = self::assertThrows(
+            static fn () => self::assertCanonSetsEveryFlag($xml, self::OPTIONAL_COVERAGE_FLAGS),
+            AssertionFailedError::class,
+            'assertCanonSetsEveryFlag() accepted a canon that sets none of the flags it was asked for.',
+        );
+
+        foreach (self::OPTIONAL_COVERAGE_FLAGS as $flag) {
+            if (!str_contains($thrown->getMessage(), $flag)) {
+                self::fail("The rejection did not name the flag {$flag}.");
+            }
         }
     }
 
