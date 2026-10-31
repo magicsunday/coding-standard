@@ -92,6 +92,7 @@ final class CheckConsumerConfigTest extends AbstractConsumerConfigTestCase
             '.phplint.yml',
             '.editorconfig',
             'deptrac.yaml',
+            'AGENTS.md',
         ]);
     }
 
@@ -134,6 +135,28 @@ final class CheckConsumerConfigTest extends AbstractConsumerConfigTestCase
             $this->assertGateReportsOnce(self::phpGate(), $dir, '.phplint.yml', 'an unreadable .phplint.yml fabricates no content drift');
         } finally {
             chmod($dir . '/.phplint.yml', 0o644);
+        }
+    }
+
+    /**
+     * The AGENTS.md counterpart: an unreadable file reports only that it cannot
+     * be read and the gate fabricates no missing-block finding on top of it.
+     */
+    #[Test]
+    public function rejectsUnreadableAgentsMdAndFabricatesNoBlockDrift(): void
+    {
+        $this->skipIfRunningAsRoot();
+
+        $dir      = $this->mkCase();
+        $template = (string) file_get_contents(self::root() . '/tests/consumer/AGENTS.md');
+        file_put_contents($dir . '/AGENTS.md', $template);
+        chmod($dir . '/AGENTS.md', 0o000);
+
+        try {
+            $this->assertGateRejects(self::phpGate(), $dir, 'AGENTS.md: exists but cannot be read', 'an unreadable AGENTS.md reports only that it cannot be read');
+            $this->assertGateReportsOnce(self::phpGate(), $dir, 'AGENTS.md', 'an unreadable AGENTS.md fabricates no block drift');
+        } finally {
+            chmod($dir . '/AGENTS.md', 0o644);
         }
     }
 
