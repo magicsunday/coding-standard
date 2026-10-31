@@ -81,7 +81,7 @@ use const JSON_UNESCAPED_SLASHES;
  * dispatch is a handful of straight-line PHP method calls with no shell
  * quoting, `set -e`/pipefail interaction or argument-forwarding trick behind
  * them. GateTestCase's own meta-suite (GateTestCaseTest) already proves its
- * five assertGate*() decisions generically, the same way GH-81's port
+ * assertGate*() decisions generically, the same way GH-81's port
  * reasoned about tests/harness.sh's analogous self-test. The assertBoth*()
  * helpers live here, and ONLY here, so the differential property — every
  * biome/tsconfig case runs both gates against the identical fixture — has a

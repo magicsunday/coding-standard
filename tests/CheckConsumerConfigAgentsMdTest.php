@@ -252,5 +252,6 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
         $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v::error::forged -->\n" . self::policy() . "\n<!-- testing-policy:end -->\n");
 
         $this->assertGateReportIsInert(self::phpGate(), $dir, null, 'AGENTS.md with a malformed begin marker');
+        $this->assertGateReportOmits(self::phpGate(), $dir, 'forged', 'AGENTS.md with a malformed begin marker');
     }
 }
