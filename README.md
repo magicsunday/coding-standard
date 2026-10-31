@@ -1019,7 +1019,7 @@ prefixes, the per-repo `format`/`path`/`ignore` lists). It is assertion-based, n
 byte-diff, so a consumer that legitimately scans an extra JS directory is not flagged,
 but a loosened strictness flag is.
 
-A repository that has an `AGENTS.md` carries the testing policy block in it. The gate reports a missing, repeated, unclosed or edited block and a version it has no template for, and it never prints text it read from the file.
+A repository that has an `AGENTS.md` carries the testing policy block in it. The gate reports a missing, repeated, unclosed, reversed or edited block, a version it has no template for, and an unreadable or oversized file. It never prints text it read from the file. A marker is a whole line of its own with no leading or trailing character and a version of at most four digits. A line like that counts as a marker wherever it stands, inside a fenced code block included, so a file that documents the markers quotes them inside a sentence.
 
 The package `require` places it on the consumer's bin path, so wire it as a
 `ci:test:php:templates` script (vendor-dir-independent) in the consumer's

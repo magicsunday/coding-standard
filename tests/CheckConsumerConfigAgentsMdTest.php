@@ -22,8 +22,8 @@ use function str_repeat;
 use function str_replace;
 
 /**
- * Fixture-driven cases for bin/consumer-checks/check-agents-md.php — the
- * optional AGENTS.md contract: a file that exists carries the shared testing
+ * Fixture-driven cases for bin/consumer-checks/check-agents-md.php, the
+ * optional AGENTS.md contract. A file that exists carries the shared testing
  * policy block exactly once, between versioned markers, with the text of the
  * template of that version. Text outside the markers is free. PHP gate only.
  * See AbstractConsumerConfigTestCase for the shared scaffolding.
@@ -166,7 +166,7 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
     {
         $dir = $this->caseWithAgentsMd("# Project\n\nSome rules.\n");
 
-        $this->assertGateRejects(self::phpGate(), $dir, 'AGENTS.md', 'AGENTS.md without the policy block');
+        $this->assertGateRejects(self::phpGate(), $dir, 'carries no testing policy block', 'AGENTS.md without the policy block');
     }
 
     /**
@@ -253,5 +253,125 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
 
         $this->assertGateReportIsInert(self::phpGate(), $dir, null, 'AGENTS.md with a malformed begin marker');
         $this->assertGateReportOmits(self::phpGate(), $dir, 'forged', 'AGENTS.md with a malformed begin marker');
+    }
+
+    /**
+     * The end marker as the last bytes of the file, with no newline after it,
+     * still closes the block.
+     */
+    #[Test]
+    public function acceptsAgentsMdWhoseEndMarkerIsTheLastLineWithoutANewline(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n" . self::block(self::policy()));
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md ending with the end marker');
+    }
+
+    /**
+     * A block with nothing between the markers is not the template.
+     */
+    #[Test]
+    public function rejectsAgentsMdWithAnEmptyBlock(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v1 -->\n<!-- testing-policy:end -->\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'differs from templates/testing-policy.v1.md', 'AGENTS.md with an empty block');
+    }
+
+    /**
+     * A begin marker with a version of more than four digits is no marker, and
+     * the report says what a marker has to look like.
+     */
+    #[Test]
+    public function reportsAVersionOfFiveDigitsAsNoBlockAndNamesTheMarkerShape(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n" . self::block(self::policy(), '12345') . "\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'the version has at most four digits', 'AGENTS.md with a five digit version');
+    }
+
+    /**
+     * A begin marker with a trailing space is no marker, and the report says
+     * that a marker is a whole line.
+     */
+    #[Test]
+    public function reportsABeginMarkerWithATrailingSpaceAsNoBlockAndNamesTheMarkerShape(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v1 --> \n" . self::policy() . "\n<!-- testing-policy:end -->\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'a whole line of its own with no leading or trailing character', 'AGENTS.md with a padded begin marker');
+    }
+
+    /**
+     * An end marker with a trailing space is no end marker, and the report says
+     * that it has to be a whole line of its own.
+     */
+    #[Test]
+    public function reportsAnEndMarkerWithATrailingSpaceAsMissingAndNamesTheMarkerShape(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v1 -->\n" . self::policy() . "\n<!-- testing-policy:end --> \n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'as a whole line of its own', 'AGENTS.md with a padded end marker');
+    }
+
+    /**
+     * An indented begin marker is no marker, and the report says that a marker
+     * has no leading character.
+     */
+    #[Test]
+    public function reportsAnIndentedBeginMarkerAsNoBlockAndNamesTheMarkerShape(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n  <!-- testing-policy:begin v1 -->\n" . self::policy() . "\n<!-- testing-policy:end -->\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'a whole line of its own with no leading or trailing character', 'AGENTS.md with an indented begin marker');
+    }
+
+    /**
+     * An indented end marker is no end marker, and the report says that it has
+     * to be a whole line of its own.
+     */
+    #[Test]
+    public function reportsAnIndentedEndMarkerAsMissingAndNamesTheMarkerShape(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v1 -->\n" . self::policy() . "\n  <!-- testing-policy:end -->\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'as a whole line of its own', 'AGENTS.md with an indented end marker');
+    }
+
+    /**
+     * A marker line counts wherever it stands. Markers shown in a fenced code
+     * block next to the real block are a second block.
+     */
+    #[Test]
+    public function rejectsAgentsMdThatShowsTheMarkersInAFenceNextToTheRealBlock(): void
+    {
+        $example = "```md\n<!-- testing-policy:begin v1 -->\n<!-- testing-policy:end -->\n```";
+        $dir     = $this->caseWithAgentsMd("# Project\n\n{$example}\n\n" . self::block(self::policy()) . "\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'markers more than once', 'AGENTS.md with a fenced example and the real block');
+    }
+
+    /**
+     * The same rule seen from the other side. A complete block inside a fence is
+     * the block, since the check does not read Markdown.
+     */
+    #[Test]
+    public function acceptsAgentsMdWhoseOnlyBlockSitsInAFence(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n```md\n" . self::block(self::policy()) . "\n```\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md with the block inside a fence');
+    }
+
+    /**
+     * Two begin markers with a single end marker are repeated markers as well.
+     * This pins the begin count on its own, since two ends do not trigger it.
+     */
+    #[Test]
+    public function rejectsAgentsMdWithTwoBeginMarkersAndOneEndMarker(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n<!-- testing-policy:begin v1 -->\n" . self::block(self::policy()) . "\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'markers more than once', 'AGENTS.md with two begin markers');
     }
 }
