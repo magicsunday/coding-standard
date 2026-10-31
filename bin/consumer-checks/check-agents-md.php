@@ -10,7 +10,7 @@
 declare(strict_types=1);
 
 /**
- * The AGENTS.md (optional) contract check — see bin/check-consumer-config.php's
+ * The AGENTS.md (optional) contract check. See bin/check-consumer-config.php's
  * own docblock for why this split exists and bin/consumer-checks/helpers.php's
  * for the shared-include boundary it follows.
  *
@@ -25,7 +25,13 @@ declare(strict_types=1);
  * template version stays in templates/, so a consumer on an older version still
  * passes until it bumps the marker.
  *
- * No report line carries text read from the file: the version in the marker is
+ * A marker is a whole line of its own, with no leading or trailing character
+ * and a version of at most four digits. A line like that counts as a marker
+ * wherever it stands, inside a fenced code block included, so a file that shows
+ * the markers in a fence next to its real block carries them more than once.
+ * A repository that documents the markers quotes them inside a sentence.
+ *
+ * No report line carries text read from the file. The version in the marker is
  * digits only by construction of the marker pattern, and everything else the
  * report says is fixed wording. AGENTS.md is editable in a pull request.
  *
@@ -63,8 +69,8 @@ function checkAgentsMd(array &$violations, string $repoRoot, string $packageRoot
         return;
     }
 
-    // Line endings first: the markers are matched per line and the block is
-    // compared as text, so a CRLF file must not drift from an LF template.
+    // Normalize line endings first. The markers are matched per line and the
+    // block is compared as text, so a CRLF file must not drift from an LF template.
     $contents = str_replace(["\r\n", "\r"], "\n", stripBom($contents));
 
     $beginCount = preg_match_all('/^<!-- testing-policy:begin v(\d{1,4}) -->$/m', $contents, $begins, PREG_OFFSET_CAPTURE);
@@ -77,7 +83,7 @@ function checkAgentsMd(array &$violations, string $repoRoot, string $packageRoot
     }
 
     if ($beginCount === 0) {
-        fail($violations, 'AGENTS.md', 'carries no testing policy block. Add the text of templates/testing-policy.vN.md between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`.');
+        fail($violations, 'AGENTS.md', 'carries no testing policy block. Add the text of templates/testing-policy.vN.md between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. Each marker is a whole line of its own with no leading or trailing character, and the version has at most four digits.');
 
         return;
     }
@@ -93,7 +99,7 @@ function checkAgentsMd(array &$violations, string $repoRoot, string $packageRoot
     $bodyStart   = $beginStart + strlen($beginMarker[0]) + 1;
 
     if (($endCount === 0) || ($ends[0][0][1] < $bodyStart)) {
-        fail($violations, 'AGENTS.md', 'the testing policy begin marker needs an end marker `<!-- testing-policy:end -->` on a later line.');
+        fail($violations, 'AGENTS.md', 'the testing policy begin marker needs an end marker `<!-- testing-policy:end -->` as a whole line of its own, with no leading or trailing character, on a later line.');
 
         return;
     }

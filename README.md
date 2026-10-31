@@ -975,7 +975,7 @@ from drifting from this package.
 
 | Template | Copy to | Notes |
 |---|---|---|
-| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set (the `failOn*` set and `beStrictAboutOutputDuringTests`); `requireCoverageMetadata` and `beStrictAboutCoverageMetadata` are optional and not in the template, a repository with a hard coverage percentage may add them; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
+| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set (the `failOn*` set and `beStrictAboutOutputDuringTests`). `requireCoverageMetadata` and `beStrictAboutCoverageMetadata` are optional and not in the template, a repository with a hard coverage percentage may add them. PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true` and no minimum score. The gate runs on the changed lines, see the next section |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
@@ -1019,7 +1019,7 @@ prefixes, the per-repo `format`/`path`/`ignore` lists). It is assertion-based, n
 byte-diff, so a consumer that legitimately scans an extra JS directory is not flagged,
 but a loosened strictness flag is.
 
-A repository that has an `AGENTS.md` carries the testing policy block in it. The gate reports a missing, repeated, unclosed or edited block and a version it has no template for, and it never prints text it read from the file.
+A repository that has an `AGENTS.md` carries the testing policy block in it. The gate reports a missing, repeated, unclosed, reversed or edited block, a version it has no template for, and an unreadable or oversized file. It never prints text it read from the file. A marker is a whole line of its own with no leading or trailing character and a version of at most four digits. A line like that counts as a marker wherever it stands, inside a fenced code block included, so a file that documents the markers quotes them inside a sentence.
 
 The package `require` places it on the consumer's bin path, so wire it as a
 `ci:test:php:templates` script (vendor-dir-independent) in the consumer's

@@ -187,7 +187,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
     /**
      * A repository that keeps both optional flags set to "true" still passes.
      * The canon fixture carries them, so this proves the gate does not reject
-     * the flags it stopped requiring.
+     * the flags it does not require.
      */
     #[Test]
     public function acceptsPhpunitXmlThatKeepsTheOptionalCoverageFlags(): void
@@ -293,7 +293,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
     }
 
     /**
-     * The flag list the helper is given decides what it checks: a canon that
+     * The flag list the helper is given decides what it checks. A canon that
      * sets every required flag but neither optional one is rejected when the
      * optional flags are asked for, and the rejection names them. Without
      * this, a helper that ignored its list would pass every optional-flag
