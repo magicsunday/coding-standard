@@ -33,7 +33,7 @@ use function str_replace;
 use function str_starts_with;
 
 /**
- * Meta-tests proving GateTestCase's own five decisions are wired correctly —
+ * Meta-tests proving GateTestCase's own decisions are wired correctly —
  * the PHPUnit-native replacement for tests/harness.sh's
  * harness_probe_assert_shapes/harness_probe_inert_shapes, which existed only
  * because bash's manually-incremented counter needed proving; here a failed
@@ -1248,6 +1248,37 @@ final class GateTestCaseTest extends GateTestCase
             static fn () => null,
             RuntimeException::class,
             'did not throw',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportOmits passes when the report does not
+     * carry the forbidden text.
+     */
+    #[Test]
+    public function assertGateReportOmitsPassesWhenTheReportDoesNotCarryTheText(): void
+    {
+        $this->assertGateReportOmits(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: fixed wording\n"); exit(1);'],
+            $this->fixture()->path(),
+            'forged',
+        );
+    }
+
+    /**
+     * Verifies that assertGateReportOmits fails when the forbidden text sits
+     * in the middle of a report line, which the report-is-inert checks do not see.
+     */
+    #[Test]
+    public function assertGateReportOmitsFailsWhenTheTextAppearsMidLine(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/^' . preg_quote('A consumer value reached the report.', '/') . '/');
+
+        $this->assertGateReportOmits(
+            ['php', '-r', 'fwrite(STDOUT, "  - biome.json: carries forged text\n"); exit(1);'],
+            $this->fixture()->path(),
+            'forged',
         );
     }
 }

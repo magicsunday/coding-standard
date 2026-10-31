@@ -67,7 +67,7 @@ use function unlink;
  * siblings (manifest_accepts/manifest_rejects/manifest_reports_value), built
  * directly on PHPUnit's own trusted assertion API rather than a hand-rolled
  * grep-based counter — the same reasoning GateTestCase's own docblock gives
- * for needing no bookkeeping self-test of its five assertGate*() decisions.
+ * for needing no bookkeeping self-test of its assertGate*() decisions.
  * The bash originals' own bookkeeping self-tests of THEMSELVES
  * (probe_must_carry_assertion, probe_negative_assertion, probe_crash_guard,
  * probe_reports_value) are dropped for the same reason and are not ported.

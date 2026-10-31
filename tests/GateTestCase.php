@@ -36,8 +36,8 @@ use function substr;
 
 /**
  * Base test case for every suite migrated off tests/harness.sh. Provides a
- * per-test fixture directory and the five accept/reject/usage-error/
- * report-is-inert/reports-once decisions as real PHPUnit assertions —
+ * per-test fixture directory and the accept/reject/usage-error/
+ * report-is-inert/reports-once/report-omits decisions as real PHPUnit assertions —
  * ported from tests/harness.sh's harness_decide_* functions. A failed
  * decision throws a real AssertionFailedError; there is no counter to wire
  * up and no bookkeeping self-probe to write, unlike the bash original.
@@ -328,10 +328,38 @@ abstract class GateTestCase extends TestCase
     }
 
     /**
+     * The "never echoes a value" decision: exit 1, not degraded, and the
+     * report does not carry $forbiddenSubstring anywhere, so a value read from
+     * the consumer cannot reach the report even in the middle of a line.
+     *
+     * @param list<string> $command            The interpreter and gate script.
+     * @param string       $fixtureDir         The directory to run the gate against.
+     * @param string       $forbiddenSubstring The consumer-supplied text the report must not carry.
+     * @param string       $message            An optional assertion message.
+     *
+     * @return void
+     *
+     * @throws AssertionFailedError        If the report carries the substring, or the gate ran degraded.
+     * @throws ProcessStartFailedException If the gate process could not be started.
+     * @throws ProcessTimedOutException    If the gate process exceeded its timeout.
+     * @throws ProcessSignaledException    If the gate process was killed by a signal.
+     */
+    protected function assertGateReportOmits(
+        array $command,
+        string $fixtureDir,
+        string $forbiddenSubstring,
+        string $message = '',
+    ): void {
+        $result = $this->runAndAssertDriftVerdict($command, $fixtureDir, $message);
+
+        self::assertOutputDoesNotContain($result, $forbiddenSubstring, 'A consumer value reached the report.');
+    }
+
+    /**
      * Runs the gate and asserts the exitCode/isDegraded precondition every
      * decision starts from, returning the result for the caller's own
-     * remaining checks. Shared by all five assertGate* decisions so a change
-     * to this precondition is made once, not five times.
+     * remaining checks. Shared by every assertGate* decision so a change
+     * to this precondition is made once, not once per decision.
      *
      * @param list<string> $command          The interpreter and gate script.
      * @param string       $fixtureDir       The directory to run the gate against.
