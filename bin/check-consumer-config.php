@@ -18,7 +18,7 @@ declare(strict_types=1);
  * .github/dependabot.yml) have no
  * include-from-vendor mechanism, so every consumer keeps a physical copy — and that
  * copy is where the house standard silently drifts loose (a phpunit.xml that quietly
- * drops `requireCoverageMetadata`, a jscpd config on a stale reporter name).
+ * drops `failOnRisky`, a jscpd config on a stale reporter name).
  *
  * This gate asserts the STABLE region of each copy — the strict flags and the
  * uniform `src`/`tests` layout every module shares — while ignoring the genuinely

@@ -975,7 +975,7 @@ from drifting from this package.
 
 | Template | Copy to | Notes |
 |---|---|---|
-| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set incl. `requireCoverageMetadata`; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
+| `templates/phpunit.xml.dist` | `phpunit.xml.dist` | strict flag set (the `failOn*` set and `beStrictAboutOutputDuringTests`); `requireCoverageMetadata` and `beStrictAboutCoverageMetadata` are optional and not in the template, a repository with a hard coverage percentage may add them; PHPUnit itself is provided by the package `require`, so it stays out of the consumer's `require-dev`. Test ordering is `executionOrder="defects"`, and dependency resolution stays on as PHPUnit's default. PHPUnit 13.4 dropped the `depends` order from its schema, so on PHPUnit 13.4 and later a copy still carrying `depends,defects` fails every run under `failOnPhpunitDeprecation`. Update older copies. `tests/PhpunitConfigSchemaTest.php` validates the template against the schema of the PHPUnit version each CI leg installs |
 | `templates/infection.json5` | `infection.json5` | `timeoutsAsEscaped: true`; set the MSI floor per repo |
 | `templates/editorconfig` | `.editorconfig` | 4-space, tab for Makefiles |
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
@@ -990,7 +990,7 @@ from drifting from this package.
 The importable configs are consumed by reference, so their rule content cannot
 drift. The copy-and-adapt templates have no include-from-vendor mechanism, so each
 consumer keeps a physical copy — and that copy is where the house standard silently
-drifts loose (a `phpunit.xml` that quietly drops `requireCoverageMetadata`, a jscpd
+drifts loose (a `phpunit.xml` that quietly drops `failOnRisky`, a jscpd
 config left on the removed v4 reporter name). This gate asserts the **stable region**
 of each copy — the strict flags and the uniform `src`/`tests` layout every module
 shares — while ignoring the genuinely per-repo parts (the vendor-dir-dependent path

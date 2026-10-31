@@ -22,6 +22,7 @@ use function array_filter;
 use function array_map;
 use function array_values;
 use function copy;
+use function count;
 use function explode;
 use function file_get_contents;
 use function file_put_contents;
@@ -57,8 +58,6 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
      * @var list<non-empty-string>
      */
     private const array REQUIRED_ROOT_FLAGS = [
-        'requireCoverageMetadata',
-        'beStrictAboutCoverageMetadata',
         'beStrictAboutOutputDuringTests',
         'failOnRisky',
         'failOnWarning',
@@ -66,6 +65,20 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         'failOnDeprecation',
         'failOnPhpunitDeprecation',
         'failOnPhpunitNotice',
+    ];
+
+    /**
+     * The two coverage-metadata attributes the gate does NOT require. A
+     * repository that keeps a hard coverage percentage may want them, because
+     * accidental coverage would inflate the figure, so the gate accepts them
+     * on or off. They are held here, apart from REQUIRED_ROOT_FLAGS, so the
+     * bijection test below fails if one of them is made mandatory again.
+     *
+     * @var list<non-empty-string>
+     */
+    private const array OPTIONAL_COVERAGE_FLAGS = [
+        'requireCoverageMetadata',
+        'beStrictAboutCoverageMetadata',
     ];
 
     // -------------------------------------------------------------------
@@ -124,6 +137,69 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         );
 
         $this->assertGateRejects(self::phpGate(), $dir, $flag, "phpunit.xml with {$flag} removed");
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function optionalCoverageFlagProvider(): array
+    {
+        return self::singleArgProviderRows(self::OPTIONAL_COVERAGE_FLAGS);
+    }
+
+    /**
+     * A phpunit.xml that does not set an optional coverage-metadata flag at
+     * all is accepted, so a repository can drop the per-class bookkeeping.
+     */
+    #[Test]
+    #[DataProvider('optionalCoverageFlagProvider')]
+    public function acceptsPhpunitXmlWithoutTheOptionalCoverageFlag(string $flag): void
+    {
+        $dir  = $this->mkCase();
+        $xml  = (string) file_get_contents($dir . '/phpunit.xml');
+        $kept = array_filter(explode("\n", $xml), static fn (string $line): bool => !str_contains($line, "{$flag}=\"true\""));
+
+        self::assertNotSame(count(explode("\n", $xml)), count($kept), "the canon phpunit.xml does not carry {$flag}, so this case removes nothing");
+
+        file_put_contents($dir . '/phpunit.xml', implode("\n", $kept));
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "phpunit.xml without the optional {$flag}");
+    }
+
+    /**
+     * A phpunit.xml that sets an optional coverage-metadata flag to "false"
+     * is the PHPUnit default written out, and is accepted as well.
+     */
+    #[Test]
+    #[DataProvider('optionalCoverageFlagProvider')]
+    public function acceptsPhpunitXmlWithTheOptionalCoverageFlagSetFalse(string $flag): void
+    {
+        $dir = $this->mkCase();
+        $xml = (string) file_get_contents($dir . '/phpunit.xml');
+
+        self::assertStringContainsString("{$flag}=\"true\"", $xml, "the canon phpunit.xml does not carry {$flag}, so this case modifies nothing");
+
+        file_put_contents($dir . '/phpunit.xml', str_replace("{$flag}=\"true\"", "{$flag}=\"false\"", $xml));
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "phpunit.xml with the optional {$flag} set to false");
+    }
+
+    /**
+     * A repository that keeps both optional flags set to "true" still passes.
+     * The canon fixture carries them, so this proves the gate does not reject
+     * the flags it stopped requiring.
+     */
+    #[Test]
+    public function acceptsPhpunitXmlThatKeepsTheOptionalCoverageFlags(): void
+    {
+        $dir = $this->mkCase();
+        $xml = (string) file_get_contents($dir . '/phpunit.xml');
+
+        foreach (self::OPTIONAL_COVERAGE_FLAGS as $flag) {
+            self::assertStringContainsString("{$flag}=\"true\"", $xml, "the canon phpunit.xml does not carry {$flag}");
+        }
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'phpunit.xml that keeps both optional coverage flags');
     }
 
     /**

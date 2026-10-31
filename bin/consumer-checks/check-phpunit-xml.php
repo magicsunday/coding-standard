@@ -84,8 +84,6 @@ function checkPhpunitXml(array &$violations, string $repoRoot): void
 
     // Every strict attribute must be present AND "true" on the root element.
     $requiredRootFlags = [
-        'requireCoverageMetadata',
-        'beStrictAboutCoverageMetadata',
         'beStrictAboutOutputDuringTests',
         'failOnRisky',
         'failOnWarning',
