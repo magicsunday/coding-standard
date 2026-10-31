@@ -93,6 +93,23 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
     }
 
     /**
+     * Prose that names the markers inline, in the middle of a line, is the
+     * repository's own text and does not count as a marker.
+     */
+    #[Test]
+    public function acceptsAgentsMdThatMentionsTheMarkersInlineOutsideTheBlock(): void
+    {
+        $prose = "Wrap the policy in `<!-- testing-policy:begin v1 -->` and `<!-- testing-policy:end -->`, as the shared template says.\n"
+            . "<!-- testing-policy:begin v1 --> starts a block.\n"
+            . "<!-- testing-policy:end --> ends it.\n"
+            . "A block starts with <!-- testing-policy:begin v1 -->\n"
+            . "A block ends with <!-- testing-policy:end -->\n";
+        $dir = $this->caseWithAgentsMd("# Project\n\n{$prose}\n" . self::block(self::policy()) . "\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md that names the markers inline');
+    }
+
+    /**
      * Windows line endings do not make an identical block drift.
      */
     #[Test]
