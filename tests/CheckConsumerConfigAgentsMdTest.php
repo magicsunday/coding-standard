@@ -154,6 +154,7 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
     {
         $dir = $this->caseWithAgentsMd(str_repeat('x', self::MAX_TEXT_BYTES + 1));
 
+        $this->assertGateRejects(self::phpGate(), $dir, 'larger than', 'an oversized AGENTS.md is reported for its size');
         $this->assertGateReportsOnce(self::phpGate(), $dir, 'AGENTS.md', 'an oversized AGENTS.md is reported once, as itself');
     }
 
