@@ -5,16 +5,20 @@
     testsuite directories and the <source> include to the repo layout.
 
     The strictness flags are the house standard: every one of them should stay
-    on. requireCoverageMetadata forces #[CoversClass]/#[CoversNothing] on every
-    test; the failOn* set turns any risky test, warning, notice or deprecation
+    on. The failOn* set turns any risky test, warning, notice or deprecation
     into a red build.
+
+    requireCoverageMetadata and beStrictAboutCoverageMetadata are deliberately
+    not part of the set. They only police how a test declares its target
+    (#[CoversClass]/#[UsesClass]) and say nothing about whether a test is
+    worth having. A repository that keeps a hard coverage percentage may add
+    them, because accidental coverage would otherwise inflate the figure. The
+    consumer check accepts them on or off.
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="vendor/autoload.php"
          cacheDirectory=".build/cache/.phpunit.cache"
-         requireCoverageMetadata="true"
-         beStrictAboutCoverageMetadata="true"
          beStrictAboutOutputDuringTests="true"
          failOnRisky="true"
          failOnWarning="true"

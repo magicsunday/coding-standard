@@ -22,6 +22,7 @@ use function array_filter;
 use function array_map;
 use function array_values;
 use function copy;
+use function count;
 use function explode;
 use function file_get_contents;
 use function file_put_contents;
@@ -57,8 +58,6 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
      * @var list<non-empty-string>
      */
     private const array REQUIRED_ROOT_FLAGS = [
-        'requireCoverageMetadata',
-        'beStrictAboutCoverageMetadata',
         'beStrictAboutOutputDuringTests',
         'failOnRisky',
         'failOnWarning',
@@ -66,6 +65,20 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         'failOnDeprecation',
         'failOnPhpunitDeprecation',
         'failOnPhpunitNotice',
+    ];
+
+    /**
+     * The two coverage-metadata attributes the gate does NOT require. A
+     * repository that keeps a hard coverage percentage may want them, because
+     * accidental coverage would inflate the figure, so the gate accepts them
+     * on or off. They are held here, apart from REQUIRED_ROOT_FLAGS, so the
+     * bijection test below fails if one of them is made mandatory again.
+     *
+     * @var list<non-empty-string>
+     */
+    private const array OPTIONAL_COVERAGE_FLAGS = [
+        'requireCoverageMetadata',
+        'beStrictAboutCoverageMetadata',
     ];
 
     // -------------------------------------------------------------------
@@ -127,6 +140,67 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
     }
 
     /**
+     * @return array<string, array{0: string}>
+     */
+    public static function optionalCoverageFlagProvider(): array
+    {
+        return self::singleArgProviderRows(self::OPTIONAL_COVERAGE_FLAGS);
+    }
+
+    /**
+     * A phpunit.xml that does not set an optional coverage-metadata flag at
+     * all is accepted, so a repository can drop the per-class bookkeeping.
+     */
+    #[Test]
+    #[DataProvider('optionalCoverageFlagProvider')]
+    public function acceptsPhpunitXmlWithoutTheOptionalCoverageFlag(string $flag): void
+    {
+        $dir  = $this->mkCase();
+        $xml  = (string) file_get_contents($dir . '/phpunit.xml');
+        $kept = array_filter(explode("\n", $xml), static fn (string $line): bool => !str_contains($line, "{$flag}=\"true\""));
+
+        self::assertNotSame(count(explode("\n", $xml)), count($kept), "the canon phpunit.xml does not carry {$flag}, so this case removes nothing");
+
+        file_put_contents($dir . '/phpunit.xml', implode("\n", $kept));
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "phpunit.xml without the optional {$flag}");
+    }
+
+    /**
+     * A phpunit.xml that sets an optional coverage-metadata flag to "false"
+     * is the PHPUnit default written out, and is accepted as well.
+     */
+    #[Test]
+    #[DataProvider('optionalCoverageFlagProvider')]
+    public function acceptsPhpunitXmlWithTheOptionalCoverageFlagSetFalse(string $flag): void
+    {
+        $dir = $this->mkCase();
+        $xml = (string) file_get_contents($dir . '/phpunit.xml');
+
+        self::assertCanonSetsEveryFlag($xml, [$flag]);
+
+        file_put_contents($dir . '/phpunit.xml', str_replace("{$flag}=\"true\"", "{$flag}=\"false\"", $xml));
+
+        $this->assertGateAccepts(self::phpGate(), $dir, "phpunit.xml with the optional {$flag} set to false");
+    }
+
+    /**
+     * A repository that keeps both optional flags set to "true" still passes.
+     * The canon fixture carries them, so this proves the gate does not reject
+     * the flags it stopped requiring.
+     */
+    #[Test]
+    public function acceptsPhpunitXmlThatKeepsTheOptionalCoverageFlags(): void
+    {
+        $dir = $this->mkCase();
+        $xml = (string) file_get_contents($dir . '/phpunit.xml');
+
+        self::assertCanonSetsEveryFlag($xml, self::OPTIONAL_COVERAGE_FLAGS);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'phpunit.xml that keeps both optional coverage flags');
+    }
+
+    /**
      * Both directions of the bijection: every flag this suite drives must
      * still be required by the gate, and every flag the gate requires must
      * still be driven by this suite — plus the canon fixture must actually
@@ -143,7 +217,7 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         self::assertSame([], array_diff(self::REQUIRED_ROOT_FLAGS, $gateFlags), 'the gate no longer requires a phpunit.xml attribute this suite proves');
         self::assertSame([], array_diff($gateFlags, self::REQUIRED_ROOT_FLAGS), 'the gate requires a phpunit.xml attribute this suite does not drive');
 
-        self::assertCanonSetsEveryRequiredFlag((string) file_get_contents(self::canon() . '/phpunit.xml'));
+        self::assertCanonSetsEveryFlag((string) file_get_contents(self::canon() . '/phpunit.xml'));
     }
 
     /**
@@ -152,14 +226,15 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
      * $canonXml: assertStringContainsString() would re-embed the whole
      * PR-editable haystack, see the regression test below.
      *
-     * @param string $canonXml The canon phpunit.xml's content.
+     * @param string       $canonXml The canon phpunit.xml's content.
+     * @param list<string> $flags    The flags that must all be set to "true", the required set by default.
      *
      * @return void
      */
-    private static function assertCanonSetsEveryRequiredFlag(string $canonXml): void
+    private static function assertCanonSetsEveryFlag(string $canonXml, array $flags = self::REQUIRED_ROOT_FLAGS): void
     {
         $unset = array_values(array_filter(
-            self::REQUIRED_ROOT_FLAGS,
+            $flags,
             static fn (string $flag): bool => !str_contains($canonXml, "{$flag}=\"true\""),
         ));
 
@@ -182,9 +257,9 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
     public function aFailedCanonFlagCheckDoesNotEmbedTheCanonContentInItsMessage(): void
     {
         $thrown = self::assertThrows(
-            static fn () => self::assertCanonSetsEveryRequiredFlag("<!--\n::error::forged\n##[error]forged\n-->"),
+            static fn () => self::assertCanonSetsEveryFlag("<!--\n::error::forged\n##[error]forged\n-->"),
             AssertionFailedError::class,
-            'assertCanonSetsEveryRequiredFlag() accepted XML that sets no required flag.',
+            'assertCanonSetsEveryFlag() accepted XML that sets no required flag.',
         );
 
         if (str_contains($thrown->getMessage(), 'forged')) {
@@ -207,13 +282,41 @@ final class CheckConsumerConfigPhpunitXmlTest extends AbstractConsumerConfigTest
         ));
 
         $thrown = self::assertThrows(
-            static fn () => self::assertCanonSetsEveryRequiredFlag($xml),
+            static fn () => self::assertCanonSetsEveryFlag($xml),
             AssertionFailedError::class,
-            'assertCanonSetsEveryRequiredFlag() accepted a canon that sets a required flag to false.',
+            'assertCanonSetsEveryFlag() accepted a canon that sets a required flag to false.',
         );
 
         if (!str_contains($thrown->getMessage(), $wrong)) {
             self::fail("The rejection did not name the flag {$wrong}.");
+        }
+    }
+
+    /**
+     * The flag list the helper is given decides what it checks: a canon that
+     * sets every required flag but neither optional one is rejected when the
+     * optional flags are asked for, and the rejection names them. Without
+     * this, a helper that ignored its list would pass every optional-flag
+     * guard above whatever the canon carries.
+     */
+    #[Test]
+    public function aCanonCheckHonoursTheFlagListItIsGiven(): void
+    {
+        $xml = implode(' ', array_map(
+            static fn (string $flag): string => $flag . '="true"',
+            self::REQUIRED_ROOT_FLAGS,
+        ));
+
+        $thrown = self::assertThrows(
+            static fn () => self::assertCanonSetsEveryFlag($xml, self::OPTIONAL_COVERAGE_FLAGS),
+            AssertionFailedError::class,
+            'assertCanonSetsEveryFlag() accepted a canon that sets none of the flags it was asked for.',
+        );
+
+        foreach (self::OPTIONAL_COVERAGE_FLAGS as $flag) {
+            if (!str_contains($thrown->getMessage(), $flag)) {
+                self::fail("The rejection did not name the flag {$flag}.");
+            }
         }
     }
 
