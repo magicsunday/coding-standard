@@ -983,6 +983,7 @@ from drifting from this package.
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason. The copy brings the jscpd install contract with it, see *jscpd install contract* below |
 | `templates/dependabot.yml` | `.github/dependabot.yml` | a `commit-message.prefix` on every `updates` entry, so Dependabot never adopts a `chore(deps): …` style the commit-convention gate rejects. The file is not a community health file, so no repository inherits it. Keep the ecosystems the repository uses, and give a new entry its own prefix. The lockstep gate reports an entry without one |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
+| `templates/testing-policy.vN.md` | the block inside `AGENTS.md` | the testing policy text, copied between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. The lockstep gate compares the text between the markers with the template of the version named in the begin marker. Text outside the markers is the repository's own. Every released version stays in `templates/`, so a repository moves to a new version when it chooses to |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
 
 ### Lockstep gate — `bin/check-consumer-config.php`
@@ -997,6 +998,8 @@ shares — while ignoring the genuinely per-repo parts (the vendor-dir-dependent
 prefixes, the per-repo `format`/`path`/`ignore` lists). It is assertion-based, not a
 byte-diff, so a consumer that legitimately scans an extra JS directory is not flagged,
 but a loosened strictness flag is.
+
+A repository that has an `AGENTS.md` carries the testing policy block in it. The gate reports a missing, repeated, unclosed or edited block and a version it has no template for, and it never prints text it read from the file.
 
 The package `require` places it on the consumer's bin path, so wire it as a
 `ci:test:php:templates` script (vendor-dir-independent) in the consumer's

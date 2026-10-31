@@ -15,7 +15,7 @@ declare(strict_types=1);
  * The importable configs (phpstan/base.neon, rector/base.php, php-cs-fixer/base.php)
  * are consumed by reference, so their rule content cannot drift. The copy-and-adapt
  * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig, deptrac.yaml,
- * .github/dependabot.yml) have no
+ * .github/dependabot.yml, the testing policy block of AGENTS.md) have no
  * include-from-vendor mechanism, so every consumer keeps a physical copy — and that
  * copy is where the house standard silently drifts loose (a phpunit.xml that quietly
  * drops `failOnRisky`, a jscpd config on a stale reporter name).
@@ -124,6 +124,7 @@ require_once __DIR__ . '/consumer-checks/check-editorconfig.php';
 require_once __DIR__ . '/consumer-checks/check-deptrac-yaml.php';
 require_once __DIR__ . '/consumer-checks/check-dependabot-yml.php';
 require_once __DIR__ . '/consumer-checks/check-biome-tsconfig.php';
+require_once __DIR__ . '/consumer-checks/check-agents-md.php';
 
 checkPhpunitXml($violations, $repoRoot);
 checkJscpdJson($violations, $repoRoot);
@@ -133,6 +134,7 @@ checkEditorconfig($violations, $repoRoot);
 checkDeptracYaml($violations, $repoRoot);
 checkDependabotYml($violations, $repoRoot);
 checkBiomeTsconfig($violations, $repoRoot, $packageRoot);
+checkAgentsMd($violations, $repoRoot, $packageRoot);
 
 // --- Report ---
 if (count($violations) === 0) {
