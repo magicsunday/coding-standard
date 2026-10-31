@@ -104,6 +104,30 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
     }
 
     /**
+     * A UTF-8 byte order mark in front of a begin marker on the first line does
+     * not hide the marker.
+     */
+    #[Test]
+    public function acceptsAgentsMdThatStartsWithAByteOrderMarkAndTheBlock(): void
+    {
+        $dir = $this->caseWithAgentsMd("\xEF\xBB\xBF" . self::block(self::policy()) . "\n");
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md with a byte order mark in front of the block');
+    }
+
+    /**
+     * Carriage returns alone, without a line feed, also separate the lines.
+     */
+    #[Test]
+    public function acceptsAgentsMdWithLoneCarriageReturnLineEndings(): void
+    {
+        $text = str_replace("\n", "\r", "# Project\n\n" . self::block(self::policy()) . "\n");
+        $dir  = $this->caseWithAgentsMd($text);
+
+        $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md with carriage return line endings');
+    }
+
+    /**
      * An AGENTS.md without the block is the drift the check exists for.
      */
     #[Test]
@@ -151,6 +175,18 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
         $dir   = $this->caseWithAgentsMd("# Project\n\n{$block}\n\n{$block}\n");
 
         $this->assertGateRejects(self::phpGate(), $dir, 'more than once', 'AGENTS.md with two policy blocks');
+    }
+
+    /**
+     * A second end marker after one block is rejected as well, so text after
+     * the first end marker cannot hide behind a block that looks complete.
+     */
+    #[Test]
+    public function rejectsAgentsMdWithOneBeginAndTwoEndMarkers(): void
+    {
+        $dir = $this->caseWithAgentsMd("# Project\n\n" . self::block(self::policy()) . "\n\n<!-- testing-policy:end -->\n");
+
+        $this->assertGateRejects(self::phpGate(), $dir, 'more than once', 'AGENTS.md with one begin and two end markers');
     }
 
     /**
