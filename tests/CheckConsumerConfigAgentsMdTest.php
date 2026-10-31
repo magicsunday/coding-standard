@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use function file_get_contents;
 use function file_put_contents;
 use function rtrim;
+use function str_repeat;
 use function str_replace;
 
 /**
@@ -125,6 +126,18 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
         $dir  = $this->caseWithAgentsMd($text);
 
         $this->assertGateAccepts(self::phpGate(), $dir, 'AGENTS.md with carriage return line endings');
+    }
+
+    /**
+     * An AGENTS.md above the text size cap is reported once, as itself, and no
+     * block finding is fabricated on top of it.
+     */
+    #[Test]
+    public function reportsAnOversizedAgentsMdOnceAsItself(): void
+    {
+        $dir = $this->caseWithAgentsMd(str_repeat('x', self::MAX_TEXT_BYTES + 1));
+
+        $this->assertGateReportsOnce(self::phpGate(), $dir, 'AGENTS.md', 'an oversized AGENTS.md is reported once, as itself');
     }
 
     /**
