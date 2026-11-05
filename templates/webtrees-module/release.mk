@@ -143,10 +143,9 @@ release-check:
 	fi
 	@if [ -d node_modules ] && [ -n "$$(find node_modules ! -uid $$(id -u) -print 2>/dev/null | head -n 1)" ]; then \
 		echo "Error: node_modules contains files not owned by the current user."; \
-		echo "A prior 'make unlink-chart-lib' run from the host (root in the compose"; \
-		echo "container) can leave root-owned files that the release build cannot"; \
-		echo "remove, aborting build-js-fresh mid-way. Clear them as root first:"; \
-		echo "  docker run --rm -v \"\$$PWD\":/m alpine rm -rf /m/node_modules"; \
+		echo "An earlier run as root left files that the release build cannot"; \
+		echo "remove, aborting build-js-fresh mid-way. Give them back to the"; \
+		echo "calling user first:  make fix-owner"; \
 		exit 1; \
 	fi
 	@if ! gh auth status >/dev/null 2>&1; then \
@@ -525,10 +524,9 @@ release-dry-run:
 	fi
 	@if [ -d node_modules ] && [ -n "$$(find node_modules ! -uid $$(id -u) -print 2>/dev/null | head -n 1)" ]; then \
 		echo "Error: node_modules contains files not owned by the current user."; \
-		echo "A prior 'make unlink-chart-lib' run from the host (root in the compose"; \
-		echo "container) can leave root-owned files that build-js-fresh's 'rm -rf"; \
-		echo "node_modules' cannot remove, aborting the dry run mid-way. Clear them"; \
-		echo "as root first:  docker run --rm -v \"\$$PWD\":/m alpine rm -rf /m/node_modules"; \
+		echo "An earlier run as root left files that build-js-fresh's 'rm -rf"; \
+		echo "node_modules' cannot remove, aborting the dry run mid-way. Give them"; \
+		echo "back to the calling user first:  make fix-owner"; \
 		exit 1; \
 	fi
 	@$(MAKE) release-bootstrap
