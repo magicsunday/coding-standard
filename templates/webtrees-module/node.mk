@@ -28,5 +28,5 @@ clean: .logo ## Remove node_modules.
 	@echo -e "${FGREEN} ✔${FRESET} node_modules removed"
 
 fix-owner: .logo ## Give files that a run as root left in the checkout back to the calling user.
-	@$(COMPOSE_RUN) find . -xdev -user 0 -exec chown $(shell id -u):$(shell id -g) {} +
+	@$(COMPOSE_RUN) find . -xdev -user 0 -exec chown -h $(shell id -u):$(shell id -g) {} +
 	@echo -e "${FGREEN} ✔${FRESET} Files owned by root now belong to the calling user"
