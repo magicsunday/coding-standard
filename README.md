@@ -988,7 +988,7 @@ no gate (see *Release flow templates* below).
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
 | `templates/webtrees-module/release.mk` | `Make/release.mk` | the release pipeline of a module that ships a ZIP, see *Release flow templates* below |
 | `templates/webtrees-module/node.mk`, `templates/webtrees-module/lint.mk`, `templates/webtrees-module/dev.mk`, `templates/webtrees-module/lang.mk` | `Make/node.mk`, `Make/lint.mk`, `Make/dev.mk`, `Make/lang.mk` | the Make fragments `release.mk` relies on, see *Release flow templates* below |
-| `templates/webtrees-module/ReleasePublishTest.php`, `templates/webtrees-module/DistSmokeTest.php` | `tests/Release/ReleasePublishTest.php`, `tests/Release/DistSmokeTest.php` | the tests of the publish step and of `dist-smoke`, see *Release flow templates* below |
+| `templates/webtrees-module/ReleasePublishTest.php`, `templates/webtrees-module/DistSmokeTest.php`, `templates/webtrees-module/LangLoopTest.php` | `tests/Release/ReleasePublishTest.php`, `tests/Release/DistSmokeTest.php`, `tests/Release/LangLoopTest.php` | the tests of the publish step, of `dist-smoke` and of the locale loops, see *Release flow templates* below |
 
 ### Release flow templates
 
