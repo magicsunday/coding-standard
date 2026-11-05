@@ -133,6 +133,24 @@ final class DistSmokeTest extends TestCase
     }
 
     /**
+     * The unprefixed module-base namespace in module.php fails the smoke test in either spelling.
+     */
+    #[Test]
+    #[DataProvider('unprefixedNamespaces')]
+    public function rejectsAnArchiveWithAnUnprefixedNamespace(string $namespace): void
+    {
+        $this->buildArchive([
+            'module.php' => "<?php\n\n// MagicSunday\\\\ModuleNameVendor\\\\Webtrees\\\\ModuleBase\n// " . $namespace . "\n",
+        ]);
+
+        [$status, $output] = $this->smoke();
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Error: module.php in zip still contains unprefixed', $output);
+        self::assertStringNotContainsString('dist-smoke passed', $output);
+    }
+
+    /**
      * @return array<string, array{string}>
      */
     public static function typeScriptConfigurations(): array
@@ -152,6 +170,17 @@ final class DistSmokeTest extends TestCase
             'detail panel'  => ['detail-panel'],
             'help popover'  => ['help-popover'],
             'toolbar style' => ['toolbar-style'],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function unprefixedNamespaces(): array
+    {
+        return [
+            'doubled backslashes' => ['MagicSunday\\\\Webtrees\\\\ModuleBase'],
+            'single backslashes'  => ['MagicSunday\\Webtrees\\ModuleBase'],
         ];
     }
 
