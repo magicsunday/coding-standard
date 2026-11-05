@@ -42,8 +42,9 @@ final class NodeUserTest extends TestCase
     #[DataProvider('writingTargets')]
     public function runsWritingTargetsAsTheCallingUser(string $target): void
     {
-        $output = $this->dryRun($target);
+        [$status, $output] = $this->dryRun($target);
 
+        self::assertSame(0, $status);
         self::assertStringContainsString('--user ' . posix_getuid() . ':' . posix_getgid(), $output);
         self::assertStringContainsString('HOME=/tmp', $output);
     }
@@ -54,8 +55,23 @@ final class NodeUserTest extends TestCase
     #[Test]
     public function keepsRootForTheCleanTarget(): void
     {
-        $output = $this->dryRun('clean');
+        [$status, $output] = $this->dryRun('clean');
 
+        self::assertSame(0, $status);
+        self::assertStringContainsString('rm -rf node_modules', $output);
+        self::assertStringNotContainsString('--user', $output);
+    }
+
+    /**
+     * The lang targets install gettext with apk and the lint target only reads, so both stay with root.
+     */
+    #[Test]
+    #[DataProvider('rootTargets')]
+    public function keepsRootForTheOtherTargets(string $target): void
+    {
+        [$status, $output] = $this->dryRun($target);
+
+        self::assertSame(0, $status);
         self::assertStringNotContainsString('--user', $output);
     }
 
@@ -65,16 +81,31 @@ final class NodeUserTest extends TestCase
     public static function writingTargets(): array
     {
         return [
-            'install'           => ['install'],
-            'build'             => ['build'],
+            'install'          => ['install'],
+            'build'            => ['build'],
+            'watch'            => ['watch'],
+            'lint-fix'         => ['lint-fix'],
             'unlink-chart-lib' => ['unlink-chart-lib'],
         ];
     }
 
     /**
-     * Returns the commands that make would run for the target, without running any of them.
+     * @return array<string, array{string}>
      */
-    private function dryRun(string $target): string
+    public static function rootTargets(): array
+    {
+        return [
+            'lint'         => ['lint'],
+            'lang-compile' => ['lang-compile'],
+        ];
+    }
+
+    /**
+     * Returns the exit status and the commands that make would run for the target, without running any of them.
+     *
+     * @return array{int, string}
+     */
+    private function dryRun(string $target): array
     {
         $process = proc_open(
             ['make', '--dry-run', $target],
@@ -94,8 +125,6 @@ final class NodeUserTest extends TestCase
 
         $output = stream_get_contents($standardOutput) . stream_get_contents($standardError);
 
-        proc_close($process);
-
-        return $output;
+        return [proc_close($process), $output];
     }
 }
