@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\Webtrees\ModuleName\Test\Release;
 
 use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -226,6 +227,63 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
+     * A node_modules tree with a file of another owner is refused before any build starts, and the refusal names
+     * the target that repairs the ownership. The id stub reports a user that owns nothing in the work directory.
+     */
+    #[Test]
+    #[DataProvider('targetsWithTheOwnerGuard')]
+    public function refusesNodeModulesThatTheCallerDoesNotOwn(string $target): void
+    {
+        $this->installReleaseCheckStubs('main');
+        $this->installStub('id', "#!/bin/sh\ncase \"\$1\" in -u) echo 4242 ;; *) exec /usr/bin/id \"\$@\" ;; esac\n");
+        $this->createNodeModules();
+
+        [$status, $output] = $this->runTarget($target);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('make fix-owner', $output);
+        self::assertStringNotContainsString('unlink-chart-lib', $output);
+        self::assertStringNotContainsString('Release checks passed', $output);
+    }
+
+    /**
+     * A node_modules tree that belongs to the caller passes the owner guard.
+     */
+    #[Test]
+    public function acceptsNodeModulesThatTheCallerOwns(): void
+    {
+        $this->installReleaseCheckStubs('main');
+        $this->createNodeModules();
+
+        [, $output] = $this->check();
+
+        self::assertStringContainsString('Release checks passed for 9.9.9', $output);
+    }
+
+    /**
+     * Provides the targets that refuse a node_modules tree with files of another owner.
+     *
+     * @return array<string, array{string}> The target name by target name
+     */
+    public static function targetsWithTheOwnerGuard(): array
+    {
+        return [
+            'release-check'   => ['release-check'],
+            'release-dry-run' => ['release-dry-run'],
+        ];
+    }
+
+    /**
+     * Creates a node_modules directory with one file in the module, owned by the user who runs the test.
+     */
+    private function createNodeModules(): void
+    {
+        mkdir($this->workDir . '/module/node_modules', 0o777, true);
+
+        file_put_contents($this->workDir . '/module/node_modules/package', 'content');
+    }
+
+    /**
      * Installs a git stub that records every push and reports the given branch as checked out.
      */
     private function installPushRecordingGit(string $branch): void
@@ -258,8 +316,20 @@ final class ReleasePublishTest extends TestCase
      */
     private function check(): array
     {
+        return $this->runTarget('release-check');
+    }
+
+    /**
+     * Runs a release target of the module with the stubs first on the path.
+     *
+     * @param string $target The make target to run
+     *
+     * @return array{int, string} The exit status and the output of make
+     */
+    private function runTarget(string $target): array
+    {
         return $this->execute(
-            ['make', 'release-check', 'VERSION=9.9.9'],
+            ['make', $target, 'VERSION=9.9.9'],
             $this->workDir . '/module',
             [
                 'PATH'   => $this->workDir . '/bin:/usr/local/bin:/usr/bin:/bin',
