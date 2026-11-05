@@ -242,6 +242,7 @@ final class ReleasePublishTest extends TestCase
 
         self::assertNotSame(0, $status);
         self::assertStringContainsString('make fix-owner', $output);
+        self::assertStringContainsString('usual cause', $output);
         self::assertStringNotContainsString('unlink-chart-lib', $output);
         self::assertStringNotContainsString('Release checks passed', $output);
     }

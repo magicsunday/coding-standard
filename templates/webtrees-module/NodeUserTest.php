@@ -47,7 +47,7 @@ final class NodeUserTest extends TestCase
 
         self::assertSame(0, $status);
         self::assertStringContainsString(
-            '--user ' . $this->identity() . ' -e HOME=/tmp node ' . $npmCommand,
+            '--user ' . $this->identity() . ' -e HOME=/tmp node ' . $npmCommand . "\n",
             $output
         );
     }
@@ -79,7 +79,7 @@ final class NodeUserTest extends TestCase
 
         self::assertSame(0, $status);
         self::assertStringContainsString(
-            ' run --rm node find . -xdev -user 0 -exec chown -h ' . $this->identity() . ' {} +',
+            ' run --rm node find . -xdev -user 0 -exec chown -h ' . $this->identity() . " {} +\n",
             $output
         );
         self::assertStringNotContainsString('--user', $output);
@@ -104,15 +104,16 @@ final class NodeUserTest extends TestCase
     /**
      * Provides the targets that run as root with the start of the command each of them runs.
      *
-     * clean removes what an earlier run left behind, lint only reads, and the lang targets install gettext with apk.
+     * clean removes what an earlier run left behind, lint only reads, and lang-compile stands for the lang targets,
+     * which install gettext with apk. The commands end at the line end, so that npm run lint:fix does not pass for lint.
      *
      * @return array<string, array{string, string}> The start of the command by target name
      */
     public static function rootTargets(): array
     {
         return [
-            'clean'        => ['clean', 'rm -rf node_modules'],
-            'lint'         => ['lint', 'npm run lint'],
+            'clean'        => ['clean', "rm -rf node_modules\n"],
+            'lint'         => ['lint', "npm run lint\n"],
             'lang-compile' => ['lang-compile', 'sh -c'],
         ];
     }
