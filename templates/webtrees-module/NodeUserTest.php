@@ -105,7 +105,8 @@ final class NodeUserTest extends TestCase
      * Provides the targets that run as root with the start of the command each of them runs.
      *
      * clean removes what an earlier run left behind, lint only reads, and lang-compile stands for the lang targets,
-     * which install gettext with apk. The commands end at the line end, so that npm run lint:fix does not pass for lint.
+     * which install gettext with apk. The commands of clean and lint end at the line end, so that npm run lint:fix does
+     * not pass for lint.
      *
      * @return array<string, array{string, string}> The start of the command by target name
      */

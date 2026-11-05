@@ -146,6 +146,7 @@ release-check:
 		echo "Files that a run as root left behind are the usual cause, and the release"; \
 		echo "build cannot remove them, aborting build-js-fresh mid-way. Give them back"; \
 		echo "to the calling user first:  make fix-owner"; \
+		echo "Files of any other owner are not covered, remove the tree instead:  make clean"; \
 		exit 1; \
 	fi
 	@if ! gh auth status >/dev/null 2>&1; then \
@@ -527,6 +528,7 @@ release-dry-run:
 		echo "Files that a run as root left behind are the usual cause, and the dry run"; \
 		echo "cannot remove them, aborting build-js-fresh mid-way. Give them back to"; \
 		echo "the calling user first:  make fix-owner"; \
+		echo "Files of any other owner are not covered, remove the tree instead:  make clean"; \
 		exit 1; \
 	fi
 	@$(MAKE) release-bootstrap

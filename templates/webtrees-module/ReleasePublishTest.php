@@ -27,9 +27,11 @@ use function mkdir;
 use function proc_close;
 use function proc_open;
 use function scandir;
+use function shell_exec;
 use function stream_get_contents;
 use function sys_get_temp_dir;
 use function tempnam;
+use function trim;
 use function unlink;
 
 /**
@@ -235,7 +237,7 @@ final class ReleasePublishTest extends TestCase
     public function refusesNodeModulesThatTheCallerDoesNotOwn(string $target): void
     {
         $this->installReleaseCheckStubs('main');
-        $this->installStub('id', "#!/bin/sh\ncase \"\$1\" in -u) echo 4242 ;; *) exec /usr/bin/id \"\$@\" ;; esac\n");
+        $this->installIdStubOfAnotherUser();
         $this->createNodeModules();
 
         [$status, $output] = $this->runTarget($target);
@@ -243,6 +245,7 @@ final class ReleasePublishTest extends TestCase
         self::assertNotSame(0, $status);
         self::assertStringContainsString('make fix-owner', $output);
         self::assertStringContainsString('usual cause', $output);
+        self::assertStringContainsString('make clean', $output);
         self::assertStringNotContainsString('unlink-chart-lib', $output);
         self::assertStringNotContainsString('Release checks passed', $output);
     }
@@ -272,6 +275,20 @@ final class ReleasePublishTest extends TestCase
             'release-check'   => ['release-check'],
             'release-dry-run' => ['release-dry-run'],
         ];
+    }
+
+    /**
+     * Installs an id stub that reports the user after the caller as the current user, so that every file the
+     * caller owns counts as a file of another owner, whatever user runs the test. Every other call goes to the real id.
+     */
+    private function installIdStubOfAnotherUser(): void
+    {
+        $realId = trim((string) shell_exec('command -v id'));
+
+        $this->installStub(
+            'id',
+            "#!/bin/sh\ncase \"\$1\" in -u) echo \$((\$($realId -u) + 1)) ;; *) exec $realId \"\$@\" ;; esac\n"
+        );
     }
 
     /**
