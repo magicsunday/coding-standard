@@ -9,7 +9,7 @@
 
 declare(strict_types=1);
 
-namespace MagicSunday\Webtrees\<Name>\Test\Release;
+namespace MagicSunday\Webtrees\ModuleName\Test\Release;
 
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -163,7 +163,7 @@ final class DistSmokeTest extends TestCase
      */
     private function buildArchive(array $overrides = [], array $omitted = []): void
     {
-        $scopedNamespace = 'MagicSunday\\\\<Name>Vendor\\\\Webtrees\\\\ModuleBase';
+        $scopedNamespace = 'MagicSunday\\\\ModuleNameVendor\\\\Webtrees\\\\ModuleBase';
         $base            = 'vendor/magicsunday/webtrees-module-base/';
 
         $files = [

@@ -40,7 +40,7 @@ MODULE_BASE_PATH := $(VENDOR_DIR)/$(MODULE_BASE_PKG)
 # at dist time. Prevents PHP autoloader collisions when multiple magicsunday
 # chart modules at different versions register the same shared namespace
 # (see GitHub issues #194, #196). Must be unique per module.
-SCOPE_NS         := <Name>Vendor
+SCOPE_NS         := ModuleNameVendor
 
 # Per-module name of the view namespace that the bundled module-base registers.
 # webtrees keeps one registration per name and the last module to boot wins, so

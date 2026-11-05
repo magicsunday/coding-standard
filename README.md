@@ -113,7 +113,7 @@ The directory a file lives in states how it is meant to be consumed:
 | Location | Kind | How a consumer uses it |
 |---|---|---|
 | `php-cs-fixer/`, `phpstan/`, `rector/`, `biome/`, `tsconfig/` | **importable** | referenced straight out of the Composer vendor directory or `node_modules/` — `includes:`, `require`, `extends` |
-| `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root; the phpat rule class is copied because it carries the consumer's own namespace and rules |
+| `templates/` | **copy-and-adapt** | copied into the consumer's own repository; these formats (PHPUnit, phplint, Infection, jscpd, editorconfig) cannot be imported, their tools expect the file at the repo root; the phpat rule class is copied because it carries the consumer's own namespace and rules. The release flow templates in `templates/webtrees-module/` are copied into `Make/` and `tests/Release/` of a webtrees module |
 | repository root | **this package's own dev config** | `.phplint.yml`, `phpstan.neon` (`composer ci:test:php:analyse` — level 6 plus `phpstan/disallowed-function-calls.neon`'s case-folding bans over the PHP files under `bin/` and `tests/`), `.php-cs-fixer.dist.php` (`composer ci:test:php:cgl` — the shared `php-cs-fixer/base.php` ruleset over `bin/`, `tests/` excluding `tests/consumer`, and `php-cs-fixer/` itself, GH-83), `.github/`, `tests/`, `phpunit.xml.dist` (`composer ci:test:phpunit`, GH-77) — all `export-ignore`d, so a consumer never receives them. `package.json` is the exception and stays in the archive: a `github:` dependency is served from it. The package lints itself with its own template. |
 
 Every include path below is written as `.build/vendor/…`, the house layout: the
@@ -986,30 +986,30 @@ no gate (see *Release flow templates* below).
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 | `templates/testing-policy.vN.md` | the block inside `AGENTS.md` | the testing policy text, copied between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. The lockstep gate compares the text between the markers with the template of the version named in the begin marker. Text outside the markers is the repository's own. Every released version stays in `templates/`, so a repository moves to a new version when it chooses to |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
-| `templates/release.mk` | `Make/release.mk` | the release pipeline of a module that ships a ZIP, see *Release flow templates* below |
-| `templates/node.mk`, `templates/lint.mk`, `templates/dev.mk`, `templates/lang.mk` | `Make/node.mk`, `Make/lint.mk`, `Make/dev.mk`, `Make/lang.mk` | the Make fragments `release.mk` relies on, see *Release flow templates* below |
-| `templates/ReleasePublishTest.php`, `templates/DistSmokeTest.php` | `tests/Release/ReleasePublishTest.php`, `tests/Release/DistSmokeTest.php` | the tests of the publish step and of `dist-smoke`, see *Release flow templates* below |
+| `templates/webtrees-module/release.mk` | `Make/release.mk` | the release pipeline of a module that ships a ZIP, see *Release flow templates* below |
+| `templates/webtrees-module/node.mk`, `templates/webtrees-module/lint.mk`, `templates/webtrees-module/dev.mk`, `templates/webtrees-module/lang.mk` | `Make/node.mk`, `Make/lint.mk`, `Make/dev.mk`, `Make/lang.mk` | the Make fragments `release.mk` relies on, see *Release flow templates* below |
+| `templates/webtrees-module/ReleasePublishTest.php`, `templates/webtrees-module/DistSmokeTest.php` | `tests/Release/ReleasePublishTest.php`, `tests/Release/DistSmokeTest.php` | the tests of the publish step and of `dist-smoke`, see *Release flow templates* below |
 
 ### Release flow templates
 
 The magicsunday modules that ship a ZIP (the webtrees chart modules and the statistics module) release with the same Make pipeline. `release.mk` runs the checks, bumps the version, builds the bundle and the archive, smoke-tests the archive, tags, publishes and bumps to the next development version. The fragments next to it provide the build (`node.mk`), the JavaScript checks (`lint.mk`), the local links to sibling clones (`dev.mk`) and the translation pipeline (`lang.mk`). The tests run the real targets in a copy of the module, `ReleasePublishTest.php` for the publish step and `DistSmokeTest.php` for `dist-smoke`.
 
-These templates are the reference and the start for a new module. They do not replace the module copies, and nothing keeps the copies in step with them. There is no consumer check, no drift check and no include. A change to the flow goes into the template and into every copy by hand, in the same piece of work.
+These templates are specific to webtrees modules and sit in `templates/webtrees-module/`, apart from the generic templates in `templates/`. They are the reference and the start for a new module. They do not replace the module copies, and nothing keeps the copies in step with them. There is no consumer check, no drift check and no include. A change to the flow goes into the template and into every copy by hand, in the same piece of work.
 
 Replace the placeholders when copying:
 
 | Placeholder | Meaning | Example |
 |---|---|---|
 | `<name>` | the module name without the `webtrees-` prefix, in the form of the package name | `fan-chart` |
-| `<Name>` | the same name as a class name segment, used for the test namespace and for `SCOPE_NS` | `FanChart` |
+| `ModuleName` | the same name as a class name segment, used for the test namespace and for `SCOPE_NS`. It is a valid PHP name, so the test templates stay parseable | `FanChart` |
 
-`SCOPE_NS` and `SCOPE_VIEW_NS` in `release.mk` have to be unique per module, the placeholders already derive them from the name. A module whose scope prefix is spelled differently from its test namespace sets `SCOPE_NS` by hand, the statistics module does. The example versions in the comments and the webtrees constraint (`~2.2.0`) belong to the module and are set to its own values.
+`SCOPE_NS` and `SCOPE_VIEW_NS` in `release.mk` have to be unique per module, the placeholders already derive them from the name. The statistics module spells its scope prefix `StatisticsVendor` but its test namespace `Statistic`, so for it the namespace line of both test templates needs `Statistic`, while the scope prefix in `release.mk` and in `DistSmokeTest.php` needs `Statistics`. The example versions in the comments and the webtrees constraint (`~2.2.0`) belong to the module and are set to its own values.
 
 The fragments expect the `Makefile` and `Make/helper/` of the module, and neither is a template. The `Makefile` has to set `SHELL = /bin/bash`, because the targets use here-strings and `echo -e`, define `COMPOSE_RUN`, the command that runs the `node` compose service, include `Make/*.mk` and keep `unexport NOTES` above its first `$(shell ...)` call, because `release.mk` reads an inline release note as `NOTES_RAW` and a note exported to every recipe would lose its dollar signs. `Make/helper/` provides the colour variables, the help target and `.logo`. Copy both from an existing module.
 
 These differences between modules are intended:
 
-- A module without the shared module-base views (the statistics module) has no `SCOPE_VIEW_NS`, no check for the shared views in `dist-smoke` and no `DistSmokeTest.php` cases for them.
+- A module without the shared module-base views (the statistics module) has no `SCOPE_VIEW_NS`, no check for the shared views in `dist-smoke`, and its `DistSmokeTest.php` has no cases for them.
 - The `lang.mk` of the statistics module keeps the list of texts that webtrees core already owns (`CORE_OWNED`, `CORE_RELEASES` and the target `lang-core-owned`), and its `release.mk` derives the webtrees constraint from `CORE_RELEASES`. It also orders the steps of `lang` by making each step depend on the one before it, so that a parallel make cannot compile before merging, and `lang-merge` seeds missing locales. The template `lang.mk` lists the steps side by side on the `lang` line, its `lang-compile` has no prerequisite, and it has none of the rest.
 - `release-bootstrap`, which `release-check` runs, takes a bundle file of the chart library as the marker of a finished chart library build and runs `npm ci` when it is missing. The marker is `dist/webtrees-chart-lib-infra.es.js` in the template and `dist/webtrees-chart-lib-widgets.es.js` in the statistics module.
 - A module that is not a ZIP module does not use these templates. The chart library, for example, is an npm library without an archive and has its own release recipe.
@@ -1043,7 +1043,7 @@ drift. The copy-and-adapt templates have no include-from-vendor mechanism, so ea
 consumer keeps a physical copy — and that copy is where the house standard silently
 drifts loose (a `phpunit.xml` that quietly drops `failOnRisky`, a jscpd
 config left on the removed v4 reporter name). This gate asserts the **stable region**
-of each copy — the strict flags and the uniform `src`/`tests` layout every module
+of each copy it covers (the release flow templates are not among them) — the strict flags and the uniform `src`/`tests` layout every module
 shares — while ignoring the genuinely per-repo parts (the vendor-dir-dependent path
 prefixes, the per-repo `format`/`path`/`ignore` lists). It is assertion-based, not a
 byte-diff, so a consumer that legitimately scans an extra JS directory is not flagged,
