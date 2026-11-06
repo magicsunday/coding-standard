@@ -230,8 +230,8 @@ final class LangLoopTest extends TestCase
 
     /**
      * Returns the locales that the given calls processed, in call order, read from the catalogue paths of each call.
-     * Every catalogue path of a call, the source and the compiled one, has to name the same locale, so a call
-     * that reads one locale and writes another turns the test red.
+     * A call has to read a source catalogue, and every catalogue path of it, the source and the compiled one, has
+     * to name the same locale, so a call that reads one locale and writes another turns the test red.
      *
      * @param list<string> $calls The recorded arguments of the calls
      *
@@ -242,6 +242,7 @@ final class LangLoopTest extends TestCase
         $locales = [];
 
         foreach ($calls as $call) {
+            self::assertMatchesRegularExpression('#resources/lang/[^/]+/messages\.po#', $call);
             self::assertGreaterThan(0, preg_match_all('#resources/lang/([^/]+)/messages\.(?:po|mo)#', $call, $matches), $call);
             $unique = array_unique($matches[1]);
 
