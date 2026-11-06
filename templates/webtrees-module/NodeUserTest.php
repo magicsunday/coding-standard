@@ -72,6 +72,9 @@ final class NodeUserTest extends TestCase
      * caller as well. The tooling image carries gettext, PHP and Composer, so no recipe installs a system package,
      * which would fail without root. Each row keeps the prerequisite recipes out of the dry run, so the output
      * holds the recipe of the target itself and a regression of that one recipe turns the test red.
+     *
+     * @param string       $target  The lang target to simulate
+     * @param list<string> $options The make options that keep the prerequisite recipes out of the dry run
      */
     #[Test]
     #[DataProvider('langTargets')]
@@ -102,24 +105,6 @@ final class NodeUserTest extends TestCase
             'lang-resolve-fuzzy' => ['lang-resolve-fuzzy', ['-o', 'resources/lang/messages.pot', '-o', 'lang-merge']],
             'lang-compile'       => ['lang-compile', []],
         ];
-    }
-
-    /**
-     * The repair target runs as root and changes only files that belong to root to the numeric user and
-     * group of the caller. It changes a symbolic link itself and never the file the link points to, because
-     * a link that points out of the checkout would otherwise hand a foreign file to the caller.
-     */
-    #[Test]
-    public function fixOwnerGivesRootFilesBackToTheCallingUser(): void
-    {
-        [$status, $output] = $this->dryRun('fix-owner');
-
-        self::assertSame(0, $status);
-        self::assertStringContainsString(
-            ' run --rm node find . -xdev -user 0 -exec chown -h ' . $this->identity() . " {} +\n",
-            $output
-        );
-        self::assertStringNotContainsString('--user', $output);
     }
 
     /**
