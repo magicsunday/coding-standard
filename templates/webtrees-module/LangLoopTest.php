@@ -17,8 +17,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 use function array_filter;
-use function chmod;
 use function array_values;
+use function chmod;
 use function dirname;
 use function file;
 use function file_put_contents;
