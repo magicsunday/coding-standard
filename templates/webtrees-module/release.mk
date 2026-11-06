@@ -124,7 +124,7 @@ release-check:
 		echo "Error: HEAD is detached. Check out the release branch first (typically 'main')."; \
 		exit 1; \
 	fi
-	@if [ "$$(git symbolic-ref --short HEAD)" != main ]; then \
+	@if [ "$$(git symbolic-ref HEAD)" != refs/heads/main ]; then \
 		echo "Error: releases are made from 'main' only, because the publish and bump targets push 'main'."; \
 		echo "Check out 'main' first."; \
 		exit 1; \
