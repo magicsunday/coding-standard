@@ -2,12 +2,16 @@
 
 The fixture the consumer smoke step runs the lockstep gate against.
 
-<!-- testing-policy:begin v1 -->
+<!-- testing-policy:begin v2 -->
 ## Testing policy
 
 Tests protect behavior whose regression would be materially incorrect, unsafe,
 destructive or hard to notice before release. They are not a coverage target and
 they are not a mutation-score target.
+
+This block decides which behavior needs a test. Repository rules that ask for
+test-first work or for positive and negative tests, such as TDD, apply to that
+behavior only and do not ask for tests of the carriers the list below excludes.
 
 Protect these with durable tests:
 - security and privacy boundaries, including untrusted data reaching a path,

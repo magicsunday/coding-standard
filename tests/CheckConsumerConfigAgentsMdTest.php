@@ -187,6 +187,27 @@ final class CheckConsumerConfigAgentsMdTest extends AbstractConsumerConfigTestCa
     /**
      * A version no template exists for cannot be verified, so it is rejected.
      */
+    /**
+     * Every released version stays in templates/, so a repository on version 2 passes with the text of
+     * version 2 and a repository that names version 2 with the text of version 1 is rejected.
+     */
+    #[Test]
+    public function checksTheBlockAgainstTheTemplateOfItsOwnVersion(): void
+    {
+        $second = rtrim((string) file_get_contents(self::root() . '/templates/testing-policy.v2.md'), "\n");
+
+        $this->assertGateAccepts(
+            self::phpGate(),
+            $this->caseWithAgentsMd("# Project\n\n" . self::block($second, '2') . "\n")
+        );
+        $this->assertGateRejects(
+            self::phpGate(),
+            $this->caseWithAgentsMd("# Project\n\n" . self::block(self::policy(), '2') . "\n"),
+            'differs from templates/testing-policy.v2.md',
+            'AGENTS.md naming version 2 with the text of version 1'
+        );
+    }
+
     #[Test]
     public function rejectsAgentsMdWithAnUnknownPolicyVersion(): void
     {
