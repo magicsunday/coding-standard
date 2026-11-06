@@ -211,7 +211,8 @@ final class ReleasePublishTest extends TestCase
         [$status, $output] = $this->check();
 
         self::assertNotSame(0, $status);
-        self::assertStringContainsString("'main'", $output);
+        self::assertStringContainsString("Error: releases are made from 'main' only", $output);
+        self::assertStringNotContainsString('HEAD is detached', $output);
         self::assertStringNotContainsString('Release checks passed', $output);
     }
 
