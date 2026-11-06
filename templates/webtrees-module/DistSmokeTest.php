@@ -23,6 +23,7 @@ use function is_dir;
 use function mkdir;
 use function proc_close;
 use function proc_open;
+use function str_repeat;
 use function stream_get_contents;
 use function sys_get_temp_dir;
 use function tempnam;
@@ -112,6 +113,22 @@ final class DistSmokeTest extends TestCase
             'Error: required prefix has no entries in zip: ' . self::BASE_VIEWS . $view . '.phtml',
             $output
         );
+        self::assertStringNotContainsString('dist-smoke passed', $output);
+    }
+
+    /**
+     * An archive without the commit that it was built on fails the smoke test, because the publish step could not
+     * tell which commit the archive belongs to.
+     */
+    #[Test]
+    public function rejectsAnArchiveWithoutTheBuildCommit(): void
+    {
+        $this->buildArchive([], [], false);
+
+        [$status, $output] = $this->smoke();
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Error: the zip carries no build commit', $output);
         self::assertStringNotContainsString('dist-smoke passed', $output);
     }
 
@@ -363,8 +380,9 @@ final class DistSmokeTest extends TestCase
      *
      * @param array<string, string> $overrides Entries to add or to replace, by path.
      * @param list<string>          $omitted   Entries to leave out of the archive.
+     * @param bool                  $stamp     Whether the archive carries the commit that it was built on.
      */
-    private function buildArchive(array $overrides = [], array $omitted = []): void
+    private function buildArchive(array $overrides = [], array $omitted = [], bool $stamp = true): void
     {
         $scopedNamespace = 'MagicSunday\\\\ModuleNameVendor\\\\Webtrees\\\\ModuleBase';
         $base            = 'vendor/magicsunday/webtrees-module-base/';
@@ -405,6 +423,17 @@ final class DistSmokeTest extends TestCase
 
         [$status, $output] = $this->execute(
             ['zip', '-qr', $this->workDir . '/module/webtrees-<name>.zip', '.'],
+            $this->workDir . '/stage'
+        );
+
+        self::assertSame(0, $status, $output);
+
+        if (!$stamp) {
+            return;
+        }
+
+        [$status, $output] = $this->execute(
+            ['sh', '-c', 'printf "%s\n" "$0" | zip -q -z "$1"', str_repeat('a', 40), $this->workDir . '/module/webtrees-<name>.zip'],
             $this->workDir . '/stage'
         );
 
