@@ -28,16 +28,19 @@ Protect these with durable tests:
   persisted configuration keys, producer and consumer contracts
 - every fixed behavioral bug (some test must fail on the old behavior). A bug
   that is only a wrong label, CSS class or default is not behavioral unless a
-  named consumer breaks on it.
+  named consumer breaks on it or it breaks a security, privacy or accessibility
+  property.
 
-For side effects assert the postcondition and the identity of the affected
-resource, not only that a collaborator was called.
+For side effects, assert the observable result and the identity of the affected
+resource. For external calls, assert the destination and the relevant payload,
+not only that a collaborator was called.
 
 Do not add tests whose only content is:
 - a getter, setter, constructor that only stores values, DTO, enum or constant,
   unless it carries a persisted key or a serialized format from the list above
 - a CSS class list, a label or message text, or a default value, unless the exact
-  value is a documented interface that a named consumer breaks on. Prefer testing
+  value is a documented interface that a named consumer breaks on or it encodes a
+  security, privacy or accessibility property. Prefer testing
   the consuming behavior over the producer literal and pin only the minimum literal.
 - transparent delegation that adds no argument selection, ordering, error
   translation or security context
