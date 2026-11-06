@@ -25,8 +25,12 @@ use function proc_close;
 use function proc_open;
 use function str_repeat;
 use function stream_get_contents;
+use function strpos;
+use function substr;
+use function substr_count;
 use function sys_get_temp_dir;
 use function tempnam;
+use function trim;
 use function unlink;
 
 /**
@@ -130,6 +134,59 @@ final class DistSmokeTest extends TestCase
         self::assertNotSame(0, $status);
         self::assertStringContainsString('Error: the zip carries no build commit', $output);
         self::assertStringNotContainsString('dist-smoke passed', $output);
+    }
+
+    /**
+     * The stamp target writes the commit of the commit file into the comment of the archive and removes the file,
+     * and the archive passes the smoke test afterwards.
+     */
+    #[Test]
+    public function stampsTheArchiveWithTheCommitOfTheCommitFile(): void
+    {
+        $commit = str_repeat('b', 40);
+
+        $this->buildArchive([], [], false);
+        file_put_contents($this->workDir . '/module/webtrees-<name>.commit', $commit . "\n");
+
+        [$status, $output] = $this->execute(['make', 'dist-stamp'], $this->workDir . '/module');
+
+        self::assertSame(0, $status, $output);
+        self::assertFileDoesNotExist($this->workDir . '/module/webtrees-<name>.commit');
+
+        [$status, $comment] = $this->execute(
+            ['unzip', '-z', $this->workDir . '/module/webtrees-<name>.zip'],
+            $this->workDir . '/module'
+        );
+
+        self::assertSame(0, $status, $comment);
+        self::assertSame($commit, substr(trim($comment), -40));
+
+        [$status, $output] = $this->smoke();
+
+        self::assertSame(0, $status, $output);
+    }
+
+    /**
+     * The dist target resolves the commit once, archives that commit and stamps the same one, in this order. The
+     * dry run lists the commands, so a recipe that resolves HEAD again for the stamp turns the test red.
+     */
+    #[Test]
+    public function archivesAndStampsTheCommitThatWasResolvedFirst(): void
+    {
+        [$status, $output] = $this->execute(['make', '-n', 'dist'], $this->workDir . '/module');
+
+        self::assertSame(0, $status, $output);
+
+        $resolved = strpos($output, 'git rev-parse HEAD > webtrees-<name>.commit');
+        $archived = strpos($output, 'git archive --prefix=webtrees-<name>/ "$(cat webtrees-<name>.commit)"');
+        $stamped  = strpos($output, 'zip --quiet -z webtrees-<name>.zip < webtrees-<name>.commit');
+
+        self::assertNotFalse($resolved, $output);
+        self::assertNotFalse($archived, $output);
+        self::assertNotFalse($stamped, $output);
+        self::assertLessThan($archived, $resolved);
+        self::assertLessThan($stamped, $archived);
+        self::assertSame(1, substr_count($output, 'git rev-parse HEAD'), $output);
     }
 
     /**
