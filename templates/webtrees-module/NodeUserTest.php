@@ -72,6 +72,9 @@ final class NodeUserTest extends TestCase
      * caller as well. The tooling image carries gettext, PHP and Composer, so no recipe installs a system package,
      * which would fail without root. Each row keeps the prerequisite recipes out of the dry run, so the output
      * holds the recipe of the target itself and a regression of that one recipe turns the test red.
+     *
+     * @param string       $target  The lang target to simulate
+     * @param list<string> $options The make options that keep the prerequisite recipes out of the dry run
      */
     #[Test]
     #[DataProvider('langTargets')]
