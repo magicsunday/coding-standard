@@ -27,9 +27,11 @@ Tests protect behavior whose regression would be materially incorrect, unsafe,
 destructive or hard to notice before release. They are not a coverage target and
 they are not a mutation-score target.
 
-This block decides which behavior needs a test. Repository rules that ask for
-test-first work or for positive and negative tests, such as TDD, apply to that
-behavior only and do not ask for tests of the carriers the list below excludes.
+This block decides which behavior needs testing, even when a repository rule
+requires tests for every change. Repository rules about test-first work or
+positive and negative tests still apply when this block requires a test, but
+they do not require tests excluded by the "Do not add tests whose only content
+is" list.
 
 Protect these with durable tests:
 - security and privacy boundaries, including untrusted data reaching a path,
