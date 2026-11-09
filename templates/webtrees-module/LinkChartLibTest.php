@@ -51,7 +51,8 @@ final class LinkChartLibTest extends TestCase
     /**
      * Builds the module copy next to a sibling directory and puts a stub docker command first on the path.
      * The stub answers the compose probe, logs every other call and creates the package like npm install does, unless
-     * the marker file docker-fails exists, which makes every other call fail.
+     * the marker file docker-fails exists, which makes every other call fail. A stub rm acts like the real one, unless the
+     * marker file rm-fails exists, which makes it fail.
      */
     protected function setUp(): void
     {
@@ -80,6 +81,14 @@ final class LinkChartLibTest extends TestCase
             . "exit 0\n"
         );
         chmod($this->workDir . '/bin/docker', 0o755);
+
+        file_put_contents(
+            $this->workDir . '/bin/rm',
+            "#!/bin/sh\n"
+            . "if [ -f \"$this->workDir/rm-fails\" ]; then echo \"rm: cannot remove\" >&2; exit 1; fi\n"
+            . "exec /bin/rm \"\$@\"\n"
+        );
+        chmod($this->workDir . '/bin/rm', 0o755);
     }
 
     /**
@@ -240,6 +249,27 @@ final class LinkChartLibTest extends TestCase
         self::assertStringContainsString('make install', $output);
         self::assertFalse(is_link($this->packagePath()));
         self::assertFileDoesNotExist($this->packagePath());
+    }
+
+    /**
+     * When the link cannot be removed the target stops before the install, so the install cannot report a restored
+     * package while the link is still in place.
+     */
+    #[Test]
+    public function unlinkStopsBeforeTheInstallWhenTheLinkCannotBeRemoved(): void
+    {
+        mkdir($this->workDir . '/webtrees-chart-lib', 0o777, true);
+        mkdir($this->workDir . '/module/node_modules/@magicsunday', 0o777, true);
+
+        symlink('../../../webtrees-chart-lib', $this->packagePath());
+        file_put_contents($this->workDir . '/rm-fails', '');
+
+        [$status, $output] = $this->make('unlink-chart-lib');
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Could not remove', $output);
+        self::assertTrue(is_link($this->packagePath()));
+        self::assertFileDoesNotExist($this->workDir . '/docker-calls');
     }
 
     /**
