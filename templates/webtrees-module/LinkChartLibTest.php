@@ -50,7 +50,8 @@ final class LinkChartLibTest extends TestCase
 
     /**
      * Builds the module copy next to a sibling directory and puts a stub docker command first on the path.
-     * The stub answers the compose probe, logs every other call and creates the package like npm install does.
+     * The stub answers the compose probe, logs every other call and creates the package like npm install does, unless
+     * the marker file docker-fails exists, which makes every other call fail.
      */
     protected function setUp(): void
     {
@@ -73,6 +74,7 @@ final class LinkChartLibTest extends TestCase
             "#!/bin/sh\n"
             . "if [ \"\$1\" = compose ] && [ \"\$2\" = version ]; then exit 0; fi\n"
             . "echo \"\$@\" >> \"$this->workDir/docker-calls\"\n"
+            . "if [ -f \"$this->workDir/docker-fails\" ]; then exit 1; fi\n"
             . "mkdir -p node_modules/@magicsunday/webtrees-chart-lib\n"
             . "echo restored > node_modules/@magicsunday/webtrees-chart-lib/package.json\n"
             . "exit 0\n"
@@ -186,6 +188,58 @@ final class LinkChartLibTest extends TestCase
             'compose run --rm --user ' . posix_getuid() . ':' . posix_getgid() . " -e HOME=/tmp node npm install --quiet\n",
             file_get_contents($this->workDir . '/docker-calls')
         );
+    }
+
+    /**
+     * A real package directory is not a link, so unlink leaves it untouched and does not run the install.
+     */
+    #[Test]
+    public function unlinkLeavesAnInstalledPackageDirectoryUntouched(): void
+    {
+        mkdir($this->packagePath(), 0o777, true);
+
+        file_put_contents($this->packagePath() . '/package.json', 'installed');
+
+        [$status, $output] = $this->make('unlink-chart-lib');
+
+        self::assertSame(0, $status);
+        self::assertStringContainsString('not a symlink', $output);
+        self::assertFalse(is_link($this->packagePath()));
+        self::assertSame('installed', file_get_contents($this->packagePath() . '/package.json'));
+        self::assertFileDoesNotExist($this->workDir . '/docker-calls');
+    }
+
+    /**
+     * Without a package entry there is nothing to unlink, so the target says so and does not run the install.
+     */
+    #[Test]
+    public function unlinkReportsThatThereIsNothingToUnlink(): void
+    {
+        [$status, $output] = $this->make('unlink-chart-lib');
+
+        self::assertSame(0, $status);
+        self::assertStringContainsString('nothing to unlink', $output);
+        self::assertFileDoesNotExist($this->workDir . '/docker-calls');
+    }
+
+    /**
+     * A failing install after the link was removed fails the target and names the way back to a working package.
+     */
+    #[Test]
+    public function unlinkReportsAFailedInstallAndNamesTheWayBack(): void
+    {
+        mkdir($this->workDir . '/webtrees-chart-lib', 0o777, true);
+        mkdir($this->workDir . '/module/node_modules/@magicsunday', 0o777, true);
+
+        symlink('../../../webtrees-chart-lib', $this->packagePath());
+        file_put_contents($this->workDir . '/docker-fails', '');
+
+        [$status, $output] = $this->make('unlink-chart-lib');
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('make install', $output);
+        self::assertFalse(is_link($this->packagePath()));
+        self::assertFileDoesNotExist($this->packagePath());
     }
 
     /**
