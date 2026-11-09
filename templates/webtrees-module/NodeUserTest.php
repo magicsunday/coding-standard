@@ -47,7 +47,7 @@ final class NodeUserTest extends TestCase
      */
     #[Test]
     #[DataProvider('writingTargets')]
-    public function runsWritingTargetsAsTheCallingUser(string $target, string $npmCommand, string $lineEnd = "\n"): void
+    public function runsWritingTargetsAsTheCallingUser(string $target, string $npmCommand, string $lineEnd): void
     {
         [$status, $output] = $this->dryRun($target);
 
@@ -151,18 +151,18 @@ final class NodeUserTest extends TestCase
     }
 
     /**
-     * Provides the targets that write into the checkout with the npm command each of them starts. A target that runs
-     * the command inside a condition names the text that ends it as the third value.
+     * Provides the targets that write into the checkout with the npm command each of them starts and the text that
+     * ends its command line. A target that runs the command inside a condition ends the line differently.
      *
-     * @return array<string, array{string, string}|array{string, string, string}> The npm command by target name
+     * @return array<string, array{string, string, string}> The npm command and the line ending by target name
      */
     public static function writingTargets(): array
     {
         return [
-            'install'          => ['install', 'npm install'],
-            'build'            => ['build', 'npm run prepare'],
-            'watch'            => ['watch', 'npm run watch'],
-            'lint-fix'         => ['lint-fix', 'npm run lint:fix'],
+            'install'          => ['install', 'npm install', "\n"],
+            'build'            => ['build', 'npm run prepare', "\n"],
+            'watch'            => ['watch', 'npm run watch', "\n"],
+            'lint-fix'         => ['lint-fix', 'npm run lint:fix', "\n"],
             'unlink-chart-lib' => ['unlink-chart-lib', 'npm install --quiet', "; then \\\n"],
         ];
     }
