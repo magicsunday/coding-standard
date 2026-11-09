@@ -458,7 +458,8 @@ final class ReleasePublishTest extends TestCase
         [$status, $output] = $this->publish(['VERSION=' . $version]);
 
         self::assertNotSame(0, $status);
-        self::assertStringContainsString('nothing was pushed', $output);
+        self::assertStringContainsString('the tag ' . $version . ' does not exist, nothing was pushed', $output);
+        self::assertStringNotContainsString('HEAD is not the commit', $output);
         self::assertSame([], $this->remoteRefs());
     }
 
