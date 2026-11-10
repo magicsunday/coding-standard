@@ -351,7 +351,7 @@ for (const [name, range] of peers) {
 
 // The Biome version is written in four places — the devDependencies pin, the peer
 // range, the README prose and this `$schema` URL — and each needs its own tie,
-// because a Dependabot bump moves the pin alone. This is the tie for the `$schema`.
+// because a dependency bot bump moves the pin alone. This is the tie for the `$schema`.
 // Biome never fetches or validates against that URL, so a drift here
 // mis-autocompletes in an editor rather than breaking a run, which is exactly why
 // nothing else would ever notice it.

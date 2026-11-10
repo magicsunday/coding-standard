@@ -64,9 +64,8 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.6.4`,
-`typescript 7.0.2`, `jscpd 5.4.2`) and are what Dependabot tracks — `peerDependencies` are not parsed
-by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
-widened by hand once a bump is green.
+`typescript 7.0.2`, `jscpd 5.4.2`) and are what the dependency bot bumps, so the pins are the moving part and the ranges are
+widened once a bump is green.
 
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
 what the tools themselves demand — derive them rather than trusting these numbers:
@@ -982,7 +981,6 @@ no gate (see *Release flow templates* below).
 | `templates/gitattributes` | `.gitattributes` | `export-ignore` dist hygiene. Registry npm ignores it and goes by `files` in `package.json` — but a `github:` git dependency does NOT: pacote fetches GitHub's codeload archive, which has `export-ignore` applied, so anything removed here is removed from what such a consumer receives |
 | `templates/phplint.yml` | `.phplint.yml` | the `ci:test:php:lint` gate the reusable workflow invokes — path-driven, never a hand-kept file list |
 | `templates/jscpd.json` | `.jscpd.json` | zero-tolerance copy-paste gate, PHP **and** JS/TS — use jscpd's format names (`php`, `javascript`, `typescript`, `jsx`, `tsx`), never the extensions `js`/`ts`: an unknown name is not an error, it silently scans nothing. The lockstep gate rejects the extension spellings for that reason. The copy brings the jscpd install contract with it, see *jscpd install contract* below |
-| `templates/dependabot.yml` | `.github/dependabot.yml` | a `commit-message.prefix` on every `updates` entry, so Dependabot never adopts a `chore(deps): …` style the commit-convention gate rejects. The file is not a community health file, so no repository inherits it. Keep the ecosystems the repository uses, and give a new entry its own prefix. The lockstep gate reports an entry without one |
 | `templates/deptrac.dist.yaml` | `deptrac.yaml` | `imports` the shared `deptrac/layers.yaml` + declares `paths`; see the Deptrac section above |
 | `templates/testing-policy.vN.md` | the block inside `AGENTS.md` | the testing policy text, copied between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. The lockstep gate compares the text between the markers with the template of the version named in the begin marker. Text outside the markers is the repository's own. Every released version stays in `templates/`, so a repository moves to a new version when it chooses to |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
@@ -1063,7 +1061,7 @@ The package `require` places it on the consumer's bin path, so wire it as a
 
 Add that step to the reusable `php-quality` workflow so it gates in CI (see AGENTS —
 every consumer needs the script before the shared step is added, or the step reds the
-repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`, a repo without Dependabot no `.github/dependabot.yml`) is
+repos that lack it). A missing optional file (a PHP-only repo has no `.jscpd.json`) is
 skipped; the strict PHPUnit config is required — the gate accepts it as either
 `phpunit.xml` or `phpunit.xml.dist`.
 
@@ -1188,12 +1186,12 @@ jscpd is a Node tool, so the Composer package cannot deliver it the way it deliv
 PHP toolchain. Every repository that carries a `.jscpd.json` installs and runs it the
 same way (GH-219):
 
-1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
+1. **One pin, where the dependency bot reads it.** `package.json` declares jscpd in
    `devDependencies` with one exact version (`"jscpd": "5.4.2"`, not `^5.4.2`), and the
    lockfile `package-lock.json` is present (by that name: the shared cpd workflow
    requires it, so an `npm-shrinkwrap.json` alone does not count). The version
    lives nowhere else, not in another dependency section and not in a Composer script, so
-   Dependabot's npm ecosystem is the one thing that moves it. The gate reads
+   the npm manager of the dependency bot is the one thing that moves it. The gate reads
    `package.json` and `composer.json`, not workflow files.
 2. **Installed explicitly, never from a Composer event.** CI runs `npm ci` in its own
    step after `setup-node` (the reusable

@@ -15,7 +15,7 @@ declare(strict_types=1);
  * The importable configs (phpstan/base.neon, rector/base.php, php-cs-fixer/base.php)
  * are consumed by reference, so their rule content cannot drift. The copy-and-adapt
  * templates (phpunit.xml, .jscpd.json, .phplint.yml, .editorconfig, deptrac.yaml,
- * .github/dependabot.yml, the testing policy block of AGENTS.md) have no
+ * the testing policy block of AGENTS.md) have no
  * include-from-vendor mechanism, so every consumer keeps a physical copy — and that
  * copy is where the house standard silently drifts loose (a phpunit.xml that quietly
  * drops `failOnRisky`, a jscpd config on a stale reporter name).
@@ -48,8 +48,7 @@ declare(strict_types=1);
  *
  * Exit code 0 = every present config matches the stable canon; 1 = at least one
  * drift. A config file that is absent is skipped (a consumer without JS has no
- * .jscpd.json, biome.json or tsconfig.json, one without Dependabot has no
- * .github/dependabot.yml). The strict phpunit.xml is REQUIRED.
+ * .jscpd.json, biome.json or tsconfig.json). The strict phpunit.xml is REQUIRED.
  *
  * Split per contract under bin/consumer-checks/ (GH-48) once this file crossed
  * 1000 lines — each check-*.php there declares one checkXxx() function and is a
@@ -122,7 +121,6 @@ require_once __DIR__ . '/consumer-checks/check-jscpd-install.php';
 require_once __DIR__ . '/consumer-checks/check-phplint-yml.php';
 require_once __DIR__ . '/consumer-checks/check-editorconfig.php';
 require_once __DIR__ . '/consumer-checks/check-deptrac-yaml.php';
-require_once __DIR__ . '/consumer-checks/check-dependabot-yml.php';
 require_once __DIR__ . '/consumer-checks/check-biome-tsconfig.php';
 require_once __DIR__ . '/consumer-checks/check-agents-md.php';
 
@@ -132,7 +130,6 @@ checkJscpdInstall($violations, $repoRoot);
 checkPhplintYml($violations, $repoRoot);
 checkEditorconfig($violations, $repoRoot);
 checkDeptracYaml($violations, $repoRoot);
-checkDependabotYml($violations, $repoRoot);
 checkBiomeTsconfig($violations, $repoRoot, $packageRoot);
 checkAgentsMd($violations, $repoRoot, $packageRoot);
 

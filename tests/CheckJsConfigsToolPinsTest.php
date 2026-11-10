@@ -301,8 +301,8 @@ final class CheckJsConfigsToolPinsTest extends AbstractJsConfigsTestCase
     /**
      * The fourth hand-kept copy of the tool versions (the $schema URL and the
      * peerDependencies ranges are each tied to the devDependencies pin
-     * elsewhere; this is the tie for the README prose, which Dependabot
-     * bumps never touch).
+     * elsewhere; this is the tie for the README prose, which the bumps of a
+     * dependency bot never touch).
      */
     #[Test]
     public function readmeToolVersionsMatchTheDevDependenciesPins(): void
