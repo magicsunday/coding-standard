@@ -546,13 +546,14 @@ directory that matches how it is consumed, never at the root for convenience.
 ## CI and security
 
 The reusable `magicsunday/.github` workflows provide code-scanning, zizmor,
-scorecard, dependency-review, yamllint, commit-convention, label-sync and
-auto-merge; `renovate.json` extends the shared preset, which covers composer + npm + github-actions —
-composer only for the root manifest, not `tests/consumer/composer.json` (a `path`-
-repository, `minimum-stability: dev` fixture a dependency bot cannot usefully bump; see
-that file's own comment and `tests/check-consumer-suggest-lockstep.php`, which
-keeps its opt-in strict-tier copies in step with `composer.json`'s `suggest`
-block instead). The
+scorecard, dependency-review, yamllint, commit-convention and label-sync.
+`renovate.json` extends the shared preset of the account and sets nothing else.
+`tests/consumer/composer.json` is not meant to be bumped by a dependency bot. It
+is a `path`-repository fixture with `minimum-stability: dev` that installs this
+package from the working tree, so a bump would either fail to resolve or offer
+to raise a requirement that is not a real upstream dependency.
+`tests/check-consumer-suggest-lockstep.php` keeps its opt-in strict-tier copies in
+step with `composer.json`'s `suggest` block instead. The
 own `ci.yml` adds a `js` job running the native `node:test` suite over
 `bin/support/merge-config-layer.mjs` — the packaging/consumer-smoke half (packing
 the package as npm ships it, installing it into a throwaway consumer, running
