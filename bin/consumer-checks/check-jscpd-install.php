@@ -52,10 +52,10 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
         return readJsonManifest($violations, $repoRoot . '/' . $file, $file, 'jscpd install contract');
     };
 
-    // --- package.json: one exact pin, where Dependabot reads it ---
+    // --- package.json: one exact pin, where the dependency bot reads it ---
 
     if (!is_file($repoRoot . '/package.json')) {
-        fail($violations, 'package.json', 'is missing. `.jscpd.json` is present, so jscpd must be pinned to one exact version in `devDependencies`, where `npm ci` installs it and Dependabot bumps it.');
+        fail($violations, 'package.json', 'is missing. `.jscpd.json` is present, so jscpd must be pinned to one exact version in `devDependencies`, where `npm ci` installs it and the dependency bot bumps it.');
     } else {
         $package = $readManifest('package.json');
 
@@ -97,7 +97,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                 // One exact SemVer 2.0.0 version, pre-release and build metadata
                 // included, and nothing npm would read as a range or a moving
                 // reference. `=5.3.2` and `v5.3.2` are exact to npm too, but the
-                // bare form is the one Dependabot writes, and one spelling keeps a
+                // bare form is the one the dependency bot writes, and one spelling keeps a
                 // pin greppable across repositories.
                 $exactVersion = '/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)'
                     . '(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?'
@@ -111,7 +111,7 @@ function checkJscpdInstall(array &$violations, string $repoRoot): void
                         $violations,
                         'package.json',
                         sprintf(
-                            '`devDependencies.jscpd` must be one exact version such as "5.3.2", is %s. A range or tag installs whatever release is newest, not the version Dependabot proposed.',
+                            '`devDependencies.jscpd` must be one exact version such as "5.3.2", is %s. A range or tag installs whatever release is newest, not the version the dependency bot proposed.',
                             is_string($version) ? '"' . safeReportValue($version) . '"' : 'not a string'
                         )
                     );

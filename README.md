@@ -64,9 +64,8 @@ same bargain as the PHP side, where the toolchain versions are pinned here once 
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
 The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.6.4`,
-`typescript 7.0.2`, `jscpd 5.4.2`) and are what Dependabot tracks — `peerDependencies` are not parsed
-by Dependabot's npm ecosystem (verified 2026-07-28), so the pins are the moving part and the ranges are
-widened by hand once a bump is green.
+`typescript 7.0.2`, `jscpd 5.4.2`) and are what the dependency bot bumps, so the pins are the moving part and the ranges are
+widened once a bump is green.
 
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
 what the tools themselves demand — derive them rather than trusting these numbers:
@@ -1187,12 +1186,12 @@ jscpd is a Node tool, so the Composer package cannot deliver it the way it deliv
 PHP toolchain. Every repository that carries a `.jscpd.json` installs and runs it the
 same way (GH-219):
 
-1. **One pin, where Dependabot reads it.** `package.json` declares jscpd in
+1. **One pin, where the dependency bot reads it.** `package.json` declares jscpd in
    `devDependencies` with one exact version (`"jscpd": "5.4.2"`, not `^5.4.2`), and the
    lockfile `package-lock.json` is present (by that name: the shared cpd workflow
    requires it, so an `npm-shrinkwrap.json` alone does not count). The version
    lives nowhere else, not in another dependency section and not in a Composer script, so
-   Dependabot's npm ecosystem is the one thing that moves it. The gate reads
+   the npm manager of the dependency bot is the one thing that moves it. The gate reads
    `package.json` and `composer.json`, not workflow files.
 2. **Installed explicitly, never from a Composer event.** CI runs `npm ci` in its own
    step after `setup-node` (the reusable

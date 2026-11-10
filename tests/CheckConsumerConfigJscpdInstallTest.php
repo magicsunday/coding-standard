@@ -311,9 +311,9 @@ final class CheckConsumerConfigJscpdInstallTest extends AbstractConsumerConfigTe
     /**
      * Every spelling that is not one exact version is a range or a moving
      * reference: npm resolves it to whatever release is newest instead of the
-     * version Dependabot proposed, so it is rejected. `=5.3.2` and `v5.3.2`
+     * version the dependency bot proposed, so it is rejected. `=5.3.2` and `v5.3.2`
      * are rejected too, although npm reads both as exact: the bare form is
-     * the one Dependabot writes, and one spelling is what keeps a pin
+     * the one the dependency bot writes, and one spelling is what keeps a pin
      * greppable across repositories.
      *
      * @return void

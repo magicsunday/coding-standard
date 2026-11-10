@@ -198,9 +198,8 @@ directory that matches how it is consumed, never at the root for convenience.
   for `bin/check-js-config.mjs`, #32) is the separate, consumer-facing floor npm
   enforces on install. Bumping one is not a reason to bump the other. CI
   pins `node-version: 24` — do not put the floating `lts/*` back, it changes major on
-  its own schedule. Dependabot's npm ecosystem reads
-  `devDependencies`, not `peerDependencies` (verified 2026-07-28), which is why the pins are the moving
-  part. The reasoning behind each of these — why the peers are optional, why the
+  its own schedule. The dependency bot bumps the pinned
+  `devDependencies`, which is why the pins are the moving part. The reasoning behind each of these — why the peers are optional, why the
   ranges are a policy rather than a compatibility promise, and what a consumer below
   them actually hits — is in the README under *The npm side is not the mirror image of
   the Composer side*; keep it in one place.
