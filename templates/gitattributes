@@ -49,4 +49,5 @@
 /phpstan-scripts.neon       export-ignore
 /phpunit.xml.dist           export-ignore
 /rector.php                 export-ignore
+/renovate.json              export-ignore
 #/tsconfig.json             export-ignore
