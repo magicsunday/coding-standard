@@ -550,9 +550,9 @@ directory that matches how it is consumed, never at the root for convenience.
 
 The reusable `magicsunday/.github` workflows provide code-scanning, zizmor,
 scorecard, dependency-review, yamllint, commit-convention, label-sync and
-auto-merge; `.github/dependabot.yml` covers composer + npm + github-actions —
+auto-merge; `renovate.json` extends the shared preset, which covers composer + npm + github-actions —
 composer only for the root manifest, not `tests/consumer/composer.json` (a `path`-
-repository, `minimum-stability: dev` fixture Dependabot cannot usefully bump; see
+repository, `minimum-stability: dev` fixture a dependency bot cannot usefully bump; see
 that file's own comment and `tests/check-consumer-suggest-lockstep.php`, which
 keeps its opt-in strict-tier copies in step with `composer.json`'s `suggest`
 block instead). The
