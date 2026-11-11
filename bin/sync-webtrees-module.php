@@ -207,7 +207,9 @@ function writeFile(string $path, string $contents): void
     }
 }
 
-$arguments = array_slice($argv, 1);
+// $argv is only guaranteed under the CLI SAPI. `??` keeps a missing one a usage
+// error instead of an undefined-variable notice.
+$arguments = array_slice($argv ?? [], 1);
 $check     = in_array('--check', $arguments, true);
 $paths     = array_values(array_filter($arguments, static fn (string $argument): bool => $argument !== '--check'));
 
