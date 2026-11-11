@@ -30,32 +30,31 @@
 
 #### Release
 
-MODULE_NAME      := webtrees-<name>
+# MODULE_NAME, SCOPE_NS, WEBTREES_CONSTRAINT, CHART_LIB_MARKER and SHARED_VIEWS come from
+# Make/module.mk, which the Makefile reads before this file.
 JS_NAME          := $(patsubst webtrees-%,%,$(MODULE_NAME))
 VENDOR_DIR       := .build/vendor
 MODULE_BASE_PKG  := magicsunday/webtrees-module-base
 MODULE_BASE_PATH := $(VENDOR_DIR)/$(MODULE_BASE_PKG)
 
-# Per-module namespace prefix injected into the bundled module-base classes
-# at dist time. Prevents PHP autoloader collisions when multiple magicsunday
+# SCOPE_NS is the per-module namespace prefix injected into the bundled module-base
+# classes at dist time. It prevents PHP autoloader collisions when multiple magicsunday
 # chart modules at different versions register the same shared namespace
 # (see GitHub issues #194, #196). Must be unique per module.
-SCOPE_NS         := ModuleNameVendor
 
 # Per-module name of the view namespace that the bundled module-base registers.
 # webtrees keeps one registration per name and the last module to boot wins, so
 # a shared name lets a module with an older bundle remove the shared views of
-# another one. Must be unique per module.
-SCOPE_VIEW_NS    := webtrees-module-base-<name>
+# another one. Derived from the module name, so it is unique per module.
+SCOPE_VIEW_NS    := webtrees-module-base-$(JS_NAME)
 
 # Accept both 'make release 3.1.0' (goal form) and 'make release VERSION=3.1.0'.
 VERSION ?= $(filter-out release release-% dist,$(MAKECMDGOALS))
 
 REQUIRED_TOOLS := git node npm composer jq zip unzip gh sed php
 
-# The webtrees constraint of composer.json, written by release-prepare and again by
-# release-bump so the release commit and the development bump cannot differ.
-WEBTREES_CONSTRAINT := ~2.2.0
+# WEBTREES_CONSTRAINT is written to composer.json by release-prepare and again by
+# release-bump, so the release commit and the development bump cannot differ.
 
 .PHONY: release release-check release-prepare release-publish release-bump \
         release-recover dist dist-stamp dist-smoke clean-js release-clean build-js-fresh \
@@ -77,7 +76,7 @@ release-bootstrap:
 		echo -e "${FYELLOW}[bootstrap]${FRESET} Restoring dev toolchain ($(VENDOR_DIR))..."; \
 		composer install --no-interaction --no-progress; \
 	fi
-	@if [ ! -f node_modules/@magicsunday/webtrees-chart-lib/dist/webtrees-chart-lib-infra.es.js ]; then \
+	@if [ ! -f node_modules/@magicsunday/webtrees-chart-lib/dist/$(CHART_LIB_MARKER) ]; then \
 		echo -e "${FYELLOW}[bootstrap]${FRESET} Installing node deps + building chart-lib dist (npm ci)..."; \
 		npm ci; \
 	fi
@@ -203,10 +202,12 @@ dist:
 	fi
 	@mkdir -p $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base
 	@cp -rL $(MODULE_BASE_PATH)/src $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/src
+ifneq ($(strip $(SHARED_VIEWS)),)
 	@mkdir -p $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/resources
 	@cp -rL $(MODULE_BASE_PATH)/resources/views $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/resources/views
+endif
 	@cp -L $(MODULE_BASE_PATH)/LICENSE $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/LICENSE
-	@echo "  Bundled $(MODULE_BASE_PKG) (src, shared views and LICENSE only) into vendor/"
+	@echo "  Bundled $(MODULE_BASE_PKG) (src, LICENSE and the shared views of SHARED_VIEWS) into vendor/"
 	@find $(MODULE_NAME)/vendor -name composer.json -delete
 	@rm -f $(MODULE_NAME)/composer.json
 	@echo "  Scoping module-base namespace with prefix $(SCOPE_NS)..."
@@ -214,11 +215,13 @@ dist:
 		-e 's|MagicSunday\\\\Webtrees\\\\ModuleBase|MagicSunday\\\\$(SCOPE_NS)\\\\Webtrees\\\\ModuleBase|g' \
 		-e 's|MagicSunday\\Webtrees\\ModuleBase|MagicSunday\\$(SCOPE_NS)\\Webtrees\\ModuleBase|g' \
 		{} +
+ifneq ($(strip $(SHARED_VIEWS)),)
 	@echo "  Scoping module-base view namespace to $(SCOPE_VIEW_NS)..."
 	@sed -i -e "s|'webtrees-module-base'|'$(SCOPE_VIEW_NS)'|" \
 		$(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/src/View/SharedViews.php
 	@grep -qF "'$(SCOPE_VIEW_NS)'" $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/src/View/SharedViews.php \
 		|| { echo "Error: view namespace of the bundled SharedViews.php was not scoped"; exit 1; }
+endif
 	@hits=$$(find $(MODULE_NAME) -type f \( -name '*.php' -o -name '*.phtml' \) -print0 \
 	    | xargs -0 grep -lE 'MagicSunday\\Webtrees\\ModuleBase' 2>/dev/null); \
 	if [ -n "$$hits" ]; then \
@@ -259,9 +262,7 @@ dist-smoke:
 		vendor/magicsunday/webtrees-module-base/src/Model/ \
 		vendor/magicsunday/webtrees-module-base/src/Module/ \
 		vendor/magicsunday/webtrees-module-base/src/Processor/ \
-		vendor/magicsunday/webtrees-module-base/resources/views/detail-panel.phtml \
-		vendor/magicsunday/webtrees-module-base/resources/views/help-popover.phtml \
-		vendor/magicsunday/webtrees-module-base/resources/views/toolbar-style.phtml \
+		$(foreach view,$(SHARED_VIEWS),vendor/magicsunday/webtrees-module-base/resources/views/$(view).phtml) \
 	; do \
 		grep -qE "^$$prefix" <<<"$$paths" || { echo "Error: required prefix has no entries in zip: $$prefix"; exit 1; }; \
 	done; \
@@ -308,16 +309,18 @@ dist-smoke:
 		[ -n "$$files" ] \
 			|| { echo "Error: bundled module-base src/$$d has no PHP files in extracted zip"; exit 1; }; \
 	done; \
-	for v in detail-panel help-popover toolbar-style; do \
-		[ -s "$$tmp/vendor/magicsunday/webtrees-module-base/resources/views/$$v.phtml" ] \
-			|| { echo "Error: bundled module-base view $$v is missing or empty in extracted zip"; exit 1; }; \
-	done; \
-	shared_views="$$tmp/vendor/magicsunday/webtrees-module-base/src/View/SharedViews.php"; \
-	grep -qF "'$(SCOPE_VIEW_NS)'" "$$shared_views" \
-		|| { echo "Error: bundled SharedViews.php does not register the scoped view namespace ($(SCOPE_VIEW_NS))"; exit 1; }; \
-	if grep -qF "'webtrees-module-base'" "$$shared_views"; then \
-		echo "Error: bundled SharedViews.php still registers the unscoped view namespace"; \
-		exit 1; \
+	if [ -n "$(strip $(SHARED_VIEWS))" ]; then \
+		for v in $(SHARED_VIEWS); do \
+			[ -s "$$tmp/vendor/magicsunday/webtrees-module-base/resources/views/$$v.phtml" ] \
+				|| { echo "Error: bundled module-base view $$v is missing or empty in extracted zip"; exit 1; }; \
+		done; \
+		shared_views="$$tmp/vendor/magicsunday/webtrees-module-base/src/View/SharedViews.php"; \
+		grep -qF "'$(SCOPE_VIEW_NS)'" "$$shared_views" \
+			|| { echo "Error: bundled SharedViews.php does not register the scoped view namespace ($(SCOPE_VIEW_NS))"; exit 1; }; \
+		if grep -qF "'webtrees-module-base'" "$$shared_views"; then \
+			echo "Error: bundled SharedViews.php still registers the unscoped view namespace"; \
+			exit 1; \
+		fi; \
 	fi
 	@echo -e "${FGREEN} ✔${FRESET} dist-smoke passed: $(MODULE_NAME).zip extracts to a well-formed module"
 

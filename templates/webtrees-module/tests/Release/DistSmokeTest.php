@@ -21,10 +21,7 @@ use function dirname;
 use function file_put_contents;
 use function is_dir;
 use function mkdir;
-use function proc_close;
-use function proc_open;
 use function str_repeat;
-use function stream_get_contents;
 use function strpos;
 use function substr;
 use function substr_count;
@@ -47,10 +44,23 @@ final class DistSmokeTest extends TestCase
 
     private const string BASE_SOURCES = 'vendor/magicsunday/webtrees-module-base/src/';
 
+    /**
+     * Runs the commands of the scratch copy.
+     */
+    private ProcessRunner $processRunner;
+
+    /**
+     * The package name of the module, read from its parameter file.
+     */
+    private string $moduleName = '';
+
     private string $workDir = '';
 
     protected function setUp(): void
     {
+        $this->processRunner = new ProcessRunner();
+        $this->moduleName    = ModuleParameters::moduleName();
+
         $base = tempnam(sys_get_temp_dir(), 'dist-smoke-');
         self::assertIsString($base);
 
@@ -63,12 +73,12 @@ final class DistSmokeTest extends TestCase
 
         $root = dirname(__DIR__, 2);
 
-        $this->execute(['cp', '-R', $root . '/Makefile', $root . '/Make', $this->workDir . '/module/'], $this->workDir);
+        $this->processRunner->execute(['cp', '-R', $root . '/Makefile', $root . '/Make', $this->workDir . '/module/'], $this->workDir);
     }
 
     protected function tearDown(): void
     {
-        $this->execute(['rm', '-rf', $this->workDir], sys_get_temp_dir());
+        $this->processRunner->execute(['rm', '-rf', $this->workDir], sys_get_temp_dir());
     }
 
     /**
@@ -108,6 +118,8 @@ final class DistSmokeTest extends TestCase
     #[DataProvider('sharedViews')]
     public function rejectsAnArchiveWithoutASharedView(string $view): void
     {
+        $this->skipWithoutSharedViews($view);
+
         $this->buildArchive([], [self::BASE_VIEWS . $view . '.phtml']);
 
         [$status, $output] = $this->smoke();
@@ -163,15 +175,15 @@ final class DistSmokeTest extends TestCase
         $commit = str_repeat('b', 40);
 
         $this->buildArchive([], [], false);
-        file_put_contents($this->workDir . '/module/webtrees-<name>.commit', $commit . "\n");
+        file_put_contents($this->workDir . '/module/' . $this->moduleName . '.commit', $commit . "\n");
 
-        [$status, $output] = $this->execute(['make', 'dist-stamp'], $this->workDir . '/module');
+        [$status, $output] = $this->processRunner->execute(['make', 'dist-stamp'], $this->workDir . '/module');
 
         self::assertSame(0, $status, $output);
-        self::assertFileDoesNotExist($this->workDir . '/module/webtrees-<name>.commit');
+        self::assertFileDoesNotExist($this->workDir . '/module/' . $this->moduleName . '.commit');
 
-        [$status, $comment] = $this->execute(
-            ['unzip', '-z', $this->workDir . '/module/webtrees-<name>.zip'],
+        [$status, $comment] = $this->processRunner->execute(
+            ['unzip', '-z', $this->workDir . '/module/' . $this->moduleName . '.zip'],
             $this->workDir . '/module'
         );
 
@@ -190,13 +202,13 @@ final class DistSmokeTest extends TestCase
     #[Test]
     public function archivesAndStampsTheCommitThatWasResolvedFirst(): void
     {
-        [$status, $output] = $this->execute(['make', '-n', 'dist'], $this->workDir . '/module');
+        [$status, $output] = $this->processRunner->execute(['make', '-n', 'dist'], $this->workDir . '/module');
 
         self::assertSame(0, $status, $output);
 
-        $resolved = strpos($output, 'git rev-parse HEAD > webtrees-<name>.commit');
-        $archived = strpos($output, 'git archive --prefix=webtrees-<name>/ "$(cat webtrees-<name>.commit)"');
-        $stamped  = strpos($output, 'zip --quiet -z webtrees-<name>.zip < webtrees-<name>.commit');
+        $resolved = strpos($output, 'git rev-parse HEAD > ' . $this->moduleName . '.commit');
+        $archived = strpos($output, 'git archive --prefix=' . $this->moduleName . '/ "$(cat ' . $this->moduleName . '.commit)"');
+        $stamped  = strpos($output, 'zip --quiet -z ' . $this->moduleName . '.zip < ' . $this->moduleName . '.commit');
 
         self::assertNotFalse($resolved, $output);
         self::assertNotFalse($archived, $output);
@@ -245,6 +257,8 @@ final class DistSmokeTest extends TestCase
     #[DataProvider('sharedViews')]
     public function rejectsAnArchiveWithAnEmptySharedView(string $view): void
     {
+        $this->skipWithoutSharedViews($view);
+
         $this->buildArchive([self::BASE_VIEWS . $view . '.phtml' => '']);
 
         [$status, $output] = $this->smoke();
@@ -296,7 +310,7 @@ final class DistSmokeTest extends TestCase
     public function rejectsAnArchiveWithAnUnprefixedNamespace(string $namespace): void
     {
         $this->buildArchive([
-            'module.php' => "<?php\n\n// MagicSunday\\\\ModuleNameVendor\\\\Webtrees\\\\ModuleBase\n// " . $namespace . "\n",
+            'module.php' => "<?php\n\n// MagicSunday\\\\" . ModuleParameters::scopeNamespace() . "\\\\Webtrees\\\\ModuleBase\n// " . $namespace . "\n",
         ]);
 
         [$status, $output] = $this->smoke();
@@ -386,24 +400,32 @@ final class DistSmokeTest extends TestCase
     public static function requiredPrefixes(): array
     {
         return [
-            'versioned bundle' => ['resources/js/<name>-1.min.js', 'resources/js/<name>-[0-9]'],
-            'contracts'        => [self::BASE_SOURCES . 'Contract/Entry.php', self::BASE_SOURCES . 'Contract/'],
-            'models'           => [self::BASE_SOURCES . 'Model/Entry.php', self::BASE_SOURCES . 'Model/'],
-            'modules'          => [self::BASE_SOURCES . 'Module/Entry.php', self::BASE_SOURCES . 'Module/'],
-            'processors'       => [self::BASE_SOURCES . 'Processor/Entry.php', self::BASE_SOURCES . 'Processor/'],
+            'versioned bundle' => [
+                'resources/js/' . ModuleParameters::scriptName() . '-1.min.js',
+                'resources/js/' . ModuleParameters::scriptName() . '-[0-9]',
+            ],
+            'contracts'  => [self::BASE_SOURCES . 'Contract/Entry.php', self::BASE_SOURCES . 'Contract/'],
+            'models'     => [self::BASE_SOURCES . 'Model/Entry.php', self::BASE_SOURCES . 'Model/'],
+            'modules'    => [self::BASE_SOURCES . 'Module/Entry.php', self::BASE_SOURCES . 'Module/'],
+            'processors' => [self::BASE_SOURCES . 'Processor/Entry.php', self::BASE_SOURCES . 'Processor/'],
         ];
     }
 
     /**
+     * The shared views that the module bundles, by name. A module without shared views gets one row with an empty
+     * name, so that the cases that need a view are reported as skipped and not as an empty data provider.
+     *
      * @return array<string, array{string}>
      */
     public static function sharedViews(): array
     {
-        return [
-            'detail panel'  => ['detail-panel'],
-            'help popover'  => ['help-popover'],
-            'toolbar style' => ['toolbar-style'],
-        ];
+        $views = [];
+
+        foreach (ModuleParameters::sharedViews() as $view) {
+            $views[$view] = [$view];
+        }
+
+        return $views === [] ? ['no shared views' => ['']] : $views;
     }
 
     /**
@@ -428,13 +450,13 @@ final class DistSmokeTest extends TestCase
     public static function lookalikeEntries(): array
     {
         return [
-            'character before git hooks'  => ['agithooks/pre-commit'],
-            'nested git hooks'            => ['resources/.githooks/pre-commit'],
-            'nested dev directory'        => ['resources/dev/tool.sh'],
-            'nested assets directory'     => ['resources/assets/logo.png'],
-            'character in composer file'  => ['composerxjson'],
-            'nested deptrac file'         => ['resources/deptrac.yaml'],
-            'text after deptrac file'     => ['deptrac.yaml.dist'],
+            'character before git hooks' => ['agithooks/pre-commit'],
+            'nested git hooks'           => ['resources/.githooks/pre-commit'],
+            'nested dev directory'       => ['resources/dev/tool.sh'],
+            'nested assets directory'    => ['resources/assets/logo.png'],
+            'character in composer file' => ['composerxjson'],
+            'nested deptrac file'        => ['resources/deptrac.yaml'],
+            'text after deptrac file'    => ['deptrac.yaml.dist'],
         ];
     }
 
@@ -476,22 +498,26 @@ final class DistSmokeTest extends TestCase
         bool $stamp = true,
         ?string $stampText = null,
     ): void {
-        $scopedNamespace = 'MagicSunday\\\\ModuleNameVendor\\\\Webtrees\\\\ModuleBase';
+        $scopedNamespace = 'MagicSunday\\\\' . ModuleParameters::scopeNamespace() . '\\\\Webtrees\\\\ModuleBase';
         $base            = 'vendor/magicsunday/webtrees-module-base/';
 
         $files = [
-            'module.php'                             => "<?php\n\n// " . $scopedNamespace . "\n",
-            'LICENSE'                                => "license\n",
-            'resources/js/<name>-1.min.js'   => "bundle\n",
-            $base . 'src/Contract/Entry.php'         => "<?php\n",
-            $base . 'src/Model/Entry.php'            => "<?php\n",
-            $base . 'src/Module/Entry.php'           => "<?php\n",
-            $base . 'src/Processor/Entry.php'        => "<?php\n",
-            $base . 'src/View/SharedViews.php'       => "<?php\n\n// 'webtrees-module-base-<name>'\n",
-            self::BASE_VIEWS . 'detail-panel.phtml'  => "view\n",
-            self::BASE_VIEWS . 'help-popover.phtml'  => "view\n",
-            self::BASE_VIEWS . 'toolbar-style.phtml' => "view\n",
+            'module.php'                                                   => "<?php\n\n// " . $scopedNamespace . "\n",
+            'LICENSE'                                                      => "license\n",
+            'resources/js/' . ModuleParameters::scriptName() . '-1.min.js' => "bundle\n",
+            $base . 'src/Contract/Entry.php'                               => "<?php\n",
+            $base . 'src/Model/Entry.php'                                  => "<?php\n",
+            $base . 'src/Module/Entry.php'                                 => "<?php\n",
+            $base . 'src/Processor/Entry.php'                              => "<?php\n",
         ];
+
+        if (ModuleParameters::sharedViews() !== []) {
+            $files[$base . 'src/View/SharedViews.php'] = "<?php\n\n// '" . ModuleParameters::scopeViewNamespace() . "'\n";
+
+            foreach (ModuleParameters::sharedViews() as $view) {
+                $files[self::BASE_VIEWS . $view . '.phtml'] = "view\n";
+            }
+        }
 
         foreach ($overrides as $path => $content) {
             $files[$path] = $content;
@@ -513,8 +539,8 @@ final class DistSmokeTest extends TestCase
             file_put_contents($this->workDir . '/stage/' . $path, $content);
         }
 
-        [$status, $output] = $this->execute(
-            ['zip', '-qr', $this->workDir . '/module/webtrees-<name>.zip', '.'],
+        [$status, $output] = $this->processRunner->execute(
+            ['zip', '-qr', $this->workDir . '/module/' . $this->moduleName . '.zip', '.'],
             $this->workDir . '/stage'
         );
 
@@ -524,13 +550,13 @@ final class DistSmokeTest extends TestCase
             return;
         }
 
-        [$status, $output] = $this->execute(
+        [$status, $output] = $this->processRunner->execute(
             [
                 'sh',
                 '-c',
                 'printf "%s\n" "$0" | zip -q -z "$1"',
                 $stampText ?? str_repeat('a', 40),
-                $this->workDir . '/module/webtrees-<name>.zip',
+                $this->workDir . '/module/' . $this->moduleName . '.zip',
             ],
             $this->workDir . '/stage'
         );
@@ -539,38 +565,20 @@ final class DistSmokeTest extends TestCase
     }
 
     /**
+     * Skips the case when the module bundles no shared views, which the data provider reports as an empty view name.
+     */
+    private function skipWithoutSharedViews(string $view): void
+    {
+        if ($view === '') {
+            self::markTestSkipped('The module bundles no shared module-base views.');
+        }
+    }
+
+    /**
      * @return array{int, string}
      */
     private function smoke(): array
     {
-        return $this->execute(['make', 'dist-smoke'], $this->workDir . '/module');
-    }
-
-    /**
-     * @param list<string> $command
-     *
-     * @return array{int, string}
-     */
-    private function execute(array $command, string $workingDirectory): array
-    {
-        $process = proc_open(
-            $command,
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            $workingDirectory,
-            ['PATH' => '/usr/local/bin:/usr/bin:/bin']
-        );
-
-        self::assertIsResource($process);
-
-        $standardOutput = $pipes[1] ?? null;
-        $standardError  = $pipes[2] ?? null;
-
-        self::assertIsResource($standardOutput);
-        self::assertIsResource($standardError);
-
-        $output = stream_get_contents($standardOutput) . stream_get_contents($standardError);
-
-        return [proc_close($process), $output];
+        return $this->processRunner->execute(['make', 'dist-smoke'], $this->workDir . '/module');
     }
 }
