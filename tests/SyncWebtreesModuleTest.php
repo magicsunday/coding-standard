@@ -22,6 +22,7 @@ use SplFileInfo;
 
 use function array_keys;
 use function array_map;
+use function dirname;
 use function file_get_contents;
 use function file_put_contents;
 use function fileinode;
@@ -202,6 +203,66 @@ final class SyncWebtreesModuleTest extends GateTestCase
     }
 
     /**
+     * A file of the module that is not a shared template file is never rewritten or deleted, whether it sits next to
+     * the shared files, in a directory of the template, or elsewhere, and the parameter file is among them.
+     */
+    #[Test]
+    public function leavesTheFilesOfTheModuleThatAreNotSharedFilesAlone(): void
+    {
+        $module  = $this->module(self::PARAMETERS);
+        $foreign = [
+            'Make/extra.mk'             => "EXTRA := 1\n",
+            'src/Module.php'            => "<?php\n// module source\n",
+            'tests/Release/Foreign.php' => "<?php\n// a test of the module\n",
+            'README.md'                 => "# the module\n",
+        ];
+
+        foreach ($foreign as $relative => $contents) {
+            if (!is_dir(dirname($module . '/' . $relative))) {
+                mkdir(dirname($module . '/' . $relative), 0o700, true);
+            }
+
+            file_put_contents($module . '/' . $relative, $contents);
+        }
+
+        $foreign['Make/module.mk'] = $this->parameterFile(self::PARAMETERS);
+        $inodes                    = [];
+
+        foreach ($foreign as $relative => $contents) {
+            $inodes[$relative] = fileinode($module . '/' . $relative);
+        }
+
+        foreach ([[], ['--check'], []] as $flags) {
+            $this->sync($module, $flags);
+
+            foreach ($foreign as $relative => $contents) {
+                self::assertFileExists($module . '/' . $relative);
+                self::assertSame($contents, file_get_contents($module . '/' . $relative), $relative);
+                self::assertSame($inodes[$relative], fileinode($module . '/' . $relative), $relative);
+            }
+        }
+    }
+
+    /**
+     * With --check a shared file that was edited by hand is named, nothing is written and the exit code is 1.
+     */
+    #[Test]
+    public function checkNamesAHandEditedFileAndLeavesItAlone(): void
+    {
+        $module = $this->module(self::PARAMETERS);
+
+        self::assertSame(0, $this->sync($module)->exitCode);
+
+        file_put_contents($module . '/Make/lint.mk', "# changed by hand\n");
+
+        $result = $this->sync($module, ['--check']);
+
+        self::assertSame(1, $result->exitCode, $result->output);
+        self::assertSame("would be updated Make/lint.mk\n", $result->output);
+        self::assertSame("# changed by hand\n", file_get_contents($module . '/Make/lint.mk'));
+    }
+
+    /**
      * A module without a parameter file is refused, and the refusal comes before any file is written.
      */
     #[Test]
@@ -347,6 +408,8 @@ final class SyncWebtreesModuleTest extends GateTestCase
     {
         $offenders = [];
 
+        self::assertNotSame([], $this->templateFiles());
+
         foreach ($this->templateFiles() as $relative) {
             if (preg_match($pattern, $this->template($relative)) === 1) {
                 $offenders[] = $relative;
@@ -387,6 +450,9 @@ final class SyncWebtreesModuleTest extends GateTestCase
     }
 
     /**
+     * One case per identity parameter and per way its shape can be wrong. WEBTREES_CONSTRAINT has no case, because
+     * its value is trimmed and the only shape the script requires of it is that it is not empty.
+     *
      * @return array<string, array{string, string}>
      */
     public static function malformedParameters(): array
@@ -404,7 +470,9 @@ final class SyncWebtreesModuleTest extends GateTestCase
     }
 
     /**
-     * Literals that identify one of the modules, as patterns over the contents of a template file.
+     * Literals that identify one of the modules, as patterns over the contents of a template file. The cases span
+     * the kinds of value a module holds, which are its name, its namespace, its constraint and its chart library
+     * marker.
      *
      * @return array<string, array{string}>
      */
