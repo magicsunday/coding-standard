@@ -68,7 +68,7 @@ REQUIRED_TOOLS := git node npm composer jq zip unzip gh sed php
 # release-bump, so the release commit and the development bump cannot differ.
 
 .PHONY: release release-check release-prepare release-publish release-bump \
-        release-recover dist dist-stamp dist-smoke clean-js release-clean build-js-fresh \
+        release-recover dist dist-stamp dist-smoke dist-base-version clean-js release-clean build-js-fresh \
         release-bootstrap release-dry-run
 
 # release pipeline operates on shared repo state — must run sequentially.
