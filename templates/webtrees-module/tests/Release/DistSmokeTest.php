@@ -308,10 +308,11 @@ final class DistSmokeTest extends TestCase
     }
 
     /**
-     * The dist target records the version after it bundled the module base and before it packs the archive.
+     * The dist target records the version after it bundled the module base and before it packs the archive, and it
+     * builds without the flag that switches the advisory blocking of composer off.
      */
     #[Test]
-    public function recordsTheModuleBaseVersionBeforePacking(): void
+    public function recordsTheModuleBaseVersionBeforePackingAndKeepsSecurityBlockingOn(): void
     {
         [$status, $output] = $this->processRunner->execute(['make', '-n', 'dist'], $this->workDir . '/module');
 
@@ -326,6 +327,8 @@ final class DistSmokeTest extends TestCase
         self::assertNotFalse($packed, $output);
         self::assertLessThan($recorded, $bundled);
         self::assertLessThan($packed, $recorded);
+        self::assertStringContainsString('composer update --no-dev', $output);
+        self::assertStringNotContainsString('--no-security-blocking', $output);
     }
 
     /**

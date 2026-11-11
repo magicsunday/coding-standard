@@ -198,7 +198,7 @@ dist:
 	fi
 	@rm -rf $(VENDOR_DIR)
 	@echo "  Installing composer runtime dependencies into $(VENDOR_DIR)..."
-	@composer update --no-dev --no-progress --no-interaction --no-security-blocking --ignore-platform-req=php
+	@composer update --no-dev --no-progress --no-interaction --ignore-platform-req=php
 	@git archive --prefix=$(MODULE_NAME)/ "$$(cat $(MODULE_NAME).commit)" --format=tar | tar -x
 	@if [ ! -d $(MODULE_BASE_PATH) ]; then \
 		echo "Error: $(MODULE_BASE_PATH) not found after composer install."; \
