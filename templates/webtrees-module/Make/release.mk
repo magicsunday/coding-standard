@@ -37,6 +37,11 @@ VENDOR_DIR       := .build/vendor
 MODULE_BASE_PKG  := magicsunday/webtrees-module-base
 MODULE_BASE_PATH := $(VENDOR_DIR)/$(MODULE_BASE_PKG)
 
+# A release version of the module base as the archive records it: three numbers, an optional tag prefix and an
+# optional pre-release suffix, on one line. A branch such as dev-main does not match. The deferred assignment keeps
+# the double dollar, which make turns into the end anchor of the regular expression.
+MODULE_BASE_VERSION_PATTERN = ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$
+
 # SCOPE_NS is the per-module namespace prefix injected into the bundled module-base
 # classes at dist time. It prevents PHP autoloader collisions when multiple magicsunday
 # chart modules at different versions register the same shared namespace
@@ -208,6 +213,7 @@ ifneq ($(strip $(SHARED_VIEWS)),)
 endif
 	@cp -L $(MODULE_BASE_PATH)/LICENSE $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/LICENSE
 	@echo "  Bundled $(MODULE_BASE_PKG) (src, LICENSE and the shared views of SHARED_VIEWS) into vendor/"
+	@$(MAKE) --no-print-directory dist-base-version
 	@find $(MODULE_NAME)/vendor -name composer.json -delete
 	@rm -f $(MODULE_NAME)/composer.json
 	@echo "  Scoping module-base namespace with prefix $(SCOPE_NS)..."
@@ -242,6 +248,15 @@ dist-stamp:
 	@zip --quiet -z $(MODULE_NAME).zip < $(MODULE_NAME).commit
 	@rm -f $(MODULE_NAME).commit
 
+## Write the version that composer resolved for the bundled module base into the bundled copy, so the archive
+## says which module base it carries. Run by dist, it reads the composer metadata of the build and stops when
+## that holds no release version of the module base.
+dist-base-version:
+	@version=$$(jq -r --arg package '$(MODULE_BASE_PKG)' 'first(.packages[] | select(.name == $$package) | .version) // empty' $(VENDOR_DIR)/composer/installed.json); \
+	[[ "$$version" =~ $(MODULE_BASE_VERSION_PATTERN) ]] \
+		|| { echo "Error: no well-formed version of the module base $(MODULE_BASE_PKG) in $(VENDOR_DIR)/composer/installed.json"; exit 1; }; \
+	printf '%s\n' "$$version" > $(MODULE_NAME)/vendor/$(MODULE_BASE_PKG)/VERSION
+
 ## Smoke-test the just-built distribution zip. Asserts required entries
 ## are present and forbidden ones absent. Suitable for CI on every push.
 ##   make dist && make dist-smoke
@@ -252,6 +267,9 @@ dist-smoke:
 	fi
 	@build_commit=$$(unzip -z $(MODULE_NAME).zip | tail -n 1); \
 	grep -Eq '^[0-9a-f]{40}$$' <<<"$$build_commit" || { echo "Error: the zip carries no build commit, run 'make dist' to stamp it"; exit 1; }
+	@base_version=$$(unzip -p $(MODULE_NAME).zip vendor/$(MODULE_BASE_PKG)/VERSION 2>/dev/null); \
+	[[ "$$base_version" =~ $(MODULE_BASE_VERSION_PATTERN) ]] \
+		|| { echo "Error: the zip carries no well-formed module base version, run 'make dist' to record it"; exit 1; }
 	@paths=$$(unzip -Z1 $(MODULE_NAME).zip); \
 	for f in module.php LICENSE; do \
 		grep -Fxq "$$f" <<<"$$paths" || { echo "Error: required file missing from zip: $$f"; exit 1; }; \
