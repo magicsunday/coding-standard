@@ -44,11 +44,14 @@ use const JSON_THROW_ON_ERROR;
 #[CoversNothing]
 final class DistSmokeTest extends TestCase
 {
-    private const string BASE_VIEWS = 'vendor/magicsunday/webtrees-module-base/resources/views/';
-
-    private const string BASE_SOURCES = 'vendor/magicsunday/webtrees-module-base/src/';
-
+    /**
+     * The directory of the bundled module base inside the archive, with the trailing slash.
+     */
     private const string BASE = 'vendor/magicsunday/webtrees-module-base/';
+
+    private const string BASE_VIEWS = self::BASE . 'resources/views/';
+
+    private const string BASE_SOURCES = self::BASE . 'src/';
 
     /**
      * Runs the commands of the scratch copy.
@@ -455,7 +458,7 @@ final class DistSmokeTest extends TestCase
     #[DataProvider('sourceDirectories')]
     public function rejectsAnArchiveWithASourceDirectoryWithoutPhpFiles(string $directory): void
     {
-        $sources = 'vendor/magicsunday/webtrees-module-base/src/' . $directory . '/';
+        $sources = self::BASE_SOURCES . $directory . '/';
 
         $this->buildArchive([$sources . 'README.md' => "text\n"], [$sources . 'Entry.php']);
 
@@ -656,7 +659,7 @@ final class DistSmokeTest extends TestCase
         ?string $stampText = null,
     ): void {
         $scopedNamespace = 'MagicSunday\\\\' . ModuleParameters::scopeNamespace() . '\\\\Webtrees\\\\ModuleBase';
-        $base            = 'vendor/magicsunday/webtrees-module-base/';
+        $base            = self::BASE;
 
         $files = [
             'module.php'                                                   => "<?php\n\n// " . $scopedNamespace . "\n",
@@ -739,6 +742,10 @@ final class DistSmokeTest extends TestCase
         );
     }
 
+    /**
+     * Returns the path of the version file that the version target writes into the bundled module base of the
+     * scratch copy.
+     */
     private function baseVersionFile(): string
     {
         return $this->workDir . '/module/' . $this->moduleName . '/' . self::BASE . 'VERSION';
