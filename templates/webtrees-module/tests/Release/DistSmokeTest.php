@@ -18,8 +18,10 @@ use PHPUnit\Framework\TestCase;
 
 use function array_key_exists;
 use function dirname;
+use function file_get_contents;
 use function file_put_contents;
 use function is_dir;
+use function json_encode;
 use function mkdir;
 use function str_repeat;
 use function strpos;
@@ -29,6 +31,8 @@ use function sys_get_temp_dir;
 use function tempnam;
 use function trim;
 use function unlink;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Tests the dist-smoke target of Make/release.mk against small archives built for each case.
@@ -43,6 +47,8 @@ final class DistSmokeTest extends TestCase
     private const string BASE_VIEWS = 'vendor/magicsunday/webtrees-module-base/resources/views/';
 
     private const string BASE_SOURCES = 'vendor/magicsunday/webtrees-module-base/src/';
+
+    private const string BASE = 'vendor/magicsunday/webtrees-module-base/';
 
     /**
      * Runs the commands of the scratch copy.
@@ -219,6 +225,113 @@ final class DistSmokeTest extends TestCase
     }
 
     /**
+     * An archive without the version of the bundled module base fails the smoke test, because nothing in the archive
+     * would say which module base it carries.
+     */
+    #[Test]
+    public function rejectsAnArchiveWithoutTheModuleBaseVersion(): void
+    {
+        $this->buildArchive([], [self::BASE . 'VERSION']);
+
+        [$status, $output] = $this->smoke();
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Error: the zip carries no well-formed module base version', $output);
+        self::assertStringNotContainsString('dist-smoke passed', $output);
+    }
+
+    /**
+     * An entry that is not a single release version fails the smoke test, whether it is a branch, a short version,
+     * free text, empty, padded or spread over two lines.
+     */
+    #[Test]
+    #[DataProvider('malformedModuleBaseVersions')]
+    public function rejectsAnArchiveWithAMalformedModuleBaseVersion(string $entry): void
+    {
+        $this->buildArchive([self::BASE . 'VERSION' => $entry]);
+
+        [$status, $output] = $this->smoke();
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Error: the zip carries no well-formed module base version', $output);
+        self::assertStringNotContainsString('dist-smoke passed', $output);
+    }
+
+    /**
+     * A release version of the module base passes the smoke test, with or without a pre-release suffix or a tag
+     * prefix.
+     */
+    #[Test]
+    #[DataProvider('wellFormedModuleBaseVersions')]
+    public function acceptsAnArchiveWithAWellFormedModuleBaseVersion(string $entry): void
+    {
+        $this->buildArchive([self::BASE . 'VERSION' => $entry]);
+
+        [$status, $output] = $this->smoke();
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('dist-smoke passed', $output);
+    }
+
+    /**
+     * The version target writes the version that composer resolved for the module base into the bundled copy, and
+     * leaves the versions of the other packages alone.
+     */
+    #[Test]
+    public function recordsTheVersionThatComposerResolvedForTheModuleBase(): void
+    {
+        $this->prepareResolvedPackages([
+            ['name' => 'psr/log', 'version' => '9.9.9'],
+            ['name' => 'magicsunday/webtrees-module-base', 'version' => '3.4.0'],
+        ]);
+
+        [$status, $output] = $this->processRunner->execute(['make', 'dist-base-version'], $this->workDir . '/module');
+
+        self::assertSame(0, $status, $output);
+        self::assertSame("3.4.0\n", file_get_contents($this->baseVersionFile()));
+    }
+
+    /**
+     * The version target stops when composer resolved no release version of the module base, so a build from a
+     * branch or without the package cannot produce an archive without a version.
+     */
+    #[Test]
+    #[DataProvider('unusableResolvedPackages')]
+    public function refusesToRecordWhenComposerResolvedNoReleaseOfTheModuleBase(array $packages): void
+    {
+        $this->prepareResolvedPackages($packages);
+
+        [$status, $output] = $this->processRunner->execute(['make', 'dist-base-version'], $this->workDir . '/module');
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('Error: no well-formed version of the module base', $output);
+    }
+
+    /**
+     * The dist target records the version after it bundled the module base and before it packs the archive, and it
+     * builds without the flag that switches the advisory blocking of composer off.
+     */
+    #[Test]
+    public function recordsTheModuleBaseVersionBeforePackingAndKeepsSecurityBlockingOn(): void
+    {
+        [$status, $output] = $this->processRunner->execute(['make', '-n', 'dist'], $this->workDir . '/module');
+
+        self::assertSame(0, $status, $output);
+
+        $bundled  = strpos($output, 'cp -L .build/vendor/magicsunday/webtrees-module-base/LICENSE');
+        $recorded = strpos($output, '> ' . $this->moduleName . '/' . self::BASE . 'VERSION');
+        $packed   = strpos($output, 'zip --quiet --recurse-paths');
+
+        self::assertNotFalse($bundled, $output);
+        self::assertNotFalse($recorded, $output);
+        self::assertNotFalse($packed, $output);
+        self::assertLessThan($recorded, $bundled);
+        self::assertLessThan($packed, $recorded);
+        self::assertStringContainsString('composer update --no-dev', $output);
+        self::assertStringNotContainsString('--no-security-blocking', $output);
+    }
+
+    /**
      * A required file that is missing from the file list of the archive fails the smoke test.
      */
     #[Test]
@@ -383,6 +496,48 @@ final class DistSmokeTest extends TestCase
     /**
      * @return array<string, array{string}>
      */
+    public static function malformedModuleBaseVersions(): array
+    {
+        return [
+            'branch'      => ["dev-main\n"],
+            'short'       => ["3.4\n"],
+            'text'        => ["latest\n"],
+            'empty'       => [''],
+            'padded'      => ["3.4.0 \n"],
+            'two lines'   => ["3.4.0\n3.4.1\n"],
+            'extra line'  => ["3.4.0\nnote\n"],
+            'bare suffix' => ["3.4.0-\n"],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function wellFormedModuleBaseVersions(): array
+    {
+        return [
+            'release'     => ["3.4.0\n"],
+            'pre-release' => ["3.4.0-rc.1\n"],
+            'tag prefix'  => ["v3.4.0\n"],
+            'no newline'  => ['3.4.0'],
+        ];
+    }
+
+    /**
+     * @return array<string, array{list<array{name: string, version: string}>}>
+     */
+    public static function unusableResolvedPackages(): array
+    {
+        return [
+            'branch'  => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-main']]],
+            'absent'  => [[['name' => 'psr/log', 'version' => '3.0.0']]],
+            'no list' => [[]],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
     public static function requiredFiles(): array
     {
         return [
@@ -509,6 +664,7 @@ final class DistSmokeTest extends TestCase
             $base . 'src/Model/Entry.php'                                  => "<?php\n",
             $base . 'src/Module/Entry.php'                                 => "<?php\n",
             $base . 'src/Processor/Entry.php'                              => "<?php\n",
+            $base . 'VERSION'                                              => "3.4.0\n",
         ];
 
         if (ModuleParameters::sharedViews() !== []) {
@@ -562,6 +718,28 @@ final class DistSmokeTest extends TestCase
         );
 
         self::assertSame(0, $status, $output);
+    }
+
+    /**
+     * Gives the scratch copy the composer metadata of a build and the bundled module base that the version target
+     * writes into.
+     *
+     * @param list<array{name: string, version: string}> $packages The packages as composer lists them.
+     */
+    private function prepareResolvedPackages(array $packages): void
+    {
+        mkdir($this->workDir . '/module/.build/vendor/composer', 0o777, true);
+        mkdir(dirname($this->baseVersionFile()), 0o777, true);
+
+        file_put_contents(
+            $this->workDir . '/module/.build/vendor/composer/installed.json',
+            json_encode(['packages' => $packages], JSON_THROW_ON_ERROR)
+        );
+    }
+
+    private function baseVersionFile(): string
+    {
+        return $this->workDir . '/module/' . $this->moduleName . '/' . self::BASE . 'VERSION';
     }
 
     /**
