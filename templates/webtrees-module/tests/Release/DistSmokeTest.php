@@ -499,14 +499,15 @@ final class DistSmokeTest extends TestCase
     public static function malformedModuleBaseVersions(): array
     {
         return [
-            'branch'      => ["dev-main\n"],
-            'short'       => ["3.4\n"],
-            'text'        => ["latest\n"],
-            'empty'       => [''],
-            'padded'      => ["3.4.0 \n"],
-            'two lines'   => ["3.4.0\n3.4.1\n"],
-            'extra line'  => ["3.4.0\nnote\n"],
-            'bare suffix' => ["3.4.0-\n"],
+            'branch'          => ["dev-main\n"],
+            'prefixed branch' => ["dev-fix-1.2.3\n"],
+            'short'           => ["3.4\n"],
+            'text'            => ["latest\n"],
+            'empty'           => [''],
+            'padded'          => ["3.4.0 \n"],
+            'two lines'       => ["3.4.0\n3.4.1\n"],
+            'extra line'      => ["3.4.0\nnote\n"],
+            'bare suffix'     => ["3.4.0-\n"],
         ];
     }
 
@@ -529,9 +530,10 @@ final class DistSmokeTest extends TestCase
     public static function unusableResolvedPackages(): array
     {
         return [
-            'branch'  => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-main']]],
-            'absent'  => [[['name' => 'psr/log', 'version' => '3.0.0']]],
-            'no list' => [[]],
+            'branch'          => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-main']]],
+            'prefixed branch' => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-fix-1.2.3']]],
+            'absent'          => [[['name' => 'psr/log', 'version' => '3.0.0']]],
+            'no list'         => [[]],
         ];
     }
 
