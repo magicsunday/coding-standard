@@ -985,7 +985,7 @@ no gate (see *Release flow templates* below).
 | `templates/testing-policy.vN.md` | the block inside `AGENTS.md` | the testing policy text, copied between `<!-- testing-policy:begin vN -->` and `<!-- testing-policy:end -->`. The lockstep gate compares the text between the markers with the template of the version named in the begin marker. Text outside the markers is the repository's own. Every released version stays in `templates/`, so a repository moves to a new version when it chooses to |
 | `templates/ArchitectureTest.php` | `tests/Architecture/ArchitectureTest.php` | only with the opt-in phpat preset: the structural rules `Abstract*` naming + final leaves; see the phpat section above |
 | `templates/webtrees-module/Makefile`, `templates/webtrees-module/Make/*.mk`, `templates/webtrees-module/Make/helper/*` | the same path in the module | the shared Make setup of a module that ships a ZIP: the `Makefile`, the release pipeline `release.mk`, the fragments it relies on (`node.mk`, `lint.mk`, `dev.mk`, `lang.mk`) and the helpers. Copied by `bin/sync-webtrees-module.php`, see *Release flow templates* below |
-| `templates/webtrees-module/tests/Release/*.php` | `tests/Release/` | the release tests and their two helpers, `ProcessRunner.php` and `ModuleParameters.php`. Copied by `bin/sync-webtrees-module.php`, see *Release flow templates* below |
+| `templates/webtrees-module/tests/Release/*.php` | `tests/Release/` | the release tests and their helpers. Copied by `bin/sync-webtrees-module.php`, see *Release flow templates* below |
 | `templates/webtrees-module/module.mk.example` | `Make/module.mk` | the parameter file, the only file of the setup that holds the values of one module. Written by hand and never touched by the sync script |
 
 ### Release flow templates
@@ -996,7 +996,7 @@ These templates are specific to webtrees modules and sit in `templates/webtrees-
 
 #### The parameter file
 
-The `Makefile` reads `Make/module.mk` before every fragment, so the shared files may read its values whatever the order of the file names, and a module without the file stops make with a message. The `Makefile` also stops when a required parameter is missing or empty. `module.mk.example` carries a value for each parameter and a comment that says what it is for.
+The `Makefile` reads `Make/module.mk` before every fragment, so the shared files may read its values whatever the order of the file names, and a module without the file stops make with a message. The `Makefile` also stops when one of `MODULE_NAME`, `SCOPE_NS`, `WEBTREES_CONSTRAINT`, `CHART_LIB_MARKER` and `SHARED_VIEWS` is missing, or empty except `SHARED_VIEWS`. It does not check `MODULE_NS`, because make never reads it. Only the sync script reads and checks that one, and it refuses a module whose `Make/module.mk` lacks it. Make, the sync script and the release tests read the file the same way. A line is an assignment with `=` or `:=`, optionally indented with spaces. The last one of a name wins, `?=` sets a name only when no line before it did, and a value carries no comment after it. `tests/ModuleParameterGrammarTest.php` pins this against real make. `module.mk.example` carries a value for each parameter and a comment that says what it is for.
 
 | Parameter | Meaning | Required |
 |---|---|---|
