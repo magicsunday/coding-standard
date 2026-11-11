@@ -576,6 +576,54 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
+     * A version without the release format stops the check, and the message names the format.
+     */
+    #[Test]
+    #[DataProvider('malformedNonEmptyVersions')]
+    public function releaseCheckRefusesAMalformedVersion(string $version): void
+    {
+        $this->installReleaseCheckStubs('main');
+
+        [$status, $output] = $this->runTarget('release-check', $version);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('VERSION must be semver', $output);
+        self::assertStringNotContainsString('Release checks passed', $output);
+    }
+
+    /**
+     * A version without the release format stops the bump before anything is committed or sent.
+     */
+    #[Test]
+    #[DataProvider('malformedNonEmptyVersions')]
+    public function releaseBumpRefusesAMalformedVersion(string $version): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installStub('npm', "#!/bin/sh\nexit 0\n");
+
+        [$status, $output] = $this->runTarget('release-bump', $version);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('VERSION must be semver', $output);
+        self::assertSame([], $this->remoteRefs());
+    }
+
+    /**
+     * Provides the versions that are not empty and do not have the release format.
+     *
+     * @return array<string, array{string}> The version by description
+     */
+    public static function malformedNonEmptyVersions(): array
+    {
+        return [
+            'v prefix'           => ['v9.9.9'],
+            'pre-release suffix' => ['9.9.9-rc1'],
+            'two numbers'        => ['9.9'],
+            'four numbers'       => ['9.9.9.9'],
+        ];
+    }
+
+    /**
      * Provides the versions for which the module has no local tag.
      *
      * @return array<string, array{string}> The version by description
