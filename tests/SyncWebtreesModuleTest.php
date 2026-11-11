@@ -22,6 +22,7 @@ use SplFileInfo;
 
 use function array_keys;
 use function array_map;
+use function chmod;
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
@@ -31,6 +32,7 @@ use function is_dir;
 use function is_file;
 use function ksort;
 use function mkdir;
+use function posix_geteuid;
 use function preg_match;
 use function sort;
 use function str_ends_with;
@@ -263,6 +265,30 @@ final class SyncWebtreesModuleTest extends GateTestCase
     }
 
     /**
+     * A shared file that exists but cannot be read is refused with exit 2 in both modes. Neither mode may take
+     * it for a file that differs, because the normal run would then replace a file whose content it never saw.
+     */
+    #[Test]
+    #[DataProvider('syncModes')]
+    public function refusesATargetThatCannotBeRead(string $flag): void
+    {
+        if (posix_geteuid() === 0) {
+            self::markTestSkipped('A superuser reads a file whatever its mode is.');
+        }
+
+        $module = $this->module(self::PARAMETERS);
+
+        self::assertSame(0, $this->sync($module)->exitCode);
+
+        file_put_contents($module . '/Make/lint.mk', "# changed by hand\n");
+        chmod($module . '/Make/lint.mk', 0o000);
+
+        $this->assertGateUsageError([...self::command(), ...($flag === '' ? [] : [$flag])], $module, 'cannot read');
+        chmod($module . '/Make/lint.mk', 0o600);
+        self::assertSame("# changed by hand\n", file_get_contents($module . '/Make/lint.mk'));
+    }
+
+    /**
      * A module without a parameter file is refused, and the refusal comes before any file is written.
      */
     #[Test]
@@ -417,6 +443,17 @@ final class SyncWebtreesModuleTest extends GateTestCase
         }
 
         self::assertSame([], $offenders, 'The pattern ' . $pattern . ' matches shared template files.');
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function syncModes(): array
+    {
+        return [
+            'normal run' => [''],
+            'check run'  => ['--check'],
+        ];
     }
 
     /**

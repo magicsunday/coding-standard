@@ -253,6 +253,10 @@ foreach (templateFiles($templateDirectory) as $relative) {
     $target   = $moduleDirectory . '/' . $relative;
     $exists   = is_file($target);
 
+    if ($exists && !is_readable($target)) {
+        refuse('cannot read ' . $target . '.');
+    }
+
     if ($exists && file_get_contents($target) === $rendered) {
         continue;
     }
