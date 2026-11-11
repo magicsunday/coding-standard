@@ -241,6 +241,7 @@ validateParameters($parameters);
 
 $templateDirectory = dirname(__DIR__) . TEMPLATE_DIRECTORY;
 $differing         = [];
+$contents          = [];
 
 foreach (templateFiles($templateDirectory) as $relative) {
     $template = file_get_contents($templateDirectory . '/' . $relative);
@@ -261,10 +262,14 @@ foreach (templateFiles($templateDirectory) as $relative) {
         continue;
     }
 
-    $differing[] = ($exists ? 'updated ' : 'created ') . $relative;
+    $differing[]       = ($exists ? 'updated ' : 'created ') . $relative;
+    $contents[$target] = $rendered;
+}
 
-    if (!$check) {
-        writeFile($target, $rendered);
+// Every refusal above comes before the first write, so a refused run leaves the module as it was.
+if (!$check) {
+    foreach ($contents as $target => $rendered) {
+        writeFile((string) $target, $rendered);
     }
 }
 

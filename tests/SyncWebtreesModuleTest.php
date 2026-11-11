@@ -27,6 +27,7 @@ use function dirname;
 use function file_get_contents;
 use function file_put_contents;
 use function fileinode;
+use function function_exists;
 use function implode;
 use function is_dir;
 use function is_file;
@@ -272,7 +273,7 @@ final class SyncWebtreesModuleTest extends GateTestCase
     #[DataProvider('syncModes')]
     public function refusesATargetThatCannotBeRead(string $flag): void
     {
-        if (posix_geteuid() === 0) {
+        if (function_exists('posix_geteuid') && (posix_geteuid() === 0)) {
             self::markTestSkipped('A superuser reads a file whatever its mode is.');
         }
 
@@ -280,12 +281,20 @@ final class SyncWebtreesModuleTest extends GateTestCase
 
         self::assertSame(0, $this->sync($module)->exitCode);
 
+        // A file that sorts before the unreadable one differs too, so a refusal that came after the first
+        // write would already have replaced it.
+        file_put_contents($module . '/Make/dev.mk', "# changed by hand\n");
         file_put_contents($module . '/Make/lint.mk', "# changed by hand\n");
         chmod($module . '/Make/lint.mk', 0o000);
 
-        $this->assertGateUsageError([...self::command(), ...($flag === '' ? [] : [$flag])], $module, 'cannot read');
-        chmod($module . '/Make/lint.mk', 0o600);
+        try {
+            $this->assertGateUsageError([...self::command(), ...($flag === '' ? [] : [$flag])], $module, 'cannot read');
+        } finally {
+            chmod($module . '/Make/lint.mk', 0o600);
+        }
+
         self::assertSame("# changed by hand\n", file_get_contents($module . '/Make/lint.mk'));
+        self::assertSame("# changed by hand\n", file_get_contents($module . '/Make/dev.mk'));
     }
 
     /**
