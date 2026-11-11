@@ -8,6 +8,11 @@
 #
 # The Makefile reads this file before every other fragment, and the release tests
 # read it at run time.
+#
+# Make, the sync script and the release tests read the file the same way. A line
+# is an assignment with = or := (optionally indented with spaces). The last one of
+# a name wins. ?= sets a name only when no line before it did. A value carries no
+# comment after it, and += is not used.
 # =============================================================================
 
 # The package name of composer.json without the vendor. The release archive, the

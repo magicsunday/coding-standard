@@ -14,12 +14,12 @@ namespace MagicSunday\Webtrees\ModuleName\Test\Release;
 use PHPUnit\Framework\Assert;
 
 use function dirname;
+use function explode;
 use function file_get_contents;
 use function preg_match;
 use function preg_split;
 use function strlen;
 use function substr;
-use function trim;
 
 use const PREG_SPLIT_NO_EMPTY;
 
@@ -33,9 +33,22 @@ use const PREG_SPLIT_NO_EMPTY;
  */
 final class ModuleParameters
 {
+    /**
+     * The prefix that every package name of a module carries and that the name of the JavaScript bundle leaves out.
+     */
     private const string NAME_PREFIX = 'webtrees-';
 
+    /**
+     * The prefix of the name of the view namespace, which the release completes with the name of the bundle.
+     */
     private const string VIEW_NAMESPACE_PREFIX = 'webtrees-module-base-';
+
+    /**
+     * Only static access, the class holds no state.
+     */
+    private function __construct()
+    {
+    }
 
     /**
      * The package name of the module, for example the name of the release archive without its extension.
@@ -88,9 +101,11 @@ final class ModuleParameters
     }
 
     /**
-     * Reads the plain value of a parameter from its assignment line, which carries no comment after the value.
-     * A parameter whose value is an expression of make, such as the webtrees constraint of a module that derives
-     * it, is not read by the tests.
+     * Reads the value of a parameter from Make/module.mk the way make does. The last assignment with `=`, `:=` or
+     * `::=` wins, a `?=` sets the name only when no earlier assignment did, indentation with spaces and a carriage
+     * return at the line end are ignored, and every other line is ignored too. A value carries no comment. A
+     * parameter whose value is an expression of make, such as the webtrees constraint of a module that derives it,
+     * is not read by the tests.
      */
     private static function value(string $name, bool $mayBeEmpty = false): string
     {
@@ -99,10 +114,25 @@ final class ModuleParameters
 
         Assert::assertIsString($contents, $file);
 
-        Assert::assertSame(1, preg_match('/^' . $name . '[ \t]*:?=[ \t]*(.*?)[ \t]*$/m', $contents, $matches), $name);
-        Assert::assertArrayHasKey(1, $matches);
+        $value = null;
 
-        $value = trim($matches[1]);
+        foreach (explode("\n", $contents) as $line) {
+            if (preg_match('/^ *([A-Z][A-Z0-9_]*)[ \t]*(:?:?=|\?=)[ \t]*(.*?)[ \t\r]*$/', $line, $matches) !== 1) {
+                continue;
+            }
+
+            if ($matches[1] !== $name) {
+                continue;
+            }
+
+            if ($matches[2] === '?=' && $value !== null) {
+                continue;
+            }
+
+            $value = $matches[3];
+        }
+
+        Assert::assertNotNull($value, $name);
 
         if (!$mayBeEmpty) {
             Assert::assertNotSame('', $value, $name);

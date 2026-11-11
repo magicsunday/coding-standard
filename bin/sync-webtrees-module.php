@@ -14,10 +14,11 @@ declare(strict_types=1);
  *
  * Every file of the template directory is copied to the same relative path in the module, except
  * module.mk.example, which only documents the parameter file. The module keeps its own values in
- * Make/module.mk. The copy is byte for byte, with one exception: the identity lines of the PHP files
- * (the package name of the file header and of the link tag, and the namespace) are rendered from
- * MODULE_NAME and MODULE_NS of the parameter file, because the header and the namespace of a PHP file
- * belong to the module and the code style gate of the module enforces them.
+ * Make/module.mk, which the script never writes. The copy is byte for byte apart from the identity
+ * lines of the PHP files. These are the package name of the file header and of the link tag, and the
+ * namespace. They are rendered from MODULE_NAME and MODULE_NS of the parameter file, because the header
+ * and the namespace of a PHP file belong to the module and the code style gate of the module enforces
+ * them. A file of the module that is not in the template is never touched.
  *
  * A module without Make/module.mk, with a required parameter missing or with a parameter of the wrong
  * shape is refused before any file is written. A second run changes nothing. The script reads local
@@ -27,9 +28,9 @@ declare(strict_types=1);
  *
  * --check writes nothing and only lists what a run would change.
  *
- * Exit 0 = the module is in step, or the files were written; 1 = with --check, at least one file
- * differs; 2 = the script refused to run (usage, no parameter file, a missing or malformed parameter,
- * an unreadable or unwritable file).
+ * Exit 0 means the module is in step or the files were written. Exit 1 means that --check found at
+ * least one file that differs. Exit 2 means the script refused to run, because of the usage, a missing
+ * parameter file, a missing or malformed parameter, or an unreadable or unwritable file.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
@@ -38,6 +39,9 @@ declare(strict_types=1);
 
 // This is a global-namespace entry script, so built-in functions are called
 // unqualified (a `use function` import would be a no-op here).
+
+// readModuleParameters() reads Make/module.mk the way make does, see its header for the grammar.
+require_once __DIR__ . '/support/read-module-parameters.php';
 
 /**
  * The directory of the shared files, relative to the root of this package.
@@ -81,27 +85,6 @@ function refuse(string $message): never
 }
 
 /**
- * Reads the assignments of the parameter file. A later assignment of a name wins, as it does in make.
- * A line that is not a plain assignment, such as a comment, a blank line or a conditional, is ignored.
- *
- * @param string $contents The parameter file
- *
- * @return array<string, string> The value of every parameter that the file assigns
- */
-function readParameters(string $contents): array
-{
-    $parameters = [];
-
-    foreach (explode("\n", $contents) as $line) {
-        if (preg_match('/^([A-Z][A-Z0-9_]*)[ \t]*(?::|\?)?=[ \t]*(.*?)[ \t\r]*$/', $line, $match) === 1) {
-            $parameters[$match[1]] = $match[2];
-        }
-    }
-
-    return $parameters;
-}
-
-/**
  * Checks the parameters and refuses a module that lacks one or holds one of the wrong shape.
  *
  * @param array<string, string> $parameters The parameters of the module
@@ -124,7 +107,7 @@ function validateParameters(array $parameters): void
         }
     }
 
-    // May be empty, but it has to be defined: a module without shared views says so.
+    // May be empty, but it has to be defined, so that a module without shared views says so.
     if (!array_key_exists('SHARED_VIEWS', $parameters)) {
         refuse(PARAMETER_FILE . ' does not define SHARED_VIEWS, define it empty for a module without shared views.');
     }
@@ -250,7 +233,7 @@ if ($parameterContents === false) {
     refuse('cannot read ' . PARAMETER_FILE . '.');
 }
 
-$parameters = readParameters($parameterContents);
+$parameters = readModuleParameters($parameterContents);
 
 validateParameters($parameters);
 
