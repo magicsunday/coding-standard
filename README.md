@@ -1014,7 +1014,7 @@ The release tests read `MODULE_NAME`, `SCOPE_NS` and `SHARED_VIEWS` from this fi
 
 1. Change the file in `templates/webtrees-module/` and release this package.
 2. In each module run `php .build/vendor/magicsunday/coding-standard/bin/sync-webtrees-module.php .` from the module root. A module that sits next to a checkout of this repository can pass the path of that checkout instead. The script lists every file it created or updated. `--check` lists them without writing and exits with 1 when a file differs.
-3. Review `git diff` in the module and run its release tests and `make dist-smoke`.
+3. Review `git diff` in the module, run its release tests, build the archive with `make dist` and check it with `make dist-smoke`, which needs that archive.
 4. Open one pull request per module.
 
 The script copies every file of the template to the same path, leaves `Make/module.mk` and every other file of the module alone, deletes nothing and writes a file only when its content differs, so a second run changes nothing. It reads local files only. It refuses a module without `Make/module.mk`, a required parameter that is missing or empty, and an identity parameter or a view name of the wrong shape, and it does so before it writes anything. For a new module copy `module.mk.example` to `Make/module.mk`, set the values and run the script.
