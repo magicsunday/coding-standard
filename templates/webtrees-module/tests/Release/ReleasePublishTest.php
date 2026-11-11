@@ -501,7 +501,32 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
-     * A version that names no local tag, an empty one included, fails before anything is sent.
+     * A version that does not have the release format stops the publish before anything is sent and before a release
+     * is created, also when a tag of that name sits on HEAD. An empty version has no tag to name.
+     */
+    #[Test]
+    #[DataProvider('malformedVersions')]
+    public function refusesAMalformedVersionBeforeAnythingIsSent(string $version): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installReleaseStateStub('');
+
+        if ($version !== '') {
+            $this->git(['tag', '-a', $version, '-m', 'Malformed tag'], $this->workDir . '/module');
+        }
+
+        [$status, $output] = $this->publish(['VERSION=' . $version]);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('VERSION must be semver', $output);
+        self::assertStringNotContainsString('does not exist', $output);
+        self::assertStringNotContainsString('Pushing to GitHub', $output);
+        self::assertSame([], $this->remoteRefs());
+        self::assertFalse(is_file($this->workDir . '/gh-calls'));
+    }
+
+    /**
+     * A version that names no local tag fails before anything is sent.
      */
     #[Test]
     #[DataProvider('versionsWithoutALocalTag')]
@@ -551,6 +576,54 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
+     * A version without the release format stops the check, and the message names the format.
+     */
+    #[Test]
+    #[DataProvider('malformedNonEmptyVersions')]
+    public function releaseCheckRefusesAMalformedVersion(string $version): void
+    {
+        $this->installReleaseCheckStubs('main');
+
+        [$status, $output] = $this->runTarget('release-check', $version);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('VERSION must be semver', $output);
+        self::assertStringNotContainsString('Release checks passed', $output);
+    }
+
+    /**
+     * A version without the release format stops the bump before anything is committed or sent.
+     */
+    #[Test]
+    #[DataProvider('malformedNonEmptyVersions')]
+    public function releaseBumpRefusesAMalformedVersion(string $version): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installStub('npm', "#!/bin/sh\nexit 0\n");
+
+        [$status, $output] = $this->runTarget('release-bump', $version);
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('VERSION must be semver', $output);
+        self::assertSame([], $this->remoteRefs());
+    }
+
+    /**
+     * Provides the versions that are not empty and do not have the release format.
+     *
+     * @return array<string, array{string}> The version by description
+     */
+    public static function malformedNonEmptyVersions(): array
+    {
+        return [
+            'v prefix'           => ['v9.9.9'],
+            'pre-release suffix' => ['9.9.9-rc1'],
+            'two numbers'        => ['9.9'],
+            'four numbers'       => ['9.9.9.9'],
+        ];
+    }
+
+    /**
      * Provides the versions for which the module has no local tag.
      *
      * @return array<string, array{string}> The version by description
@@ -558,8 +631,24 @@ final class ReleasePublishTest extends TestCase
     public static function versionsWithoutALocalTag(): array
     {
         return [
-            'empty version'         => [''],
             'version without a tag' => ['7.7.7'],
+        ];
+    }
+
+    /**
+     * Provides versions that do not have the release format.
+     *
+     * @return array<string, array{string}> The version by description
+     */
+    public static function malformedVersions(): array
+    {
+        return [
+            'empty version'       => [''],
+            'v prefix'            => ['v9.9.9'],
+            'pre-release suffix'  => ['9.9.9-rc1'],
+            'v prefix and suffix' => ['v9.9.9-rc1'],
+            'two numbers'         => ['9.9'],
+            'four numbers'        => ['9.9.9.9'],
         ];
     }
 

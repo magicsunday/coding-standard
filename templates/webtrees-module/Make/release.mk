@@ -42,6 +42,12 @@ MODULE_BASE_PATH := $(VENDOR_DIR)/$(MODULE_BASE_PKG)
 # the double dollar, which make turns into the end anchor of the regular expression.
 MODULE_BASE_VERSION_PATTERN = ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$
 
+# The release version that release-check, release-publish and release-bump accept: three numbers, no tag prefix and no
+# suffix. The deferred assignment keeps the double dollar, which make turns into the end anchor of the regular
+# expression.
+RELEASE_VERSION_PATTERN = ^[0-9]+\.[0-9]+\.[0-9]+$$
+RELEASE_VERSION_ERROR   = Error: VERSION must be semver (e.g. 3.1.0 — no v prefix, no suffix)
+
 # SCOPE_NS is the per-module namespace prefix injected into the bundled module-base
 # classes at dist time. It prevents PHP autoloader collisions when multiple magicsunday
 # chart modules at different versions register the same shared namespace
@@ -112,8 +118,8 @@ release-check:
 		echo "   or:  make release VERSION=3.1.0"; \
 		exit 1; \
 	fi
-	@if ! echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "Error: VERSION must be semver (e.g. 3.1.0 — no v prefix, no suffix)"; \
+	@if ! echo "$(VERSION)" | grep -qE '$(RELEASE_VERSION_PATTERN)'; then \
+		echo "$(RELEASE_VERSION_ERROR)"; \
 		exit 1; \
 	fi
 	@if [ -n "$$(git status --porcelain --untracked-files=no)" ]; then \
@@ -425,6 +431,10 @@ export NOTES_RAW := $(or $(value NOTES),$(if $(filter-out 0,$(MAKELEVEL)),$(valu
 ## the rerun stops there. A lookup that fails counts as no release, so that the first
 ## publish of a version, which has no release to find, goes on.
 release-publish:
+	@if ! echo "$(VERSION)" | grep -qE '$(RELEASE_VERSION_PATTERN)'; then \
+		echo "$(RELEASE_VERSION_ERROR), nothing was pushed."; \
+		exit 1; \
+	fi
 	@if [ ! -f $(MODULE_NAME).zip ]; then \
 		echo "Error: $(MODULE_NAME).zip not found. Run 'make dist' on the tagged commit $(VERSION), then 'make dist-smoke', nothing was pushed."; \
 		exit 1; \
@@ -513,8 +523,8 @@ release-publish:
 ##    the post-release dev bump is missing — same recovery as case 1, the
 ##    release itself is unaffected and stays valid).
 release-bump:
-	@if [ -z "$(VERSION)" ] || ! echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "Error: VERSION must be semver (e.g. 3.1.0)"; \
+	@if [ -z "$(VERSION)" ] || ! echo "$(VERSION)" | grep -qE '$(RELEASE_VERSION_PATTERN)'; then \
+		echo "$(RELEASE_VERSION_ERROR)"; \
 		exit 1; \
 	fi
 	@$(eval NEXT := $(shell echo "$(VERSION)" | awk -F. '{print $$1"."$$2"."$$3+1}'))
