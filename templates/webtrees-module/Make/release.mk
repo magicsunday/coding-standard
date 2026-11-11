@@ -37,16 +37,14 @@ VENDOR_DIR       := .build/vendor
 MODULE_BASE_PKG  := magicsunday/webtrees-module-base
 MODULE_BASE_PATH := $(VENDOR_DIR)/$(MODULE_BASE_PKG)
 
-# A release version of the module base as the archive records it: three numbers, an optional tag prefix and an
-# optional pre-release suffix, on one line. A branch such as dev-main does not match. The deferred assignment keeps
-# the double dollar, which make turns into the end anchor of the regular expression.
+# The version of the module base that dist records and dist-smoke checks. The deferred assignment keeps the double
+# dollar, which make turns into the end anchor of the regular expression.
 MODULE_BASE_VERSION_PATTERN = ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$
 
-# The release version that release-check, release-publish and release-bump accept: three numbers, no tag prefix and no
-# suffix. The deferred assignment keeps the double dollar, which make turns into the end anchor of the regular
-# expression.
+# The release version that release-check, release-publish and release-bump accept. The deferred assignment keeps the
+# double dollar, which make turns into the end anchor of the regular expression.
 RELEASE_VERSION_PATTERN = ^[0-9]+\.[0-9]+\.[0-9]+$$
-RELEASE_VERSION_ERROR   = Error: VERSION must be semver (e.g. 3.1.0 — no v prefix, no suffix)
+RELEASE_VERSION_ERROR   = Error: VERSION must be semver (e.g. 3.1.0, no v prefix, no suffix)
 
 # SCOPE_NS is the per-module namespace prefix injected into the bundled module-base
 # classes at dist time. It prevents PHP autoloader collisions when multiple magicsunday
@@ -523,7 +521,7 @@ release-publish:
 ##    the post-release dev bump is missing — same recovery as case 1, the
 ##    release itself is unaffected and stays valid).
 release-bump:
-	@if [ -z "$(VERSION)" ] || ! echo "$(VERSION)" | grep -qE '$(RELEASE_VERSION_PATTERN)'; then \
+	@if ! echo "$(VERSION)" | grep -qE '$(RELEASE_VERSION_PATTERN)'; then \
 		echo "$(RELEASE_VERSION_ERROR)"; \
 		exit 1; \
 	fi
