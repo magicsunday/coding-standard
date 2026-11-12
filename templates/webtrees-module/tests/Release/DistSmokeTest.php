@@ -44,11 +44,14 @@ use const JSON_THROW_ON_ERROR;
 #[CoversNothing]
 final class DistSmokeTest extends TestCase
 {
-    private const string BASE_VIEWS = 'vendor/magicsunday/webtrees-module-base/resources/views/';
-
-    private const string BASE_SOURCES = 'vendor/magicsunday/webtrees-module-base/src/';
-
+    /**
+     * The directory of the bundled module base inside the archive, with the trailing slash.
+     */
     private const string BASE = 'vendor/magicsunday/webtrees-module-base/';
+
+    private const string BASE_VIEWS = self::BASE . 'resources/views/';
+
+    private const string BASE_SOURCES = self::BASE . 'src/';
 
     /**
      * Runs the commands of the scratch copy.
@@ -455,7 +458,7 @@ final class DistSmokeTest extends TestCase
     #[DataProvider('sourceDirectories')]
     public function rejectsAnArchiveWithASourceDirectoryWithoutPhpFiles(string $directory): void
     {
-        $sources = 'vendor/magicsunday/webtrees-module-base/src/' . $directory . '/';
+        $sources = self::BASE_SOURCES . $directory . '/';
 
         $this->buildArchive([$sources . 'README.md' => "text\n"], [$sources . 'Entry.php']);
 
@@ -499,14 +502,15 @@ final class DistSmokeTest extends TestCase
     public static function malformedModuleBaseVersions(): array
     {
         return [
-            'branch'      => ["dev-main\n"],
-            'short'       => ["3.4\n"],
-            'text'        => ["latest\n"],
-            'empty'       => [''],
-            'padded'      => ["3.4.0 \n"],
-            'two lines'   => ["3.4.0\n3.4.1\n"],
-            'extra line'  => ["3.4.0\nnote\n"],
-            'bare suffix' => ["3.4.0-\n"],
+            'branch'          => ["dev-main\n"],
+            'prefixed branch' => ["dev-fix-1.2.3\n"],
+            'short'           => ["3.4\n"],
+            'text'            => ["latest\n"],
+            'empty'           => [''],
+            'padded'          => ["3.4.0 \n"],
+            'two lines'       => ["3.4.0\n3.4.1\n"],
+            'extra line'      => ["3.4.0\nnote\n"],
+            'bare suffix'     => ["3.4.0-\n"],
         ];
     }
 
@@ -529,9 +533,10 @@ final class DistSmokeTest extends TestCase
     public static function unusableResolvedPackages(): array
     {
         return [
-            'branch'  => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-main']]],
-            'absent'  => [[['name' => 'psr/log', 'version' => '3.0.0']]],
-            'no list' => [[]],
+            'branch'          => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-main']]],
+            'prefixed branch' => [[['name' => 'magicsunday/webtrees-module-base', 'version' => 'dev-fix-1.2.3']]],
+            'absent'          => [[['name' => 'psr/log', 'version' => '3.0.0']]],
+            'no list'         => [[]],
         ];
     }
 
@@ -654,7 +659,7 @@ final class DistSmokeTest extends TestCase
         ?string $stampText = null,
     ): void {
         $scopedNamespace = 'MagicSunday\\\\' . ModuleParameters::scopeNamespace() . '\\\\Webtrees\\\\ModuleBase';
-        $base            = 'vendor/magicsunday/webtrees-module-base/';
+        $base            = self::BASE;
 
         $files = [
             'module.php'                                                   => "<?php\n\n// " . $scopedNamespace . "\n",
@@ -737,6 +742,10 @@ final class DistSmokeTest extends TestCase
         );
     }
 
+    /**
+     * Returns the path of the version file that the version target writes into the bundled module base of the
+     * scratch copy.
+     */
     private function baseVersionFile(): string
     {
         return $this->workDir . '/module/' . $this->moduleName . '/' . self::BASE . 'VERSION';

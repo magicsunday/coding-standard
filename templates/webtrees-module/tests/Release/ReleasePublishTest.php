@@ -615,12 +615,10 @@ final class ReleasePublishTest extends TestCase
      */
     public static function malformedNonEmptyVersions(): array
     {
-        return [
-            'v prefix'           => ['v9.9.9'],
-            'pre-release suffix' => ['9.9.9-rc1'],
-            'two numbers'        => ['9.9'],
-            'four numbers'       => ['9.9.9.9'],
-        ];
+        return array_filter(
+            self::malformedVersions(),
+            static fn (array $case): bool => $case[0] !== '',
+        );
     }
 
     /**
