@@ -297,6 +297,8 @@ final class DistSmokeTest extends TestCase
     /**
      * The version target stops when composer resolved no release version of the module base, so a build from a
      * branch or without the package cannot produce an archive without a version.
+     *
+     * @param list<array{name: string, version: string}> $packages The packages as composer lists them.
      */
     #[Test]
     #[DataProvider('unusableResolvedPackages')]
