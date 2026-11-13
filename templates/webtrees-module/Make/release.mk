@@ -217,7 +217,8 @@ ifneq ($(strip $(SHARED_VIEWS)),)
 		[ -f $(MODULE_BASE_PATH)/resources/views/$$view.phtml ] \
 			|| { echo "Error: shared view $$view is missing from $(MODULE_BASE_PATH)/resources/views."; exit 1; }; \
 		cp -L $(MODULE_BASE_PATH)/resources/views/$$view.phtml \
-			$(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/resources/views/$$view.phtml; \
+			$(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/resources/views/$$view.phtml \
+			|| exit 1; \
 	done
 endif
 	@cp -L $(MODULE_BASE_PATH)/LICENSE $(MODULE_NAME)/vendor/magicsunday/webtrees-module-base/LICENSE

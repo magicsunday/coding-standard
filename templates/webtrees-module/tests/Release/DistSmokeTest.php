@@ -22,6 +22,7 @@ use function array_key_exists;
 use function array_slice;
 use function array_values;
 use function chmod;
+use function count;
 use function dirname;
 use function explode;
 use function file_get_contents;
@@ -30,6 +31,7 @@ use function implode;
 use function is_dir;
 use function json_encode;
 use function mkdir;
+use function posix_geteuid;
 use function sprintf;
 use function str_repeat;
 use function strpos;
@@ -40,6 +42,7 @@ use function tempnam;
 use function trim;
 use function unlink;
 
+use const FILE_APPEND;
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -161,7 +164,7 @@ final class DistSmokeTest extends TestCase
             self::markTestSkipped('The module bundles no shared module-base views.');
         }
 
-        $bundled   = array_slice($configured, 0, 1);
+        $bundled   = array_slice($configured, 0, 2);
         $unbundled = array_diff([...$configured, 'unlisted-view'], $bundled);
 
         [$status, $output] = $this->dist(implode(' ', $bundled), [...$configured, 'unlisted-view']);
@@ -196,6 +199,29 @@ final class DistSmokeTest extends TestCase
 
         self::assertNotSame(0, $status);
         self::assertStringContainsString('Error: shared view absent-view is missing from', $output);
+        self::assertFileDoesNotExist($this->workDir . '/module/' . $this->moduleName . '.zip');
+    }
+
+    /**
+     * The dist target stops when the copy of a shared view fails, also when the views named after it copy fine, so
+     * that no archive without that view is built.
+     */
+    #[Test]
+    public function refusesToBuildWhenTheCopyOfANonLastSharedViewFails(): void
+    {
+        $configured = ModuleParameters::sharedViews();
+
+        if (count($configured) < 2) {
+            self::markTestSkipped('The module bundles fewer than two shared module-base views.');
+        }
+
+        if (posix_geteuid() === 0) {
+            self::markTestSkipped('A file mode does not block reading as root.');
+        }
+
+        [$status, $output] = $this->dist(implode(' ', $configured), $configured, [$configured[0]]);
+
+        self::assertNotSame(0, $status, $output);
         self::assertFileDoesNotExist($this->workDir . '/module/' . $this->moduleName . '.zip');
     }
 
@@ -751,13 +777,7 @@ final class DistSmokeTest extends TestCase
         }
 
         foreach ($files as $path => $content) {
-            $directory = dirname($this->workDir . '/stage/' . $path);
-
-            if (!is_dir($directory)) {
-                mkdir($directory, 0o777, true);
-            }
-
-            file_put_contents($this->workDir . '/stage/' . $path, $content);
+            $this->writeFile($this->workDir . '/stage/' . $path, $content);
         }
 
         [$status, $output] = $this->processRunner->execute(
@@ -817,10 +837,11 @@ final class DistSmokeTest extends TestCase
      *
      * @param string       $sharedViews The value of SHARED_VIEWS for this build.
      * @param list<string> $baseViews   The views that the module base ships, by name without extension.
+     * @param list<string> $unreadable  The views that the stubbed composer makes unreadable after it installed them.
      *
      * @return array{int, string}
      */
-    private function dist(string $sharedViews, array $baseViews): array
+    private function dist(string $sharedViews, array $baseViews, array $unreadable = []): array
     {
         $fixture = $this->workDir . '/base-fixture';
         $stubs   = $this->workDir . '/stubs';
@@ -847,6 +868,14 @@ final class DistSmokeTest extends TestCase
                 $fixture
             )
         );
+
+        foreach ($unreadable as $view) {
+            file_put_contents(
+                $stubs . '/composer',
+                sprintf("chmod 000 '.build/vendor/magicsunday/webtrees-module-base/resources/views/%s.phtml'\n", $view),
+                FILE_APPEND
+            );
+        }
 
         chmod($stubs . '/composer', 0o755);
 
