@@ -551,7 +551,11 @@ directory that matches how it is consumed, never at the root for convenience.
 
 The reusable `magicsunday/.github` workflows provide code-scanning, zizmor,
 scorecard, dependency-review, yamllint, commit-convention and label-sync.
-`renovate.json` extends the shared preset of the account and sets nothing else.
+`renovate.json` extends the shared preset of the account and adds regex managers.
+They update the Biome version in the `$schema` URL of `biome/base.json` and the tool
+versions in the README sentence about the root pins, and a package rule puts those
+updates into the same grouped pull request as the pin in `package.json`, because
+tests compare both places with that pin.
 `tests/consumer/composer.json` is not meant to be bumped by a dependency bot. It
 is a `path`-repository fixture with `minimum-stability: dev` that installs this
 package from the working tree, so a bump would either fail to resolve or offer

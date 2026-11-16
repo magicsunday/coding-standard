@@ -2,5 +2,45 @@
     "$schema": "https://docs.renovatebot.com/renovate-schema.json",
     "extends": [
         "local>magicsunday/.github:renovate-config"
+    ],
+    "packageRules": [
+        {
+            "description": "The regex managers below report as their own manager, so without this rule their updates would not join the npm group of the preset and would open pull requests of their own.",
+            "matchManagers": [
+                "npm",
+                "custom.regex"
+            ],
+            "matchDepNames": [
+                "@biomejs/biome",
+                "typescript",
+                "jscpd"
+            ],
+            "groupName": "npm"
+        }
+    ],
+    "customManagers": [
+        {
+            "description": "The Biome version inside the schema URL of the shared Biome base config, so a Biome bump carries it along with the pin in package.json.",
+            "customType": "regex",
+            "managerFilePatterns": [
+                "/^biome/base\\.json$/"
+            ],
+            "matchStrings": [
+                "\"\\$schema\": \"https://biomejs\\.dev/schemas/(?<currentValue>\\d+\\.\\d+\\.\\d+)/schema\\.json\""
+            ],
+            "depNameTemplate": "@biomejs/biome",
+            "datasourceTemplate": "npm"
+        },
+        {
+            "description": "The tool versions that the README states for the root devDependencies pins, so a bump of one of them carries the sentence along.",
+            "customType": "regex",
+            "managerFilePatterns": [
+                "/^README\\.md$/"
+            ],
+            "matchStrings": [
+                "`(?<depName>@biomejs/biome|typescript|jscpd) (?<currentValue>\\d+\\.\\d+\\.\\d+)`"
+            ],
+            "datasourceTemplate": "npm"
+        }
     ]
 }
