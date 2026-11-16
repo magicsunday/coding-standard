@@ -647,6 +647,9 @@ final class ReleasePublishTest extends TestCase
             'v prefix and suffix' => ['v9.9.9-rc1'],
             'two numbers'         => ['9.9'],
             'four numbers'        => ['9.9.9.9'],
+            'leading zero major'  => ['01.2.3'],
+            'leading zero minor'  => ['1.02.3'],
+            'leading zero patch'  => ['1.2.03'],
         ];
     }
 
