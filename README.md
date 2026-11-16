@@ -63,8 +63,8 @@ updates its tools together with this package, not independently of it. That is t
 same bargain as the PHP side, where the toolchain versions are pinned here once for
 every repository; only the mechanism differs, because npm cannot deliver the tools.
 
-The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.6.4`,
-`typescript 7.0.2`, `jscpd 5.4.2`) and are what the dependency bot bumps, so the pins are the moving part and the ranges are
+The root `devDependencies` pin the exact versions CI proves (`@biomejs/biome 2.6.6`,
+`typescript 7.0.2`, `jscpd 5.4.3`) and are what the dependency bot bumps, so the pins are the moving part and the ranges are
 widened once a bump is green.
 
 `devEngines` declares **Node >= 24**, the house floor. It is deliberately higher than
