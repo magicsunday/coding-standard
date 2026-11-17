@@ -13,14 +13,14 @@ declare(strict_types=1);
  * Defines readModuleParameters() for bin/sync-webtrees-module.php.
  *
  * The parameter file Make/module.mk of a module is read by make, by this function and by
- * ModuleParameters.php of the release tests. All three follow the same grammar, which is the
+ * ModuleParameters.php of the release tests. They all follow the same grammar, which is the
  * subset of make that the file uses. A line is an assignment when it holds a name of upper case
  * letters, digits and underscores, optionally indented with spaces, then `=`, `:=`, `::=` or `?=`,
  * then the value. Whitespace around the value and a carriage return at the end of the line are
  * dropped. The last `=`, `:=` or `::=` of a name wins. A `?=` sets a name only when no earlier
  * assignment set it. Every other line is ignored, among them comments, conditionals and `+=`, which
  * the parameter file must not use. A value carries no comment after it.
- * tests/ModuleParameterGrammarTest.php runs one fixture through all three readers and real make.
+ * tests/ModuleParameterGrammarTest.php runs one fixture through every reader and real make.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT
