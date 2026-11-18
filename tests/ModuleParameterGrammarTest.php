@@ -119,7 +119,7 @@ final class ModuleParameterGrammarTest extends GateTestCase
 
     /**
      * Each case is a file and the values that make takes from it. The dimension that the cases span is the form of
-     * the assignment, the order of the assignments of one name, the line endings and the lines that are no assignment.
+     * the assignment, the order of the assignments of one name, the lines that are no assignment and the line endings.
      *
      * @return array<string, array{string, array{string, string, string}}>
      */
