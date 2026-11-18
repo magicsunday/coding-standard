@@ -31,7 +31,7 @@ use const JSON_THROW_ON_ERROR;
 require_once __DIR__ . '/../bin/support/read-module-parameters.php';
 
 /**
- * Pins the grammar of Make/module.mk (GH-344). The same fixture goes through the three readers of the file, the
+ * Pins the grammar of Make/module.mk (GH-344). The same fixture goes through the readers of the file, which are the
  * function of the sync script, ModuleParameters.php of the release tests and real make, and all of them have to
  * return the value that the case documents.
  *
