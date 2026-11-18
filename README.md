@@ -1006,12 +1006,16 @@ has become removable is noticed. The consumer writes the report and passes both 
 
 An entry has to be an advisory id (`PKSA-...`), because the check compares the keys of
 `ignore-id`, or the values of a plain list, with the `advisoryId` values of the report.
-An entry keyed by a CVE or a remote id never matches and is reported as stale, and so is an entry that
-Composer does not apply to the audit because its `on-audit` setting is false.
+An id counts as applying when the report lists its advisory as ignored, whichever rule suppressed it. An
+entry keyed by a CVE or a remote id never matches and is reported as stale. Only an id with a reason text,
+or a plain list of ids, is supported. An entry in the object form, with an `on-audit` or `on-block` setting,
+is refused with status 2.
 
 Exit status 0 means every ignored id still applies, 1 means at least one is stale and
 is named in the report, and 2 means a file cannot be read, is not valid JSON, holds JSON
-that is neither an object nor an array, or the call has the wrong number of arguments.
+that is neither an object nor an array, holds an object-form entry, or the call has the wrong
+number of arguments. Each id is scrubbed before it is printed, because it comes from the
+repository.
 
 `composer audit` itself exits with a failure status while it finds advisories that are not
 ignored, so in the example the exit status of the first line decides whether the second

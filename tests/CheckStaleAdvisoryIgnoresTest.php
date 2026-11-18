@@ -17,6 +17,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
 use function dirname;
+use function explode;
 use function file_put_contents;
 use function json_encode;
 use function sprintf;
@@ -188,9 +189,9 @@ final class CheckStaleAdvisoryIgnoresTest extends GateTestCase
         $auditMissing    = $this->check($this->manifest([]), $missing);
 
         self::assertSame(2, $manifestMissing->exitCode);
-        self::assertStringContainsString('Cannot read ' . $missing, $manifestMissing->output);
+        self::assertSame('Cannot read ' . $missing . "\n", $manifestMissing->output);
         self::assertSame(2, $auditMissing->exitCode);
-        self::assertStringContainsString('Cannot read ' . $missing, $auditMissing->output);
+        self::assertSame('Cannot read ' . $missing . "\n", $auditMissing->output);
     }
 
     /**
@@ -256,6 +257,86 @@ final class CheckStaleAdvisoryIgnoresTest extends GateTestCase
 
         self::assertSame(1, $result->exitCode);
         self::assertStringContainsString('PKSA-aaaa-0000-0001', $result->output);
+        self::assertStringNotContainsString('Warning', $result->output);
+    }
+
+    /**
+     * An ignore-id entry in the object form is refused with status 2 and named, because whether it applies to the
+     * audit depends on its on-audit and on-block settings.
+     */
+    #[Test]
+    public function refusesAnIgnoreEntryInTheObjectForm(): void
+    {
+        $manifest = $this->write(
+            ['config' => ['policy' => ['advisories' => ['ignore-id' => ['PKSA-aaaa-0000-0001' => ['reason' => 'x', 'on-audit' => false]]]]]],
+        );
+
+        $result = $this->check($manifest, $this->audit(['vendor/one' => ['PKSA-aaaa-0000-0001']]));
+
+        self::assertSame(2, $result->exitCode);
+        self::assertStringContainsString('Unsupported ignore-id entry PKSA-aaaa-0000-0001', $result->output);
+    }
+
+    /**
+     * An id that carries a line break and a workflow command is scrubbed before it is printed, so no line of the
+     * report can start a command for the CI runner.
+     */
+    #[Test]
+    public function scrubsAnIdBeforeItIsPrinted(): void
+    {
+        $result = $this->check(
+            $this->manifest(["PKSA-aaaa-0000-0001\n##[error]forged" => 'reason']),
+            $this->write(['advisories' => []]),
+        );
+
+        self::assertSame(1, $result->exitCode);
+        self::assertStringContainsString('PKSA-aaaa-0000-0001?##?[error]forged', $result->output);
+
+        foreach (explode("\n", $result->output) as $line) {
+            self::assertStringStartsNotWith('##[', $line);
+        }
+    }
+
+    /**
+     * A third argument is a usage error like a missing one.
+     */
+    #[Test]
+    public function rejectsAThirdArgument(): void
+    {
+        $result = (new GateProcess())->runRaw([PHP_BINARY, $this->script(), $this->manifest([]), $this->write(['advisories' => []]), 'extra']);
+
+        self::assertSame(2, $result->exitCode);
+        self::assertStringContainsString('Usage:', $result->output);
+    }
+
+    /**
+     * An ignore-id value and an ignored-advisories value that are no arrays leave nothing that is ignored or applied.
+     */
+    #[Test]
+    public function readsAScalarAtTheLeafOfEitherInputAsEmpty(): void
+    {
+        $manifest = $this->write(['config' => ['policy' => ['advisories' => ['ignore-id' => 'PKSA-aaaa-0000-0001']]]]);
+        $audit    = $this->write(['advisories' => [], 'ignored-advisories' => 'broken']);
+
+        self::assertSame(0, $this->check($manifest, $this->write(['advisories' => []]))->exitCode);
+
+        $result = $this->check($this->manifest(['PKSA-aaaa-0000-0001' => 'reason']), $audit);
+
+        self::assertSame(1, $result->exitCode);
+        self::assertStringNotContainsString('Warning', $result->output);
+    }
+
+    /**
+     * An advisoryId that is no string matches nothing and is skipped without a PHP diagnostic.
+     */
+    #[Test]
+    public function skipsAnAdvisoryIdThatIsNoString(): void
+    {
+        $audit = $this->write(['advisories' => [], 'ignored-advisories' => ['vendor/one' => [['advisoryId' => ['x']]]]]);
+
+        $result = $this->check($this->manifest(['PKSA-aaaa-0000-0001' => 'reason']), $audit);
+
+        self::assertSame(1, $result->exitCode);
         self::assertStringNotContainsString('Warning', $result->output);
     }
 

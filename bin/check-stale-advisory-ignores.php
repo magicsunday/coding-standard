@@ -21,12 +21,19 @@ declare(strict_types=1);
  * The audit file is the output of `composer audit --format=json`. Composer lists the advisories that an ignore
  * entry suppresses under "ignored-advisories", grouped by package. The ignored ids, which are the keys of ignore-id
  * or the values of a plain list, are compared with the "advisoryId" values of that list, so an entry has to be an
- * advisory id (PKSA-...). An entry keyed by a CVE or a remote id never matches and is reported as stale, and so
- * is an entry that Composer does not apply to the audit because its on-audit setting is false.
+ * advisory id (PKSA-...). An id counts as applying when the report lists its advisory as ignored, whichever rule
+ * suppressed it. An entry keyed by a CVE or a remote id never matches and is reported as stale. Only an id
+ * with a reason text, or a plain list of ids, is supported. An entry in the object form (with an on-audit or on-block
+ * setting) is refused with status 2, because whether it applies to the audit depends on those settings.
  *
  * Exit status: 0 when every ignored id still applies, 1 when at least one is stale, 2 when an input cannot be read,
- * is not valid JSON, holds JSON that is neither an object nor an array, or the call has the wrong number of arguments.
+ * is not valid JSON, holds JSON that is neither an object nor an array, holds an ignore-id entry in the object form,
+ * or the call has the wrong number of arguments.
  */
+
+// safeReportValue() is shared, see its header for the boundary. The ignored ids come from the composer.json of the
+// repository, i.e. pull-request content, so every id is scrubbed before it reaches the report.
+require_once __DIR__ . '/support/safe-report-value.php';
 
 /**
  * Reads a JSON file into an array, ends the script with status 2 when that is not possible.
@@ -103,6 +110,12 @@ $ignoredIds = [];
 
 foreach (valueAt($manifest, ['config', 'policy', 'advisories', 'ignore-id']) ?? [] as $key => $value) {
     if (is_string($key)) {
+        if (is_array($value)) {
+            fwrite(STDERR, 'Unsupported ignore-id entry ' . safeReportValue($key) . ", write it as an id with a reason text\n");
+
+            exit(2);
+        }
+
         $ignoredIds[] = $key;
     } elseif (is_string($value)) {
         $ignoredIds[] = $value;
@@ -136,9 +149,10 @@ sort($stale);
 
 fwrite(
     STDERR,
-    "Stale advisory ignores, no installed package matches them any more:\n  "
-    . implode("\n  ", $stale)
-    . "\nRemove these entries from config.policy.advisories.ignore-id in composer.json.\n"
+    "Ignored advisory ids that the audit report does not list as ignored:\n  "
+    . implode("\n  ", array_map('safeReportValue', $stale))
+    . "\nRemove an entry that is no longer needed from config.policy.advisories.ignore-id in composer.json."
+    . " An entry has to be written as an advisory id (PKSA-...).\n"
 );
 
 exit(1);
