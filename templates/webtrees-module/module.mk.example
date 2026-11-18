@@ -10,9 +10,12 @@
 # read it at run time.
 #
 # Make, the sync script and the release tests read the file the same way. A line
-# is an assignment with = or := (optionally indented with spaces). The last one of
-# a name wins. ?= sets a name only when no line before it did. A value carries no
-# comment after it, and += is not used.
+# is an assignment with =, := or ::= (optionally indented with spaces). The last
+# one of a name wins. ?= sets a name only when no line before it did. A value
+# carries no comment after it, and += is not used. A value stays on its line, so
+# a line continuation with a backslash is not used. The sync script and the
+# release tests do not see a value that is set on the command line or in the
+# environment of make, so the file holds the values.
 # =============================================================================
 
 # The package name of composer.json without the vendor. The release archive, the
