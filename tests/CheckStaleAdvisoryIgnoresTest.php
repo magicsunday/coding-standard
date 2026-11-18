@@ -105,7 +105,7 @@ final class CheckStaleAdvisoryIgnoresTest extends GateTestCase
 
         self::assertSame(1, $result->exitCode);
         self::assertStringContainsString(
-            "  PKSA-aaaa-0000-0001\n  PKSA-mmmm-0000-0002\n  PKSA-zzzz-0000-0003\n",
+            "  - PKSA-aaaa-0000-0001\n  - PKSA-mmmm-0000-0002\n  - PKSA-zzzz-0000-0003\n",
             $result->output,
         );
     }
@@ -275,6 +275,41 @@ final class CheckStaleAdvisoryIgnoresTest extends GateTestCase
 
         self::assertSame(2, $result->exitCode);
         self::assertStringContainsString('Unsupported ignore-id entry PKSA-aaaa-0000-0001', $result->output);
+    }
+
+    /**
+     * The id of a refused object-form entry is scrubbed like an id of the stale report, so a line break and a
+     * workflow command in the key do not reach the report.
+     */
+    #[Test]
+    public function scrubsTheIdOfARefusedObjectFormEntry(): void
+    {
+        $manifest = $this->write(
+            ['config' => ['policy' => ['advisories' => ['ignore-id' => ["PKSA-aaaa-0000-0001\n##[error]forged" => ['reason' => 'x']]]]]],
+        );
+
+        $result = $this->check($manifest, $this->write(['advisories' => []]));
+
+        self::assertSame(2, $result->exitCode);
+        self::assertStringContainsString('Unsupported ignore-id entry PKSA-aaaa-0000-0001?##?[error]forged', $result->output);
+        self::assertDoesNotMatchRegularExpression('/^[[:space:]]*(::[A-Za-z0-9_-]+|##\\[)/m', $result->output);
+    }
+
+    /**
+     * An id that starts with a workflow command is printed behind a list marker, so no line of the report starts a
+     * command for the CI runner, which reads a command after leading white space.
+     */
+    #[Test]
+    public function printsAnIdThatStartsWithAWorkflowCommandBehindAListMarker(): void
+    {
+        $result = $this->check(
+            $this->manifest(['::error::forged' => 'reason']),
+            $this->write(['advisories' => []]),
+        );
+
+        self::assertSame(1, $result->exitCode);
+        self::assertStringContainsString("  - ::error::forged\n", $result->output);
+        self::assertDoesNotMatchRegularExpression('/^[[:space:]]*::[A-Za-z0-9_-]+/m', $result->output);
     }
 
     /**

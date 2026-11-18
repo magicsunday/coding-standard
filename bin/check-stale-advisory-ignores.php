@@ -149,8 +149,8 @@ sort($stale);
 
 fwrite(
     STDERR,
-    "Ignored advisory ids that the audit report does not list as ignored:\n  "
-    . implode("\n  ", array_map('safeReportValue', $stale))
+    "Ignored advisory ids that the audit report does not list as ignored:\n  - "
+    . implode("\n  - ", array_map('safeReportValue', $stale))
     . "\nRemove an entry that is no longer needed from config.policy.advisories.ignore-id in composer.json."
     . " An entry has to be written as an advisory id (PKSA-...).\n"
 );
