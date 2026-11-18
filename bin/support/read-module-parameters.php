@@ -19,7 +19,10 @@ declare(strict_types=1);
  * then the value. Whitespace around the value and a carriage return at the end of the line are
  * dropped. The last `=`, `:=` or `::=` of a name wins. A `?=` sets a name only when no earlier
  * assignment set it. Every other line is ignored, among them comments, conditionals and `+=`, which
- * the parameter file must not use. A value carries no comment after it.
+ * the parameter file must not use. A value carries no comment after it and stays on its line, so a
+ * line continuation with a backslash is not used either. This function and ModuleParameters.php do
+ * not see a value that is set on the command line or in the environment of make, so the file holds
+ * the values.
  * tests/ModuleParameterGrammarTest.php runs one fixture through every reader and real make.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
