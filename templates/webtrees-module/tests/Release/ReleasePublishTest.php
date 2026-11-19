@@ -224,7 +224,7 @@ final class ReleasePublishTest extends TestCase
         self::assertSame(0, $status);
         self::assertStringContainsString('RELEASE_PUBLISHED version=9.9.9', $output);
         self::assertSame(
-            "push --no-follow-tags origin main refs/tags/9.9.9\n",
+            "push --no-follow-tags origin main\npush --no-follow-tags origin refs/tags/9.9.9\n",
             file_get_contents($this->workDir . '/pushed')
         );
         self::assertFalse(is_file($this->workDir . '/module/' . $this->moduleName . '.zip'));
@@ -499,6 +499,41 @@ final class ReleasePublishTest extends TestCase
 
         self::assertSame(0, $status, $output);
         self::assertSame(['refs/heads/main', 'refs/tags/9.9.9'], $this->remoteRefs());
+    }
+
+    /**
+     * A refused push of the branch stops the publish before the tag is sent. The tag stays local, because a published
+     * tag cannot be removed again, and the message names the way on.
+     */
+    #[Test]
+    public function keepsTheTagLocalWhenThePushOfTheBranchIsRefused(): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installRemoteThatRefusesTheBranch();
+        $this->installReleaseStateStub('');
+
+        [$status, $output] = $this->publish();
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('the tag 9.9.9 stays local', $output);
+        self::assertSame([], $this->remoteRefs());
+    }
+
+    /**
+     * A refused push of the bumped branch stops the target with a message and leaves the bump commit local.
+     */
+    #[Test]
+    public function stopsWithAMessageWhenThePushOfTheBumpIsRefused(): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installRemoteThatRefusesTheBranch();
+        $this->installStub('npm', "#!/bin/sh\nexit 0\n");
+
+        [$status, $output] = $this->runTarget('release-bump');
+
+        self::assertNotSame(0, $status);
+        self::assertStringContainsString('the bump commit stays local', $output);
+        self::assertSame([], $this->remoteRefs());
     }
 
     /**
@@ -830,6 +865,23 @@ final class ReleasePublishTest extends TestCase
         self::assertSame(0, $status, $output);
 
         return trim($output);
+    }
+
+    /**
+     * Makes the bare remote refuse every update of main, the way a ruleset that waits for scan results does. The check
+     * runs per ref, so the update of a tag in the same push would pass. A hook that sees the whole push would refuse the
+     * tag as well and could not tell a combined push of branch and tag from two separate pushes.
+     */
+    private function installRemoteThatRefusesTheBranch(): void
+    {
+        $hook = $this->workDir . '/remote.git/hooks/update';
+
+        file_put_contents(
+            $hook,
+            "#!/bin/sh\nif [ \"\$1\" = refs/heads/main ]; then\n    echo 'refused by test' >&2\n    exit 1\nfi\nexit 0\n"
+        );
+
+        chmod($hook, 0o755);
     }
 
     /**

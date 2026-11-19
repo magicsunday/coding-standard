@@ -470,10 +470,16 @@ release-publish:
 		exit 1; \
 	fi
 	@echo -e "${FYELLOW}[publish]${FRESET} Pushing to GitHub..."
+	# Push the branch first and the tag only after the branch was accepted. One push of
+	# both is not atomic, so a refused branch would still publish the tag, and the
+	# immutable-tags ruleset makes a published tag impossible to remove.
+	@git push --no-follow-tags origin main || { \
+		echo "Error: the push of main was refused, so the tag $(VERSION) stays local."; \
+		echo "Land exactly this release commit on main, which a fast-forward does and a squash merge does not, and run release-publish again."; \
+		exit 1; }
 	# Name the release tag explicitly and switch off implicit tag following. --tags
-	# and push.followTags would also publish other local tags, and the immutable-tags
-	# ruleset makes a published tag impossible to remove.
-	@git push --no-follow-tags origin main refs/tags/$(VERSION)
+	# and push.followTags would also publish other local tags.
+	@git push --no-follow-tags origin refs/tags/$(VERSION)
 	# Stop at the first failing command and remove the notes file on every exit, so a
 	# failed gh call fails the target instead of being masked by the cleanup.
 	@set -e; \
@@ -548,7 +554,10 @@ release-bump:
 	@$(MAKE) build-js-fresh
 	@git add src/Module.php package.json composer.json package-lock.json resources/js/
 	@git commit -s -m "Bump version to $(NEXT)-dev"
-	@git push --no-follow-tags origin main
+	@git push --no-follow-tags origin main || { \
+		echo "Error: the push of main was refused, the bump commit stays local."; \
+		echo "Land it on main, for example through a pull request."; \
+		exit 1; }
 	@echo -e "${FGREEN} ✔${FRESET} Version bumped to $(NEXT)-dev"
 
 ## Remove leftover release artifacts
