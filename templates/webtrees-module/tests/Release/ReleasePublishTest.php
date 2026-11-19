@@ -502,6 +502,27 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
+     * The release commit carries a sign-off, because a repository that checks the developer certificate of origin
+     * reports an unsigned commit on the default branch. The target makes the commit before it builds the archive, which
+     * needs the real toolchain, so the run ends at that step and the test reads the commit that it made before.
+     */
+    #[Test]
+    public function signsOffTheReleaseCommit(): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installStub('npm', "#!/bin/sh\nexit 0\n");
+        $this->installStub('composer', "#!/bin/sh\nexit 0\n");
+        $this->installStub('gh', "#!/bin/sh\nexit 0\n");
+
+        $this->runTarget('release-prepare', '9.9.10');
+
+        $message = $this->git(['log', '-1', '--format=%B'], $this->workDir . '/module');
+
+        self::assertStringStartsWith('Release 9.9.10', $message);
+        self::assertStringContainsString('Signed-off-by: Release Test <release-test@example.invalid>', $message);
+    }
+
+    /**
      * A version that does not have the release format stops the publish before anything is sent and before a release
      * is created, also when a tag of that name sits on HEAD. An empty version has no tag to name.
      */

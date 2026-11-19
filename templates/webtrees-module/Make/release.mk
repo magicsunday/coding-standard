@@ -397,7 +397,9 @@ release-prepare: release-check
 	@$(MAKE) build-js-fresh
 	@echo -e "${FYELLOW}[4/6]${FRESET} Committing release commit..."
 	@git add src/Module.php package.json composer.json package-lock.json resources/js/
-	@git commit -m "Release $(VERSION)"
+	# Signed off, because a repository that checks the developer certificate of origin
+	# reports an unsigned commit on the default branch.
+	@git commit -s -m "Release $(VERSION)"
 	@echo -e "${FYELLOW}[5/6]${FRESET} Building + smoke-testing distribution archive..."
 	@$(MAKE) dist
 	@$(MAKE) dist-smoke
