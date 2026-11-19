@@ -502,6 +502,25 @@ final class ReleasePublishTest extends TestCase
     }
 
     /**
+     * The bump commit carries a sign-off, because a repository that checks the developer certificate of origin
+     * reports an unsigned commit on the default branch.
+     */
+    #[Test]
+    public function signsOffTheBumpCommit(): void
+    {
+        $this->createRepositoryWithRemote();
+        $this->installStub('npm', "#!/bin/sh\nexit 0\n");
+
+        [$status, $output] = $this->runTarget('release-bump');
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString(
+            'Signed-off-by: Release Test <release-test@example.invalid>',
+            $this->git(['log', '-1', '--format=%B'], $this->workDir . '/module')
+        );
+    }
+
+    /**
      * The release commit carries a sign-off, because a repository that checks the developer certificate of origin
      * reports an unsigned commit on the default branch. The target makes the commit before it builds the archive, which
      * needs the real toolchain, so the run ends at that step and the test reads the commit that it made before.

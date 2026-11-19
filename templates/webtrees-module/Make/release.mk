@@ -547,7 +547,7 @@ release-bump:
 	@npm install --package-lock-only --no-audit --no-fund --ignore-scripts
 	@$(MAKE) build-js-fresh
 	@git add src/Module.php package.json composer.json package-lock.json resources/js/
-	@git commit -m "Bump version to $(NEXT)-dev"
+	@git commit -s -m "Bump version to $(NEXT)-dev"
 	@git push --no-follow-tags origin main
 	@echo -e "${FGREEN} ✔${FRESET} Version bumped to $(NEXT)-dev"
 
