@@ -52,7 +52,8 @@
     "bin": [
         "bin/check-consumer-config.php",
         "bin/check-deptrac-cycles.php",
-        "bin/check-phpat-subjects.php"
+        "bin/check-phpat-subjects.php",
+        "bin/check-stale-advisory-ignores.php"
     ],
     "config": {
         "bin-dir": ".build/bin",

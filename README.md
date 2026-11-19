@@ -988,6 +988,39 @@ no gate (see *Release flow templates* below).
 | `templates/webtrees-module/tests/Release/*.php` | `tests/Release/` | the release tests and their helpers. Copied by `bin/sync-webtrees-module.php`, see *Release flow templates* below |
 | `templates/webtrees-module/module.mk.example` | `Make/module.mk` | the parameter file, the only file of the setup that holds the values of one module. Written by hand and never touched by the sync script |
 
+### Stale advisory ignore check (`bin/check-stale-advisory-ignores.php`)
+
+A composer `bin` of this package for a repository that ignores advisories by id under
+`config.policy.advisories.ignore-id`. It fails when an ignored id is missing from the
+ignored advisories of a `composer audit --format=json` report, so that an entry that
+has become removable is noticed. The consumer writes the report and passes both files:
+
+```json
+"scripts": {
+    "ci:test:php:advisories": [
+        "composer audit --format=json > .build/composer-audit.json",
+        "check-stale-advisory-ignores.php composer.json .build/composer-audit.json"
+    ]
+}
+```
+
+An entry has to be an advisory id (`PKSA-...`), because the check compares the keys of
+`ignore-id`, or the values of a plain list, with the `advisoryId` values of the report.
+An id counts as applying when the report lists its advisory as ignored, whichever rule suppressed it. An
+entry keyed by a CVE or a remote id never matches and is reported as stale. Only an id with a reason text,
+or a plain list of ids, is supported. An entry in the object form, with an `on-audit` or `on-block` setting,
+is refused with status 2.
+
+Exit status 0 means every ignored id still applies, 1 means at least one is stale and
+is named in the report, and 2 means a file cannot be read, is not valid JSON, holds JSON
+that is neither an object nor an array, holds an object-form entry, or the call has the wrong
+number of arguments. Each id is scrubbed before it is printed, because it comes from the
+repository.
+
+`composer audit` itself exits with a failure status while it finds advisories that are not
+ignored, so in the example the exit status of the first line decides whether the second
+line runs. A repository that wants the check on every run lists it as its own step.
+
 ### Release flow templates
 
 The magicsunday modules that ship a ZIP (the webtrees chart modules and the statistics module) release with the same Make pipeline. `release.mk` runs the checks, bumps the version, builds the bundle and the archive, which carries the commit it was built on as its comment and the version of the module base it bundles in `vendor/magicsunday/webtrees-module-base/VERSION`, smoke-tests the archive, tags, publishes and bumps to the next development version. The version is the one composer resolved for the build, read from the composer metadata of the build directory. The modules do not track `composer.lock`, so two builds of the same commit can bundle different module base versions, and the file is what tells them apart. `dist` stops when composer resolved no release version of the module base, and `dist-smoke` rejects an archive whose entry is missing or is not a single release version. `dist` runs `composer update` with the advisory blocking of composer switched on. When that fails because an advisory is held back by the exact requirement of webtrees, name the advisory and add an entry for that one advisory id, with its reason, to the advisory ignore list of the module (`config.audit.ignore` in its `composer.json`), and do not switch the blocking off for the whole build. `release-check`, the publish step and the bump step refuse a version that is not three numbers, so a `v` prefix or a suffix stops them, and all three share one pattern and one message in `release.mk`. The publish step checks the version before anything is pushed or created. The publish step refuses an archive whose commit is not the tagged one. The push steps send the branch and, in the publish step, the release tag, and no other local tag. When the release creation fails after the push, the same target is run again, and it removes the draft release that an interrupted upload leaves behind before it creates the release. The fragments next to it provide the build (`node.mk`), the JavaScript checks (`lint.mk`), the local links to sibling clones (`dev.mk`) and the translation pipeline (`lang.mk`). The tests run the real targets in a copy of the module, `ReleasePublishTest.php` for the check, the publish and the bump step, where the push cases run the real `git` against a bare remote and everything else stubs it, `DistSmokeTest.php` for `dist-smoke`, `LangLoopTest.php` for the locale loops of `lang.mk`, `NodeUserTest.php` for the user of the npm targets and `LinkChartLibTest.php` for `link-chart-lib` and `unlink-chart-lib` of `dev.mk`.
